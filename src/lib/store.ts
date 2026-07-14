@@ -81,6 +81,55 @@ export function defaultSettings(): Settings {
       "Product Strategy Engagement": { low: 6000, high: 15000 },
     },
     followUpTiming: [0, 3, 7, 14],
+    prospecting: defaultProspecting(),
+  };
+}
+
+export function defaultProspecting() {
+  return {
+    enabled: true,
+    positioning:
+      "Artifex Labs is a business modernization studio that helps businesses improve how they look, operate, serve customers, and grow.",
+    services: [
+      { name: "Business Websites", description: "Modern sites, landing pages, redesigns, conversion-focused journeys.", priceLow: 1500, priceHigh: 8000 },
+      { name: "Custom Software", description: "Web apps, dashboards, customer portals, SaaS platforms, integrations.", priceLow: 5000, priceHigh: 30000 },
+      { name: "Business Operations", description: "Workflow + CRM automation, intake/follow-up systems, internal tools, reporting.", priceLow: 2000, priceHigh: 15000 },
+      { name: "Product Strategy", description: "MVP planning, roadmaps, UX + technical architecture, startup advisory.", priceLow: 2000, priceHigh: 12000 },
+      { name: "Visual Systems", description: "Brand + design systems, UI libraries, product & adaptive interfaces.", priceLow: 2000, priceHigh: 15000 },
+      { name: "Asset Factory", description: "Production-ready visual assets, icons, illustrations, interface asset systems.", priceLow: 1500, priceHigh: 10000 },
+    ],
+    industries: [
+      "Dental practice",
+      "Law firm",
+      "Fitness studio",
+      "Home-service company",
+      "Professional consultant",
+      "Specialty retailer",
+    ],
+    excludedIndustries: ["Financial services"],
+    territories: [
+      { city: "Los Angeles", state: "CA" },
+      { city: "Pasadena", state: "CA" },
+      { city: "Glendale", state: "CA" },
+      { city: "Burbank", state: "CA" },
+      { city: "Santa Monica", state: "CA" },
+      { city: "Culver City", state: "CA" },
+      { city: "Beverly Hills", state: "CA" },
+      { city: "Long Beach", state: "CA" },
+    ],
+    radiusMiles: 10,
+    minRating: 4.0,
+    minReviews: 20,
+    requireWebsite: false,
+    requirePhone: false,
+    dailyQueueSize: 8,
+    runTime: "05:30",
+    weekdays: [1, 2, 3, 4, 5],
+    tierTargetA: 3,
+    tierTargetB: 3,
+    exclusionKeywords: ["payday", "loan", "cannabis", "dispensary", "vape", "smoke shop"],
+    coolingOffDays: 30,
+    lastRunAt: null,
   };
 }
 

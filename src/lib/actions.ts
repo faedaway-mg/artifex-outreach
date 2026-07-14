@@ -625,6 +625,74 @@ export async function updateSettingsAction(formData: FormData): Promise<void> {
   revalidatePath("/settings");
 }
 
+// ── Automatic daily lead engine ──────────────────────────────────────────────
+export async function runProspectingNowAction(): Promise<void> {
+  const { runProspecting } = await import("./prospecting");
+  const run = await runProspecting({ trigger: "manual" });
+  await audit("prospecting.run", "run", run.id, { added: run.addedToToday, mode: run.providerMode });
+  revalidatePath("/");
+  revalidatePath("/settings");
+}
+export async function refillTodayAction(): Promise<void> {
+  const { runProspecting } = await import("./prospecting");
+  await runProspecting({ trigger: "refill" });
+  revalidatePath("/");
+}
+export async function findMoreLeadsAction(count = 3): Promise<void> {
+  const { runProspecting } = await import("./prospecting");
+  await runProspecting({ trigger: "find-more", count });
+  revalidatePath("/");
+}
+export async function replaceSkippedLeadAction(taskId: string): Promise<void> {
+  await updateTask(taskId, { status: "skipped" });
+  const { runProspecting } = await import("./prospecting");
+  await runProspecting({ trigger: "replace", count: 1 });
+  revalidatePath("/");
+}
+export async function toggleProspectingAction(): Promise<void> {
+  const s = await getSettings();
+  await updateSettings({ prospecting: { ...s.prospecting, enabled: !s.prospecting.enabled } });
+  revalidatePath("/settings");
+  revalidatePath("/");
+}
+export async function setQueueSizeAction(size: number): Promise<void> {
+  const s = await getSettings();
+  const clamped = Math.max(1, Math.min(20, Math.round(size)));
+  await updateSettings({ prospecting: { ...s.prospecting, dailyQueueSize: clamped } });
+  revalidatePath("/settings");
+  revalidatePath("/");
+}
+export async function updateProspectingProfileAction(formData: FormData): Promise<void> {
+  const s = await getSettings();
+  const csv = (v: FormDataEntryValue | null) => String(v ?? "").split(",").map((x) => x.trim()).filter(Boolean);
+  const territories = csv(formData.get("territories")).map((t) => {
+    const [city, state] = t.split("|").map((x) => x.trim());
+    return { city: city ?? t, state: state ?? "CA" };
+  });
+  await updateSettings({
+    prospecting: {
+      ...s.prospecting,
+      positioning: String(formData.get("positioning") ?? s.prospecting.positioning),
+      industries: csv(formData.get("industries")),
+      excludedIndustries: csv(formData.get("excludedIndustries")),
+      territories: territories.length ? territories : s.prospecting.territories,
+      radiusMiles: Number(formData.get("radiusMiles")) || s.prospecting.radiusMiles,
+      minRating: Number(formData.get("minRating")) || 0,
+      minReviews: Number(formData.get("minReviews")) || 0,
+      requireWebsite: formData.get("requireWebsite") === "on",
+      requirePhone: formData.get("requirePhone") === "on",
+      dailyQueueSize: Math.max(1, Math.min(20, Number(formData.get("dailyQueueSize")) || 8)),
+      runTime: String(formData.get("runTime") ?? s.prospecting.runTime),
+      tierTargetA: Number(formData.get("tierTargetA")) || 3,
+      tierTargetB: Number(formData.get("tierTargetB")) || 3,
+      exclusionKeywords: csv(formData.get("exclusionKeywords")),
+      coolingOffDays: Number(formData.get("coolingOffDays")) || 30,
+    },
+  });
+  revalidatePath("/settings");
+  revalidatePath("/");
+}
+
 export async function resetDemoDataAction(): Promise<void> {
   // Dev only. Never wipes a production database.
   if (!hasDb()) reseed();

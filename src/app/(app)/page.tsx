@@ -1,9 +1,12 @@
 import Link from "next/link";
-import { todaysTasks, listLeads, allMeetings, allProposals } from "@/lib/repo";
+import { todaysTasks, listLeads, allMeetings, allProposals, getSettings } from "@/lib/repo";
+import { placesMode } from "@/lib/providers/places";
+import { nextScheduledRun } from "@/lib/schedule";
 import { TierBadge, StageBadge, ScorePill, Stat, EmptyState } from "@/components/ui";
 import { TaskActions } from "@/components/TaskActions";
+import { TodayControls } from "@/components/TodayControls";
 import { formatRange, formatCurrency, relativeDate, timeOfDay, shortDate } from "@/lib/utils";
-import { Video, Mail, Phone, CalendarClock, FileText, ArrowRight, Sparkles, Sunrise } from "lucide-react";
+import { Video, Mail, Phone, CalendarClock, FileText, ArrowRight, Sparkles, Sunrise, AlertTriangle, Clock } from "lucide-react";
 import type { TaskType, Lead } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -21,13 +24,18 @@ const TASK_META: Record<TaskType, { label: string; icon: any; primary: string; t
 const CLOSED = new Set(["Won", "Lost", "Disqualified", "Nurture"]);
 
 export default async function TodayPage() {
+  const settings = await getSettings();
+  const queueSize = settings.prospecting.dailyQueueSize;
   const [tasks, leads, meetings, proposals] = await Promise.all([
-    todaysTasks(),
+    todaysTasks(queueSize),
     listLeads(),
     allMeetings(),
     allProposals(),
   ]);
   const leadMap = new Map<string, Lead>(leads.map((l) => [l.id, l]));
+  const discoveryMode = placesMode();
+  const nextRun = nextScheduledRun(settings.prospecting);
+  const atCapacity = tasks.length >= queueSize;
 
   const now = new Date();
   const hour = now.getHours();
@@ -92,14 +100,28 @@ export default async function TodayPage() {
         <Stat label="Proposals open" value={counts.proposals} tone="teal" />
       </div>
 
+      {/* Discovery unavailable banner (production, no key) */}
+      {discoveryMode === "disabled" && (
+        <div className="card border-coral-500/25 bg-coral-500/[0.04] p-4">
+          <p className="flex items-center gap-2 text-sm text-coral-200">
+            <AlertTriangle size={16} /> Automatic discovery is unavailable — no Google Places key configured. Your existing Today items are preserved; add businesses manually from Discover.
+          </p>
+        </div>
+      )}
+
       {/* Priority queue */}
       <section>
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="flex items-center gap-2 text-sm font-semibold text-chalk-200"><Sparkles size={15} className="text-azure-300" /> Priority queue</h2>
-          <span className="text-xs text-chalk-500">{tasks.length} {tasks.length === 1 ? "item" : "items"}</span>
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="flex items-center gap-2 text-sm font-semibold text-chalk-200"><Sparkles size={15} className="text-azure-300" /> Priority queue</h2>
+            <p className="mt-0.5 flex items-center gap-1.5 text-[11px] text-chalk-500">
+              <Clock size={11} /> {tasks.length} of {queueSize} · next auto-run {nextRun.relative}
+            </p>
+          </div>
+          <TodayControls atCapacity={atCapacity} />
         </div>
         {tasks.length === 0 ? (
-          <EmptyState icon={Sparkles} title="You're all caught up." hint="Nothing is waiting. Head to Discover to research new businesses and grow the pipeline." />
+          <EmptyState icon={Sparkles} title="You're all caught up." hint="Tap “Find more leads” to have Artifex research and qualify new businesses for you, or open Discover to search manually." />
         ) : (
           <div className="space-y-3">
             {tasks.map((task, idx) => {

@@ -1,18 +1,21 @@
-import { getSettings, listSuppressions } from "@/lib/repo";
+import { getSettings, listSuppressions, listProspectingRuns } from "@/lib/repo";
 import { updateSettingsAction } from "@/lib/actions";
 import { aiMode } from "@/lib/providers/ai";
 import { storageStatus } from "@/lib/storage";
 import { hasDb } from "@/db/client";
+import { nextScheduledRun } from "@/lib/schedule";
 import { ResetDemoButton } from "@/components/ResetDemoButton";
+import { ProspectingSettings } from "@/components/ProspectingSettings";
 import { formatRange } from "@/lib/utils";
 import { CheckCircle2, Circle } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
 export default async function SettingsPage() {
-  const [settings, suppressions] = await Promise.all([getSettings(), listSuppressions()]);
+  const [settings, suppressions, runs] = await Promise.all([getSettings(), listSuppressions(), listProspectingRuns(1)]);
   const ai = aiMode();
   const store = storageStatus();
+  const nextRun = nextScheduledRun(settings.prospecting);
 
   const integrations = [
     { name: "Database (Postgres)", on: hasDb(), env: "DATABASE_URL" },
@@ -31,6 +34,9 @@ export default async function SettingsPage() {
         <p className="label">Settings</p>
         <h1 className="mt-1 text-2xl font-semibold text-chalk-50">Configuration</h1>
       </div>
+
+      {/* Automatic daily lead engine */}
+      <ProspectingSettings profile={settings.prospecting} lastRun={runs[0] ?? null} nextRunLabel={nextRun.label} />
 
       <div className="grid gap-6 lg:grid-cols-3">
         {/* Identity */}

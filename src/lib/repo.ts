@@ -12,7 +12,7 @@
 import { eq } from "drizzle-orm";
 import { hasDb, getDb } from "@/db/client";
 import * as t from "@/db/schema";
-import { db as mem, newId, nowIso, normalizeName, domainFromUrl, normalizePhone, defaultSettings } from "./store";
+import { db as mem, newId, nowIso, normalizeName, domainFromUrl, normalizePhone, defaultSettings, defaultProspecting } from "./store";
 import type {
   Lead,
   Contact,
@@ -28,6 +28,7 @@ import type {
   Settings,
   PipelineStage,
   AuditEntry,
+  ProspectingRun,
 } from "./types";
 
 // ── Generic collection helper ────────────────────────────────────────────────
@@ -164,18 +165,24 @@ export const updateOutreach = (id: string, patch: Partial<Outreach>) => Outreach
 // ── Tasks ────────────────────────────────────────────────────────────────────
 export const allTasks = () => Tasks.all();
 export const getTask = (id: string) => Tasks.byId(id);
-export async function todaysTasks(): Promise<Task[]> {
+export async function todaysTasks(limit?: number): Promise<Task[]> {
   const endOfToday = new Date();
   endOfToday.setHours(23, 59, 59, 999);
   const now = Date.now();
   const tasks = await Tasks.all();
-  return tasks
+  const open = tasks
     .filter((task) => {
       if (task.status !== "open") return false;
       if (task.snoozedUntil && +new Date(task.snoozedUntil) > now) return false;
       return +new Date(task.dueAt) <= +endOfToday;
     })
     .sort((a, b) => b.priority - a.priority || +new Date(a.dueAt) - +new Date(b.dueAt));
+  return limit ? open.slice(0, limit) : open;
+}
+
+/** Count of open Today items that are NOT freshly-discovered new prospects. */
+export async function activeTodayCount(): Promise<number> {
+  return (await todaysTasks()).filter((t) => t.type !== "review").length;
 }
 export async function insertTask(task: Omit<Task, "id" | "createdAt" | "updatedAt">): Promise<Task> {
   return Tasks.insert({ ...task, id: newId("task"), createdAt: nowIso(), updatedAt: nowIso() } as Task);
@@ -225,10 +232,24 @@ export async function isSuppressed(opts: { email?: string | null; domain?: strin
 }
 
 // ── Settings ─────────────────────────────────────────────────────────────────
+// Merge persisted settings over defaults so fields added later (e.g. prospecting)
+// are always present even for rows written by older versions.
+function withDefaults(data: Partial<Settings> | undefined): Settings {
+  const base = defaultSettings();
+  return {
+    ...base,
+    ...(data ?? {}),
+    prospecting: { ...defaultProspecting(), ...((data?.prospecting as any) ?? {}) },
+  };
+}
+
 export async function getSettings(): Promise<Settings> {
-  if (!hasDb()) return mem().settings;
+  if (!hasDb()) {
+    mem().settings = withDefaults(mem().settings);
+    return mem().settings;
+  }
   const rows = await getDb().select().from(t.settings).where(eq(t.settings.id, "singleton"));
-  if (rows[0]) return rows[0].data as Settings;
+  if (rows[0]) return withDefaults(rows[0].data as Partial<Settings>);
   const fresh = defaultSettings();
   await getDb().insert(t.settings).values({ id: "singleton", data: fresh as any, updatedAt: nowIso() });
   return fresh;
@@ -242,6 +263,28 @@ export async function updateSettings(patch: Partial<Settings>): Promise<Settings
     Object.assign(mem().settings, next);
   }
   return next;
+}
+
+// ── Prospecting runs ─────────────────────────────────────────────────────────
+export async function insertProspectingRun(r: Omit<ProspectingRun, "id">): Promise<ProspectingRun> {
+  const row: ProspectingRun = { ...r, id: newId("run") };
+  if (hasDb()) await getDb().insert(t.prospectingRuns).values(row as any);
+  else (mem() as any).runs = [...(((mem() as any).runs as ProspectingRun[]) ?? []), row];
+  return row;
+}
+export async function updateProspectingRun(id: string, patch: Partial<ProspectingRun>): Promise<void> {
+  if (hasDb()) await getDb().update(t.prospectingRuns).set(patch as any).where(eq(t.prospectingRuns.id, id));
+  else {
+    const arr = ((mem() as any).runs as ProspectingRun[]) ?? [];
+    const r = arr.find((x) => x.id === id);
+    if (r) Object.assign(r, patch);
+  }
+}
+export async function listProspectingRuns(limit = 10): Promise<ProspectingRun[]> {
+  let rows: ProspectingRun[];
+  if (hasDb()) rows = (await getDb().select().from(t.prospectingRuns)) as any as ProspectingRun[];
+  else rows = ((mem() as any).runs as ProspectingRun[]) ?? [];
+  return [...rows].sort((a, b) => +new Date(b.startedAt) - +new Date(a.startedAt)).slice(0, limit);
 }
 
 // ── Audit log ────────────────────────────────────────────────────────────────

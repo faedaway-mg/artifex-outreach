@@ -370,6 +370,42 @@ export interface AuditEntry {
   createdAt: string;
 }
 
+export interface ServiceOffering {
+  name: string;
+  description: string;
+  priceLow: number;
+  priceHigh: number;
+}
+
+export interface Territory {
+  city: string;
+  state: string;
+}
+
+// The persistent "who Artifex targets and how" configuration that drives the
+// automatic daily lead engine. Stored inside Settings (jsonb) → editable + durable.
+export interface ProspectingProfile {
+  enabled: boolean; // automatic daily discovery on/off
+  positioning: string;
+  services: ServiceOffering[];
+  industries: string[];
+  excludedIndustries: string[];
+  territories: Territory[];
+  radiusMiles: number;
+  minRating: number;
+  minReviews: number;
+  requireWebsite: boolean;
+  requirePhone: boolean;
+  dailyQueueSize: number; // Today target (default 8)
+  runTime: string; // "05:30" America/Los_Angeles
+  weekdays: number[]; // 0=Sun … 6=Sat
+  tierTargetA: number; // max new Tier A per run
+  tierTargetB: number; // max new Tier B per run
+  exclusionKeywords: string[];
+  coolingOffDays: number; // don't re-contact within N days
+  lastRunAt: string | null;
+}
+
 export interface Settings {
   businessAddress: string;
   signature: string;
@@ -379,6 +415,25 @@ export interface Settings {
   defaultReportLanguage: string;
   defaultPricing: Record<ArtifexService, { low: number; high: number }>;
   followUpTiming: number[]; // days offsets, e.g. [0,3,7,14]
+  prospecting: ProspectingProfile;
+}
+
+export interface ProspectingRun {
+  id: string;
+  startedAt: string;
+  completedAt: string | null;
+  trigger: string; // "scheduled" | "manual" | "refill" | "find-more" | "replace"
+  providerMode: string; // "google" | "mock" | "disabled"
+  searchesPerformed: number;
+  placesRequests: number;
+  examined: number;
+  duplicatesRemoved: number;
+  excluded: number;
+  qualified: number;
+  addedToToday: number;
+  estimatedCostUsd: number;
+  errors: string[];
+  addedLeadIds: string[];
 }
 
 export interface AiMeta {

@@ -306,6 +306,29 @@ export const settings = pgTable("settings", {
   updatedAt: ts("updated_at").notNull(),
 });
 
+// Daily prospecting run reports (metrics; no secrets).
+export const prospectingRuns = pgTable(
+  "prospecting_runs",
+  {
+    id: text("id").primaryKey(),
+    startedAt: ts("started_at").notNull(),
+    completedAt: ts("completed_at"),
+    trigger: text("trigger").notNull().default("scheduled"),
+    providerMode: text("provider_mode").notNull().default("google"),
+    searchesPerformed: integer("searches_performed").notNull().default(0),
+    placesRequests: integer("places_requests").notNull().default(0),
+    examined: integer("examined").notNull().default(0),
+    duplicatesRemoved: integer("duplicates_removed").notNull().default(0),
+    excluded: integer("excluded").notNull().default(0),
+    qualified: integer("qualified").notNull().default(0),
+    addedToToday: integer("added_to_today").notNull().default(0),
+    estimatedCostUsd: doublePrecision("estimated_cost_usd").notNull().default(0),
+    errors: jsonb("errors").$type<string[]>().default([]).notNull(),
+    addedLeadIds: jsonb("added_lead_ids").$type<string[]>().default([]).notNull(),
+  },
+  (tbl) => ({ startedIdx: index("prospecting_runs_started_idx").on(tbl.startedAt) }),
+);
+
 // Append-only audit trail for sensitive actions.
 export const auditLog = pgTable(
   "audit_log",

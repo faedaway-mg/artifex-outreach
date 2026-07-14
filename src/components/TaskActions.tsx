@@ -7,7 +7,9 @@ import {
   snoozeTaskAction,
   skipTaskAction,
   markUnqualifiedAction,
+  replaceSkippedLeadAction,
 } from "@/lib/actions";
+import { RefreshCw } from "lucide-react";
 import type { Task } from "@/lib/types";
 
 // Deep-links each task type to the right place on the lead page.
@@ -67,6 +69,11 @@ export function TaskActions({ task, leadId, primaryLabel }: { task: Task; leadId
               <MenuItem icon={X} onClick={() => run(() => skipTaskAction(task.id))}>
                 Skip
               </MenuItem>
+              {task.type === "review" && (
+                <MenuItem icon={RefreshCw} onClick={() => run(() => replaceSkippedLeadAction(task.id))}>
+                  Skip & replace with new lead
+                </MenuItem>
+              )}
               <MenuItem icon={Ban} danger onClick={() => run(() => markUnqualifiedAction(leadId, task.id))}>
                 Mark unqualified
               </MenuItem>

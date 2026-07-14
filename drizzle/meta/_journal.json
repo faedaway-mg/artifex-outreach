@@ -8,6 +8,13 @@
       "when": 1783998583732,
       "tag": "0000_sharp_garia",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1784015117099,
+      "tag": "0001_loose_goliath",
+      "breakpoints": true
     }
   ]
 }
