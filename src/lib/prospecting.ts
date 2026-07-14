@@ -132,7 +132,30 @@ export async function runProspecting(req: ProspectRequest): Promise<ProspectingR
   // Cost budget → how many categories (1 territory each) we can search.
   const byCost = Math.floor(p.maxDailyCostUsd / PLACES_COST_PER_REQUEST);
   const requestCap = Math.max(1, Math.min(p.maxCategoriesPerRun, p.dailyRequestBudget, byCost));
-  const selected = ranked.slice(0, requestCap);
+
+  // Select ACROSS GROUPS (round-robin) so the search set spans many groups rather
+  // than clustering in whichever group has the most high-priority categories.
+  const byGroup = new Map<string, Array<{ c: ProspectCategoryTarget; w: number }>>();
+  for (const e of ranked) {
+    if (!byGroup.has(e.c.group)) byGroup.set(e.c.group, []);
+    byGroup.get(e.c.group)!.push(e);
+  }
+  const selected: Array<{ c: ProspectCategoryTarget; w: number }> = [];
+  const perGroup: Record<string, number> = {};
+  let progressed = true;
+  while (selected.length < requestCap && progressed) {
+    progressed = false;
+    const groups = [...byGroup.keys()].sort((a, b) => (byGroup.get(b)![perGroup[b] ?? 0]?.w ?? -1) - (byGroup.get(a)![perGroup[a] ?? 0]?.w ?? -1));
+    for (const g of groups) {
+      if (selected.length >= requestCap) break;
+      const idx = perGroup[g] ?? 0;
+      const arr = byGroup.get(g)!;
+      if (idx >= arr.length) continue;
+      selected.push(arr[idx]);
+      perGroup[g] = idx + 1;
+      progressed = true;
+    }
+  }
   const skippedForBudget = ranked.length - selected.length;
 
   const territories = p.territories.length ? p.territories : [{ city: "Los Angeles", state: "CA" }];
