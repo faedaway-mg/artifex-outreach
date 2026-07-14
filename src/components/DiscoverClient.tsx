@@ -2,9 +2,14 @@
 import { useState, useTransition } from "react";
 import { Search, Table2, Map as MapIcon, Plus, Check, Star, Globe, Phone, AlertTriangle, Radio, FlaskConical, Ban } from "lucide-react";
 import { searchPlacesAction, saveLeadFromPlace } from "@/lib/actions";
+import { defaultCategories } from "@/lib/categories";
+import { CATEGORY_GROUPS } from "@/lib/types";
 import type { PlaceResult, PlacesSearchResult, PlacesMode } from "@/lib/providers/places";
 
-const CATEGORIES = ["Dental practice", "Law firm", "Fitness studio", "Home-service company", "Professional consultant", "Specialty retailer"];
+const ALL_CATS = defaultCategories();
+const CATEGORIES = ALL_CATS.map((c) => c.label);
+// A representative quick-pick per group so Discover no longer assumes one type.
+const GROUP_PICKS = CATEGORY_GROUPS.map((g) => ({ group: g, label: ALL_CATS.find((c) => c.group === g)?.label ?? g }));
 
 function ProviderChip({ mode }: { mode: PlacesMode }) {
   if (mode === "google") return <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-400/30 bg-emerald-400/10 px-2.5 py-1 text-xs font-medium text-emerald-300"><Radio size={12} /> Live — Google Places</span>;
@@ -19,6 +24,7 @@ export function DiscoverClient({ initialMode }: { initialMode: PlacesMode }) {
   const [view, setView] = useState<"table" | "map">("table");
   const [saved, setSaved] = useState<Record<string, "saved" | "dup">>({});
   const [excluded, setExcluded] = useState<Record<string, boolean>>({});
+  const [category, setCategory] = useState("Law firms");
 
   const results = meta?.results ?? [];
 
@@ -58,9 +64,17 @@ export function DiscoverClient({ initialMode }: { initialMode: PlacesMode }) {
 
       {/* Search form */}
       <form action={onSearch} className="card p-4">
+        {/* Category group quick-picks — research any business type */}
+        <div className="mb-3 flex flex-wrap gap-1.5">
+          {GROUP_PICKS.map((g) => (
+            <button key={g.group} type="button" onClick={() => setCategory(g.label)} className="rounded-full border border-white/10 bg-white/[0.03] px-2.5 py-1 text-[11px] text-chalk-400 transition-colors hover:border-white/20 hover:text-chalk-200">
+              {g.group.replace(" and ", " & ").replace(" and Local Commerce", "")}
+            </button>
+          ))}
+        </div>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <Field label="Category *">
-            <input name="category" required list="cats" defaultValue="Dental practice" className="input" placeholder="e.g. Dental practice" />
+            <input name="category" required list="cats" value={category} onChange={(e) => setCategory(e.target.value)} className="input" placeholder="e.g. Law firms" />
             <datalist id="cats">{CATEGORIES.map((c) => <option key={c} value={c} />)}</datalist>
           </Field>
           <Field label="City"><input name="city" className="input" defaultValue="Los Angeles" /></Field>

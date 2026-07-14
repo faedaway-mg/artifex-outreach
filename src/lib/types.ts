@@ -147,6 +147,8 @@ export interface Lead {
   businessName: string;
   normalizedName: string;
   industry: string;
+  normalizedCategory: string | null;
+  categoryGroup: string | null;
   address: string;
   city: string;
   state: string;
@@ -382,6 +384,58 @@ export interface Territory {
   state: string;
 }
 
+export const CATEGORY_GROUPS = [
+  "Professional Services",
+  "Health and Wellness",
+  "Home and Property Services",
+  "Hospitality and Experiences",
+  "Specialty Retail and Local Commerce",
+  "Automotive Services",
+  "Education and Training",
+  "Growth-Stage Businesses",
+] as const;
+export type CategoryGroup = (typeof CATEGORY_GROUPS)[number];
+
+export const CATEGORY_PRIORITIES = ["high", "medium", "low"] as const;
+export type CategoryPriority = (typeof CATEGORY_PRIORITIES)[number];
+
+// A structured, editable prospecting target. Replaces the flat industries[] while
+// staying backward compatible (industries[] is derived from enabled categories).
+export interface ProspectCategoryTarget {
+  id: string;
+  label: string;
+  normalizedCategory: string;
+  group: CategoryGroup;
+  enabled: boolean;
+  priority: CategoryPriority;
+  dailyNewLeadCap: number;
+  weeklyNewLeadCap: number;
+  pausedUntil: string | null;
+  searchQueries: string[]; // Google text queries (default: [label])
+  excludedKeywords: string[];
+  minRatingOverride: number | null;
+  minReviewsOverride: number | null;
+  requireWebsiteOverride: boolean | null;
+  requirePhoneOverride: boolean | null;
+  lastSearchedAt: string | null;
+  searchesThisWeek: number;
+  leadsFoundThisWeek: number;
+  leadsQualifiedThisWeek: number;
+  weekAnchor: string | null; // ISO date the weekly counters reset from
+  notes: string;
+}
+
+export const CATEGORY_PRESETS = [
+  "Balanced Portfolio",
+  "Professional Services",
+  "Home Services",
+  "Health and Wellness",
+  "Retail and Hospitality",
+  "High-Ticket Local Services",
+  "Custom Mix",
+] as const;
+export type CategoryPreset = (typeof CATEGORY_PRESETS)[number];
+
 // The persistent "who Artifex targets and how" configuration that drives the
 // automatic daily lead engine. Stored inside Settings (jsonb) → editable + durable.
 export interface ProspectingProfile {
@@ -404,6 +458,21 @@ export interface ProspectingProfile {
   exclusionKeywords: string[];
   coolingOffDays: number; // don't re-contact within N days
   lastRunAt: string | null;
+  // ── Category portfolio + diversification ────────────────────────────────────
+  categories: ProspectCategoryTarget[];
+  preset: CategoryPreset;
+  maxPerCategoryPerRun: number; // default 2 new leads / category / Today
+  minDistinctCategories: number; // default 4
+  // ── Cost control ────────────────────────────────────────────────────────────
+  dailyRequestBudget: number;
+  weeklyRequestBudget: number;
+  maxDailyCostUsd: number;
+  maxCategoriesPerRun: number;
+  maxTerritoriesPerCategory: number;
+  maxExaminedPerRun: number;
+  maxNewLeadsPerRun: number;
+  // ── Scheduler duplicate guard ───────────────────────────────────────────────
+  lastScheduledRunDate: string | null; // America/LA YYYY-MM-DD
 }
 
 export interface Settings {
@@ -434,6 +503,16 @@ export interface ProspectingRun {
   estimatedCostUsd: number;
   errors: string[];
   addedLeadIds: string[];
+  // Category diversification metrics
+  categoriesConsidered: string[];
+  categoriesSelected: string[];
+  selectionReasons: Record<string, string>;
+  byCategoryExamined: Record<string, number>;
+  byCategoryAdded: Record<string, number>;
+  rejectedByCap: number;
+  distinctCategoriesAdded: number;
+  diversityTargetAchieved: boolean;
+  stopReason: string | null;
 }
 
 export interface AiMeta {

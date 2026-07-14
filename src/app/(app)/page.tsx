@@ -2,6 +2,7 @@ import Link from "next/link";
 import { todaysTasks, listLeads, allMeetings, allProposals, getSettings } from "@/lib/repo";
 import { placesMode } from "@/lib/providers/places";
 import { nextScheduledRun } from "@/lib/schedule";
+import { todayMix, concentrationAdvisories } from "@/lib/analytics";
 import { TierBadge, StageBadge, ScorePill, Stat, EmptyState } from "@/components/ui";
 import { TaskActions } from "@/components/TaskActions";
 import { TodayControls } from "@/components/TodayControls";
@@ -36,6 +37,11 @@ export default async function TodayPage() {
   const discoveryMode = placesMode();
   const nextRun = nextScheduledRun(settings.prospecting);
   const atCapacity = tasks.length >= queueSize;
+
+  const todayLeadIds = new Set(tasks.map((t) => t.leadId));
+  const activeCount = tasks.filter((t) => t.type !== "review").length;
+  const mix = todayMix(leads, todayLeadIds);
+  const advisories = concentrationAdvisories(leads, settings.prospecting);
 
   const now = new Date();
   const hour = now.getHours();
@@ -99,6 +105,20 @@ export default async function TodayPage() {
         <Stat label="Meetings today" value={counts.meetings} tone="amber" />
         <Stat label="Proposals open" value={counts.proposals} tone="teal" />
       </div>
+
+      {/* Today's category mix (subtle) */}
+      {tasks.length > 0 && (
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-2xl border border-white/[0.05] bg-ink-900/30 px-4 py-3">
+          <span className="text-[11px] font-medium uppercase tracking-wide text-chalk-500">Today's mix</span>
+          {mix.map((m) => (
+            <span key={m.group} className="text-xs text-chalk-300">
+              {m.group.replace(" and ", " & ").replace(" Services", "").replace(" and Local Commerce", "")} <span className="font-mono text-chalk-500">{m.count}</span>
+            </span>
+          ))}
+          {activeCount > 0 && <span className="text-xs text-chalk-300">Active work <span className="font-mono text-chalk-500">{activeCount}</span></span>}
+          {advisories[0] && <span className="ml-auto text-[11px] text-amber-300/80">{advisories[0]}</span>}
+        </div>
+      )}
 
       {/* Discovery unavailable banner (production, no key) */}
       {discoveryMode === "disabled" && (

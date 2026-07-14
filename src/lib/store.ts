@@ -24,6 +24,7 @@ import type {
   Settings,
 } from "./types";
 import { buildSeed } from "./seed";
+import { defaultCategories } from "./categories";
 
 export interface Collections {
   users: User[];
@@ -130,6 +131,18 @@ export function defaultProspecting() {
     exclusionKeywords: ["payday", "loan", "cannabis", "dispensary", "vape", "smoke shop"],
     coolingOffDays: 30,
     lastRunAt: null,
+    categories: defaultCategories(),
+    preset: "Balanced Portfolio" as const,
+    maxPerCategoryPerRun: 2,
+    minDistinctCategories: 4,
+    dailyRequestBudget: 30,
+    weeklyRequestBudget: 150,
+    maxDailyCostUsd: 2.0,
+    maxCategoriesPerRun: 6,
+    maxTerritoriesPerCategory: 1,
+    maxExaminedPerRun: 200,
+    maxNewLeadsPerRun: 8,
+    lastScheduledRunDate: null,
   };
 }
 

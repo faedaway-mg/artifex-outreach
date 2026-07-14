@@ -6,6 +6,7 @@ import { hasDb } from "@/db/client";
 import { nextScheduledRun } from "@/lib/schedule";
 import { ResetDemoButton } from "@/components/ResetDemoButton";
 import { ProspectingSettings } from "@/components/ProspectingSettings";
+import { CategoryManager } from "@/components/CategoryManager";
 import { formatRange } from "@/lib/utils";
 import { CheckCircle2, Circle } from "lucide-react";
 
@@ -37,6 +38,9 @@ export default async function SettingsPage() {
 
       {/* Automatic daily lead engine */}
       <ProspectingSettings profile={settings.prospecting} lastRun={runs[0] ?? null} nextRunLabel={nextRun.label} />
+
+      {/* Category portfolio */}
+      <CategoryManager categories={settings.prospecting.categories} preset={settings.prospecting.preset} />
 
       <div className="grid gap-6 lg:grid-cols-3">
         {/* Identity */}

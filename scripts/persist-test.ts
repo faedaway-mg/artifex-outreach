@@ -27,6 +27,8 @@ async function main() {
       businessName: "Persistence Probe Co",
       normalizedName: normalizeName("Persistence Probe Co"),
       industry: "Professional consultant",
+      normalizedCategory: "business-consultants",
+      categoryGroup: "Professional Services",
       address: "1 Test Way",
       city: "Testville",
       state: "CA",

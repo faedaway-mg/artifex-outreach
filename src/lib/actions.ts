@@ -71,6 +71,7 @@ import type {
 } from "./types";
 import { searchPlaces, placesMode, type PlaceResult, type PlacesSearchResult } from "./providers/places";
 import { discoverInputSchema } from "./schemas";
+import { categoryMetaForIndustry } from "./categories";
 
 function touch(leadId: string) {
   revalidatePath("/");
@@ -134,6 +135,8 @@ export async function saveLeadFromPlace(place: PlaceResult): Promise<{ id: strin
     businessName: place.businessName,
     normalizedName: normalizeName(place.businessName),
     industry: place.category,
+    normalizedCategory: categoryMetaForIndustry(place.category).normalizedCategory,
+    categoryGroup: categoryMetaForIndustry(place.category).group,
     address: place.address,
     city: place.city,
     state: place.state,
@@ -185,6 +188,8 @@ export async function createManualLeadAction(formData: FormData): Promise<void> 
     businessName,
     normalizedName: normalizeName(businessName),
     industry: String(formData.get("industry") ?? "Professional consultant"),
+    normalizedCategory: categoryMetaForIndustry(String(formData.get("industry") ?? "Professional consultant")).normalizedCategory,
+    categoryGroup: categoryMetaForIndustry(String(formData.get("industry") ?? "Professional consultant")).group,
     address: String(formData.get("address") ?? ""),
     city: String(formData.get("city") ?? ""),
     state: String(formData.get("state") ?? ""),
@@ -689,6 +694,67 @@ export async function updateProspectingProfileAction(formData: FormData): Promis
       coolingOffDays: Number(formData.get("coolingOffDays")) || 30,
     },
   });
+  revalidatePath("/settings");
+  revalidatePath("/");
+}
+
+// ── Category portfolio management ─────────────────────────────────────────────
+async function mutateCategory(id: string, fn: (c: import("./types").ProspectCategoryTarget) => import("./types").ProspectCategoryTarget) {
+  const s = await getSettings();
+  const categories = s.prospecting.categories.map((c) => (c.id === id ? fn(c) : c));
+  await updateSettings({ prospecting: { ...s.prospecting, categories } });
+  revalidatePath("/settings");
+  revalidatePath("/");
+}
+export async function setCategoryEnabledAction(id: string, enabled: boolean): Promise<void> {
+  await mutateCategory(id, (c) => ({ ...c, enabled }));
+}
+export async function setCategoryPriorityAction(id: string, priority: "high" | "medium" | "low"): Promise<void> {
+  await mutateCategory(id, (c) => ({ ...c, priority }));
+}
+export async function setCategoryCapsAction(id: string, formData: FormData): Promise<void> {
+  const daily = Math.max(0, Number(formData.get("dailyNewLeadCap")) || 0);
+  const weekly = Math.max(0, Number(formData.get("weeklyNewLeadCap")) || 0);
+  await mutateCategory(id, (c) => ({ ...c, dailyNewLeadCap: daily, weeklyNewLeadCap: weekly }));
+}
+export async function pauseCategoryAction(id: string, days = 7): Promise<void> {
+  const until = new Date();
+  until.setDate(until.getDate() + days);
+  await mutateCategory(id, (c) => ({ ...c, pausedUntil: until.toISOString() }));
+}
+export async function resumeCategoryAction(id: string): Promise<void> {
+  await mutateCategory(id, (c) => ({ ...c, pausedUntil: null }));
+}
+export async function applyCategoryPresetAction(preset: import("./types").CategoryPreset): Promise<void> {
+  const { applyPreset } = await import("./categories");
+  const s = await getSettings();
+  const categories = applyPreset(preset, s.prospecting.categories);
+  await updateSettings({ prospecting: { ...s.prospecting, categories, preset } });
+  revalidatePath("/settings");
+  revalidatePath("/");
+}
+export async function addCustomCategoryAction(formData: FormData): Promise<void> {
+  const { slug } = await import("./categories");
+  const label = String(formData.get("label") ?? "").trim();
+  if (!label) return;
+  const group = String(formData.get("group") ?? "Professional Services") as import("./types").CategoryGroup;
+  const queries = String(formData.get("searchQueries") ?? label).split(",").map((x) => x.trim()).filter(Boolean);
+  const s = await getSettings();
+  if (s.prospecting.categories.some((c) => c.id === slug(label))) return;
+  const cat: import("./types").ProspectCategoryTarget = {
+    id: slug(label), label, normalizedCategory: slug(label), group, enabled: true, priority: "medium",
+    dailyNewLeadCap: 2, weeklyNewLeadCap: 6, pausedUntil: null, searchQueries: queries.length ? queries : [label],
+    excludedKeywords: [], minRatingOverride: null, minReviewsOverride: null, requireWebsiteOverride: null,
+    requirePhoneOverride: null, lastSearchedAt: null, searchesThisWeek: 0, leadsFoundThisWeek: 0,
+    leadsQualifiedThisWeek: 0, weekAnchor: null, notes: "",
+  };
+  await updateSettings({ prospecting: { ...s.prospecting, categories: [...s.prospecting.categories, cat] } });
+  revalidatePath("/settings");
+}
+export async function restoreCategoryDefaultsAction(): Promise<void> {
+  const { defaultCategories } = await import("./categories");
+  const s = await getSettings();
+  await updateSettings({ prospecting: { ...s.prospecting, categories: defaultCategories(), preset: "Balanced Portfolio" } });
   revalidatePath("/settings");
   revalidatePath("/");
 }

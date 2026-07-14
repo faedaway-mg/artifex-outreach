@@ -34,6 +34,11 @@ export function ProspectingSettings({ profile, lastRun, nextRunLabel }: { profil
             {lastRun ? `${new Date(lastRun.startedAt).toLocaleString()} · +${lastRun.addedToToday} added` : "Not run yet"}
           </p>
           {lastRun && <p className="text-[11px] text-chalk-500">{lastRun.examined} examined · {lastRun.duplicatesRemoved} dupes · {lastRun.excluded} excluded · {lastRun.providerMode}{lastRun.estimatedCostUsd ? ` · ~$${lastRun.estimatedCostUsd.toFixed(3)}` : ""}</p>}
+          {lastRun && (lastRun.distinctCategoriesAdded > 0 || lastRun.stopReason) && (
+            <p className="text-[11px] text-chalk-500">
+              {lastRun.distinctCategoriesAdded} categories · diversity {lastRun.diversityTargetAchieved ? "✓" : "partial"}{lastRun.stopReason ? ` · stop: ${lastRun.stopReason}` : ""}
+            </p>
+          )}
           {lastRun?.errors?.length ? <p className="mt-0.5 text-[11px] text-coral-300">{lastRun.errors[0]}</p> : null}
         </div>
         <div className="flex flex-col justify-center gap-2 panel p-3">

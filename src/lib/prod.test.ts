@@ -9,7 +9,7 @@ import type { Lead } from "./types";
 
 function bareLead(p: Partial<Lead>): Lead {
   return {
-    id: "l1", googlePlaceId: null, businessName: "X", normalizedName: "x", industry: "Law firm",
+    id: "l1", googlePlaceId: null, businessName: "X", normalizedName: "x", industry: "Law firm", normalizedCategory: "law-firms", categoryGroup: "Professional Services",
     address: "", city: "", state: "", postalCode: "", latitude: null, longitude: null, phone: null,
     website: null, websiteDomain: null, publicEmail: null, contactFormUrl: null, socialLinks: [],
     locationsCount: null, rating: null, reviewCount: null, businessStatus: "OPERATIONAL", googleMapsUrl: null,

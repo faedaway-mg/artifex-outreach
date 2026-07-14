@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSettings } from "@/lib/repo";
+import { getSettings, updateSettings } from "@/lib/repo";
 import { runProspecting } from "@/lib/prospecting";
+
+function laDateKey(): string {
+  // YYYY-MM-DD in America/Los_Angeles
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Los_Angeles", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+}
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -29,7 +34,18 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, skipped: `not a configured weekday (${laDay})` });
   }
 
+  // Duplicate-run guard: only one scheduled run per America/LA calendar day
+  // (allows a frequent safe trigger; the endpoint self-throttles). force=1 bypasses.
+  const today = laDateKey();
+  if (!force && p.lastScheduledRunDate === today) {
+    return NextResponse.json({ ok: true, skipped: `already ran for ${today}` });
+  }
+
   const run = await runProspecting({ trigger: "scheduled" });
+  // Record the local date so subsequent same-day triggers are no-ops.
+  const after = await getSettings();
+  await updateSettings({ prospecting: { ...after.prospecting, lastScheduledRunDate: today } });
+
   return NextResponse.json({
     ok: true,
     run: {

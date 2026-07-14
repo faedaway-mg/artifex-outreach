@@ -7,6 +7,7 @@ import {
   allDeliverables,
 } from "@/lib/repo";
 import { Stat } from "@/components/ui";
+import { categoryPerformance, MIN_SAMPLE } from "@/lib/analytics";
 import { formatCurrency } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -40,10 +41,10 @@ export default async function PerformancePage() {
   const revenue = proposals.filter((p) => p.status === "accepted").reduce((s, p) => s + (p.amount ?? 0), 0);
   const avgValue = won ? Math.round(revenue / won) : 0;
 
-  // Source / industry / action performance
+  // Source / action performance + category-group performance
   const bySource = groupCount(leads.map((l) => l.source));
-  const byIndustry = groupCount(leads.map((l) => l.industry));
   const byAction = groupCount(leads.map((l) => l.recommendedAction ?? "Unset"));
+  const catPerf = categoryPerformance(leads, outreach, meetings, proposals);
 
   return (
     <div className="space-y-8">
@@ -81,10 +82,50 @@ export default async function PerformancePage() {
         </div>
       </section>
 
+      {/* Performance by category group */}
+      <section>
+        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-chalk-400">Performance by category group</h2>
+        <div className="card overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="border-b border-white/[0.06] text-left text-xs text-chalk-500">
+              <tr>
+                <th className="px-4 py-3 font-medium">Group</th>
+                <th className="px-3 py-3 text-right font-medium">Discovered</th>
+                <th className="px-3 py-3 text-right font-medium">Qualified</th>
+                <th className="px-3 py-3 text-right font-medium">Contacted</th>
+                <th className="px-3 py-3 text-right font-medium">Replies</th>
+                <th className="px-3 py-3 text-right font-medium">Meetings</th>
+                <th className="px-3 py-3 text-right font-medium">Proposals</th>
+                <th className="px-3 py-3 text-right font-medium">Won</th>
+                <th className="px-4 py-3 text-right font-medium">Pipeline value</th>
+              </tr>
+            </thead>
+            <tbody>
+              {catPerf.map((r) => (
+                <tr key={r.group} className="border-b border-white/[0.04] last:border-0">
+                  <td className="px-4 py-3">
+                    <p className="text-chalk-100">{r.group}</p>
+                    {!r.sufficient && <p className="text-[10px] text-amber-300/70">Early data — insufficient sample (&lt;{MIN_SAMPLE} contacted)</p>}
+                  </td>
+                  <td className="px-3 py-3 text-right text-chalk-300">{r.discovered}</td>
+                  <td className="px-3 py-3 text-right text-chalk-300">{r.qualified}</td>
+                  <td className="px-3 py-3 text-right text-chalk-300">{r.contacted}</td>
+                  <td className="px-3 py-3 text-right text-chalk-300">{r.sufficient ? r.replies : "—"}</td>
+                  <td className="px-3 py-3 text-right text-chalk-300">{r.meetings}</td>
+                  <td className="px-3 py-3 text-right text-chalk-300">{r.proposals}</td>
+                  <td className="px-3 py-3 text-right text-teal-300">{r.won}</td>
+                  <td className="px-4 py-3 text-right text-chalk-300">{formatCurrency(Math.round(r.pipelineValue))}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <p className="mt-2 text-[11px] text-chalk-600">Reply/meeting/proposal rates are shown as conclusions only once a group has ≥ {MIN_SAMPLE} contacted prospects. Targeting-rule changes always require your approval.</p>
+      </section>
+
       {/* Breakdowns */}
-      <div className="grid gap-6 lg:grid-cols-3">
+      <div className="grid gap-6 lg:grid-cols-2">
         <Breakdown title="Source performance" data={bySource} />
-        <Breakdown title="Industry performance" data={byIndustry} />
         <Breakdown title="Recommended-action mix" data={byAction} />
       </div>
     </div>

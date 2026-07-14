@@ -15,6 +15,13 @@
       "when": 1784015117099,
       "tag": "0001_loose_goliath",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1784016702728,
+      "tag": "0002_omniscient_praxagora",
+      "breakpoints": true
     }
   ]
 }

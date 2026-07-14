@@ -7,7 +7,7 @@ import type { Lead } from "./types";
 function lead(partial: Partial<Lead>): Lead {
   return {
     id: "l1", googlePlaceId: null, businessName: "Test Co", normalizedName: "testco",
-    industry: "Dental practice", address: "1 St", city: "LA", state: "CA", postalCode: "90012",
+    industry: "Dental practice", normalizedCategory: "dental-practices", categoryGroup: "Health and Wellness", address: "1 St", city: "LA", state: "CA", postalCode: "90012",
     latitude: null, longitude: null, phone: "(213) 555-0100", website: "https://test.com",
     websiteDomain: "test.com", publicEmail: "a@test.com", contactFormUrl: "https://test.com/c",
     socialLinks: [], locationsCount: null, rating: 4.8, reviewCount: 200, businessStatus: "OPERATIONAL",

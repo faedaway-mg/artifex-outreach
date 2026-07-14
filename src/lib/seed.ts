@@ -5,6 +5,7 @@
 import type { Collections } from "./store";
 import type { Lead, ScoreBreakdown, DeliverableContent } from "./types";
 import { defaultSettings } from "./store";
+import { categoryMetaForIndustry } from "./categories";
 
 const dayMs = 86_400_000;
 function isoOffset(days: number, hour = 9): string {
@@ -49,6 +50,8 @@ function mkLead(s: LeadSeed): Lead {
     businessName: s.businessName,
     normalizedName: norm,
     industry: s.industry,
+    normalizedCategory: categoryMetaForIndustry(s.industry).normalizedCategory,
+    categoryGroup: categoryMetaForIndustry(s.industry).group,
     address: s.address ?? "1200 Market St",
     city: s.city,
     state: s.state,
