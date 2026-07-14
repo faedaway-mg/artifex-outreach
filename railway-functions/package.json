@@ -1,0 +1,13 @@
+{
+  "name": "artifex-daily-prospecting-cron",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Railway cron service that triggers Artifex daily prospecting at 5:30 AM America/Los_Angeles.",
+  "scripts": {
+    "start": "node daily-prospecting.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

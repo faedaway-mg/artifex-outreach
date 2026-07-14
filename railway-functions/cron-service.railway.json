@@ -1,0 +1,11 @@
+{
+  "$schema": "https://railway.com/railway.schema.json",
+  "build": {
+    "builder": "NIXPACKS"
+  },
+  "deploy": {
+    "startCommand": "node daily-prospecting.mjs",
+    "cronSchedule": "30 12,13 * * *",
+    "restartPolicyType": "NEVER"
+  }
+}
