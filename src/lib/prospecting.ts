@@ -259,17 +259,37 @@ export function pickDiverse<T>(
   entries: Array<{ item: T; category: string; score: number }>,
   opts: { target: number; capFor: (category: string) => number },
 ): { picked: T[]; rejectedByCap: number } {
-  const sorted = [...entries].sort((a, b) => b.score - a.score);
-  const perCat: Record<string, number> = {};
-  const picked: T[] = [];
-  let rejectedByCap = 0;
-  for (const e of sorted) {
-    if (picked.length >= opts.target) break;
-    const cap = opts.capFor(e.category);
-    if ((perCat[e.category] ?? 0) >= cap) { rejectedByCap += 1; continue; }
-    perCat[e.category] = (perCat[e.category] ?? 0) + 1;
-    picked.push(e.item);
+  // Group by category, best-first within each group.
+  const groups = new Map<string, Array<{ item: T; score: number }>>();
+  for (const e of entries) {
+    if (!groups.has(e.category)) groups.set(e.category, []);
+    groups.get(e.category)!.push({ item: e.item, score: e.score });
   }
+  for (const g of groups.values()) g.sort((a, b) => b.score - a.score);
+
+  const picked: T[] = [];
+  const perCat: Record<string, number> = {};
+  // Round-robin: take the best remaining from each category per round (round 1 =
+  // one per category → maximizes distinct categories), then second, up to the cap.
+  let progressed = true;
+  let round = 0;
+  while (picked.length < opts.target && progressed && round < 50) {
+    progressed = false;
+    const cats = [...groups.keys()].sort((a, b) => (groups.get(b)![perCat[b] ?? 0]?.score ?? -1) - (groups.get(a)![perCat[a] ?? 0]?.score ?? -1));
+    for (const c of cats) {
+      if (picked.length >= opts.target) break;
+      const idx = perCat[c] ?? 0;
+      const g = groups.get(c)!;
+      if (idx >= g.length || idx >= opts.capFor(c)) continue;
+      picked.push(g[idx].item);
+      perCat[c] = idx + 1;
+      progressed = true;
+    }
+    round += 1;
+  }
+  // Candidates that could never be picked because they exceed the per-category cap.
+  let rejectedByCap = 0;
+  for (const [c, g] of groups) rejectedByCap += Math.max(0, g.length - opts.capFor(c));
   return { picked, rejectedByCap };
 }
 
