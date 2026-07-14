@@ -29,6 +29,9 @@ import type {
   PipelineStage,
   AuditEntry,
   ProspectingRun,
+  ConceptPreview,
+  ConceptPreviewVersion,
+  ConceptPreviewShare,
 } from "./types";
 
 // ── Generic collection helper ────────────────────────────────────────────────
@@ -83,6 +86,9 @@ const Tasks = collection<Task>(t.tasks, () => mem().tasks);
 const Meetings = collection<Meeting>(t.meetings, () => mem().meetings);
 const Proposals = collection<Proposal>(t.proposals, () => mem().proposals);
 const Suppressions = collection<Suppression>(t.suppressions, () => mem().suppressions);
+const Previews = collection<ConceptPreview>(t.conceptPreviews, () => ((mem() as any).conceptPreviews ??= []));
+const PreviewVersions = collection<ConceptPreviewVersion>(t.conceptPreviewVersions, () => ((mem() as any).conceptPreviewVersions ??= []));
+const PreviewShares = collection<ConceptPreviewShare>(t.conceptPreviewShares, () => ((mem() as any).conceptPreviewShares ??= []));
 
 // ── Leads ────────────────────────────────────────────────────────────────────
 export async function listLeads(): Promise<Lead[]> {
@@ -263,6 +269,37 @@ export async function updateSettings(patch: Partial<Settings>): Promise<Settings
     Object.assign(mem().settings, next);
   }
   return next;
+}
+
+// ── Concept previews ─────────────────────────────────────────────────────────
+export const previewsForLead = (leadId: string) => Previews.byLead(leadId);
+export const getPreview = (id: string) => Previews.byId(id);
+export const updatePreview = (id: string, patch: Partial<ConceptPreview>) => Previews.update(id, patch);
+export async function insertPreview(p: Omit<ConceptPreview, "id" | "createdAt" | "updatedAt">): Promise<ConceptPreview> {
+  return Previews.insert({ ...p, id: newId("prev"), createdAt: nowIso(), updatedAt: nowIso() } as ConceptPreview);
+}
+export const allPreviews = () => Previews.all();
+
+export async function versionsOf(previewId: string): Promise<ConceptPreviewVersion[]> {
+  return (await PreviewVersions.all()).filter((v) => v.previewId === previewId).sort((a, b) => a.versionNumber - b.versionNumber);
+}
+export const getVersion = (id: string) => PreviewVersions.byId(id);
+export async function insertVersion(v: Omit<ConceptPreviewVersion, "id" | "createdAt">): Promise<ConceptPreviewVersion> {
+  return PreviewVersions.insert({ ...v, id: newId("cver"), createdAt: nowIso() } as ConceptPreviewVersion);
+}
+
+export async function insertShare(s: Omit<ConceptPreviewShare, "id" | "createdAt">): Promise<ConceptPreviewShare> {
+  return PreviewShares.insert({ ...s, id: newId("cshr"), createdAt: nowIso() } as ConceptPreviewShare);
+}
+export const getShare = (id: string) => PreviewShares.byId(id);
+export const updateShare = (id: string, patch: Partial<ConceptPreviewShare>) => PreviewShares.update(id, patch);
+export async function sharesForPreview(previewId: string): Promise<ConceptPreviewShare[]> {
+  return (await PreviewShares.all()).filter((s) => s.previewId === previewId);
+}
+export const allShares = () => PreviewShares.all();
+export async function getShareByHash(tokenHash: string): Promise<ConceptPreviewShare | undefined> {
+  if (hasDb()) return (await getDb().select().from(t.conceptPreviewShares).where(eq(t.conceptPreviewShares.tokenHash, tokenHash)))[0] as any;
+  return (await PreviewShares.all()).find((s) => s.tokenHash === tokenHash);
 }
 
 // ── Prospecting runs ─────────────────────────────────────────────────────────

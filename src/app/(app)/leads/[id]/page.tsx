@@ -12,7 +12,11 @@ import {
   proposalsForLead,
   getSettings,
   daysInStage,
+  previewsForLead,
+  versionsOf,
+  sharesForPreview,
 } from "@/lib/repo";
+import { ConceptPreviewPanel } from "@/components/lead/ConceptPreviewPanel";
 import { TierBadge, ScorePill, SourceTag, ConfidenceBadge } from "@/components/ui";
 import { LeadActions } from "@/components/lead/LeadActions";
 import { ScorePanel } from "@/components/lead/ScorePanel";
@@ -41,6 +45,13 @@ export default async function LeadPage({ params }: { params: { id: string } }) {
     proposalsForLead(lead.id),
     getSettings(),
   ]);
+
+  const previews = (await previewsForLead(lead.id)).filter((p) => p.status !== "Archived");
+  const activePreview = previews.sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt))[0] ?? null;
+  const previewVersions = activePreview ? await versionsOf(activePreview.id) : [];
+  const previewVersion = activePreview?.currentVersionId ? previewVersions.find((v) => v.id === activePreview.currentVersionId) ?? null : null;
+  const previewShares = activePreview ? await sharesForPreview(activePreview.id) : [];
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://outreach.artifexlabs.tech";
 
   return (
     <div className="space-y-6">
@@ -175,6 +186,9 @@ export default async function LeadPage({ params }: { params: { id: string } }) {
           <div id="outreach">
             <OutreachPanel lead={lead} outreach={outreach} contacts={contacts} settings={settings} hasVideo={videos.some((v) => v.videoUrl)} hasBrief={deliverables.some((d) => d.status !== "draft")} />
           </div>
+
+          {/* Concept Website Preview */}
+          <ConceptPreviewPanel leadId={lead.id} tier={lead.tier} preview={activePreview} version={previewVersion} shares={previewShares} findings={findings} appUrl={appUrl} />
 
           {/* Meeting + proposal */}
           <div id="meeting">

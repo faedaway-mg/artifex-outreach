@@ -308,6 +308,76 @@ export const settings = pgTable("settings", {
   updatedAt: ts("updated_at").notNull(),
 });
 
+// ── Concept Website Preview ──────────────────────────────────────────────────
+export const conceptPreviews = pgTable(
+  "concept_previews",
+  {
+    id: text("id").primaryKey(),
+    leadId: text("lead_id").notNull(),
+    title: text("title").notNull(),
+    previewType: text("preview_type").notNull(),
+    status: text("status").notNull().default("Not Started"),
+    visualDirection: text("visual_direction").notNull(),
+    targetAction: text("target_action").notNull(),
+    recommendedService: text("recommended_service"),
+    eligibilityReason: text("eligibility_reason"),
+    sourceFacts: jsonb("source_facts").default([]).notNull(),
+    approvedFacts: jsonb("approved_facts").default([]).notNull(),
+    selectedFindingIds: jsonb("selected_finding_ids").$type<string[]>().default([]).notNull(),
+    generatedSpecification: jsonb("generated_specification"),
+    currentVersionId: text("current_version_id"),
+    generationCount: integer("generation_count").notNull().default(0),
+    totalGenerationCost: doublePrecision("total_generation_cost").notNull().default(0),
+    createdBy: text("created_by").notNull().default("jordan"),
+    approvedBy: text("approved_by"),
+    createdAt: ts("created_at").notNull(),
+    updatedAt: ts("updated_at").notNull(),
+    approvedAt: ts("approved_at"),
+    archivedAt: ts("archived_at"),
+  },
+  (t) => ({ leadIdx: index("concept_previews_lead_idx").on(t.leadId) }),
+);
+
+export const conceptPreviewVersions = pgTable(
+  "concept_preview_versions",
+  {
+    id: text("id").primaryKey(),
+    previewId: text("preview_id").notNull(),
+    versionNumber: integer("version_number").notNull(),
+    specification: jsonb("specification").notNull(),
+    renderedHtml: text("rendered_html").notNull(),
+    renderedCss: text("rendered_css").notNull(),
+    desktopScreenshotPath: text("desktop_screenshot_path"),
+    mobileScreenshotPath: text("mobile_screenshot_path"),
+    tabletScreenshotPath: text("tablet_screenshot_path"),
+    generationProvider: text("generation_provider").notNull(),
+    generationModel: text("generation_model").notNull(),
+    generationCost: doublePrecision("generation_cost").notNull().default(0),
+    validationResults: jsonb("validation_results"),
+    createdAt: ts("created_at").notNull(),
+  },
+  (t) => ({ previewIdx: index("concept_preview_versions_preview_idx").on(t.previewId) }),
+);
+
+export const conceptPreviewShares = pgTable(
+  "concept_preview_shares",
+  {
+    id: text("id").primaryKey(),
+    previewId: text("preview_id").notNull(),
+    versionId: text("version_id").notNull(),
+    tokenHash: text("token_hash").notNull(),
+    expiresAt: ts("expires_at"),
+    revokedAt: ts("revoked_at"),
+    viewCount: integer("view_count").notNull().default(0),
+    lastViewedAt: ts("last_viewed_at"),
+    createdAt: ts("created_at").notNull(),
+  },
+  (t) => ({
+    tokenIdx: uniqueIndex("concept_preview_shares_token_idx").on(t.tokenHash),
+    previewIdx: index("concept_preview_shares_preview_idx").on(t.previewId),
+  }),
+);
+
 // Daily prospecting run reports (metrics; no secrets).
 export const prospectingRuns = pgTable(
   "prospecting_runs",

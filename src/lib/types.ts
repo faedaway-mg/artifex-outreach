@@ -361,6 +361,90 @@ export interface Suppression {
   createdAt: string;
 }
 
+// ── Concept Website Preview ──────────────────────────────────────────────────
+export const PREVIEW_TYPES = ["Quick Direction", "Homepage Concept", "Focused Conversion Page", "Modernization Story"] as const;
+export type PreviewType = (typeof PREVIEW_TYPES)[number];
+
+export const PREVIEW_STATUSES = [
+  "Not Started", "Preparing Facts", "Drafting", "Generated", "Internal Review",
+  "Approved", "Shared", "Viewed", "Conversation Started", "Archived", "Revoked",
+] as const;
+export type PreviewStatus = (typeof PREVIEW_STATUSES)[number];
+
+export const VISUAL_DIRECTIONS = [
+  "Quiet Professional", "Warm Modern", "Premium Editorial", "Local Trust", "Clear Utility",
+  "Refined Hospitality", "Contemporary Wellness", "Confident Trade", "Boutique Retail", "Founder-Led",
+] as const;
+export type VisualDirection = (typeof VISUAL_DIRECTIONS)[number];
+
+export const TARGET_ACTIONS = [
+  "Book a consultation", "Request a quote", "Schedule service", "Explore membership",
+  "View a venue", "Start intake", "Contact us",
+] as const;
+export type TargetAction = (typeof TARGET_ACTIONS)[number];
+
+export type FactStatus = "confirmed" | "jordan" | "inference" | "placeholder" | "omitted";
+export interface ApprovedFact {
+  key: string;
+  label: string;
+  value: string;
+  status: FactStatus;
+}
+
+export interface ConceptPreview {
+  id: string;
+  leadId: string;
+  title: string;
+  previewType: PreviewType;
+  status: PreviewStatus;
+  visualDirection: VisualDirection;
+  targetAction: TargetAction;
+  recommendedService: string | null;
+  eligibilityReason: string | null;
+  sourceFacts: ApprovedFact[];
+  approvedFacts: ApprovedFact[];
+  selectedFindingIds: string[];
+  generatedSpecification: unknown | null;
+  currentVersionId: string | null;
+  generationCount: number;
+  totalGenerationCost: number;
+  createdBy: string;
+  approvedBy: string | null;
+  createdAt: string;
+  updatedAt: string;
+  approvedAt: string | null;
+  archivedAt: string | null;
+}
+
+export interface ConceptPreviewVersion {
+  id: string;
+  previewId: string;
+  versionNumber: number;
+  specification: unknown;
+  renderedHtml: string;
+  renderedCss: string;
+  desktopScreenshotPath: string | null;
+  mobileScreenshotPath: string | null;
+  tabletScreenshotPath: string | null;
+  generationProvider: string;
+  generationModel: string;
+  generationCost: number;
+  validationResults: unknown;
+  createdAt: string;
+}
+
+export interface ConceptPreviewShare {
+  id: string;
+  previewId: string;
+  versionId: string;
+  tokenHash: string;
+  expiresAt: string | null;
+  revokedAt: string | null;
+  viewCount: number;
+  lastViewedAt: string | null;
+  createdAt: string;
+}
+
 export interface AuditEntry {
   id: string;
   action: string;
