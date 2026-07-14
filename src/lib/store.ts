@@ -8,6 +8,7 @@
 // repository functions below at Drizzle when a connection string is present.
 // ─────────────────────────────────────────────────────────────────────────────
 import { nanoid } from "nanoid";
+import { ARTIFEX_IDENTITY, ARTIFEX_ADDRESS } from "./identity";
 import type {
   User,
   Lead,
@@ -66,11 +67,11 @@ function createEmpty(): Collections {
 
 export function defaultSettings(): Settings {
   return {
-    businessAddress: "Artifex Labs · Los Angeles, CA",
-    signature: "Jordan Jackson\nFounder, Artifex Labs\nartifexlabs.tech",
-    calendarLink: "https://cal.com/artifexlabs/discovery",
-    website: "https://artifexlabs.tech",
-    contactEmail: "jordan@artifexlabs.tech",
+    businessAddress: ARTIFEX_ADDRESS,
+    signature: `Jordan Jackson\nFounder, Artifex Labs\n${ARTIFEX_IDENTITY.publicWebsite.replace(/^https?:\/\//, "")}`,
+    calendarLink: ARTIFEX_IDENTITY.bookingUrl,
+    website: ARTIFEX_IDENTITY.publicWebsite,
+    contactEmail: ARTIFEX_IDENTITY.publicEmail,
     defaultReportLanguage: "English",
     defaultPricing: {
       "Launch Website": { low: 3500, high: 6500 },

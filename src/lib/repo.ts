@@ -13,6 +13,7 @@ import { eq } from "drizzle-orm";
 import { hasDb, getDb } from "@/db/client";
 import * as t from "@/db/schema";
 import { db as mem, newId, nowIso, normalizeName, domainFromUrl, normalizePhone, defaultSettings, defaultProspecting } from "./store";
+import { ARTIFEX_IDENTITY } from "./identity";
 import type {
   Lead,
   Contact,
@@ -242,11 +243,17 @@ export async function isSuppressed(opts: { email?: string | null; domain?: strin
 // are always present even for rows written by older versions.
 function withDefaults(data: Partial<Settings> | undefined): Settings {
   const base = defaultSettings();
-  return {
+  const merged: Settings = {
     ...base,
     ...(data ?? {}),
     prospecting: { ...defaultProspecting(), ...((data?.prospecting as any) ?? {}) },
   };
+  // Self-heal legacy public-contact values persisted before the identity was
+  // centralized. Only rewrites the exact known-stale/broken values, so any
+  // intentional customization made in Settings is preserved.
+  if (merged.contactEmail === "jordan@artifexlabs.tech") merged.contactEmail = ARTIFEX_IDENTITY.publicEmail;
+  if (merged.calendarLink === "https://cal.com/artifexlabs/discovery") merged.calendarLink = ARTIFEX_IDENTITY.bookingUrl;
+  return merged;
 }
 
 export async function getSettings(): Promise<Settings> {

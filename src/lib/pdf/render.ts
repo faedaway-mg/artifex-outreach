@@ -2,7 +2,35 @@ import { renderToBuffer } from "@react-pdf/renderer";
 import { BriefDocument } from "./BriefDocument";
 import type { Lead, Deliverable, Settings } from "@/lib/types";
 
+/**
+ * The embedded PDF font is standard Helvetica (WinAnsi), which has no glyph for
+ * symbols like ★ (U+2605) — those render as broken boxes. Sanitize text before
+ * rendering: turn rating stars into the safe "4.8 / 5" form and drop star/symbol
+ * glyphs Helvetica cannot draw. Latin-1 (accented names, dashes, smart quotes,
+ * bullets) is preserved.
+ */
+function sanitizeText(str: string): string {
+  return str
+    .replace(/(\d(?:\.\d+)?)\s*[★⭐✦✪]/g, "$1 / 5")
+    .replace(/[★☆⭐✦✪✔✓➔➜]/g, "")
+    .replace(/[ \t]{2,}/g, " ");
+}
+
+function deepSanitize<T>(value: T): T {
+  if (typeof value === "string") return sanitizeText(value) as unknown as T;
+  if (Array.isArray(value)) return value.map((v) => deepSanitize(v)) as unknown as T;
+  if (value && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) out[k] = deepSanitize(v);
+    return out as T;
+  }
+  return value;
+}
+
 /** Render a Modernization Brief / Quick Snapshot to a PDF Buffer (Node runtime). */
 export async function renderBriefPdf(lead: Lead, deliverable: Deliverable, settings: Settings): Promise<Buffer> {
-  return renderToBuffer(BriefDocument({ lead, deliverable, settings }) as any);
+  const safeLead = deepSanitize(lead);
+  const safeDeliverable = deepSanitize(deliverable);
+  const safeSettings = deepSanitize(settings);
+  return renderToBuffer(BriefDocument({ lead: safeLead, deliverable: safeDeliverable, settings: safeSettings }) as any);
 }

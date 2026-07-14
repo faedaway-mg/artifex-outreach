@@ -2,6 +2,7 @@
 import React from "react";
 import { Document, Page, Text, View, StyleSheet } from "@react-pdf/renderer";
 import type { Lead, Deliverable, Settings } from "@/lib/types";
+import { ARTIFEX_IDENTITY } from "@/lib/identity";
 
 // Premium, minimal, calm brief — light document for easy sharing/printing.
 const INK = "#0D0F13";
@@ -27,14 +28,17 @@ const s = StyleSheet.create({
   label: { fontSize: 7.5, letterSpacing: 1, color: MUTE, textTransform: "uppercase", fontFamily: "Helvetica-Bold", marginBottom: 3 },
   bullet: { flexDirection: "row", marginBottom: 5 },
   dot: { width: 3, height: 3, borderRadius: 2, backgroundColor: INDIGO, marginTop: 5, marginRight: 8 },
+  // minWidth:0 lets flex text wrap correctly inside row bullets / two-column cards.
+  bulletText: { flex: 1, minWidth: 0 },
+  journeyCol: { flex: 1, minWidth: 0 },
   chip: { fontSize: 8, color: ACCENT, borderWidth: 1, borderColor: "#CBD9F5", borderRadius: 4, paddingVertical: 2, paddingHorizontal: 6, marginRight: 4, marginBottom: 4 },
 });
 
 function Header() {
   return (
     <View style={s.brandRow} fixed>
-      <Text style={s.brand}>ARTIFEX LABS</Text>
-      <Text style={s.brandTag}>Build smarter. · artifexlabs.tech</Text>
+      <Text style={s.brand}>{ARTIFEX_IDENTITY.companyName.toUpperCase()}</Text>
+      <Text style={s.brandTag}>{ARTIFEX_IDENTITY.brandTagline} · {ARTIFEX_IDENTITY.publicWebsite.replace(/^https?:\/\//, "")}</Text>
     </View>
   );
 }
@@ -52,72 +56,81 @@ export function BriefDocument({ lead, deliverable, settings }: { lead: Lead; del
   const dateStr = new Date(deliverable.createdAt).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
   const footerNote = `Prepared for ${lead.businessName} · Confidential`;
 
-  return (
-    <Document title={`${c.cover.subtitle} — ${lead.businessName}`} author="Artifex Labs">
-      {/* Cover */}
-      <Page size="A4" style={s.page}>
-        <Header />
-        <View style={{ flex: 1, justifyContent: "center" }}>
-          <Text style={s.eyebrow}>{c.cover.subtitle}</Text>
-          <Text style={s.h1}>{lead.businessName}</Text>
-          <Text style={[s.p, s.muted]}>{lead.industry} · {lead.city}, {lead.state}</Text>
-          <View style={{ height: 1, backgroundColor: LINE, marginVertical: 18 }} />
-          <Text style={s.p}>Prepared specifically for {lead.businessName}</Text>
-          <Text style={[s.p, s.muted]}>Date prepared: {dateStr}</Text>
-          <Text style={[s.p, s.muted]}>{c.cover.confidentialityNote}</Text>
-        </View>
-        <Footer note={footerNote} />
-      </Page>
+  // Build pages conditionally so a section with no approved content never
+  // produces a blank page (fixes the empty "Key Opportunities" page).
+  const hasJourney = (c.customerJourney?.currentState?.length ?? 0) > 0 || (c.customerJourney?.futureState?.length ?? 0) > 0;
+  const pages: React.ReactElement[] = [];
 
-      {/* Executive snapshot */}
-      <Page size="A4" style={s.page}>
-        <Header />
-        <Text style={s.eyebrow}>Executive snapshot</Text>
-        <Text style={s.h2}>The opportunity in brief</Text>
-        <Text style={s.p}>{c.executiveSnapshot.overview}</Text>
-        <View style={s.card}>
-          <Text style={s.label}>What's already working</Text>
-          <Text style={s.p}>{c.executiveSnapshot.whatIsWorking}</Text>
-        </View>
-        <View style={s.card}>
-          <Text style={s.label}>Primary opportunity</Text>
-          <Text style={s.p}>{c.executiveSnapshot.primaryOpportunity}</Text>
-        </View>
-        <View style={s.card}>
-          <Text style={s.label}>Potential business impact</Text>
-          <Text style={s.p}>{c.executiveSnapshot.potentialImpact}</Text>
-        </View>
-        <View style={s.card}>
-          <Text style={s.label}>Recommended first conversation</Text>
-          <Text style={s.p}>{c.executiveSnapshot.recommendedFirstConversation}</Text>
-        </View>
-        <Footer note={footerNote} />
-      </Page>
+  pages.push(
+    <Page key="cover" size="A4" style={s.page}>
+      <Header />
+      <View style={{ flex: 1, justifyContent: "center" }}>
+        <Text style={s.eyebrow}>{c.cover.subtitle}</Text>
+        <Text style={s.h1}>{lead.businessName}</Text>
+        <Text style={[s.p, s.muted]}>{lead.industry} · {lead.city}, {lead.state}</Text>
+        <View style={{ height: 1, backgroundColor: LINE, marginVertical: 18 }} />
+        <Text style={s.p}>Prepared specifically for {lead.businessName}</Text>
+        <Text style={[s.p, s.muted]}>Date prepared: {dateStr}</Text>
+        <Text style={[s.p, s.muted]}>{c.cover.confidentialityNote}</Text>
+      </View>
+      <Footer note={footerNote} />
+    </Page>
+  );
 
-      {/* What's working */}
-      <Page size="A4" style={s.page}>
+  pages.push(
+    <Page key="exec" size="A4" style={s.page}>
+      <Header />
+      <Text style={s.eyebrow}>Executive snapshot</Text>
+      <Text style={s.h2}>The opportunity in brief</Text>
+      <Text style={s.p}>{c.executiveSnapshot.overview}</Text>
+      <View style={s.card}>
+        <Text style={s.label}>What's already working</Text>
+        <Text style={s.p}>{c.executiveSnapshot.whatIsWorking}</Text>
+      </View>
+      <View style={s.card}>
+        <Text style={s.label}>Primary opportunity</Text>
+        <Text style={s.p}>{c.executiveSnapshot.primaryOpportunity}</Text>
+      </View>
+      <View style={s.card}>
+        <Text style={s.label}>Potential business impact</Text>
+        <Text style={s.p}>{c.executiveSnapshot.potentialImpact}</Text>
+      </View>
+      <View style={s.card}>
+        <Text style={s.label}>Recommended first conversation</Text>
+        <Text style={s.p}>{c.executiveSnapshot.recommendedFirstConversation}</Text>
+      </View>
+      <Footer note={footerNote} />
+    </Page>
+  );
+
+  if (c.strengths.length > 0) {
+    pages.push(
+      <Page key="strengths" size="A4" style={s.page}>
         <Header />
         <Text style={s.eyebrow}>Strengths</Text>
         <Text style={s.h2}>What's working well</Text>
         <Text style={[s.p, s.muted]}>An honest look at what already sets {lead.businessName} apart.</Text>
         <View style={{ marginTop: 8 }}>
           {c.strengths.map((str, i) => (
-            <View key={i} style={s.bullet}>
+            <View key={i} style={s.bullet} wrap={false}>
               <View style={[s.dot, { backgroundColor: "#2FA97D" }]} />
-              <Text style={{ flex: 1, color: "#2A2F39" }}>{str}</Text>
+              <Text style={[s.bulletText, { color: "#2A2F39" }]}>{str}</Text>
             </View>
           ))}
         </View>
         <Footer note={footerNote} />
       </Page>
+    );
+  }
 
-      {/* Opportunities */}
-      <Page size="A4" style={s.page}>
+  if (c.opportunities.length > 0) {
+    pages.push(
+      <Page key="opps" size="A4" style={s.page}>
         <Header />
         <Text style={s.eyebrow}>Key opportunities</Text>
         <Text style={s.h2}>Where modernization would help most</Text>
         {c.opportunities.map((o, i) => (
-          <View key={i} style={s.card}>
+          <View key={i} style={s.card} wrap={false}>
             <Text style={[s.label, { color: ACCENT }]}>Opportunity {i + 1}</Text>
             <Text style={{ fontSize: 11.5, fontFamily: "Helvetica-Bold", marginBottom: 6 }}>{o.observation}</Text>
             <Text style={s.p}><Text style={s.muted}>Evidence: </Text>{o.evidence}</Text>
@@ -127,69 +140,80 @@ export function BriefDocument({ lead, deliverable, settings }: { lead: Lead; del
         ))}
         <Footer note={footerNote} />
       </Page>
+    );
+  }
 
-      {/* Customer journey */}
-      <Page size="A4" style={s.page}>
+  if (hasJourney) {
+    pages.push(
+      <Page key="journey" size="A4" style={s.page}>
         <Header />
         <Text style={s.eyebrow}>Customer journey</Text>
         <Text style={s.h2}>From current experience to modernized flow</Text>
         <View style={{ flexDirection: "row", gap: 12 }}>
-          <View style={[s.card, { flex: 1 }]}>
+          <View style={[s.card, s.journeyCol]}>
             <Text style={s.label}>Current state</Text>
             {c.customerJourney.currentState.map((step, i) => (
-              <View key={i} style={s.bullet}><View style={[s.dot, { backgroundColor: MUTE }]} /><Text style={{ flex: 1 }}>{step}</Text></View>
+              <View key={i} style={s.bullet}><View style={[s.dot, { backgroundColor: MUTE }]} /><Text style={s.bulletText}>{step}</Text></View>
             ))}
           </View>
-          <View style={[s.card, { flex: 1, borderColor: "#CBD9F5" }]}>
+          <View style={[s.card, s.journeyCol, { borderColor: "#CBD9F5" }]}>
             <Text style={[s.label, { color: ACCENT }]}>Modernized state</Text>
             {c.customerJourney.futureState.map((step, i) => (
-              <View key={i} style={s.bullet}><View style={[s.dot, { backgroundColor: ACCENT }]} /><Text style={{ flex: 1 }}>{step}</Text></View>
+              <View key={i} style={s.bullet}><View style={[s.dot, { backgroundColor: ACCENT }]} /><Text style={s.bulletText}>{step}</Text></View>
             ))}
           </View>
         </View>
         <Footer note={footerNote} />
       </Page>
+    );
+  }
 
-      {/* Modernization path */}
-      <Page size="A4" style={s.page}>
-        <Header />
-        <Text style={s.eyebrow}>Recommended path</Text>
-        <Text style={s.h2}>{c.modernizationPath.primaryEngagement}</Text>
-        <Text style={s.label}>Potential components</Text>
-        <View style={{ flexDirection: "row", flexWrap: "wrap", marginBottom: 12, marginTop: 4 }}>
-          {c.modernizationPath.components.map((comp, i) => (
-            <Text key={i} style={s.chip}>{comp}</Text>
-          ))}
+  pages.push(
+    <Page key="path" size="A4" style={s.page}>
+      <Header />
+      <Text style={s.eyebrow}>Recommended path</Text>
+      <Text style={s.h2}>{c.modernizationPath.primaryEngagement}</Text>
+      <Text style={s.label}>Potential components</Text>
+      <View style={{ flexDirection: "row", flexWrap: "wrap", marginBottom: 12, marginTop: 4 }}>
+        {c.modernizationPath.components.map((comp, i) => (
+          <Text key={i} style={s.chip}>{comp}</Text>
+        ))}
+      </View>
+      <View style={s.card}>
+        <Text style={s.label}>Optional secondary opportunity</Text>
+        <Text style={s.p}>{c.modernizationPath.secondaryOpportunity}</Text>
+      </View>
+      {c.modernizationPath.investmentRange && (
+        <View style={[s.card, { borderColor: "#F0D9B5" }]}>
+          <Text style={[s.label, { color: AMBER }]}>Preliminary investment range</Text>
+          <Text style={{ fontSize: 16, fontFamily: "Helvetica-Bold", color: INK }}>{c.modernizationPath.investmentRange}</Text>
         </View>
-        <View style={s.card}>
-          <Text style={s.label}>Optional secondary opportunity</Text>
-          <Text style={s.p}>{c.modernizationPath.secondaryOpportunity}</Text>
-        </View>
-        {c.modernizationPath.investmentRange && (
-          <View style={[s.card, { borderColor: "#F0D9B5" }]}>
-            <Text style={[s.label, { color: AMBER }]}>Preliminary investment range</Text>
-            <Text style={{ fontSize: 16, fontFamily: "Helvetica-Bold", color: INK }}>{c.modernizationPath.investmentRange}</Text>
-          </View>
-        )}
-        <Text style={[s.p, s.muted, { fontSize: 9 }]}>{c.modernizationPath.disclaimer}</Text>
-        <Footer note={footerNote} />
-      </Page>
+      )}
+      <Text style={[s.p, s.muted, { fontSize: 9 }]}>{c.modernizationPath.disclaimer}</Text>
+      <Footer note={footerNote} />
+    </Page>
+  );
 
-      {/* CTA */}
-      <Page size="A4" style={s.page}>
-        <Header />
-        <View style={{ flex: 1, justifyContent: "center" }}>
-          <Text style={s.eyebrow}>Next step</Text>
-          <Text style={s.h1}>{c.cta.headline}</Text>
-          <Text style={s.p}>{c.cta.body}</Text>
-          <View style={{ height: 1, backgroundColor: LINE, marginVertical: 18 }} />
-          <Text style={s.p}><Text style={s.muted}>Schedule a discovery call: </Text>{settings.calendarLink}</Text>
-          <Text style={s.p}><Text style={s.muted}>Website: </Text>{settings.website}</Text>
-          <Text style={s.p}><Text style={s.muted}>Email: </Text>{settings.contactEmail}</Text>
-          <Text style={[s.p, s.muted, { marginTop: 16, fontSize: 9 }]}>{settings.businessAddress}</Text>
-        </View>
-        <Footer note={footerNote} />
-      </Page>
+  pages.push(
+    <Page key="cta" size="A4" style={s.page}>
+      <Header />
+      <View style={{ flex: 1, justifyContent: "center" }}>
+        <Text style={s.eyebrow}>Next step</Text>
+        <Text style={s.h1}>{c.cta.headline}</Text>
+        <Text style={s.p}>{c.cta.body}</Text>
+        <View style={{ height: 1, backgroundColor: LINE, marginVertical: 18 }} />
+        <Text style={s.p}><Text style={s.muted}>Schedule a discovery call: </Text>{settings.calendarLink}</Text>
+        <Text style={s.p}><Text style={s.muted}>Website: </Text>{settings.website}</Text>
+        <Text style={s.p}><Text style={s.muted}>Email: </Text>{settings.contactEmail}</Text>
+        <Text style={[s.p, s.muted, { marginTop: 16, fontSize: 9 }]}>{settings.businessAddress}</Text>
+      </View>
+      <Footer note={footerNote} />
+    </Page>
+  );
+
+  return (
+    <Document title={`${c.cover.subtitle} — ${lead.businessName}`} author="Artifex Labs">
+      {pages}
     </Document>
   );
 }
