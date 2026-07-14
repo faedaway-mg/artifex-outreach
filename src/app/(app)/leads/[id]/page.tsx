@@ -1,0 +1,196 @@
+import { notFound } from "next/navigation";
+import Link from "next/link";
+import {
+  getLead,
+  contactsForLead,
+  findingsForLead,
+  screenshotsForLead,
+  deliverablesForLead,
+  videosForLead,
+  outreachForLead,
+  meetingsForLead,
+  proposalsForLead,
+  getSettings,
+  daysInStage,
+} from "@/lib/repo";
+import { TierBadge, ScorePill, SourceTag, ConfidenceBadge } from "@/components/ui";
+import { LeadActions } from "@/components/lead/LeadActions";
+import { ScorePanel } from "@/components/lead/ScorePanel";
+import { FindingsEditor } from "@/components/lead/FindingsEditor";
+import { DeliverablePanel } from "@/components/lead/DeliverablePanel";
+import { VideoPanel } from "@/components/lead/VideoPanel";
+import { OutreachPanel } from "@/components/lead/OutreachPanel";
+import { MeetingProposalPanel } from "@/components/lead/MeetingProposalPanel";
+import { formatRange } from "@/lib/utils";
+import { ArrowLeft, Globe, Phone, Mail, MapPin, Star, ExternalLink } from "lucide-react";
+
+export const dynamic = "force-dynamic";
+
+export default async function LeadPage({ params }: { params: { id: string } }) {
+  const lead = await getLead(params.id);
+  if (!lead) notFound();
+
+  const [contacts, findings, screenshots, deliverables, videos, outreach, meetings, proposals, settings] = await Promise.all([
+    contactsForLead(lead.id),
+    findingsForLead(lead.id),
+    screenshotsForLead(lead.id),
+    deliverablesForLead(lead.id),
+    videosForLead(lead.id),
+    outreachForLead(lead.id),
+    meetingsForLead(lead.id),
+    proposalsForLead(lead.id),
+    getSettings(),
+  ]);
+
+  return (
+    <div className="space-y-6">
+      <Link href="/" className="inline-flex items-center gap-1.5 text-sm text-chalk-400 hover:text-chalk-100">
+        <ArrowLeft size={15} /> Back to Today
+      </Link>
+
+      {/* Header */}
+      <div className="card p-5">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="text-2xl font-semibold text-chalk-50">{lead.businessName}</h1>
+              <TierBadge tier={lead.tier} />
+            </div>
+            <p className="mt-1 text-sm text-chalk-400">
+              {lead.industry} · {lead.city}, {lead.state}
+            </p>
+            <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-sm text-chalk-400">
+              {lead.website && (
+                <a href={lead.website} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 hover:text-azure-300">
+                  <Globe size={14} /> {lead.websiteDomain} <ExternalLink size={11} />
+                </a>
+              )}
+              {lead.phone && <span className="inline-flex items-center gap-1"><Phone size={14} /> {lead.phone}</span>}
+              {lead.publicEmail && <span className="inline-flex items-center gap-1"><Mail size={14} /> {lead.publicEmail}</span>}
+              {lead.rating != null && <span className="inline-flex items-center gap-1"><Star size={14} className="text-amber-400" /> {lead.rating} ({lead.reviewCount})</span>}
+              <span className="inline-flex items-center gap-1"><MapPin size={14} /> {lead.address}</span>
+            </div>
+          </div>
+          <div className="shrink-0 text-right">
+            <ScorePill score={lead.leadScore} />
+            <p className="mt-1 text-xs text-chalk-500">{daysInStage(lead)}d in stage</p>
+          </div>
+        </div>
+        <div className="mt-4 border-t border-white/[0.06] pt-4">
+          <LeadActions lead={lead} hasFindings={findings.length > 0} />
+        </div>
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-3">
+        {/* Left column */}
+        <div className="space-y-6 lg:col-span-1">
+          {/* Snapshot / contacts */}
+          <div className="card p-5">
+            <h2 className="mb-3 text-sm font-semibold text-chalk-100">Business snapshot</h2>
+            <dl className="space-y-2 text-sm">
+              <Row label="Google Place ID" value={lead.googlePlaceId ?? "—"} mono />
+              <Row label="Source" value={lead.source} />
+              <Row label="Locations" value={lead.locationsCount?.toString() ?? "Unknown"} />
+              <Row label="Contact form" value={lead.contactFormUrl ? "Found" : "Not found"} />
+              <Row label="Status" value={lead.businessStatus ?? "—"} />
+            </dl>
+            <div className="mt-4">
+              <p className="label mb-2">Decision-makers</p>
+              {contacts.length === 0 ? (
+                <p className="text-xs text-chalk-500">None identified yet. Never invent a person or title.</p>
+              ) : (
+                <div className="space-y-2">
+                  {contacts.map((c) => (
+                    <div key={c.id} className="rounded-lg border border-white/[0.06] p-2.5">
+                      <div className="flex items-center justify-between">
+                        <p className="text-sm font-medium text-chalk-100">{c.name}</p>
+                        <ConfidenceBadge confidence={c.confidence} />
+                      </div>
+                      <p className="text-xs text-chalk-500">{c.title}</p>
+                      <div className="mt-1 flex items-center justify-between">
+                        <SourceTag source={c.source} />
+                        {c.optedOut && <span className="text-[10px] text-red-300">Opted out</span>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Score breakdown */}
+          <ScorePanel lead={lead} />
+        </div>
+
+        {/* Main column */}
+        <div className="space-y-6 lg:col-span-2">
+          {/* AI opportunity summary */}
+          <div className="card p-5">
+            <h2 className="mb-2 text-sm font-semibold text-chalk-100">AI opportunity summary</h2>
+            {lead.opportunitySummary ? (
+              <p className="text-sm leading-relaxed text-chalk-300">{lead.opportunitySummary}</p>
+            ) : (
+              <p className="text-sm text-chalk-500">Run website analysis to generate an assessment.</p>
+            )}
+            {lead.strengths.length > 0 && (
+              <div className="mt-4">
+                <p className="label mb-2">What's working</p>
+                <ul className="space-y-1">
+                  {lead.strengths.map((s, i) => (
+                    <li key={i} className="flex items-start gap-2 text-sm text-chalk-300">
+                      <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-emerald-400" /> {s}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {lead.recommendedService && (
+              <div className="mt-4 rounded-xl border border-azure-500/20 bg-azure-500/[0.04] p-3">
+                <p className="label mb-1">Recommended service</p>
+                <p className="text-sm font-medium text-chalk-100">{lead.recommendedService}</p>
+                <p className="mt-1 text-xs text-chalk-400">
+                  Est. project range (internal): {formatRange(lead.estimatedValueLow, lead.estimatedValueHigh)}
+                </p>
+                {lead.recommendationReason && <p className="mt-2 text-sm text-chalk-300">{lead.recommendationReason}</p>}
+              </div>
+            )}
+          </div>
+
+          {/* Key opportunities / findings */}
+          <div id="findings" className="card p-5">
+            <FindingsEditor leadId={lead.id} findings={findings} screenshots={screenshots} />
+          </div>
+
+          {/* Deliverable */}
+          <div id="deliverable">
+            <DeliverablePanel lead={lead} deliverables={deliverables} findingsCount={findings.filter((f) => f.approved).length} />
+          </div>
+
+          {/* Video */}
+          <div id="video">
+            <VideoPanel lead={lead} videos={videos} screenshots={screenshots} />
+          </div>
+
+          {/* Outreach */}
+          <div id="outreach">
+            <OutreachPanel lead={lead} outreach={outreach} contacts={contacts} settings={settings} hasVideo={videos.some((v) => v.videoUrl)} hasBrief={deliverables.some((d) => d.status !== "draft")} />
+          </div>
+
+          {/* Meeting + proposal */}
+          <div id="meeting">
+            <MeetingProposalPanel lead={lead} meetings={meetings} proposals={proposals} />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Row({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+  return (
+    <div className="flex items-start justify-between gap-3">
+      <dt className="text-xs text-chalk-500">{label}</dt>
+      <dd className={`text-right text-xs ${mono ? "font-mono" : ""} text-chalk-300`}>{value}</dd>
+    </div>
+  );
+}
