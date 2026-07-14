@@ -57,6 +57,7 @@ import {
 } from "./providers/ai";
 import { analyzeWebsite } from "./providers/website";
 import { scheduleFollowUps, stopFollowUps } from "./followups";
+import { stopPlansForLead } from "./acquisition/stop";
 import type {
   PipelineStage,
   Tier,
@@ -168,6 +169,11 @@ export async function saveLeadFromPlace(place: PlaceResult): Promise<{ id: strin
     recommendationReason: null,
     opportunitySummary: null,
     strengths: [],
+    acquisitionStrategy: null,
+    acquisitionScore: null,
+    acquisitionReason: null,
+    acquisitionScoreBreakdown: null,
+    acquisitionOverride: false,
     assignedTo: "jordan",
     note: null,
     lastContactAt: null,
@@ -221,6 +227,11 @@ export async function createManualLeadAction(formData: FormData): Promise<void> 
     recommendationReason: null,
     opportunitySummary: null,
     strengths: [],
+    acquisitionStrategy: null,
+    acquisitionScore: null,
+    acquisitionReason: null,
+    acquisitionScoreBreakdown: null,
+    acquisitionOverride: false,
     assignedTo: "jordan",
     note: null,
     lastContactAt: null,
@@ -493,6 +504,7 @@ export async function markOutreachSentAction(outreachId: string, leadId: string,
 
 export async function markRepliedAction(leadId: string): Promise<void> {
   await stopFollowUps(leadId);
+  await stopPlansForLead(leadId, "reply received");
   const lead = await getLead(leadId);
   const latest = (await outreachForLead(leadId)).at(-1);
   if (latest) await updateOutreach(latest.id, { responseStatus: "replied" });
@@ -504,6 +516,7 @@ export async function optOutAction(leadId: string): Promise<void> {
   const lead = await getLead(leadId);
   if (!lead) return;
   await stopFollowUps(leadId);
+  await stopPlansForLead(leadId, "opted out");
   await addSuppression({ email: lead.publicEmail, domain: lead.websiteDomain, phone: lead.phone, reason: "Opted out" });
   await updateLead(leadId, { pipelineStage: "Disqualified", recommendedAction: "Skip" });
   const latest = (await outreachForLead(leadId)).at(-1);
@@ -570,6 +583,7 @@ export async function bookMeetingAction(leadId: string, formData: FormData): Pro
     outcome: "pending",
   });
   await updateLead(leadId, { pipelineStage: "Meeting Booked" });
+  await stopPlansForLead(leadId, "meeting booked");
   await audit("meeting.book", "meeting", meeting.id);
   touch(leadId);
 }
@@ -609,11 +623,13 @@ export async function markWonAction(leadId: string): Promise<void> {
   const latest = (await proposalsForLead(leadId)).at(-1);
   if (latest) await updateProposal(latest.id, { status: "accepted", acceptedAt: new Date().toISOString() });
   await updateLead(leadId, { pipelineStage: "Won" });
+  await stopPlansForLead(leadId, "won");
   await audit("lead.won", "lead", leadId);
   touch(leadId);
 }
 export async function markLostAction(leadId: string): Promise<void> {
   await updateLead(leadId, { pipelineStage: "Lost" });
+  await stopPlansForLead(leadId, "lost");
   touch(leadId);
 }
 

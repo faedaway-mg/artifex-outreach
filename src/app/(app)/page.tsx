@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { todaysTasks, listLeads, allMeetings, allProposals, getSettings } from "@/lib/repo";
+import { todaysTasks, listLeads, allMeetings, allProposals, getSettings, allPlans } from "@/lib/repo";
 import { placesMode } from "@/lib/providers/places";
 import { nextScheduledRun } from "@/lib/schedule";
 import { todayMix, concentrationAdvisories } from "@/lib/analytics";
@@ -27,12 +27,16 @@ const CLOSED = new Set(["Won", "Lost", "Disqualified", "Nurture"]);
 export default async function TodayPage() {
   const settings = await getSettings();
   const queueSize = settings.prospecting.dailyQueueSize;
-  const [tasks, leads, meetings, proposals] = await Promise.all([
+  const [tasks, leads, meetings, proposals, plans] = await Promise.all([
     todaysTasks(queueSize),
     listLeads(),
     allMeetings(),
     allProposals(),
+    allPlans(),
   ]);
+  const pendingApprovals = plans.filter((p) => p.approvalStatus === "pending").length;
+  const activePlans = plans.filter((p) => p.status === "active").length;
+  const personalPending = plans.filter((p) => p.approvalStatus === "pending" && p.strategy === "Personal").length;
   const leadMap = new Map<string, Lead>(leads.map((l) => [l.id, l]));
   const discoveryMode = placesMode();
   const nextRun = nextScheduledRun(settings.prospecting);
@@ -105,6 +109,19 @@ export default async function TodayPage() {
         <Stat label="Meetings today" value={counts.meetings} tone="amber" />
         <Stat label="Proposals open" value={counts.proposals} tone="teal" />
       </div>
+
+      {/* Acquisition approvals awaiting review */}
+      {pendingApprovals > 0 && (
+        <Link href="/approvals" className="card card-hover flex items-center justify-between p-4">
+          <p className="flex items-center gap-2 text-sm text-chalk-200">
+            <span className="grid h-8 w-8 place-items-center rounded-lg bg-amber-400/15 text-amber-300">{pendingApprovals}</span>
+            {pendingApprovals} acquisition {pendingApprovals === 1 ? "plan" : "plans"} awaiting your approval
+            {personalPending > 0 && <span className="text-xs text-amber-300/80">· {personalPending} Personal (individual)</span>}
+            {activePlans > 0 && <span className="text-xs text-chalk-500">· {activePlans} active</span>}
+          </p>
+          <span className="text-xs text-azure-300">Open Approval Center →</span>
+        </Link>
+      )}
 
       {/* Today's category mix (subtle) */}
       {tasks.length > 0 && (

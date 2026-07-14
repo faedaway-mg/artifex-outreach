@@ -15,8 +15,10 @@ import {
   previewsForLead,
   versionsOf,
   sharesForPreview,
+  plansForLead,
 } from "@/lib/repo";
 import { ConceptPreviewPanel } from "@/components/lead/ConceptPreviewPanel";
+import { AcquisitionPanel } from "@/components/lead/AcquisitionPanel";
 import { TierBadge, ScorePill, SourceTag, ConfidenceBadge } from "@/components/ui";
 import { LeadActions } from "@/components/lead/LeadActions";
 import { ScorePanel } from "@/components/lead/ScorePanel";
@@ -52,6 +54,7 @@ export default async function LeadPage({ params }: { params: { id: string } }) {
   const previewVersion = activePreview?.currentVersionId ? previewVersions.find((v) => v.id === activePreview.currentVersionId) ?? null : null;
   const previewShares = activePreview ? await sharesForPreview(activePreview.id) : [];
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://outreach.artifexlabs.tech";
+  const acquisitionPlans = await plansForLead(lead.id);
 
   return (
     <div className="space-y-6">
@@ -186,6 +189,9 @@ export default async function LeadPage({ params }: { params: { id: string } }) {
           <div id="outreach">
             <OutreachPanel lead={lead} outreach={outreach} contacts={contacts} settings={settings} hasVideo={videos.some((v) => v.videoUrl)} hasBrief={deliverables.some((d) => d.status !== "draft")} />
           </div>
+
+          {/* Acquisition strategy */}
+          <AcquisitionPanel lead={lead} plans={acquisitionPlans} />
 
           {/* Concept Website Preview */}
           <ConceptPreviewPanel leadId={lead.id} tier={lead.tier} preview={activePreview} version={previewVersion} shares={previewShares} findings={findings} appUrl={appUrl} />

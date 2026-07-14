@@ -88,6 +88,11 @@ export const leads = pgTable(
     recommendationReason: text("recommendation_reason"),
     opportunitySummary: text("opportunity_summary"),
     strengths: jsonb("strengths").$type<string[]>().default([]).notNull(),
+    acquisitionStrategy: text("acquisition_strategy"),
+    acquisitionScore: integer("acquisition_score"),
+    acquisitionReason: text("acquisition_reason"),
+    acquisitionScoreBreakdown: jsonb("acquisition_score_breakdown"),
+    acquisitionOverride: boolean("acquisition_override").notNull().default(false),
     assignedTo: text("assigned_to").notNull().default("jordan"),
     note: text("note"),
     lastContactAt: ts("last_contact_at"),
@@ -307,6 +312,97 @@ export const settings = pgTable("settings", {
   data: jsonb("data").notNull(),
   updatedAt: ts("updated_at").notNull(),
 });
+
+// ── Tiered acquisition automation ────────────────────────────────────────────
+export const acquisitionPlans = pgTable(
+  "acquisition_plans",
+  {
+    id: text("id").primaryKey(),
+    leadId: text("lead_id").notNull(),
+    strategy: text("strategy").notNull(),
+    objective: text("objective").notNull().default(""),
+    assetPackage: text("asset_package").notNull().default("None"),
+    primaryChannel: text("primary_channel").notNull().default("none"),
+    secondaryChannel: text("secondary_channel"),
+    status: text("status").notNull().default("prepared"),
+    approvalStatus: text("approval_status").notNull().default("draft"),
+    currentStep: integer("current_step").notNull().default(0),
+    maxTouches: integer("max_touches").notNull().default(0),
+    nextScheduledAt: ts("next_scheduled_at"),
+    replyState: text("reply_state"),
+    approvedBy: text("approved_by"),
+    approvedAt: ts("approved_at"),
+    startedAt: ts("started_at"),
+    pausedAt: ts("paused_at"),
+    completedAt: ts("completed_at"),
+    pauseReason: text("pause_reason"),
+    stopReason: text("stop_reason"),
+    estimatedCost: doublePrecision("estimated_cost").notNull().default(0),
+    owner: text("owner").notNull().default("jordan"),
+    createdAt: ts("created_at").notNull(),
+    updatedAt: ts("updated_at").notNull(),
+  },
+  (t) => ({ leadIdx: index("acquisition_plans_lead_idx").on(t.leadId), statusIdx: index("acquisition_plans_status_idx").on(t.approvalStatus) }),
+);
+
+export const acquisitionSteps = pgTable(
+  "acquisition_steps",
+  {
+    id: text("id").primaryKey(),
+    planId: text("plan_id").notNull(),
+    stepNumber: integer("step_number").notNull(),
+    channel: text("channel").notNull(),
+    delayDays: integer("delay_days").notNull().default(0),
+    subject: text("subject").notNull().default(""),
+    content: text("content").notNull().default(""),
+    approvalRequired: boolean("approval_required").notNull().default(true),
+    approvalStatus: text("approval_status").notNull().default("draft"),
+    scheduledAt: ts("scheduled_at"),
+    sentAt: ts("sent_at"),
+    providerMessageId: text("provider_message_id"),
+    deliveryStatus: text("delivery_status"),
+    stoppedAt: ts("stopped_at"),
+    stopReason: text("stop_reason"),
+    createdAt: ts("created_at").notNull(),
+  },
+  (t) => ({ planIdx: index("acquisition_steps_plan_idx").on(t.planId) }),
+);
+
+export const inboundMessages = pgTable(
+  "inbound_messages",
+  {
+    id: text("id").primaryKey(),
+    leadId: text("lead_id").notNull(),
+    acquisitionPlanId: text("acquisition_plan_id"),
+    provider: text("provider").notNull().default("resend"),
+    providerMessageId: text("provider_message_id"),
+    fromAddr: text("from_addr").notNull().default(""),
+    subject: text("subject").notNull().default(""),
+    bodyRef: text("body_ref").notNull().default(""),
+    receivedAt: ts("received_at").notNull(),
+    classification: text("classification"),
+    confidence: doublePrecision("confidence"),
+    reviewedAt: ts("reviewed_at"),
+  },
+  (t) => ({ leadIdx: index("inbound_messages_lead_idx").on(t.leadId) }),
+);
+
+export const consentBases = pgTable(
+  "consent_bases",
+  {
+    id: text("id").primaryKey(),
+    leadId: text("lead_id").notNull(),
+    contactId: text("contact_id"),
+    channel: text("channel").notNull(),
+    basis: text("basis").notNull(),
+    source: text("source").notNull().default(""),
+    capturedAt: ts("captured_at").notNull(),
+    expiresAt: ts("expires_at"),
+    revokedAt: ts("revoked_at"),
+    notes: text("notes").notNull().default(""),
+  },
+  (t) => ({ leadIdx: index("consent_bases_lead_idx").on(t.leadId) }),
+);
 
 // ── Concept Website Preview ──────────────────────────────────────────────────
 export const conceptPreviews = pgTable(

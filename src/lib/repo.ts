@@ -33,6 +33,10 @@ import type {
   ConceptPreview,
   ConceptPreviewVersion,
   ConceptPreviewShare,
+  AcquisitionPlan,
+  AcquisitionStep,
+  InboundMessage,
+  ConsentBasis,
 } from "./types";
 
 // ── Generic collection helper ────────────────────────────────────────────────
@@ -90,6 +94,10 @@ const Suppressions = collection<Suppression>(t.suppressions, () => mem().suppres
 const Previews = collection<ConceptPreview>(t.conceptPreviews, () => ((mem() as any).conceptPreviews ??= []));
 const PreviewVersions = collection<ConceptPreviewVersion>(t.conceptPreviewVersions, () => ((mem() as any).conceptPreviewVersions ??= []));
 const PreviewShares = collection<ConceptPreviewShare>(t.conceptPreviewShares, () => ((mem() as any).conceptPreviewShares ??= []));
+const Plans = collection<AcquisitionPlan>(t.acquisitionPlans, () => ((mem() as any).acquisitionPlans ??= []));
+const Steps = collection<AcquisitionStep>(t.acquisitionSteps, () => ((mem() as any).acquisitionSteps ??= []));
+const Inbound = collection<InboundMessage>(t.inboundMessages, () => ((mem() as any).inboundMessages ??= []));
+const Consents = collection<ConsentBasis>(t.consentBases, () => ((mem() as any).consentBases ??= []));
 
 // ── Leads ────────────────────────────────────────────────────────────────────
 export async function listLeads(): Promise<Lead[]> {
@@ -308,6 +316,34 @@ export async function getShareByHash(tokenHash: string): Promise<ConceptPreviewS
   if (hasDb()) return (await getDb().select().from(t.conceptPreviewShares).where(eq(t.conceptPreviewShares.tokenHash, tokenHash)))[0] as any;
   return (await PreviewShares.all()).find((s) => s.tokenHash === tokenHash);
 }
+
+// ── Acquisition plans / steps / inbound / consent ────────────────────────────
+export const plansForLead = (leadId: string) => Plans.byLead(leadId);
+export const getPlan = (id: string) => Plans.byId(id);
+export const updatePlan = (id: string, patch: Partial<AcquisitionPlan>) => Plans.update(id, patch);
+export const allPlans = () => Plans.all();
+export async function insertPlan(p: Omit<AcquisitionPlan, "id" | "createdAt" | "updatedAt">): Promise<AcquisitionPlan> {
+  return Plans.insert({ ...p, id: newId("aplan"), createdAt: nowIso(), updatedAt: nowIso() } as AcquisitionPlan);
+}
+export async function stepsForPlan(planId: string): Promise<AcquisitionStep[]> {
+  return (await Steps.all()).filter((s) => s.planId === planId).sort((a, b) => a.stepNumber - b.stepNumber);
+}
+export const getStep = (id: string) => Steps.byId(id);
+export const updateStep = (id: string, patch: Partial<AcquisitionStep>) => Steps.update(id, patch);
+export async function insertStep(s: Omit<AcquisitionStep, "id" | "createdAt">): Promise<AcquisitionStep> {
+  return Steps.insert({ ...s, id: newId("astep"), createdAt: nowIso() } as AcquisitionStep);
+}
+export async function insertInbound(m: Omit<InboundMessage, "id">): Promise<InboundMessage> {
+  return Inbound.insert({ ...m, id: newId("inb") } as InboundMessage);
+}
+export const inboundForLead = (leadId: string) => Inbound.byLead(leadId);
+export async function getInboundByProviderId(providerMessageId: string): Promise<InboundMessage | undefined> {
+  return (await Inbound.all()).find((m) => m.providerMessageId === providerMessageId);
+}
+export async function insertConsent(c: Omit<ConsentBasis, "id">): Promise<ConsentBasis> {
+  return Consents.insert({ ...c, id: newId("consent") } as ConsentBasis);
+}
+export const consentForLead = (leadId: string) => Consents.byLead(leadId);
 
 // ── Prospecting runs ─────────────────────────────────────────────────────────
 export async function insertProspectingRun(r: Omit<ProspectingRun, "id">): Promise<ProspectingRun> {

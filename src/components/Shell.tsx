@@ -12,6 +12,7 @@ import {
   LogOut,
   Command,
   Plus,
+  ShieldCheck,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CommandPalette } from "@/components/CommandPalette";
@@ -20,6 +21,7 @@ const NAV = [
   { href: "/", label: "Today", icon: LayoutGrid },
   { href: "/discover", label: "Discover", icon: Search },
   { href: "/pipeline", label: "Pipeline", icon: KanbanSquare },
+  { href: "/approvals", label: "Approvals", icon: ShieldCheck },
   { href: "/meetings", label: "Meetings", icon: CalendarClock },
   { href: "/performance", label: "Performance", icon: BarChart3 },
   { href: "/settings", label: "Settings", icon: SettingsIcon },
@@ -29,6 +31,7 @@ const TITLES: Record<string, string> = {
   "/": "Today",
   "/discover": "Discover",
   "/pipeline": "Pipeline",
+  "/approvals": "Approval Center",
   "/meetings": "Meetings",
   "/performance": "Performance",
   "/settings": "Settings",

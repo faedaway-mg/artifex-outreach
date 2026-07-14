@@ -180,6 +180,11 @@ export interface Lead {
   recommendationReason: string | null;
   opportunitySummary: string | null;
   strengths: string[];
+  acquisitionStrategy: AcquisitionStrategy | null;
+  acquisitionScore: number | null;
+  acquisitionReason: string | null;
+  acquisitionScoreBreakdown: AcquisitionScoreBreakdown | null;
+  acquisitionOverride: boolean;
   assignedTo: string;
   note: string | null;
   lastContactAt: string | null;
@@ -443,6 +448,105 @@ export interface ConceptPreviewShare {
   viewCount: number;
   lastViewedAt: string | null;
   createdAt: string;
+}
+
+// ── Tiered acquisition automation ────────────────────────────────────────────
+export const ACQUISITION_STRATEGIES = ["Personal", "Assisted", "Light", "Nurture", "Manual Review", "Do Not Contact"] as const;
+export type AcquisitionStrategy = (typeof ACQUISITION_STRATEGIES)[number];
+
+export const ASSET_PACKAGES = ["Premium", "Focused", "Essential", "Nurture", "None"] as const;
+export type AssetPackage = (typeof ASSET_PACKAGES)[number];
+
+export const ACQ_CHANNELS = ["email", "call", "social-manual", "referral", "none"] as const;
+export type AcqChannel = (typeof ACQ_CHANNELS)[number];
+
+export const PLAN_APPROVAL = ["draft", "pending", "approved", "held", "rejected"] as const;
+export type PlanApproval = (typeof PLAN_APPROVAL)[number];
+
+export const PLAN_STATUS = ["prepared", "active", "paused", "completed", "stopped"] as const;
+export type PlanStatus = (typeof PLAN_STATUS)[number];
+
+export interface AcquisitionScoreBreakdown {
+  opportunityValue: number; // /25
+  need: number; // /20
+  contactability: number; // /20
+  trustStability: number; // /15
+  personalization: number; // /10
+  costToPursue: number; // /10 (higher = cheaper to pursue)
+}
+
+export interface AcquisitionPlan {
+  id: string;
+  leadId: string;
+  strategy: AcquisitionStrategy;
+  objective: string;
+  assetPackage: AssetPackage;
+  primaryChannel: AcqChannel;
+  secondaryChannel: AcqChannel | null;
+  status: PlanStatus;
+  approvalStatus: PlanApproval;
+  currentStep: number;
+  maxTouches: number;
+  nextScheduledAt: string | null;
+  replyState: string | null;
+  approvedBy: string | null;
+  approvedAt: string | null;
+  startedAt: string | null;
+  pausedAt: string | null;
+  completedAt: string | null;
+  pauseReason: string | null;
+  stopReason: string | null;
+  estimatedCost: number;
+  owner: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AcquisitionStep {
+  id: string;
+  planId: string;
+  stepNumber: number;
+  channel: AcqChannel;
+  delayDays: number;
+  subject: string;
+  content: string;
+  approvalRequired: boolean;
+  approvalStatus: PlanApproval;
+  scheduledAt: string | null;
+  sentAt: string | null;
+  providerMessageId: string | null;
+  deliveryStatus: string | null;
+  stoppedAt: string | null;
+  stopReason: string | null;
+  createdAt: string;
+}
+
+export interface InboundMessage {
+  id: string;
+  leadId: string;
+  acquisitionPlanId: string | null;
+  provider: string;
+  providerMessageId: string | null;
+  fromAddr: string;
+  subject: string;
+  bodyRef: string;
+  receivedAt: string;
+  classification: string | null;
+  confidence: number | null;
+  reviewedAt: string | null;
+}
+
+export interface ConsentBasis {
+  id: string;
+  leadId: string;
+  contactId: string | null;
+  channel: string;
+  basis: string; // e.g. "legitimate-interest", "client", "opt-in"
+  source: string;
+  capturedAt: string;
+  expiresAt: string | null;
+  revokedAt: string | null;
+  notes: string;
 }
 
 export interface AuditEntry {

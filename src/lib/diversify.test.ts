@@ -73,7 +73,7 @@ function lead(p: Partial<Lead>): Lead {
     socialLinks: [], locationsCount: null, rating: null, reviewCount: null, businessStatus: "OPERATIONAL", googleMapsUrl: null,
     hours: null, source: "test", retrievedAt: null, tier: "B", leadScore: 60, scoreBreakdown: null, pipelineStage: "Qualified",
     estimatedValueLow: 5000, estimatedValueHigh: 9000, recommendedService: null, recommendedAction: null, recommendationReason: null,
-    opportunitySummary: null, strengths: [], assignedTo: "jordan", note: null, lastContactAt: null, nextFollowUpAt: null,
+    opportunitySummary: null, strengths: [], acquisitionStrategy: null, acquisitionScore: null, acquisitionReason: null, acquisitionScoreBreakdown: null, acquisitionOverride: false, assignedTo: "jordan", note: null, lastContactAt: null, nextFollowUpAt: null,
     createdAt: "", updatedAt: "", ...p,
   };
 }

@@ -29,6 +29,13 @@
       "when": 1784022180071,
       "tag": "0003_flimsy_mac_gargan",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1784072768492,
+      "tag": "0004_talented_omega_sentinel",
+      "breakpoints": true
     }
   ]
 }
