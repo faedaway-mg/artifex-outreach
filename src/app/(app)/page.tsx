@@ -2,21 +2,23 @@ import Link from "next/link";
 import { todaysTasks, listLeads, allMeetings, allProposals } from "@/lib/repo";
 import { TierBadge, StageBadge, ScorePill, Stat, EmptyState } from "@/components/ui";
 import { TaskActions } from "@/components/TaskActions";
-import { formatRange, relativeDate, timeOfDay, shortDate } from "@/lib/utils";
-import { Video, Mail, Phone, CalendarClock, FileText, ArrowRight } from "lucide-react";
+import { formatRange, formatCurrency, relativeDate, timeOfDay, shortDate } from "@/lib/utils";
+import { Video, Mail, Phone, CalendarClock, FileText, ArrowRight, Sparkles, Sunrise } from "lucide-react";
 import type { TaskType, Lead } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
-const TASK_META: Record<TaskType, { label: string; icon: any; primary: string }> = {
-  review: { label: "Review lead", icon: ArrowRight, primary: "Review lead" },
-  prepare_video: { label: "Prepare video", icon: Video, primary: "Prepare video" },
-  review_and_send: { label: "Review & send", icon: Mail, primary: "Review & send" },
-  call: { label: "Call", icon: Phone, primary: "Call" },
-  follow_up: { label: "Follow up", icon: Mail, primary: "Follow up" },
-  prepare_meeting: { label: "Prepare meeting", icon: CalendarClock, primary: "Prepare meeting" },
-  prepare_proposal: { label: "Prepare proposal", icon: FileText, primary: "Prepare proposal" },
+const TASK_META: Record<TaskType, { label: string; icon: any; primary: string; tone: string }> = {
+  review: { label: "Review lead", icon: ArrowRight, primary: "Review lead", tone: "text-azure-300" },
+  prepare_video: { label: "Video recommended", icon: Video, primary: "Prepare video", tone: "text-amber-300" },
+  review_and_send: { label: "Draft ready to review", icon: Mail, primary: "Review & send", tone: "text-indigo-300" },
+  call: { label: "Call recommended", icon: Phone, primary: "Call", tone: "text-azure-300" },
+  follow_up: { label: "Follow-up due", icon: Mail, primary: "Follow up", tone: "text-amber-300" },
+  prepare_meeting: { label: "Meeting to prepare", icon: CalendarClock, primary: "Prepare meeting", tone: "text-amber-300" },
+  prepare_proposal: { label: "Proposal to prepare", icon: FileText, primary: "Prepare proposal", tone: "text-indigo-300" },
 };
+
+const CLOSED = new Set(["Won", "Lost", "Disqualified", "Nurture"]);
 
 export default async function TodayPage() {
   const [tasks, leads, meetings, proposals] = await Promise.all([
@@ -28,6 +30,8 @@ export default async function TodayPage() {
   const leadMap = new Map<string, Lead>(leads.map((l) => [l.id, l]));
 
   const now = new Date();
+  const hour = now.getHours();
+  const greeting = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
   const endOfToday = new Date();
   endOfToday.setHours(23, 59, 59, 999);
 
@@ -36,6 +40,10 @@ export default async function TodayPage() {
     return d >= new Date(now.getFullYear(), now.getMonth(), now.getDate()) && d <= endOfToday;
   });
   const proposalsOpen = proposals.filter((p) => p.status === "sent");
+
+  const potentialValue = leads
+    .filter((l) => !CLOSED.has(l.pipelineStage) && l.estimatedValueLow && l.estimatedValueHigh)
+    .reduce((sum, l) => sum + ((l.estimatedValueLow! + l.estimatedValueHigh!) / 2), 0);
 
   const counts = {
     videos: tasks.filter((t) => t.type === "prepare_video").length,
@@ -47,55 +55,80 @@ export default async function TodayPage() {
 
   return (
     <div className="space-y-8">
-      <div>
-        <p className="label">Today · {now.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}</p>
-        <h1 className="mt-1 text-2xl font-semibold text-chalk-50">Who should I contact today?</h1>
-        <p className="mt-1 text-sm text-chalk-400">
-          Your prioritized work queue — each lead has a reason, evidence, and one clear next action.
-        </p>
-      </div>
+      {/* Daily focus header */}
+      <section className="card relative overflow-hidden p-6 md:p-7">
+        <div className="pointer-events-none absolute -right-10 -top-16 h-48 w-48 rounded-full bg-azure-500/10 blur-3xl" />
+        <div className="pointer-events-none absolute -left-8 bottom-0 h-32 w-40 rounded-full bg-indigo-500/[0.07] blur-3xl" />
+        <div className="relative flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <p className="eyebrow flex items-center gap-1.5"><Sunrise size={13} /> {now.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}</p>
+            <h1 className="mt-2 text-[1.9rem] font-semibold leading-tight tracking-[-0.02em] text-chalk-50">{greeting}, Jordan.</h1>
+            <p className="mt-1.5 max-w-xl text-sm leading-relaxed text-chalk-300">
+              {tasks.length > 0
+                ? <>You have <span className="font-medium text-chalk-100">{tasks.length} {tasks.length === 1 ? "action" : "actions"}</span> that could move active opportunities forward today.</>
+                : "Nothing needs your attention right now. A calm moment to discover new businesses."}
+            </p>
+          </div>
+          <div className="flex shrink-0 items-center gap-5 rounded-2xl border border-white/[0.06] bg-white/[0.02] px-5 py-4">
+            <div>
+              <p className="text-[11px] text-chalk-500">Potential pipeline</p>
+              <p className="mt-0.5 text-metric-lg font-semibold tracking-tight text-teal-300">{formatCurrency(Math.round(potentialValue))}</p>
+            </div>
+            <div className="h-10 w-px bg-white/[0.08]" />
+            <div>
+              <p className="text-[11px] text-chalk-500">Focus today</p>
+              <p className="mt-0.5 flex items-baseline gap-1 text-metric-lg font-semibold tracking-tight text-chalk-50">{tasks.length}<span className="text-sm font-normal text-chalk-500">actions</span></p>
+            </div>
+          </div>
+        </div>
+      </section>
 
+      {/* Focus strip */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         <Stat label="Videos to record" value={counts.videos} tone="amber" />
         <Stat label="Drafts to approve" value={counts.outreach} tone="indigo" />
         <Stat label="Follow-ups due" value={counts.followUps} tone="azure" />
         <Stat label="Meetings today" value={counts.meetings} tone="amber" />
-        <Stat label="Proposals open" value={counts.proposals} />
+        <Stat label="Proposals open" value={counts.proposals} tone="teal" />
       </div>
 
+      {/* Priority queue */}
       <section>
-        <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-chalk-400">Priority queue</h2>
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="flex items-center gap-2 text-sm font-semibold text-chalk-200"><Sparkles size={15} className="text-azure-300" /> Priority queue</h2>
+          <span className="text-xs text-chalk-500">{tasks.length} {tasks.length === 1 ? "item" : "items"}</span>
+        </div>
         {tasks.length === 0 ? (
-          <EmptyState title="You're all caught up." hint="Head to Discover to find new leads." />
+          <EmptyState icon={Sparkles} title="You're all caught up." hint="Nothing is waiting. Head to Discover to research new businesses and grow the pipeline." />
         ) : (
           <div className="space-y-3">
-            {tasks.map((task) => {
+            {tasks.map((task, idx) => {
               const lead = leadMap.get(task.leadId);
               if (!lead) return null;
               const meta = TASK_META[task.type];
               const Icon = meta.icon;
               return (
-                <div key={task.id} className="card card-hover animate-fade-up p-4">
+                <div key={task.id} className="card card-hover p-5 animate-fade-up" style={{ animationDelay: `${Math.min(idx * 45, 300)}ms` }}>
                   <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
-                        <Link href={`/leads/${lead.id}`} className="truncate font-semibold text-chalk-50 hover:text-azure-300">
+                        <Link href={`/leads/${lead.id}`} className="truncate text-[15px] font-semibold text-chalk-50 ring-focus hover:text-azure-300">
                           {lead.businessName}
                         </Link>
                         <TierBadge tier={lead.tier} />
                         <StageBadge stage={lead.pipelineStage} />
-                        <span className="text-xs text-chalk-500">{lead.industry} · {lead.city}, {lead.state}</span>
                       </div>
-                      <p className="mt-2 flex items-center gap-1.5 text-xs font-medium text-amber-300">
+                      <p className="mt-1 text-xs text-chalk-500">{lead.industry} · {lead.city}, {lead.state}</p>
+                      <p className={`mt-2.5 flex items-center gap-1.5 text-xs font-medium ${meta.tone}`}>
                         <Icon size={13} /> {meta.label}
                         {task.type === "follow_up" && <span className="text-chalk-500">· {relativeDate(task.dueAt)}</span>}
                       </p>
-                      {lead.recommendationReason && <p className="mt-1.5 max-w-2xl text-sm text-chalk-300">{lead.recommendationReason}</p>}
-                      <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-chalk-500">
-                        <span>Score: <ScorePill score={lead.leadScore} /></span>
-                        {lead.recommendedService && <span>Service: <span className="text-chalk-300">{lead.recommendedService}</span></span>}
-                        <span>Est: <span className="text-chalk-300">{formatRange(lead.estimatedValueLow, lead.estimatedValueHigh)}</span></span>
-                        {lead.nextFollowUpAt && <span>Next follow-up: {shortDate(lead.nextFollowUpAt)}</span>}
+                      {lead.recommendationReason && <p className="mt-1.5 max-w-2xl text-sm leading-relaxed text-chalk-300">{lead.recommendationReason}</p>}
+                      <div className="mt-2.5 flex flex-wrap items-center gap-x-5 gap-y-1 text-xs text-chalk-500">
+                        <span className="inline-flex items-center gap-1.5">Score <ScorePill score={lead.leadScore} /></span>
+                        {lead.recommendedService && <span>Service · <span className="text-chalk-300">{lead.recommendedService}</span></span>}
+                        <span>Opportunity · <span className="text-teal-300/90">{formatRange(lead.estimatedValueLow, lead.estimatedValueHigh)}</span></span>
+                        {lead.nextFollowUpAt && <span>Next · {shortDate(lead.nextFollowUpAt)}</span>}
                       </div>
                     </div>
                     <div className="shrink-0">
@@ -109,19 +142,20 @@ export default async function TodayPage() {
         )}
       </section>
 
+      {/* Meetings today */}
       {meetingsToday.length > 0 && (
         <section>
-          <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-chalk-400">Meetings today</h2>
+          <h2 className="mb-4 flex items-center gap-2 text-sm font-semibold text-chalk-200"><CalendarClock size={15} className="text-amber-300" /> Meetings today</h2>
           <div className="space-y-2">
             {meetingsToday.map((m) => {
               const lead = leadMap.get(m.leadId);
               return (
-                <Link key={m.id} href={`/meetings/${m.id}`} className="card card-hover flex items-center justify-between p-4">
+                <Link key={m.id} href={`/meetings/${m.id}`} className="card card-hover flex items-center justify-between p-4 ring-focus">
                   <div>
                     <p className="font-medium text-chalk-100">{lead?.businessName}</p>
                     <p className="text-xs text-chalk-500">{lead?.industry}</p>
                   </div>
-                  <div className="flex items-center gap-2 text-sm text-amber-300">
+                  <div className="flex items-center gap-2 rounded-lg border border-amber-400/20 bg-amber-400/10 px-3 py-1.5 text-sm text-amber-300">
                     <CalendarClock size={15} /> {timeOfDay(m.scheduledAt)}
                   </div>
                 </Link>

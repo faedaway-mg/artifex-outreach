@@ -4,66 +4,144 @@
 
 :root {
   color-scheme: dark;
+  --edge: rgba(255, 255, 255, 0.07);
+  --edge-soft: rgba(255, 255, 255, 0.045);
 }
 
 html,
 body {
-  background-color: #08090b;
-  color: #edeff3;
+  background-color: #070a10;
+  color: #e9edf5;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
 
+/* ── Quiet Horizon atmosphere ─────────────────────────────────────────────
+   Abstract dawn light + a low horizon band + navy depth. Not a wallpaper —
+   restrained, fixed, and always behind readable surfaces. */
 body {
   background-image:
-    radial-gradient(900px 480px at 12% -8%, rgba(62, 117, 230, 0.1), transparent 60%),
-    radial-gradient(700px 400px at 100% 0%, rgba(109, 111, 224, 0.07), transparent 55%);
+    radial-gradient(1100px 620px at 82% -12%, rgba(94, 147, 247, 0.14), transparent 62%),
+    radial-gradient(900px 520px at 12% -6%, rgba(109, 111, 224, 0.1), transparent 60%),
+    radial-gradient(1400px 700px at 50% 116%, rgba(232, 155, 59, 0.05), transparent 60%),
+    linear-gradient(180deg, #070a10 0%, #080b13 46%, #0a0e17 100%);
   background-attachment: fixed;
 }
 
 /* Thin, calm scrollbars */
 * {
   scrollbar-width: thin;
-  scrollbar-color: #2a2f39 transparent;
+  scrollbar-color: #212b3d transparent;
 }
 *::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 9px;
+  height: 9px;
 }
 *::-webkit-scrollbar-thumb {
-  background: #1e232b;
+  background: #18202f;
   border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: #212b3d;
+  background-clip: content-box;
 }
 
 @layer components {
+  /* ── Glass materials ──────────────────────────────────────────────────── */
+  .glass-1 {
+    @apply border border-white/[0.06] bg-ink-900/80 backdrop-blur-md;
+  }
+  .glass-2 {
+    @apply rounded-3xl border border-white/[0.07] bg-ink-850/60 shadow-glass-2 backdrop-blur-xl;
+  }
+  .glass-3 {
+    @apply rounded-3xl border border-white/[0.1] bg-ink-800/70 shadow-glass-3 backdrop-blur-2xl;
+  }
+
+  /* Cards default to Glass Level 2 */
   .card {
-    @apply rounded-2xl border border-white/[0.06] bg-ink-800/70 backdrop-blur-sm shadow-card;
+    @apply glass-2;
   }
   .card-hover {
-    @apply transition-colors hover:border-white/[0.12] hover:bg-ink-700/60;
+    @apply transition-all duration-300 ease-premium hover:-translate-y-0.5 hover:border-white/[0.12] hover:bg-ink-800/70 hover:shadow-glass-3;
   }
+  .panel {
+    @apply rounded-2xl border border-white/[0.06] bg-ink-850/50;
+  }
+
+  /* ── Typography helpers ───────────────────────────────────────────────── */
   .label {
-    @apply text-[11px] font-medium uppercase tracking-[0.14em] text-chalk-500;
+    @apply text-[11px] font-semibold uppercase tracking-[0.12em] text-chalk-500;
   }
+  .eyebrow {
+    @apply text-xs font-medium tracking-wide text-azure-300/90;
+  }
+  .h-title {
+    @apply text-[1.7rem] font-semibold leading-tight tracking-[-0.02em] text-chalk-50;
+  }
+  .text-secondary {
+    @apply text-chalk-300;
+  }
+  .text-tertiary {
+    @apply text-chalk-500;
+  }
+  .metric {
+    @apply font-semibold tabular-nums tracking-tight text-chalk-50;
+  }
+
+  /* ── Buttons ──────────────────────────────────────────────────────────── */
   .btn {
-    @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-medium transition-all disabled:opacity-40 disabled:pointer-events-none;
+    @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-medium transition-all duration-200 ease-premium disabled:pointer-events-none disabled:opacity-40;
   }
   .btn-primary {
-    @apply btn bg-azure-500 text-white hover:bg-azure-400 shadow-[0_8px_24px_-10px_rgba(62,117,230,0.7)];
+    @apply btn text-white shadow-glow-azure;
+    background-image: linear-gradient(180deg, #5e93f7 0%, #3e75e6 100%);
+  }
+  .btn-primary:hover {
+    background-image: linear-gradient(180deg, #6ea0ff 0%, #4a80f0 100%);
+    box-shadow: 0 14px 34px -12px rgba(62, 117, 230, 0.65);
   }
   .btn-secondary {
-    @apply btn border border-white/10 bg-white/[0.03] text-chalk-100 hover:bg-white/[0.06];
+    @apply btn border border-white/10 bg-white/[0.035] text-chalk-100 hover:border-white/[0.16] hover:bg-white/[0.07];
   }
   .btn-ghost {
-    @apply btn text-chalk-300 hover:bg-white/[0.05] hover:text-chalk-100;
+    @apply btn text-chalk-300 hover:bg-white/[0.05] hover:text-chalk-50;
   }
   .btn-danger {
-    @apply btn border border-red-500/30 bg-red-500/10 text-red-300 hover:bg-red-500/20;
+    @apply btn border border-coral-500/30 bg-coral-500/10 text-coral-300 hover:bg-coral-500/[0.18];
   }
+
+  /* ── Inputs ───────────────────────────────────────────────────────────── */
   .input {
-    @apply w-full rounded-xl border border-white/10 bg-ink-900/70 px-3 py-2 text-sm text-chalk-100 placeholder:text-chalk-500 outline-none transition focus:border-azure-500/60 focus:ring-2 focus:ring-azure-500/20;
+    @apply w-full rounded-xl border border-white/[0.09] bg-ink-950/60 px-3.5 py-2.5 text-sm text-chalk-100 outline-none transition duration-200 placeholder:text-chalk-500 focus:border-azure-500/60 focus:bg-ink-950/80 focus:ring-2 focus:ring-azure-500/20;
   }
   .field-label {
     @apply mb-1.5 block text-xs font-medium text-chalk-400;
+  }
+
+  /* ── Focus-visible ring (accessibility) ───────────────────────────────── */
+  .ring-focus {
+    @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-azure-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-ink-950;
+  }
+
+  /* Loading shimmer */
+  .shimmer {
+    background: linear-gradient(90deg, rgba(255, 255, 255, 0.03) 25%, rgba(255, 255, 255, 0.08) 37%, rgba(255, 255, 255, 0.03) 63%);
+    background-size: 400% 100%;
+    @apply animate-shimmer;
+  }
+}
+
+/* Respect reduced motion everywhere */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
   }
 }
