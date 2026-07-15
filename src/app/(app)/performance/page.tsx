@@ -5,9 +5,13 @@ import {
   allOutreach,
   allVideos,
   allDeliverables,
+  allPlans,
+  listSuppressions,
+  allFeedback,
 } from "@/lib/repo";
 import { Stat } from "@/components/ui";
 import { categoryPerformance, MIN_SAMPLE } from "@/lib/analytics";
+import { acquisitionMetrics } from "@/lib/acquisition/analytics";
 import { formatCurrency } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -18,14 +22,18 @@ function pct(n: number, d: number): string {
 }
 
 export default async function PerformancePage() {
-  const [leads, meetings, proposals, outreach, videos, deliverables] = await Promise.all([
+  const [leads, meetings, proposals, outreach, videos, deliverables, plans, suppressions, feedback] = await Promise.all([
     listLeads(),
     allMeetings(),
     allProposals(),
     allOutreach(),
     allVideos(),
     allDeliverables(),
+    allPlans(),
+    listSuppressions(),
+    allFeedback(),
   ]);
+  const acq = acquisitionMetrics(leads, plans, meetings, proposals, suppressions, feedback);
 
   const discovered = leads.length;
   const qualified = leads.filter((l) => l.leadScore != null).length;
@@ -80,6 +88,26 @@ export default async function PerformancePage() {
           <Stat label="Proposal → close" value={pct(won, proposalsSent || 1)} hint={`${won}/${proposalsSent}`} />
           <Stat label="Avg project value" value={formatCurrency(avgValue)} />
         </div>
+      </section>
+
+      {/* Acquisition analytics */}
+      <section>
+        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-chalk-400">Acquisition</h2>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+          <Stat label="Plans prepared" value={acq.totalPlans} />
+          <Stat label="Approval rate" value={acq.totalPlans ? `${acq.approvalRate}%` : "—"} hint={`${acq.approvedPlans} approved / ${acq.rejectedPlans} rejected`} tone="teal" />
+          <Stat label="Avg time to approval" value={acq.avgTimeToApprovalHours != null ? `${acq.avgTimeToApprovalHours}h` : "—"} />
+          <Stat label="Manual overrides" value={acq.overrides} tone="amber" />
+          <Stat label="Avg est. value" value={formatCurrency(acq.avgEstValue)} />
+          <Stat label="Suppression rate" value={`${acq.suppressionRate}%`} />
+          <Stat label="Manual review" value={acq.manualReview} />
+          <Stat label="Assisted" value={acq.assisted} tone="indigo" />
+        </div>
+        <div className="mt-4 grid gap-6 lg:grid-cols-2">
+          <Breakdown title="Strategy distribution" data={acq.strategyDistribution} />
+          <Breakdown title="Asset cost by strategy ($)" data={acq.assetCostByStrategy.map(([k, v]) => [k, Math.round(v * 100)] as [string, number])} />
+        </div>
+        {acq.approvedPlans < MIN_SAMPLE && <p className="mt-2 text-[11px] text-amber-300/70">Early data — insufficient sample for reliable acquisition conclusions (&lt;{MIN_SAMPLE} approved plans). Targeting changes require your approval.</p>}
       </section>
 
       {/* Performance by category group */}

@@ -71,7 +71,7 @@ export function computeAcquisitionStrategy(lead: Lead, input: StrategyInput = {}
   else if (score >= 32 && contactability >= 6) strategy = "Light";
   else strategy = "Manual Review";
 
-  return { strategy, score, breakdown, reason: buildReason(strategy, breakdown, lead) };
+  return { strategy, score, breakdown, reason: explainStrategy(strategy, breakdown, lead) };
 }
 
 function overrideReason(lead: Lead, input: StrategyInput): string {
@@ -80,14 +80,32 @@ function overrideReason(lead: Lead, input: StrategyInput): string {
   return "Contact is on the suppression list — do not contact.";
 }
 
-function buildReason(strategy: AcquisitionStrategy, b: AcquisitionScoreBreakdown, lead: Lead): string {
-  const parts: string[] = [`Recommended treatment: ${strategy}.`];
-  if (b.opportunityValue >= 16) parts.push("High potential project value.");
-  else if (b.opportunityValue <= 7) parts.push("Modest potential value.");
-  if (b.need >= 14) parts.push("Clear, visible modernization need.");
-  if (b.contactability >= 12) parts.push("Strong contactability.");
-  else if (b.contactability < 8) parts.push("Limited contact routes.");
-  if (b.personalization >= 6) parts.push("Warrants personal handling (value/regulated/multi-location).");
-  parts.push(`Rating (${lead.rating ?? "n/a"}) is only one small input and did not by itself set this treatment.`);
-  return parts.join(" ");
+// Human-readable, per-strategy explanation. Jordan should never wonder why.
+export function explainStrategy(strategy: AcquisitionStrategy, b: AcquisitionScoreBreakdown, lead: Lead): string {
+  const drivers: string[] = [];
+  if (b.opportunityValue >= 16) drivers.push("high potential project value");
+  else if (b.opportunityValue <= 7) drivers.push("modest potential value");
+  if (b.need >= 14) drivers.push("clear, visible modernization opportunities");
+  else if (b.need <= 8) drivers.push("limited visible modernization need");
+  if (b.contactability >= 12) drivers.push("reliable contact information");
+  else if (b.contactability < 8) drivers.push("thin or uncertain contact routes");
+  if (b.personalization >= 6) drivers.push("factors that justify a personal touch (value, multi-location, or a regulated category)");
+  const driverText = drivers.length ? drivers.join(", ") : "a balanced mix of signals";
+
+  const rating = `Its rating (${lead.rating ?? "n/a"}) is only one small input and did not by itself decide this.`;
+
+  switch (strategy) {
+    case "Personal":
+      return `This business received Personal because it shows ${driverText}, and there is enough context to justify investing premium assets and a hands-on first contact. ${rating}`;
+    case "Assisted":
+      return `This business received Assisted because it is a credible opportunity with ${driverText} — worth a controlled, evidence-based sequence, but not yet a full custom package. ${rating}`;
+    case "Light":
+      return `This business received Light because it is credible but lower-potential (${driverText}). A concise, low-cost first touch fits; no paid assets are warranted yet. ${rating}`;
+    case "Nurture":
+      return `This business is set to Nurture — appropriate only where a consented or existing relationship supports staying useful over time rather than cold outreach.`;
+    case "Manual Review":
+      return `This business needs Manual Review because ${b.contactability < 4 ? "the contact route is unreliable or unclear" : "the system could not confidently choose a treatment"}. No contact happens until you review it.`;
+    case "Do Not Contact":
+      return overrideReason(lead, { suppressed: true });
+  }
 }

@@ -8,7 +8,7 @@ import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
 import {
   getLead, updateLead, findingsForLead, getSettings, isSuppressed, addSuppression,
-  plansForLead, getPlan, insertPlan, updatePlan, stepsForPlan, insertStep, updateStep, appendAudit,
+  plansForLead, getPlan, insertPlan, updatePlan, stepsForPlan, insertStep, updateStep, appendAudit, insertFeedback,
 } from "./repo";
 import { computeAcquisitionStrategy } from "./acquisition/strategy";
 import { policyFor, ASSISTED_BATCH_MAX } from "./acquisition/policy";
@@ -45,6 +45,8 @@ export async function overrideStrategyAction(leadId: string, strategy: Acquisiti
   const original = lead.acquisitionStrategy;
   await updateLead(leadId, { acquisitionStrategy: strategy, acquisitionOverride: true, acquisitionReason: `Override: ${reason || "Jordan's judgment"} (was ${original ?? "unset"}).` });
   await audit("acq.override_strategy", leadId, { original, override: strategy, reason, user: "jordan", at: new Date().toISOString() });
+  // Structured learning data — does NOT change scoring automatically.
+  await insertFeedback({ leadId, field: "strategy", original, updated: strategy, reason: reason || "Jordan's judgment", user: "jordan" });
   touch(leadId);
 }
 
@@ -149,5 +151,6 @@ export async function promoteStrategyAction(leadId: string, toStrategy: Acquisit
   if (!lead) return;
   await updateLead(leadId, { acquisitionStrategy: toStrategy, acquisitionOverride: true, acquisitionReason: `Promoted to ${toStrategy} on engagement (Jordan approved).` });
   await audit("acq.promote", leadId, { from: lead.acquisitionStrategy, to: toStrategy });
+  await insertFeedback({ leadId, field: "strategy", original: lead.acquisitionStrategy, updated: toStrategy, reason: "Behavioral promotion (Jordan approved)", user: "jordan" });
   touch(leadId);
 }

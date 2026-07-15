@@ -59,6 +59,17 @@ export default async function TodayPage() {
   });
   const proposalsOpen = proposals.filter((p) => p.status === "sent");
 
+  const workspace: { label: string; count: number; href: string }[] = [
+    { label: "Needs approval", count: pendingApprovals, href: "/approvals" },
+    { label: "Waiting", count: activePlans, href: "/pipeline" },
+    { label: "Ready today", count: plans.filter((p) => p.status === "active" && p.nextScheduledAt && new Date(p.nextScheduledAt) <= endOfToday).length, href: "/approvals" },
+    { label: "Paused", count: plans.filter((p) => p.status === "paused").length, href: "/pipeline" },
+    { label: "Meetings", count: meetingsToday.length, href: "/meetings" },
+    { label: "Proposals", count: proposalsOpen.length, href: "/pipeline" },
+    { label: "Won", count: leads.filter((l) => l.pipelineStage === "Won").length, href: "/performance" },
+    { label: "Lost", count: leads.filter((l) => l.pipelineStage === "Lost").length, href: "/pipeline" },
+  ];
+
   const potentialValue = leads
     .filter((l) => !CLOSED.has(l.pipelineStage) && l.estimatedValueLow && l.estimatedValueHigh)
     .reduce((sum, l) => sum + ((l.estimatedValueLow! + l.estimatedValueHigh!) / 2), 0);
@@ -122,6 +133,16 @@ export default async function TodayPage() {
           <span className="text-xs text-azure-300">Open Approval Center →</span>
         </Link>
       )}
+
+      {/* Acquisition workspace categories */}
+      <div className="grid grid-cols-4 gap-2 sm:grid-cols-8">
+        {workspace.map((w) => (
+          <Link key={w.label} href={w.href} className="card card-hover px-3 py-2.5 text-center">
+            <p className={`text-lg font-semibold tabular-nums ${w.count > 0 ? "text-chalk-50" : "text-chalk-600"}`}>{w.count}</p>
+            <p className="text-[10px] text-chalk-500">{w.label}</p>
+          </Link>
+        ))}
+      </div>
 
       {/* Today's category mix (subtle) */}
       {tasks.length > 0 && (

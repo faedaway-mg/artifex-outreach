@@ -16,9 +16,12 @@ import {
   versionsOf,
   sharesForPreview,
   plansForLead,
+  inboundForLead,
 } from "@/lib/repo";
+import { collectTimeline } from "@/lib/acquisition/timeline";
 import { ConceptPreviewPanel } from "@/components/lead/ConceptPreviewPanel";
 import { AcquisitionPanel } from "@/components/lead/AcquisitionPanel";
+import { AcquisitionTimeline } from "@/components/lead/AcquisitionTimeline";
 import { TierBadge, ScorePill, SourceTag, ConfidenceBadge } from "@/components/ui";
 import { LeadActions } from "@/components/lead/LeadActions";
 import { ScorePanel } from "@/components/lead/ScorePanel";
@@ -55,6 +58,8 @@ export default async function LeadPage({ params }: { params: { id: string } }) {
   const previewShares = activePreview ? await sharesForPreview(activePreview.id) : [];
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://outreach.artifexlabs.tech";
   const acquisitionPlans = await plansForLead(lead.id);
+  const inbound = await inboundForLead(lead.id);
+  const timeline = collectTimeline({ lead, findings, deliverables, videos, shares: previewShares, meetings, proposals, plans: acquisitionPlans, outreach, inbound });
 
   return (
     <div className="space-y-6">
@@ -192,6 +197,9 @@ export default async function LeadPage({ params }: { params: { id: string } }) {
 
           {/* Acquisition strategy */}
           <AcquisitionPanel lead={lead} plans={acquisitionPlans} />
+
+          {/* Acquisition timeline */}
+          <AcquisitionTimeline events={timeline} />
 
           {/* Concept Website Preview */}
           <ConceptPreviewPanel leadId={lead.id} tier={lead.tier} preview={activePreview} version={previewVersion} shares={previewShares} findings={findings} appUrl={appUrl} />

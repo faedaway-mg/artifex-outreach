@@ -37,6 +37,7 @@ import type {
   AcquisitionStep,
   InboundMessage,
   ConsentBasis,
+  AcquisitionFeedback,
 } from "./types";
 
 // ── Generic collection helper ────────────────────────────────────────────────
@@ -98,6 +99,7 @@ const Plans = collection<AcquisitionPlan>(t.acquisitionPlans, () => ((mem() as a
 const Steps = collection<AcquisitionStep>(t.acquisitionSteps, () => ((mem() as any).acquisitionSteps ??= []));
 const Inbound = collection<InboundMessage>(t.inboundMessages, () => ((mem() as any).inboundMessages ??= []));
 const Consents = collection<ConsentBasis>(t.consentBases, () => ((mem() as any).consentBases ??= []));
+const Feedback = collection<AcquisitionFeedback>(t.acquisitionFeedback, () => ((mem() as any).acquisitionFeedback ??= []));
 
 // ── Leads ────────────────────────────────────────────────────────────────────
 export async function listLeads(): Promise<Lead[]> {
@@ -344,6 +346,11 @@ export async function insertConsent(c: Omit<ConsentBasis, "id">): Promise<Consen
   return Consents.insert({ ...c, id: newId("consent") } as ConsentBasis);
 }
 export const consentForLead = (leadId: string) => Consents.byLead(leadId);
+export async function insertFeedback(f: Omit<AcquisitionFeedback, "id" | "createdAt">): Promise<AcquisitionFeedback> {
+  return Feedback.insert({ ...f, id: newId("afb"), createdAt: nowIso() } as AcquisitionFeedback);
+}
+export const feedbackForLead = (leadId: string) => Feedback.byLead(leadId);
+export const allFeedback = () => Feedback.all();
 
 // ── Prospecting runs ─────────────────────────────────────────────────────────
 export async function insertProspectingRun(r: Omit<ProspectingRun, "id">): Promise<ProspectingRun> {

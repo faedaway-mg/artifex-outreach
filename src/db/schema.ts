@@ -387,6 +387,21 @@ export const inboundMessages = pgTable(
   (t) => ({ leadIdx: index("inbound_messages_lead_idx").on(t.leadId) }),
 );
 
+export const acquisitionFeedback = pgTable(
+  "acquisition_feedback",
+  {
+    id: text("id").primaryKey(),
+    leadId: text("lead_id").notNull(),
+    field: text("field").notNull(),
+    original: text("original"),
+    updated: text("updated").notNull(),
+    reason: text("reason").notNull().default(""),
+    user: text("user").notNull().default("jordan"),
+    createdAt: ts("created_at").notNull(),
+  },
+  (t) => ({ leadIdx: index("acquisition_feedback_lead_idx").on(t.leadId) }),
+);
+
 export const consentBases = pgTable(
   "consent_bases",
   {

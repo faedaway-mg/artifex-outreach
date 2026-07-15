@@ -536,6 +536,17 @@ export interface InboundMessage {
   reviewedAt: string | null;
 }
 
+export interface AcquisitionFeedback {
+  id: string;
+  leadId: string;
+  field: string; // "strategy" | "estimatedValue" | "assetPackage" | "priority"
+  original: string | null;
+  updated: string;
+  reason: string;
+  user: string;
+  createdAt: string;
+}
+
 export interface ConsentBasis {
   id: string;
   leadId: string;
