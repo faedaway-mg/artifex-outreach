@@ -1,7 +1,7 @@
 import { allPlans, getLead, stepsForPlan, getSettings, isSuppressed, listLeads, findingsForLead, deliverablesForLead, previewsForLead, videosForLead, contactsForLead } from "@/lib/repo";
 import { checkPlanCompliance } from "@/lib/acquisition/compliance";
 import { policyFor, ASSISTED_BATCH_MAX } from "@/lib/acquisition/policy";
-import { assetReadiness } from "@/lib/acquisition/assets";
+import { assetReadiness, ASSET_LABELS } from "@/lib/acquisition/assets";
 import { contactConfidence, websiteHealthSummary, modernizationHighlights, riskFlags } from "@/lib/acquisition/summary";
 import { ApprovalCenter, type ApprovalItem } from "@/components/ApprovalCenter";
 import { formatRange } from "@/lib/utils";
@@ -38,7 +38,7 @@ export default async function ApprovalsPage() {
       websiteHealth: websiteHealthSummary(lead, findings), highlights: modernizationHighlights(findings),
       contactConfidence: cc, reason: lead.acquisitionReason ?? plan.objective,
       contactEmail: lead.publicEmail, channel: plan.primaryChannel, cost: plan.estimatedCost,
-      assetPackage: plan.assetPackage, assetReady: readiness.ready, assetMissing: readiness.missing,
+      assetPackage: plan.assetPackage, assetReady: readiness.ready, assetMissing: readiness.missing.map((a) => ASSET_LABELS[a]),
       sequence: steps.map((s) => ({ stepNumber: s.stepNumber, delayDays: s.delayDays, subject: s.subject, body: s.content })),
       compliance: { ok: compliance.ok, blockers: compliance.blockers, warnings: compliance.warnings },
       riskFlags: riskFlags(lead, suppressed), suppressed, canBatch: !policyFor(plan.strategy).requiresIndividualApproval,

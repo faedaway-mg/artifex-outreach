@@ -53,6 +53,10 @@ export async function overrideStrategyAction(leadId: string, strategy: Acquisiti
 export async function prepareAcquisitionPlanAction(leadId: string): Promise<void> {
   const lead = await getLead(leadId);
   if (!lead || !lead.acquisitionStrategy) return;
+  // Idempotency: never create a second live plan for a lead (guards double-submit
+  // / refresh). A stopped or rejected plan may be superseded.
+  const existing = await plansForLead(leadId);
+  if (existing.some((p) => p.status !== "stopped" && p.approvalStatus !== "rejected")) return;
   const strategy = lead.acquisitionStrategy;
   const policy = policyFor(strategy);
   const settings = await getSettings();
@@ -79,6 +83,8 @@ export async function prepareAcquisitionPlanAction(leadId: string): Promise<void
 async function tryApprove(planId: string): Promise<{ ok: boolean; blockers: string[] }> {
   const plan = await getPlan(planId);
   if (!plan) return { ok: false, blockers: ["plan not found"] };
+  // Idempotency: an already-approved plan is a no-op (never re-stamps or re-schedules).
+  if (plan.approvalStatus === "approved") return { ok: true, blockers: [] };
   const lead = await getLead(plan.leadId);
   if (!lead) return { ok: false, blockers: ["lead not found"] };
   const steps = await stepsForPlan(planId);
