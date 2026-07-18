@@ -23,6 +23,7 @@ import type {
   Proposal,
   Suppression,
   Settings,
+  StoredBusinessIntelligence,
 } from "./types";
 import { buildSeed } from "./seed";
 import { defaultCategories } from "./categories";
@@ -40,6 +41,7 @@ export interface Collections {
   meetings: Meeting[];
   proposals: Proposal[];
   suppressions: Suppression[];
+  businessIntelligence: StoredBusinessIntelligence[];
   settings: Settings;
   seeded: boolean;
 }
@@ -60,6 +62,7 @@ function createEmpty(): Collections {
     meetings: [],
     proposals: [],
     suppressions: [],
+    businessIntelligence: [],
     settings: defaultSettings(),
     seeded: false,
   };
@@ -84,6 +87,7 @@ export function defaultSettings(): Settings {
     },
     followUpTiming: [0, 3, 7, 14],
     prospecting: defaultProspecting(),
+    sendingWindow: { timezone: "America/Los_Angeles", startHour: 8, endHour: 17, weekdays: [1, 2, 3, 4, 5] },
   };
 }
 
@@ -91,7 +95,7 @@ export function defaultProspecting() {
   return {
     enabled: true,
     positioning:
-      "Artifex Labs is a business modernization studio that helps businesses improve how they look, operate, serve customers, and grow.",
+      "Artifex Labs is a Business Technology Partner. We find friction in how a business attracts customers, serves them, and operates — then prioritize and implement the highest-value improvements over time. We do not sell a predetermined website, app, or automation; we recommend the smallest, highest-impact change first, including a simpler existing tool when that is the better answer.",
     services: [
       { name: "Business Websites", description: "Modern sites, landing pages, redesigns, conversion-focused journeys.", priceLow: 1500, priceHigh: 8000 },
       { name: "Custom Software", description: "Web apps, dashboards, customer portals, SaaS platforms, integrations.", priceLow: 5000, priceHigh: 30000 },
@@ -166,6 +170,16 @@ export function reseed(): void {
   const fresh = createEmpty();
   buildSeed(fresh);
   fresh.seeded = true;
+  g[GLOBAL_KEY] = fresh;
+}
+
+// Test-only: replace the store with a clean, un-seeded slate (no demo data, no
+// dynamically-added collections). Keeps scheduler/dispatch tests isolated since
+// they scan the whole store rather than a single record.
+export function __resetStoreForTests(): void {
+  const g = globalThis as unknown as Record<string, Collections | undefined>;
+  const fresh = createEmpty();
+  fresh.seeded = true; // skip demo seeding
   g[GLOBAL_KEY] = fresh;
 }
 

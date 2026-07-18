@@ -43,6 +43,34 @@
       "when": 1784102515726,
       "tag": "0005_smooth_major_mapleleaf",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1784150283675,
+      "tag": "0006_powerful_turbo",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1784153369400,
+      "tag": "0007_calm_lake",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1784154194111,
+      "tag": "0008_previous_onslaught",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1784229848430,
+      "tag": "0009_icy_northstar",
+      "breakpoints": true
     }
   ]
 }

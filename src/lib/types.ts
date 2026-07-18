@@ -2,6 +2,10 @@
 // Domain types & enums for Artifex Outreach.
 // Single source of truth shared by the store, adapters, UI, and Zod schemas.
 // ─────────────────────────────────────────────────────────────────────────────
+// Type-only imports (erased at runtime — no import cycle) for the persisted
+// Business Intelligence record.
+import type { BusinessIntelligence } from "./intelligence/engine";
+import type { EnrichmentDelta } from "./intelligence/enrichment-delta";
 
 export const PIPELINE_STAGES = [
   "Discovered",
@@ -497,6 +501,12 @@ export interface AcquisitionPlan {
   pauseReason: string | null;
   stopReason: string | null;
   estimatedCost: number;
+  // Immutable context frozen at approval time (null until approved / if unavailable).
+  estimatedValueSnapshot: string | null;
+  assetReadinessSnapshot: boolean | null;
+  assetMissingSnapshot: string[] | null;
+  contactConfidenceSnapshot: string | null;
+  websiteHealthSnapshot: string | null;
   owner: string;
   createdAt: string;
   updatedAt: string;
@@ -534,6 +544,52 @@ export interface InboundMessage {
   classification: string | null;
   confidence: number | null;
   reviewedAt: string | null;
+}
+
+// ── Communication layer ──────────────────────────────────────────────────────
+export const EMAIL_SEND_STATES = ["queued", "sending", "sent", "delivered", "opened", "clicked", "bounced", "complained", "unsubscribed", "failed"] as const;
+export type EmailSendStatus = (typeof EMAIL_SEND_STATES)[number];
+
+export interface EmailSend {
+  id: string;
+  idempotencyKey: string; // "step:<stepId>" — the unit of send-once
+  stepId: string | null;
+  planId: string | null;
+  leadId: string | null;
+  toAddr: string;
+  fromAddr: string;
+  subject: string;
+  status: EmailSendStatus;
+  provider: string;
+  providerMessageId: string | null;
+  attempts: number;
+  lastError: string | null;
+  lastErrorCode: string | null;
+  nextAttemptAt: string | null; // set when queued for a retry
+  queuedAt: string | null;
+  sendingAt: string | null;
+  sentAt: string | null;
+  deliveredAt: string | null;
+  openedAt: string | null;
+  clickedAt: string | null;
+  bouncedAt: string | null;
+  complainedAt: string | null;
+  unsubscribedAt: string | null;
+  failedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface EmailEvent {
+  id: string;
+  providerEventId: string; // unique — dedupes duplicate webhook deliveries
+  type: string; // delivered | opened | clicked | bounced | complained | unsubscribed | ...
+  providerMessageId: string | null;
+  sendId: string | null;
+  payload: unknown;
+  receivedAt: string;
+  processedAt: string | null;
+  result: string | null; // applied | duplicate | unmatched | ignored
 }
 
 export interface AcquisitionFeedback {
@@ -674,6 +730,13 @@ export interface ProspectingProfile {
   lastScheduledRunDate: string | null; // America/LA YYYY-MM-DD
 }
 
+export interface SendingWindow {
+  timezone: string; // IANA tz, e.g. "America/Los_Angeles"
+  startHour: number; // 0-23 inclusive
+  endHour: number; // 0-23 exclusive
+  weekdays: number[]; // 0=Sun … 6=Sat
+}
+
 export interface Settings {
   businessAddress: string;
   signature: string;
@@ -684,6 +747,13 @@ export interface Settings {
   defaultPricing: Record<ArtifexService, { low: number; high: number }>;
   followUpTiming: number[]; // days offsets, e.g. [0,3,7,14]
   prospecting: ProspectingProfile;
+  // Business-hours window during which the scheduler is allowed to send.
+  sendingWindow?: SendingWindow;
+  // ── Launch readiness sign-off ───────────────────────────────────────────────
+  // The explicit human "would I send this to a real business owner today?"
+  // confirmation. Stored so the checklist / validation stay green after sign-off.
+  launchReviewConfirmedAt?: string | null;
+  launchReviewConfirmedBy?: string | null;
 }
 
 export interface ProspectingRun {
@@ -727,4 +797,20 @@ export interface FollowUpStep {
   dayOffset: number;
   label: string;
   message: string;
+}
+
+// ── Persisted Business Intelligence ──────────────────────────────────────────
+// The full engine output stored per lead, plus scalar columns for fast querying
+// and the most recent enrichment delta (what changed on the last regeneration).
+export interface StoredBusinessIntelligence {
+  id: string;
+  leadId: string;
+  profile: BusinessIntelligence;
+  enrichmentDelta: EnrichmentDelta | null;
+  evidenceConfidence: number;
+  improvementScore: number;
+  treatment: string;
+  generatedAt: string;
+  createdAt: string;
+  updatedAt: string;
 }

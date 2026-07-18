@@ -9,7 +9,7 @@
 // callers now await. Rows map 1:1 to domain objects (schema uses camelCase JS keys
 // and string-mode timestamps), so the Postgres path needs almost no mapping.
 // ─────────────────────────────────────────────────────────────────────────────
-import { eq } from "drizzle-orm";
+import { eq, and, inArray, lte, isNull } from "drizzle-orm";
 import { hasDb, getDb } from "@/db/client";
 import * as t from "@/db/schema";
 import { db as mem, newId, nowIso, normalizeName, domainFromUrl, normalizePhone, defaultSettings, defaultProspecting } from "./store";
@@ -38,6 +38,10 @@ import type {
   InboundMessage,
   ConsentBasis,
   AcquisitionFeedback,
+  EmailSend,
+  EmailSendStatus,
+  EmailEvent,
+  StoredBusinessIntelligence,
 } from "./types";
 
 // ── Generic collection helper ────────────────────────────────────────────────
@@ -86,6 +90,7 @@ const Contacts = collection<Contact>(t.contacts, () => mem().contacts);
 const Findings = collection<Finding>(t.findings, () => mem().findings);
 const Screenshots = collection<Screenshot>(t.screenshots, () => mem().screenshots);
 const Deliverables = collection<Deliverable>(t.deliverables, () => mem().deliverables);
+const BusinessIntel = collection<StoredBusinessIntelligence>(t.businessIntelligence, () => mem().businessIntelligence);
 const Videos = collection<Video>(t.videos, () => mem().videos);
 const Outreaches = collection<Outreach>(t.outreach, () => mem().outreach);
 const Tasks = collection<Task>(t.tasks, () => mem().tasks);
@@ -100,6 +105,10 @@ const Steps = collection<AcquisitionStep>(t.acquisitionSteps, () => ((mem() as a
 const Inbound = collection<InboundMessage>(t.inboundMessages, () => ((mem() as any).inboundMessages ??= []));
 const Consents = collection<ConsentBasis>(t.consentBases, () => ((mem() as any).consentBases ??= []));
 const Feedback = collection<AcquisitionFeedback>(t.acquisitionFeedback, () => ((mem() as any).acquisitionFeedback ??= []));
+const EmailSends = collection<EmailSend>(t.emailSends, () => ((mem() as any).emailSends ??= []));
+const memEmailSends = () => ((mem() as any).emailSends ??= []) as EmailSend[];
+const EmailEvents = collection<EmailEvent>(t.emailEvents, () => ((mem() as any).emailEvents ??= []));
+const memEmailEvents = () => ((mem() as any).emailEvents ??= []) as EmailEvent[];
 
 // ── Leads ────────────────────────────────────────────────────────────────────
 export async function listLeads(): Promise<Lead[]> {
@@ -129,6 +138,16 @@ export async function findDuplicate(candidate: {
     if (norm && l.normalizedName === norm) return true;
     return false;
   });
+}
+
+export async function findLeadByEmail(email: string): Promise<Lead | undefined> {
+  if (!email) return undefined;
+  const e = email.trim().toLowerCase();
+  if (hasDb()) {
+    const rows = (await getDb().select().from(t.leads).where(eq(t.leads.publicEmail, email))) as any as Lead[];
+    if (rows[0]) return rows[0];
+  }
+  return (await Leads.all()).find((l) => l.publicEmail?.toLowerCase() === e);
 }
 
 // ── Contacts ─────────────────────────────────────────────────────────────────
@@ -162,6 +181,39 @@ export async function insertDeliverable(d: Omit<Deliverable, "id" | "createdAt" 
   return Deliverables.insert({ ...d, id: newId("deliv"), createdAt: nowIso(), updatedAt: nowIso() } as Deliverable);
 }
 export const updateDeliverable = (id: string, patch: Partial<Deliverable>) => Deliverables.update(id, patch);
+
+// ── Business Intelligence (persisted engine profile, one current row per lead) ──
+export const allBusinessIntelligence = () => BusinessIntel.all();
+export async function getBusinessIntelligence(leadId: string): Promise<StoredBusinessIntelligence | undefined> {
+  const all = await BusinessIntel.byLead(leadId);
+  return all.sort((a, b) => +new Date(b.generatedAt) - +new Date(a.generatedAt))[0];
+}
+export async function upsertBusinessIntelligence(row: {
+  leadId: string;
+  profile: StoredBusinessIntelligence["profile"];
+  enrichmentDelta: StoredBusinessIntelligence["enrichmentDelta"];
+  generatedAt: string;
+}): Promise<StoredBusinessIntelligence> {
+  const existing = await getBusinessIntelligence(row.leadId);
+  const scalars = {
+    evidenceConfidence: row.profile.evidenceConfidence,
+    improvementScore: row.profile.improvement.score,
+    treatment: row.profile.improvement.treatment,
+  };
+  if (existing) {
+    return (await BusinessIntel.update(existing.id, { profile: row.profile, enrichmentDelta: row.enrichmentDelta, generatedAt: row.generatedAt, ...scalars }))!;
+  }
+  return BusinessIntel.insert({
+    id: newId("bi"),
+    leadId: row.leadId,
+    profile: row.profile,
+    enrichmentDelta: row.enrichmentDelta,
+    generatedAt: row.generatedAt,
+    createdAt: nowIso(),
+    updatedAt: nowIso(),
+    ...scalars,
+  } as StoredBusinessIntelligence);
+}
 
 // ── Videos ───────────────────────────────────────────────────────────────────
 export const videosForLead = (leadId: string) => Videos.byLead(leadId);
@@ -227,25 +279,41 @@ export async function insertProposal(p: Omit<Proposal, "id" | "createdAt" | "upd
 }
 export const updateProposal = (id: string, patch: Partial<Proposal>) => Proposals.update(id, patch);
 
-// ── Global collections (analytics) ───────────────────────────────────────────
+// ── Global collections (analytics + batch hydration) ─────────────────────────
 export const allOutreach = () => Outreaches.all();
 export const allVideos = () => Videos.all();
 export const allDeliverables = () => Deliverables.all();
+export const allContacts = () => Contacts.all();
+export const allFindings = () => Findings.all();
+export const allSteps = () => Steps.all();
 
 // ── Suppressions ─────────────────────────────────────────────────────────────
 export const listSuppressions = () => Suppressions.all();
 export async function addSuppression(s: Omit<Suppression, "id" | "createdAt">): Promise<Suppression> {
   return Suppressions.insert({ ...s, id: newId("supp"), createdAt: nowIso() } as Suppression);
 }
-export async function isSuppressed(opts: { email?: string | null; domain?: string | null; phone?: string | null }): Promise<boolean> {
+// Predicate matching a single suppression row against a lead's contact points.
+function matchesSuppression(s: Suppression, opts: { email?: string | null; domain?: string | null; phone?: string | null }): boolean {
   const phone = normalizePhone(opts.phone);
-  const list = await Suppressions.all();
-  return list.some(
-    (s) =>
-      (opts.email && s.email && s.email.toLowerCase() === opts.email.toLowerCase()) ||
-      (opts.domain && s.domain && s.domain.toLowerCase() === opts.domain.toLowerCase()) ||
-      (phone && s.phone && normalizePhone(s.phone) === phone),
+  return (
+    (Boolean(opts.email) && Boolean(s.email) && s.email!.toLowerCase() === opts.email!.toLowerCase()) ||
+    (Boolean(opts.domain) && Boolean(s.domain) && s.domain!.toLowerCase() === opts.domain!.toLowerCase()) ||
+    (Boolean(phone) && Boolean(s.phone) && normalizePhone(s.phone) === phone)
   );
+}
+export async function isSuppressed(opts: { email?: string | null; domain?: string | null; phone?: string | null }): Promise<boolean> {
+  const list = await Suppressions.all();
+  return list.some((s) => matchesSuppression(s, opts));
+}
+
+/**
+ * Build a suppression checker from a SINGLE fetch of the suppression list. Use
+ * this when checking many leads (e.g. the Approval Center) to avoid re-scanning
+ * the table once per lead. Semantics are identical to isSuppressed().
+ */
+export async function buildSuppressionChecker(): Promise<(opts: { email?: string | null; domain?: string | null; phone?: string | null }) => boolean> {
+  const list = await Suppressions.all();
+  return (opts) => list.some((s) => matchesSuppression(s, opts));
 }
 
 // ── Settings ─────────────────────────────────────────────────────────────────
@@ -339,6 +407,7 @@ export async function insertInbound(m: Omit<InboundMessage, "id">): Promise<Inbo
   return Inbound.insert({ ...m, id: newId("inb") } as InboundMessage);
 }
 export const inboundForLead = (leadId: string) => Inbound.byLead(leadId);
+export const allInbound = () => Inbound.all();
 export async function getInboundByProviderId(providerMessageId: string): Promise<InboundMessage | undefined> {
   return (await Inbound.all()).find((m) => m.providerMessageId === providerMessageId);
 }
@@ -386,6 +455,145 @@ export async function listAudit(limit = 100): Promise<AuditEntry[]> {
     return rows.sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt)).slice(0, limit);
   }
   return (((mem() as any).audit as AuditEntry[]) ?? []).slice(-limit).reverse();
+}
+
+// ── Email sends (communication ledger / outbox) ──────────────────────────────
+// Low-level, policy-free persistence primitives. The claim/retry POLICY lives in
+// the comms dispatcher; the repo only provides atomic building blocks so send-once
+// holds even under concurrency and restarts.
+
+/**
+ * Atomic insert-or-get keyed by idempotencyKey. Returns `inserted: true` only for
+ * the caller that created the row (the unique index makes this exactly one caller,
+ * even across processes / duplicate scheduler runs). Everyone else gets the
+ * existing row with `inserted: false`.
+ */
+export async function insertEmailSendIfAbsent(
+  seed: Omit<EmailSend, "id" | "createdAt" | "updatedAt">,
+): Promise<{ inserted: boolean; row: EmailSend }> {
+  const row = { ...seed, id: newId("esend"), createdAt: nowIso(), updatedAt: nowIso() } as EmailSend;
+  if (hasDb()) {
+    const ins = (await getDb().insert(t.emailSends).values(row as any).onConflictDoNothing({ target: t.emailSends.idempotencyKey }).returning()) as any as EmailSend[];
+    if (ins[0]) return { inserted: true, row: ins[0] };
+    const existing = (await getDb().select().from(t.emailSends).where(eq(t.emailSends.idempotencyKey, seed.idempotencyKey)))[0] as any as EmailSend;
+    return { inserted: false, row: existing };
+  }
+  const arr = memEmailSends();
+  const existing = arr.find((r) => r.idempotencyKey === seed.idempotencyKey);
+  if (existing) return { inserted: false, row: existing };
+  arr.push(row);
+  return { inserted: true, row };
+}
+
+/**
+ * Compare-and-set: apply `patch` only if the row is currently in one of the
+ * `expected` states. Returns the updated row, or null if the guard didn't match
+ * (someone else transitioned it first). This is how a retry / stuck-send is
+ * claimed without racing a concurrent worker.
+ */
+export async function casEmailSendStatus(
+  id: string,
+  expected: EmailSendStatus | EmailSendStatus[],
+  patch: Partial<EmailSend>,
+): Promise<EmailSend | null> {
+  const exp = Array.isArray(expected) ? expected : [expected];
+  const p = { ...patch, updatedAt: nowIso() } as any;
+  if (hasDb()) {
+    const upd = (await getDb().update(t.emailSends).set(p).where(and(eq(t.emailSends.id, id), inArray(t.emailSends.status, exp))).returning()) as any as EmailSend[];
+    return upd[0] ?? null;
+  }
+  const r = memEmailSends().find((x) => x.id === id);
+  if (r && exp.includes(r.status)) {
+    Object.assign(r, p);
+    return r;
+  }
+  return null;
+}
+
+export const updateEmailSend = (id: string, patch: Partial<EmailSend>) => EmailSends.update(id, patch);
+export const getEmailSend = (id: string) => EmailSends.byId(id);
+export const allEmailSends = () => EmailSends.all();
+export async function getEmailSendByKey(key: string): Promise<EmailSend | undefined> {
+  if (hasDb()) return (await getDb().select().from(t.emailSends).where(eq(t.emailSends.idempotencyKey, key)))[0] as any;
+  return memEmailSends().find((r) => r.idempotencyKey === key);
+}
+export async function getEmailSendByProviderMessageId(pmid: string): Promise<EmailSend | undefined> {
+  if (hasDb()) return (await getDb().select().from(t.emailSends).where(eq(t.emailSends.providerMessageId, pmid)))[0] as any;
+  return memEmailSends().find((r) => r.providerMessageId === pmid);
+}
+export async function emailSendsForPlan(planId: string): Promise<EmailSend[]> {
+  if (hasDb()) return (await getDb().select().from(t.emailSends).where(eq(t.emailSends.planId, planId))) as any;
+  return memEmailSends().filter((r) => r.planId === planId);
+}
+export async function emailSendsForLead(leadId: string): Promise<EmailSend[]> {
+  if (hasDb()) return (await getDb().select().from(t.emailSends).where(eq(t.emailSends.leadId, leadId))) as any;
+  return memEmailSends().filter((r) => r.leadId === leadId);
+}
+export async function emailSendsByStepIds(stepIds: string[]): Promise<EmailSend[]> {
+  if (!stepIds.length) return [];
+  if (hasDb()) return (await getDb().select().from(t.emailSends).where(inArray(t.emailSends.stepId, stepIds))) as any;
+  const set = new Set(stepIds);
+  return memEmailSends().filter((r) => r.stepId != null && set.has(r.stepId));
+}
+
+/**
+ * Approved email steps of active+approved plans that are due to send (scheduledAt
+ * reached, not yet sent, not stopped). This is the scheduler's candidate set;
+ * backoff + idempotency are then enforced by the scheduler/dispatcher.
+ */
+export async function dueStepsForSending(nowIso: string, limit = 500): Promise<string[]> {
+  if (hasDb()) {
+    const rows = await getDb()
+      .select({ id: t.acquisitionSteps.id })
+      .from(t.acquisitionSteps)
+      .innerJoin(t.acquisitionPlans, eq(t.acquisitionSteps.planId, t.acquisitionPlans.id))
+      .where(
+        and(
+          eq(t.acquisitionPlans.status, "active"),
+          eq(t.acquisitionPlans.approvalStatus, "approved"),
+          eq(t.acquisitionSteps.approvalStatus, "approved"),
+          eq(t.acquisitionSteps.channel, "email"),
+          isNull(t.acquisitionSteps.sentAt),
+          isNull(t.acquisitionSteps.stoppedAt),
+          lte(t.acquisitionSteps.scheduledAt, nowIso),
+        ),
+      )
+      .limit(limit);
+    return rows.map((r) => r.id);
+  }
+  const activePlanIds = new Set((await Plans.all()).filter((p) => p.status === "active" && p.approvalStatus === "approved").map((p) => p.id));
+  return (await Steps.all())
+    .filter((s) => activePlanIds.has(s.planId) && s.approvalStatus === "approved" && s.channel === "email" && !s.sentAt && !s.stoppedAt && s.scheduledAt != null && s.scheduledAt <= nowIso)
+    .sort((a, b) => (a.scheduledAt ?? "").localeCompare(b.scheduledAt ?? ""))
+    .slice(0, limit)
+    .map((s) => s.id);
+}
+
+// ── Email events (webhook dedup + audit) ─────────────────────────────────────
+/** Insert-or-get by providerEventId. `inserted:false` means a duplicate webhook. */
+export async function insertEmailEventIfAbsent(seed: Omit<EmailEvent, "id">): Promise<{ inserted: boolean; row: EmailEvent }> {
+  const row = { ...seed, id: newId("evt") } as EmailEvent;
+  if (hasDb()) {
+    const ins = (await getDb().insert(t.emailEvents).values(row as any).onConflictDoNothing({ target: t.emailEvents.providerEventId }).returning()) as any as EmailEvent[];
+    if (ins[0]) return { inserted: true, row: ins[0] };
+    const existing = (await getDb().select().from(t.emailEvents).where(eq(t.emailEvents.providerEventId, seed.providerEventId)))[0] as any as EmailEvent;
+    return { inserted: false, row: existing };
+  }
+  const arr = memEmailEvents();
+  const existing = arr.find((r) => r.providerEventId === seed.providerEventId);
+  if (existing) return { inserted: false, row: existing };
+  arr.push(row);
+  return { inserted: true, row };
+}
+export const updateEmailEvent = (id: string, patch: Partial<EmailEvent>) => EmailEvents.update(id, patch);
+export const allEmailEvents = () => EmailEvents.all();
+
+/** Queued sends whose backoff has elapsed — the retry queue (Phase 9). */
+export async function dueEmailRetries(nowIso: string, limit = 200): Promise<EmailSend[]> {
+  if (hasDb()) {
+    return (await getDb().select().from(t.emailSends).where(and(eq(t.emailSends.status, "queued"), lte(t.emailSends.nextAttemptAt, nowIso))).limit(limit)) as any;
+  }
+  return memEmailSends().filter((r) => r.status === "queued" && r.nextAttemptAt != null && r.nextAttemptAt <= nowIso).slice(0, limit);
 }
 
 // ── Pipeline helpers ─────────────────────────────────────────────────────────

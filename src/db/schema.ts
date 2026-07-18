@@ -191,6 +191,25 @@ export const deliverables = pgTable(
   (t) => ({ leadIdx: index("deliverables_lead_idx").on(t.leadId) }),
 );
 
+// Persisted Business Intelligence — the full engine profile per lead (jsonb) plus
+// scalar columns for fast querying and the last enrichment delta. Additive only.
+export const businessIntelligence = pgTable(
+  "business_intelligence",
+  {
+    id: text("id").primaryKey(),
+    leadId: text("lead_id").notNull(),
+    profile: jsonb("profile").notNull(),
+    enrichmentDelta: jsonb("enrichment_delta"),
+    evidenceConfidence: integer("evidence_confidence").notNull().default(0),
+    improvementScore: integer("improvement_score").notNull().default(0),
+    treatment: text("treatment").notNull().default(""),
+    generatedAt: ts("generated_at").notNull(),
+    createdAt: ts("created_at").notNull(),
+    updatedAt: ts("updated_at").notNull(),
+  },
+  (t) => ({ leadIdx: index("business_intelligence_lead_idx").on(t.leadId) }),
+);
+
 export const videos = pgTable(
   "videos",
   {
@@ -338,6 +357,11 @@ export const acquisitionPlans = pgTable(
     pauseReason: text("pause_reason"),
     stopReason: text("stop_reason"),
     estimatedCost: doublePrecision("estimated_cost").notNull().default(0),
+    estimatedValueSnapshot: text("estimated_value_snapshot"),
+    assetReadinessSnapshot: boolean("asset_readiness_snapshot"),
+    assetMissingSnapshot: jsonb("asset_missing_snapshot").$type<string[]>(),
+    contactConfidenceSnapshot: text("contact_confidence_snapshot"),
+    websiteHealthSnapshot: text("website_health_snapshot"),
     owner: text("owner").notNull().default("jordan"),
     createdAt: ts("created_at").notNull(),
     updatedAt: ts("updated_at").notNull(),
@@ -537,5 +561,75 @@ export const auditLog = pgTable(
   (t) => ({
     actionIdx: index("audit_action_idx").on(t.action),
     createdIdx: index("audit_created_idx").on(t.createdAt),
+  }),
+);
+
+// ── Communication layer (live sending) ───────────────────────────────────────
+// Durable send ledger / outbox. One row per communication step, keyed by a unique
+// idempotencyKey so a step can never produce two successful provider sends — even
+// across browser refresh, retry, Railway restart, duplicate webhook, or duplicate
+// scheduler run. Also the source of truth for conversation state, the retry queue,
+// and monitoring aggregates. Contains no message body — only routing + lifecycle.
+export const emailSends = pgTable(
+  "email_sends",
+  {
+    id: text("id").primaryKey(),
+    idempotencyKey: text("idempotency_key").notNull(),
+    stepId: text("step_id"),
+    planId: text("plan_id"),
+    leadId: text("lead_id"),
+    toAddr: text("to_addr").notNull().default(""),
+    fromAddr: text("from_addr").notNull().default(""),
+    subject: text("subject").notNull().default(""),
+    // queued|sending|sent|delivered|opened|clicked|bounced|complained|unsubscribed|failed
+    status: text("status").notNull().default("queued"),
+    provider: text("provider").notNull().default("resend"),
+    providerMessageId: text("provider_message_id"),
+    attempts: integer("attempts").notNull().default(0),
+    lastError: text("last_error"),
+    lastErrorCode: text("last_error_code"),
+    nextAttemptAt: ts("next_attempt_at"),
+    queuedAt: ts("queued_at"),
+    sendingAt: ts("sending_at"),
+    sentAt: ts("sent_at"),
+    deliveredAt: ts("delivered_at"),
+    openedAt: ts("opened_at"),
+    clickedAt: ts("clicked_at"),
+    bouncedAt: ts("bounced_at"),
+    complainedAt: ts("complained_at"),
+    unsubscribedAt: ts("unsubscribed_at"),
+    failedAt: ts("failed_at"),
+    createdAt: ts("created_at").notNull(),
+    updatedAt: ts("updated_at").notNull(),
+  },
+  (t) => ({
+    keyIdx: uniqueIndex("email_sends_key_idx").on(t.idempotencyKey),
+    statusIdx: index("email_sends_status_idx").on(t.status),
+    providerMsgIdx: index("email_sends_provider_msg_idx").on(t.providerMessageId),
+    planIdx: index("email_sends_plan_idx").on(t.planId),
+    leadIdx: index("email_sends_lead_idx").on(t.leadId),
+  }),
+);
+
+// Raw provider webhook events (deliveries/opens/clicks/bounces/complaints). Keyed
+// by a unique providerEventId so duplicate webhook deliveries are idempotent — the
+// second arrival is recorded as a no-op. Append-only audit of what the provider
+// told us + how we applied it.
+export const emailEvents = pgTable(
+  "email_events",
+  {
+    id: text("id").primaryKey(),
+    providerEventId: text("provider_event_id").notNull(),
+    type: text("type").notNull(),
+    providerMessageId: text("provider_message_id"),
+    sendId: text("send_id"),
+    payload: jsonb("payload"),
+    receivedAt: ts("received_at").notNull(),
+    processedAt: ts("processed_at"),
+    result: text("result"), // applied | duplicate | unmatched | ignored
+  },
+  (t) => ({
+    eventIdx: uniqueIndex("email_events_event_idx").on(t.providerEventId),
+    msgIdx: index("email_events_msg_idx").on(t.providerMessageId),
   }),
 );
