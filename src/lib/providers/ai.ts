@@ -313,15 +313,15 @@ export async function generateBrief(
     refs: ["findings", "opportunity-summary", "google-places"],
     mock: () => ({
       cover: {
-        subtitle: type === "Quick Snapshot" ? "Quick Snapshot" : "Business Modernization Brief",
+        subtitle: type === "Quick Snapshot" ? "Quick Snapshot" : "Business Technology Review",
         confidentialityNote: "Confidential discussion document",
       },
       executiveSnapshot: {
-        overview: `${lead.businessName} is a well-regarded ${lead.industry.toLowerCase()} in ${lead.city} whose digital presence has not kept pace with how customers now discover and engage local businesses.`,
+        overview: `${lead.businessName} is a well-regarded ${lead.industry.toLowerCase()} in ${lead.city}. From the outside, there appear to be a few practical opportunities to make it easier for customers to find, choose, and reach the business — small points of friction that may be quietly costing inquiries.`,
         whatIsWorking: strengthsFor(lead).join("; ") + ".",
-        primaryOpportunity: used[0]?.modernizationDirection ?? "Modernize the website and intake experience.",
-        potentialImpact: "Reducing friction in the customer journey typically recovers inquiries otherwise lost.",
-        recommendedFirstConversation: `A short call to review the observations and see whether ${service} is a fit.`,
+        primaryOpportunity: used[0]?.modernizationDirection ?? "Make it easier for customers to find, choose, and reach the business.",
+        potentialImpact: "Reducing friction in the customer journey typically recovers inquiries that are otherwise lost.",
+        recommendedFirstConversation: `A short call to compare these observations with how things actually work, and to agree on the smallest useful first improvement — if there is one.`,
       },
       strengths: strengthsFor(lead),
       opportunities: used.map((f) => ({
@@ -351,7 +351,7 @@ export async function generateBrief(
       },
       cta: {
         headline: "Let's explore what this could look like.",
-        body: `A brief, no-obligation conversation to review the observations and see if a modernization project makes sense for ${lead.businessName}.`,
+        body: `A brief, no-obligation conversation to review the observations and see whether a focused first improvement makes sense for ${lead.businessName}.`,
       },
     }),
   });
@@ -363,13 +363,13 @@ export async function generateBrief(
 function componentsFor(service: ArtifexService): string[] {
   switch (service) {
     case "Business Website System":
-      return ["Mobile-first website rebuild", "Online intake + scheduling", "Automated confirmations"];
+      return ["A clearer, faster customer-facing experience", "Online intake + scheduling", "Automated confirmations"];
     case "AI Operations System":
       return ["AI-assisted intake", "Automated follow-up sequences", "Pipeline reporting"];
     case "Automation Sprint":
       return ["Scheduling automation", "Confirmation + reminder messages", "Automated review requests"];
     case "Launch Website":
-      return ["Modern mobile-first site", "Clear calls to action", "Basic lead capture"];
+      return ["A focused, fast customer-facing page", "A clear primary action for customers", "Simple lead capture"];
     case "Product or MVP Build":
       return ["Product scoping", "MVP build", "Launch support"];
     case "Visual Asset System":

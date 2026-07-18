@@ -27,7 +27,7 @@ export function ConceptPreviewPanel({ leadId, tier, preview, version, shares, fi
     <div className="card p-5" id="concept">
       <div className="mb-4 flex items-center justify-between">
         <div>
-          <h2 className="flex items-center gap-2 text-sm font-semibold text-chalk-100"><Palette size={16} className="text-indigo-300" /> Concept Website Preview</h2>
+          <h2 className="flex items-center gap-2 text-sm font-semibold text-chalk-100"><Palette size={16} className="text-indigo-300" /> Concept Preview</h2>
           <p className="text-xs text-chalk-500">A focused, clearly-labeled concept to start a conversation — never a free website. Approved public facts only; nothing is shared without your approval.</p>
         </div>
         {preview && <span className="rounded-full border border-white/10 px-2 py-0.5 text-xs text-chalk-400">{preview.status}</span>}

@@ -94,7 +94,7 @@ export async function analyzeWebsite(lead: Lead): Promise<WebsiteAnalysis> {
           observation: "The business appears to rely on its Google listing with no standalone website.",
           evidence: "No website URL present on the business profile.",
           businessImpact: "Limits credibility and the ability to convert searchers into booked customers.",
-          modernizationDirection: "Launch a fast, mobile-first website with clear calls to action.",
+          modernizationDirection: "Give searchers an easy way to become customers — a simple, fast mobile presence with one clear next step.",
           findingType: "Verified fact",
           confidence: "Verified",
           sourceUrl: null,
@@ -138,7 +138,7 @@ export async function analyzeWebsite(lead: Lead): Promise<WebsiteAnalysis> {
       findings.push(fnd("Mobile usability", "No mobile viewport configured", "The page lacks a responsive viewport meta tag.", "No <meta name=viewport> found in the homepage HTML.", "The site likely does not adapt to phones, hurting mobile visitors.", "Add responsive design with a proper viewport.", "Automated technical finding", "Verified", url));
     }
     if (ps && slowLoad) {
-      findings.push(fnd("Page speed", "Homepage is slow on mobile", `Largest Contentful Paint measured at ~${(ps.lcpMs / 1000).toFixed(1)}s (performance score ${ps.score}).`, `Google PageSpeed Insights (mobile): LCP ${ps.lcpMs}ms, score ${ps.score}/100.`, "Slow loads increase bounce rate on paid and organic traffic.", "Optimize images and rebuild on a modern framework.", "Automated technical finding", "Verified", url));
+      findings.push(fnd("Page speed", "Homepage is slow on mobile", `Largest Contentful Paint measured at ~${(ps.lcpMs / 1000).toFixed(1)}s (performance score ${ps.score}).`, `Google PageSpeed Insights (mobile): LCP ${ps.lcpMs}ms, score ${ps.score}/100.`, "Slow loads increase bounce rate on paid and organic traffic.", "Speed up the mobile experience so fewer visitors drop off before contacting.", "Automated technical finding", "Verified", url));
     }
     if (!hasForm && !hasContactPath) {
       findings.push(fnd("Conversion journey", "No obvious contact path", "The homepage exposes neither a form nor a tel/mailto contact link.", "No <form>, tel:, or mailto: detected on the homepage.", "Prospective customers may struggle to make contact, losing inquiries.", "Add a clear contact/booking call to action and intake form.", "AI inference", "Likely", url));

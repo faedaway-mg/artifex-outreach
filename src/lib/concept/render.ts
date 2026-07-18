@@ -8,7 +8,7 @@ import type { ConceptSpec, ConceptComponent } from "./spec";
 import { tokensFor } from "./spec";
 
 export const CONCEPT_DISCLAIMER =
-  "Concept Website Preview — prepared by Artifex Labs for demonstration only. Not affiliated with, approved by, or requested by this business. Final design and scope require discovery and agreement. Represented features, pricing, and claims are illustrative and not implemented.";
+  "Concept Preview — prepared by Artifex Labs for demonstration only. Not affiliated with, approved by, or requested by this business. Final direction and scope require discovery and agreement. Represented features, pricing, and claims are illustrative and not implemented.";
 
 function esc(s: unknown): string {
   return String(s ?? "").replace(/[<>&"']/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;", "'": "&#39;" }[c]!));
@@ -86,7 +86,7 @@ export function renderConcept(spec: ConceptSpec): { html: string; css: string } 
   const parts = spec.components.map(renderComponent).join("\n");
   const disclaimerBar = hasDisclaimer ? "" : `<div class="disclaimer"><p>${esc(CONCEPT_DISCLAIMER)}</p></div>`;
   const attribution = `<div class="artifex-attr">Concept prepared by Artifex Labs · artifexlabs.tech · Demonstration only</div>`;
-  const title = `${esc(spec.meta.businessName)} — Concept Website Preview`;
+  const title = `${esc(spec.meta.businessName)} — Concept Preview`;
 
   const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow,noarchive"><title>${title}</title><style>${styles}</style></head><body><main>${parts}</main>${disclaimerBar}${attribution}</body></html>`;
   return { html, css: styles };

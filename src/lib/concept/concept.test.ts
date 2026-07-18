@@ -49,7 +49,7 @@ describe("spec + render", () => {
     const { html } = renderConcept(spec);
     expect(html).toContain("width=device-width");
     expect(html.toLowerCase()).toContain("noindex");
-    expect(html).toMatch(/concept website preview/i);
+    expect(html).toMatch(/concept preview/i);
     expect(html).toMatch(/artifex labs/i);
     expect(html).not.toMatch(/<script/i);
     expect(html).not.toMatch(/\son\w+=/i);

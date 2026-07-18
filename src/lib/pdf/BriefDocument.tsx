@@ -1,8 +1,30 @@
 /* eslint-disable jsx-a11y/alt-text */
 import React from "react";
 import { Document, Page, Text, View, StyleSheet } from "@react-pdf/renderer";
-import type { Lead, Deliverable, Settings } from "@/lib/types";
+import type { Lead, Deliverable, Settings, ArtifexService } from "@/lib/types";
 import { ARTIFEX_IDENTITY } from "@/lib/identity";
+
+// Customer-facing engagement label. The internal ArtifexService names are a
+// productized menu; a prospect should see the OUTCOME we propose, not a SKU.
+// The stored content keeps the service enum; only the printed label is reframed.
+function engagementLabel(service: ArtifexService | string): string {
+  switch (service) {
+    case "Launch Website":
+    case "Business Website System":
+      return "A stronger customer-facing experience";
+    case "AI Operations System":
+    case "Automation Sprint":
+      return "Streamlined day-to-day operations";
+    case "Product or MVP Build":
+      return "A focused product build";
+    case "Visual Asset System":
+      return "A cohesive visual system";
+    case "Product Strategy Engagement":
+      return "Product strategy & roadmap";
+    default:
+      return String(service);
+  }
+}
 
 // Premium, minimal, calm brief — light document for easy sharing/printing.
 const INK = "#0D0F13";
@@ -128,14 +150,14 @@ export function BriefDocument({ lead, deliverable, settings }: { lead: Lead; del
       <Page key="opps" size="A4" style={s.page}>
         <Header />
         <Text style={s.eyebrow}>Key opportunities</Text>
-        <Text style={s.h2}>Where modernization would help most</Text>
+        <Text style={s.h2}>Where improvement would help most</Text>
         {c.opportunities.map((o, i) => (
           <View key={i} style={s.card} wrap={false}>
             <Text style={[s.label, { color: ACCENT }]}>Opportunity {i + 1}</Text>
             <Text style={{ fontSize: 11.5, fontFamily: "Helvetica-Bold", marginBottom: 6 }}>{o.observation}</Text>
             <Text style={s.p}><Text style={s.muted}>Evidence: </Text>{o.evidence}</Text>
             <Text style={s.p}><Text style={s.muted}>Possible consequence: </Text>{o.businessConsequence}</Text>
-            <Text style={s.p}><Text style={s.muted}>Modernization direction: </Text>{o.modernizationDirection}</Text>
+            <Text style={s.p}><Text style={s.muted}>Suggested direction: </Text>{o.modernizationDirection}</Text>
           </View>
         ))}
         <Footer note={footerNote} />
@@ -148,7 +170,7 @@ export function BriefDocument({ lead, deliverable, settings }: { lead: Lead; del
       <Page key="journey" size="A4" style={s.page}>
         <Header />
         <Text style={s.eyebrow}>Customer journey</Text>
-        <Text style={s.h2}>From current experience to modernized flow</Text>
+        <Text style={s.h2}>From current experience to an improved flow</Text>
         <View style={{ flexDirection: "row", gap: 12 }}>
           <View style={[s.card, s.journeyCol]}>
             <Text style={s.label}>Current state</Text>
@@ -157,7 +179,7 @@ export function BriefDocument({ lead, deliverable, settings }: { lead: Lead; del
             ))}
           </View>
           <View style={[s.card, s.journeyCol, { borderColor: "#CBD9F5" }]}>
-            <Text style={[s.label, { color: ACCENT }]}>Modernized state</Text>
+            <Text style={[s.label, { color: ACCENT }]}>Improved state</Text>
             {c.customerJourney.futureState.map((step, i) => (
               <View key={i} style={s.bullet}><View style={[s.dot, { backgroundColor: ACCENT }]} /><Text style={s.bulletText}>{step}</Text></View>
             ))}
@@ -172,7 +194,7 @@ export function BriefDocument({ lead, deliverable, settings }: { lead: Lead; del
     <Page key="path" size="A4" style={s.page}>
       <Header />
       <Text style={s.eyebrow}>Recommended path</Text>
-      <Text style={s.h2}>{c.modernizationPath.primaryEngagement}</Text>
+      <Text style={s.h2}>{engagementLabel(c.modernizationPath.primaryEngagement)}</Text>
       <Text style={s.label}>Potential components</Text>
       <View style={{ flexDirection: "row", flexWrap: "wrap", marginBottom: 12, marginTop: 4 }}>
         {c.modernizationPath.components.map((comp, i) => (

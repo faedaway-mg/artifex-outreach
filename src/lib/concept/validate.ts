@@ -33,7 +33,7 @@ export function validateConcept(spec: ConceptSpec, html: string, approvedFacts: 
   const approvedText = approvedFacts.filter((f) => f.status === "confirmed" || f.status === "jordan").map((f) => f.value.toLowerCase()).join(" | ");
 
   // Disclaimer + attribution
-  if (!/concept website preview/i.test(html) || !/demonstration only/i.test(html)) add("disclaimer", "critical", "Concept disclaimer is missing.");
+  if (!/concept preview/i.test(html) || !/demonstration only/i.test(html)) add("disclaimer", "critical", "Concept disclaimer is missing.");
   if (!/artifex labs/i.test(html)) add("attribution", "critical", "Artifex attribution is missing.");
 
   // Business name approved

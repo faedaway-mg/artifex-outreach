@@ -54,7 +54,7 @@ export function generateConceptSpec(input: GenerateInput): { spec: ConceptSpec; 
     props: {
       eyebrow: category,
       headline: `${businessName}, reimagined for how customers choose you today`,
-      subhead: `A clearer, faster, mobile-first experience — designed to make it effortless to ${input.targetAction.toLowerCase()}.`,
+      subhead: `A clearer, faster experience — designed to make it effortless to ${input.targetAction.toLowerCase()}.`,
       ctaLabel,
       ...(bookingHref ? { ctaHref: bookingHref } : {}),
     },

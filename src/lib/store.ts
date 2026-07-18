@@ -97,9 +97,9 @@ export function defaultProspecting() {
     positioning:
       "Artifex Labs is a Business Technology Partner. We find friction in how a business attracts customers, serves them, and operates — then prioritize and implement the highest-value improvements over time. We do not sell a predetermined website, app, or automation; we recommend the smallest, highest-impact change first, including a simpler existing tool when that is the better answer.",
     services: [
-      { name: "Business Websites", description: "Modern sites, landing pages, redesigns, conversion-focused journeys.", priceLow: 1500, priceHigh: 8000 },
+      { name: "Customer Growth & Experience", description: "Make it easier for customers to find, choose, and reach the business — a clearer customer journey, focused landing experiences, better intake and follow-up.", priceLow: 1500, priceHigh: 8000 },
       { name: "Custom Software", description: "Web apps, dashboards, customer portals, SaaS platforms, integrations.", priceLow: 5000, priceHigh: 30000 },
-      { name: "Business Operations", description: "Workflow + CRM automation, intake/follow-up systems, internal tools, reporting.", priceLow: 2000, priceHigh: 15000 },
+      { name: "Operational Efficiency", description: "Remove repetitive manual work — workflow + CRM automation, intake/follow-up systems, internal tools, reporting.", priceLow: 2000, priceHigh: 15000 },
       { name: "Product Strategy", description: "MVP planning, roadmaps, UX + technical architecture, startup advisory.", priceLow: 2000, priceHigh: 12000 },
       { name: "Visual Systems", description: "Brand + design systems, UI libraries, product & adaptive interfaces.", priceLow: 2000, priceHigh: 15000 },
       { name: "Asset Factory", description: "Production-ready visual assets, icons, illustrations, interface asset systems.", priceLow: 1500, priceHigh: 10000 },
