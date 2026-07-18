@@ -7,6 +7,7 @@
 // sending is disabled. Idempotency, scheduling, and rate-limit contracts are
 // defined now so the live layer slots in cleanly.
 // ─────────────────────────────────────────────────────────────────────────────
+import { createResendProvider } from "./resend";
 
 export interface EmailMessage {
   to: string;
@@ -22,13 +23,42 @@ export interface SendResult {
   sent: boolean;
   providerMessageId: string | null;
   reason?: string; // when not sent
+  // Failure classification (Phase 9). retryable=true → transient (network, 429,
+  // 5xx): the send should be re-queued with backoff. retryable=false → permanent
+  // (invalid address, bad key, validation): log and stop. Unset when sent.
+  retryable?: boolean;
+  errorCode?: string; // e.g. "rate_limited", "auth", "network", "validation"
+  statusCode?: number; // provider HTTP status, when applicable
+}
+
+export interface ProviderMeta {
+  name: string;
+  mode: "live" | "disabled";
+  fromDomain: string | null; // verified sending domain, when known
+  batchLimit: number; // max messages per sendBatch call
+  configured: boolean; // credentials present
+}
+
+export interface HealthResult {
+  ok: boolean;
+  issues: string[];
+  latencyMs?: number; // round-trip to a live provider ping, when performed
 }
 
 export interface EmailProvider {
   readonly name: string;
   readonly canSend: boolean;
+  readonly meta: ProviderMeta;
+  // send one message. `send` is the canonical name; `sendEmail` is a stable alias.
   send(msg: EmailMessage): Promise<SendResult>;
+  sendEmail(msg: EmailMessage): Promise<SendResult>;
+  // send many in one provider round-trip (chunked to meta.batchLimit). Results are
+  // returned positionally, one per input message.
+  sendBatch(msgs: EmailMessage[]): Promise<SendResult[]>;
+  // static configuration validation (no network).
   verifyConfiguration(): Promise<{ ok: boolean; issues: string[] }>;
+  // live reachability + credential check (network).
+  healthCheck(): Promise<HealthResult>;
 }
 
 // ── Inbound / event contracts ────────────────────────────────────────────────
@@ -44,25 +74,48 @@ export interface RateLimiter { allow(key: string): Promise<boolean> }
 export interface IdempotencyStore { seen(key: string): Promise<boolean>; remember(key: string): Promise<void> }
 
 // ── Default no-op provider (sending disabled) ────────────────────────────────
+const DISABLED_REASON = "Email sending is disabled (no provider configured).";
 export const disabledEmailProvider: EmailProvider = {
   name: "disabled",
   canSend: false,
+  meta: { name: "disabled", mode: "disabled", fromDomain: null, batchLimit: 1, configured: false },
   async send(): Promise<SendResult> {
-    return { sent: false, providerMessageId: null, reason: "Email sending is disabled (no provider configured)." };
+    return { sent: false, providerMessageId: null, reason: DISABLED_REASON, retryable: false, errorCode: "disabled" };
+  },
+  async sendEmail(): Promise<SendResult> {
+    return { sent: false, providerMessageId: null, reason: DISABLED_REASON, retryable: false, errorCode: "disabled" };
+  },
+  async sendBatch(msgs: EmailMessage[]): Promise<SendResult[]> {
+    return msgs.map(() => ({ sent: false, providerMessageId: null, reason: DISABLED_REASON, retryable: false, errorCode: "disabled" }));
   },
   async verifyConfiguration() {
     return { ok: false, issues: ["No email provider configured. Set up Resend + verified domain to enable sending."] };
   },
+  async healthCheck() {
+    return { ok: false, issues: ["Email sending disabled — no provider configured."] };
+  },
 };
 
 // Resolver. Returns the live provider when one is wired + configured; otherwise
-// the disabled no-op. (Resend adapter is intentionally not implemented yet.)
+// the disabled no-op. Memoized so callers share a single instance (stable meta).
+// The acquisition engine never calls this — only the communication layer does.
+let cached: EmailProvider | null = null;
+let cachedForKey: string | undefined;
 export function getEmailProvider(): EmailProvider {
-  // Future: if (process.env.RESEND_API_KEY) return resendProvider();
-  return disabledEmailProvider;
+  const key = process.env.RESEND_API_KEY;
+  if (cached && cachedForKey === key) return cached;
+  cachedForKey = key;
+  cached = key ? createResendProvider() : disabledEmailProvider;
+  return cached;
 }
 
-export function commsStatus(): { provider: string; canSend: boolean } {
+// Test/hot-reload seam: drop the memoized provider so a changed env is re-read.
+export function resetEmailProvider(): void {
+  cached = null;
+  cachedForKey = undefined;
+}
+
+export function commsStatus(): { provider: string; canSend: boolean; meta: ProviderMeta } {
   const p = getEmailProvider();
-  return { provider: p.name, canSend: p.canSend };
+  return { provider: p.name, canSend: p.canSend, meta: p.meta };
 }

@@ -20,45 +20,49 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
   }
 
-  const settings = await getSettings();
-  const p = settings.prospecting;
-  if (!p.enabled) {
-    return NextResponse.json({ ok: true, skipped: "automation paused" });
+  try {
+    const settings = await getSettings();
+    const p = settings.prospecting;
+    if (!p.enabled) {
+      return NextResponse.json({ ok: true, skipped: "automation paused" });
+    }
+
+    // Weekday check in America/Los_Angeles
+    const laDay = new Date().toLocaleString("en-US", { timeZone: "America/Los_Angeles", weekday: "short" });
+    const dayIndex = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(laDay.slice(0, 3));
+    const force = req.nextUrl.searchParams.get("force") === "1";
+    if (!force && !p.weekdays.includes(dayIndex)) {
+      return NextResponse.json({ ok: true, skipped: `not a configured weekday (${laDay})` });
+    }
+
+    // Duplicate-run guard: only one scheduled run per America/LA calendar day
+    // (allows a frequent safe trigger; the endpoint self-throttles). force=1 bypasses.
+    const today = laDateKey();
+    if (!force && p.lastScheduledRunDate === today) {
+      return NextResponse.json({ ok: true, skipped: `already ran for ${today}` });
+    }
+
+    const run = await runProspecting({ trigger: "scheduled" });
+    // Record the local date so subsequent same-day triggers are no-ops.
+    const after = await getSettings();
+    await updateSettings({ prospecting: { ...after.prospecting, lastScheduledRunDate: today } });
+
+    return NextResponse.json({
+      ok: true,
+      run: {
+        id: run.id,
+        providerMode: run.providerMode,
+        searchesPerformed: run.searchesPerformed,
+        placesRequests: run.placesRequests,
+        examined: run.examined,
+        duplicatesRemoved: run.duplicatesRemoved,
+        excluded: run.excluded,
+        addedToToday: run.addedToToday,
+        estimatedCostUsd: run.estimatedCostUsd,
+        errors: run.errors,
+      },
+    });
+  } catch (err) {
+    return NextResponse.json({ ok: false, error: err instanceof Error ? err.message : "prospecting run failed" }, { status: 500 });
   }
-
-  // Weekday check in America/Los_Angeles
-  const laDay = new Date().toLocaleString("en-US", { timeZone: "America/Los_Angeles", weekday: "short" });
-  const dayIndex = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(laDay.slice(0, 3));
-  const force = req.nextUrl.searchParams.get("force") === "1";
-  if (!force && !p.weekdays.includes(dayIndex)) {
-    return NextResponse.json({ ok: true, skipped: `not a configured weekday (${laDay})` });
-  }
-
-  // Duplicate-run guard: only one scheduled run per America/LA calendar day
-  // (allows a frequent safe trigger; the endpoint self-throttles). force=1 bypasses.
-  const today = laDateKey();
-  if (!force && p.lastScheduledRunDate === today) {
-    return NextResponse.json({ ok: true, skipped: `already ran for ${today}` });
-  }
-
-  const run = await runProspecting({ trigger: "scheduled" });
-  // Record the local date so subsequent same-day triggers are no-ops.
-  const after = await getSettings();
-  await updateSettings({ prospecting: { ...after.prospecting, lastScheduledRunDate: today } });
-
-  return NextResponse.json({
-    ok: true,
-    run: {
-      id: run.id,
-      providerMode: run.providerMode,
-      searchesPerformed: run.searchesPerformed,
-      placesRequests: run.placesRequests,
-      examined: run.examined,
-      duplicatesRemoved: run.duplicatesRemoved,
-      excluded: run.excluded,
-      addedToToday: run.addedToToday,
-      estimatedCostUsd: run.estimatedCostUsd,
-      errors: run.errors,
-    },
-  });
 }

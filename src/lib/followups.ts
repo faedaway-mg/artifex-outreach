@@ -1,26 +1,31 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // Follow-up sequence. No autonomous sending — each step becomes a Today task that
 // Jordan approves. Sequence stops when the lead replies or opts out.
+//
+// SOURCE OF TRUTH: the guidance text for each step is drawn from the approved
+// Communication Guide (./communication-guide.ts §6.4 follow-up cadence + §7
+// snippets). This file holds no independent copy — it inherits the guide's voice.
 // ─────────────────────────────────────────────────────────────────────────────
 import type { FollowUpStep, Lead } from "./types";
 import { insertTask, updateLead, allTasks, updateTask } from "./repo";
+import { SNIPPETS, OFFERINGS } from "./communication-guide";
 
 export const DEFAULT_SEQUENCE: FollowUpStep[] = [
   { dayOffset: 0, label: "Initial outreach", message: "Initial personalized outreach." },
   {
     dayOffset: 3,
-    label: "Brief follow-up",
-    message: "Just following up on the note and Modernization Brief I sent — did you get a chance to look?",
+    label: "One more thought",
+    message: `One more thought in case it's useful — no agenda. When a new customer first reaches out, how much of what happens next is still handled by hand? That's usually where the quiet time goes. ${SNIPPETS.ctas[0]}`,
   },
   {
     dayOffset: 7,
-    label: "One additional observation",
-    message: "One more thing I noticed that could help: a small change to how customers reach you could reduce missed inquiries.",
+    label: "Offer the Review",
+    message: `If it would help, the low-risk next step is a ${OFFERINGS.review} — a short, structured look at where the friction actually costs you, and a ranked plan you keep either way. ${SNIPPETS.reassurances[0]}`,
   },
   {
     dayOffset: 14,
     label: "Final low-pressure message",
-    message: "I'll leave this here for now — if the timing is ever right to explore a modernization project, I'd be glad to talk.",
+    message: `I'll leave this here for now. ${SNIPPETS.reassurances[2]}`,
   },
 ];
 
