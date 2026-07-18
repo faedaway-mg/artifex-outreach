@@ -1,0 +1,230 @@
+// ─────────────────────────────────────────────────────────────────────────────
+// Website Intelligence Provider (Phase 1 — highest priority).
+//
+// The business website carries more useful intelligence than any directory. This
+// provider extracts structured business understanding from public pages and emits
+// normalized Evidence — never unsupported assumptions. Analysis is a PURE function
+// over supplied pages (fully testable offline); the live crawl path is gated by
+// config and only runs when explicitly enabled.
+// ─────────────────────────────────────────────────────────────────────────────
+import { evidence, type Evidence, type EvidenceKind, type EvidenceConfidence, type ProviderResult } from "../evidence";
+import type { EnrichmentProvider, EnrichmentInput, SuppliedPage } from "../providers";
+import type { ObservationType } from "../../positioning";
+import { htmlToText, extractTitle, canonicalizeUrl } from "../crawler";
+import { intelligenceConfig } from "../config";
+import { HttpClient } from "../http-client";
+import { crawlSite } from "../crawler";
+
+const PROVIDER_ID = "website-intelligence";
+
+interface Emit {
+  kind: EvidenceKind;
+  field: string;
+  value: Evidence["value"];
+  statement: string;
+  observationType: ObservationType;
+  confidence: EvidenceConfidence;
+  sourceUrl: string;
+}
+
+/** PURE: analyze already-fetched pages into normalized Evidence. */
+export function analyzeWebsitePages(pages: SuppliedPage[]): Evidence[] {
+  if (!pages.length) return [];
+  const out: Emit[] = [];
+  const home = pages[0];
+  const allHtml = pages.map((p) => p.html).join("\n");
+  const allText = pages.map((p) => htmlToText(p.html)).join(" \n ");
+  const lc = allHtml.toLowerCase();
+  const src = home.url;
+
+  const push = (e: Emit) => out.push(e);
+  const fact = (kind: EvidenceKind, field: string, value: Evidence["value"], statement: string, confidence: EvidenceConfidence = "Verified") =>
+    push({ kind, field, value, statement, observationType: confidence === "Verified" ? "Directly observed fact" : "Strong inference", confidence, sourceUrl: src });
+  const friction = (field: string, statement: string, confidence: EvidenceConfidence = "Verified") =>
+    push({ kind: "friction", field: `friction:${field}`, value: statement, statement, observationType: "Directly observed fact", confidence, sourceUrl: src });
+
+  // Business description
+  const desc = metaContent(allHtml, "description") || ogContent(allHtml, "og:description") || firstSentence(allText);
+  if (desc) fact("market", "businessDescription", trunc(desc, 300), `Describes itself as: "${trunc(desc, 160)}"`, "Likely");
+
+  // Languages (international readiness)
+  const langs = languages(allHtml);
+  if (langs.length) fact("identity", "languages", langs.join(","), `Site language(s): ${langs.join(", ")}.`, langs.length > 1 ? "Verified" : "Likely");
+
+  // Services (nav + section headings)
+  const services = services_(allHtml);
+  if (services.length) fact("market", "services", services.slice(0, 12).join("; "), `Advertises services: ${services.slice(0, 6).join(", ")}${services.length > 6 ? "…" : ""}.`, "Likely");
+
+  // Primary CTA
+  const cta = primaryCta(allHtml);
+  if (cta) fact("channel", "primaryCTA", cta, `Primary call-to-action reads "${cta}".`);
+  else friction("noClearCTA", "No obvious primary call-to-action on the page — may leave visitors unsure what to do next.");
+
+  // Booking / scheduling flow
+  const booking = detectBooking(lc);
+  if (booking) fact("technology", "bookingFlow", booking, `Online booking present via ${booking}.`);
+  else friction("noOnlineBooking", "No online booking/scheduling detected — customers may have to call during hours to book.");
+
+  // Lead form
+  if (/<form[\s>]/i.test(allHtml)) fact("channel", "hasLeadForm", true, "A lead/contact form is present.");
+  else friction("noLeadForm", "No lead/contact form detected — inquiries likely depend on phone or email only.");
+
+  // Contact paths
+  const contactPaths = contactPaths_(allHtml);
+  if (contactPaths.length) fact("channel", "contactPaths", contactPaths.join(","), `Contact routes visible: ${contactPaths.join(", ")}.`);
+
+  // Locations
+  const locs = countLocations(allText);
+  if (locs > 1) fact("scale", "locations", locs, `Appears to reference ${locs} locations.`, "Likely");
+
+  // Pricing visibility
+  if (/\$\s?\d|\bpricing\b|\bplans\b|\bpackages\b/i.test(allText)) fact("market", "pricingVisible", true, "Pricing or packages are at least partially visible publicly.", "Likely");
+  else fact("market", "pricingVisible", false, "No public pricing visible — common, but worth confirming positioning.", "Likely");
+
+  // Trust indicators
+  const trust = trustIndicators(allText);
+  if (trust.length) fact("reputation", "trustIndicators", trust.join(","), `Trust signals present: ${trust.join(", ")}.`, "Likely");
+  else friction("weakTrust", "Few visible trust indicators (testimonials, credentials, guarantees) — may slow customer decisions.", "Likely");
+
+  // FAQ / support
+  if (/\bfaq\b|frequently asked/i.test(allHtml)) fact("channel", "hasFAQ", true, "An FAQ / support section exists.");
+  // Customer portal
+  if (/\b(client|customer|patient)\s*(portal|login|account)\b|\/portal\b|\/login\b/i.test(lc)) fact("technology", "customerPortal", true, "A customer/client portal or login is present.", "Likely");
+  // Careers (growth signal)
+  if (/\bcareers?\b|we'?re hiring|join our team|\/jobs?\b/i.test(lc)) fact("activity", "hiring", true, "Careers/hiring content present — a possible growth signal.", "Likely");
+  // Blog activity
+  if (/\bblog\b|\/news\b|\barticles?\b/i.test(lc)) fact("activity", "blog", true, "Maintains a blog/news section.", "Likely");
+
+  // Structured data
+  const sd = structuredDataTypes(allHtml);
+  if (sd.length) fact("technology", "structuredData", sd.join(","), `Publishes structured data: ${sd.join(", ")}.`);
+
+  // Policies
+  if (/privacy policy|terms of service|terms &|\/privacy\b|\/terms\b/i.test(lc)) fact("identity", "policies", true, "Publishes privacy/terms policies.");
+
+  // Mobile + accessibility observations
+  if (/<meta[^>]+name=["']viewport["']/i.test(allHtml)) fact("technology", "mobileViewport", true, "Declares a mobile viewport.");
+  else friction("noViewport", "No mobile viewport declared — the site may render poorly on phones.");
+  const altRatio = imgAltRatio(allHtml);
+  if (altRatio != null && altRatio < 0.5) friction("accessibilityAlt", `Under half of images have alt text (${Math.round(altRatio * 100)}%) — an accessibility and SEO gap.`, "Likely");
+
+  // Title (identity)
+  const title = extractTitle(home.html);
+  if (title) fact("identity", "pageTitle", trunc(title, 120), `Homepage title: "${trunc(title, 100)}".`);
+
+  return out.map((e, i) =>
+    evidence({ id: `${PROVIDER_ID}:${e.field}:${i}`, providerId: PROVIDER_ID, kind: e.kind, field: e.field, value: e.value, statement: e.statement, observationType: e.observationType, confidence: e.confidence, sourceUrl: e.sourceUrl }),
+  );
+}
+
+export const websiteIntelligenceProvider: EnrichmentProvider = {
+  id: PROVIDER_ID,
+  name: "Website Intelligence",
+  capability: {
+    fields: ["businessDescription", "services", "primaryCTA", "bookingFlow", "hasLeadForm", "contactPaths", "locations", "pricingVisible", "languages", "trustIndicators", "structuredData", "friction:*"],
+    external: true,
+    costUsd: 0,
+  },
+  ready: () => true, // offline-capable via supplied pages; live crawl is config-gated
+  async enrich(input: EnrichmentInput): Promise<ProviderResult> {
+    // 1) Offline path — analyze supplied pages, no network.
+    if (input.pages?.length) {
+      return { providerId: PROVIDER_ID, ok: true, evidence: analyzeWebsitePages(input.pages), notes: [`analyzed ${input.pages.length} supplied page(s)`], costUsd: 0 };
+    }
+    // 2) Live crawl path — only when explicitly enabled.
+    const cfg = intelligenceConfig();
+    if (!cfg.website || !input.lead.website) {
+      return { providerId: PROVIDER_ID, ok: true, evidence: [], notes: [cfg.website ? "no website on lead" : "live website enrichment disabled"], costUsd: 0 };
+    }
+    try {
+      const client = new HttpClient({ cacheTtlMs: cfg.cacheTtlMs, minDelayMs: cfg.crawl.minDelayMs, maxRetries: cfg.crawl.maxRetries, now: () => Date.now(), sleep: (ms) => new Promise((r) => setTimeout(r, ms)) });
+      const crawl = await crawlSite(canonicalizeUrl(input.lead.website), { client, userAgent: cfg.crawl.userAgent, maxPages: cfg.crawl.maxPages });
+      const ev = analyzeWebsitePages(crawl.pages.map((p) => ({ url: p.url, html: p.html })));
+      return { providerId: PROVIDER_ID, ok: true, evidence: ev, notes: [`crawled ${crawl.pages.length} page(s)`, ...crawl.notes], costUsd: 0 };
+    } catch (err) {
+      return { providerId: PROVIDER_ID, ok: false, evidence: [], notes: [`crawl failed: ${(err as Error).message}`], costUsd: 0 };
+    }
+  },
+};
+
+// ── extraction helpers ───────────────────────────────────────────────────────
+function metaContent(html: string, name: string): string {
+  const m = html.match(new RegExp(`<meta[^>]+name=["']${name}["'][^>]*content=["']([^"']+)["']`, "i")) || html.match(new RegExp(`<meta[^>]+content=["']([^"']+)["'][^>]*name=["']${name}["']`, "i"));
+  return m ? m[1].trim() : "";
+}
+function ogContent(html: string, prop: string): string {
+  const m = html.match(new RegExp(`<meta[^>]+property=["']${prop}["'][^>]*content=["']([^"']+)["']`, "i"));
+  return m ? m[1].trim() : "";
+}
+function firstSentence(text: string): string {
+  const s = text.split(/(?<=[.!?])\s/)[0];
+  return s && s.length > 30 ? s : "";
+}
+function languages(html: string): string[] {
+  const set = new Set<string>();
+  const lang = html.match(/<html[^>]+lang=["']([a-z-]+)["']/i);
+  if (lang) set.add(lang[1].toLowerCase());
+  const hreflang = [...html.matchAll(/hreflang=["']([a-z-]+)["']/gi)].map((m) => m[1].toLowerCase());
+  for (const h of hreflang) if (h !== "x-default") set.add(h);
+  return [...set];
+}
+function services_(html: string): string[] {
+  const items = new Set<string>();
+  for (const m of html.matchAll(/<a\b[^>]*>([^<]{3,40})<\/a>/gi)) {
+    const t = m[1].trim();
+    if (/service|treatment|solution|repair|consult|clean|install|design|plan|care|therapy|package/i.test(t)) items.add(t);
+  }
+  for (const m of html.matchAll(/<h[23][^>]*>([^<]{3,50})<\/h[23]>/gi)) {
+    const t = m[1].trim();
+    if (/service|solution|what we|offer|treatment/i.test(t) === false && t.split(" ").length <= 5 && /[A-Z]/.test(t)) items.add(t);
+  }
+  return [...items].slice(0, 15);
+}
+function primaryCta(html: string): string {
+  const candidates = [...html.matchAll(/<(?:a|button)\b[^>]*>([^<]{2,30})<\/(?:a|button)>/gi)].map((m) => m[1].trim());
+  return candidates.find((t) => /book|schedule|get (a )?quote|contact|call|request|start|sign up|get started|appointment/i.test(t)) ?? "";
+}
+function detectBooking(lc: string): string | null {
+  const tools: Array<[RegExp, string]> = [[/calendly/, "Calendly"], [/acuityscheduling|acuity/, "Acuity"], [/squareup\.com\/appointments|square appointments/, "Square"], [/booksy/, "Booksy"], [/setmore/, "Setmore"], [/youcanbook\.me/, "YouCanBook.me"], [/simplybook/, "SimplyBook"], [/vagaro/, "Vagaro"]];
+  for (const [re, name] of tools) if (re.test(lc)) return name;
+  if (/\b(book (now|online|an appointment)|schedule (now|online|an appointment))\b/.test(lc)) return "on-site booking";
+  return null;
+}
+function contactPaths_(html: string): string[] {
+  const out: string[] = [];
+  if (/href=["']tel:/i.test(html)) out.push("phone");
+  if (/href=["']mailto:/i.test(html)) out.push("email");
+  if (/href=["'][^"']*contact/i.test(html)) out.push("contact page");
+  if (/<form[\s>]/i.test(html)) out.push("form");
+  return out;
+}
+function countLocations(text: string): number {
+  const zips = new Set([...text.matchAll(/\b\d{5}(?:-\d{4})?\b/g)].map((m) => m[0].slice(0, 5)));
+  const suiteWords = (text.match(/\b(suite|ste|unit|floor)\b/gi) || []).length;
+  return Math.max(zips.size, suiteWords > 1 ? 2 : 1);
+}
+function trustIndicators(text: string): string[] {
+  const out: string[] = [];
+  if (/testimonial|what our (clients|customers|patients) say|reviews/i.test(text)) out.push("testimonials");
+  if (/\b(licensed|certified|accredited|insured|award)\b/i.test(text)) out.push("credentials");
+  if (/\b(\d{1,3}\+? years|since \d{4}|established \d{4})\b/i.test(text)) out.push("longevity");
+  if (/\bguarantee|warranty\b/i.test(text)) out.push("guarantee");
+  if (/case stud/i.test(text)) out.push("case studies");
+  return out;
+}
+function structuredDataTypes(html: string): string[] {
+  const types = new Set<string>();
+  for (const m of html.matchAll(/<script[^>]+application\/ld\+json[^>]*>([\s\S]*?)<\/script>/gi)) {
+    for (const t of m[1].matchAll(/"@type"\s*:\s*"([^"]+)"/g)) types.add(t[1]);
+  }
+  return [...types].slice(0, 8);
+}
+function imgAltRatio(html: string): number | null {
+  const imgs = [...html.matchAll(/<img\b[^>]*>/gi)].map((m) => m[0]);
+  if (!imgs.length) return null;
+  const withAlt = imgs.filter((t) => /\balt=["'][^"']+["']/i.test(t)).length;
+  return withAlt / imgs.length;
+}
+function trunc(s: string, n: number): string {
+  return s.length > n ? s.slice(0, n - 1) + "…" : s;
+}

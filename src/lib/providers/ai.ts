@@ -43,6 +43,7 @@ import {
   type DiscoveryQuestionsResult,
 } from "../schemas";
 import { computeScore, type WebsiteSignals } from "../scoring";
+import { IDENTITY_LINE } from "../communication-guide";
 
 function providerName(): "mock" | "openai" | "anthropic" {
   const p = (process.env.AI_PROVIDER ?? "mock").toLowerCase();
@@ -215,9 +216,9 @@ export async function summarizeOpportunity(lead: Lead, findings: Finding[]) {
     promptVersion: "opportunity-1.0.0",
     refs: ["findings"],
     mock: () => {
-      const topFinding = findings[0]?.modernizationDirection ?? "a modern, mobile-first website";
+      const topFinding = findings[0]?.observation ?? "a few points of friction in how customers reach and engage the business";
       return {
-        summary: `${lead.businessName} has a ${(lead.rating ?? 0) >= 4.5 ? "strong" : "solid"} local reputation${lead.reviewCount ? ` (${lead.reviewCount} reviews)` : ""}, but its digital presence makes it harder than necessary for prospective customers to engage. The strongest initial opportunity is ${topFinding.toLowerCase()}.`,
+        summary: `${lead.businessName} has a ${(lead.rating ?? 0) >= 4.5 ? "strong" : "solid"} local reputation${lead.reviewCount ? ` (${lead.reviewCount} reviews)` : ""} to build on. From the outside, the most promising place to remove friction appears to be ${topFinding.toLowerCase()} — though how much this matters can only be confirmed in conversation.`,
         strengths: strengthsFor(lead),
       };
     },
@@ -388,13 +389,13 @@ export async function generateVideoScript(lead: Lead, findings: Finding[], setti
     promptVersion: "video-1.0.0",
     refs: ["findings", "opportunity-summary"],
     mock: () => ({
-      title: `A quick look at ${lead.businessName}'s website`,
-      recommendedLength: "60–90 seconds",
+      title: `A short outside-in look at ${lead.businessName}`,
+      recommendedLength: "3–4 minutes",
       positiveOpening: `The reputation your team has built${lead.rating ? ` — ${lead.rating}★` : ""} really stands out.`,
       findings: used.map((f) => f.title),
-      script: `Hi ${name}, I'm Jordan from Artifex Labs. I was researching well-regarded ${lead.industry.toLowerCase()} businesses in ${lead.city} and yours stood out${lead.rating ? ` — ${lead.rating} stars is genuinely impressive` : ""}.\n\nI took a quick look at your site on my phone and noticed a couple of small things that may be making it harder than necessary for new customers.\n\n${used.map((f, i) => `[Screenshot ${i + 1}] ${f.observation}`).join("\n")}\n\nThe good news is these are very fixable. I put together a short complimentary Modernization Brief with the specifics — no obligation. Would you be open to a brief conversation after you've had a look?`,
-      cta: "Would you be open to a brief conversation after reviewing the brief?",
-      accompanyingEmail: `Hi ${name} — I recorded a short walkthrough of your site and prepared a complimentary Modernization Brief. No obligation; I thought the observations might be useful.`,
+      script: `Hi ${name}, I'm Jordan from Artifex Labs. I was researching well-regarded ${lead.industry.toLowerCase()} businesses in ${lead.city} and yours stood out${lead.rating ? ` — ${lead.rating} stars is genuinely impressive` : ""}. First, what's clearly working: your reputation and how established you are locally.\n\nThen a couple of things I noticed from the outside — worth comparing with your own experience:\n\n${used.map((f, i) => `[Screenshot ${i + 1}] ${f.observation}`).join("\n")}\n\nHere's why it may matter, without pretending I can see the full picture: ${used[0]?.businessImpact ?? "small friction here can quietly cost inquiries"}. What I can't see is how your team handles things internally — so I'd want to ask a couple of questions rather than assume.\n\nIf there's a meaningful way we can help, I'll show you what that could look like. And if the best answer is simpler than building something new, I'll say that too. Would a short conversation be useful?`,
+      cta: "Would a brief conversation to compare notes be useful?",
+      accompanyingEmail: `Hi ${name} — I recorded a short, outside-in look at ${lead.businessName} and put together a couple of questions worth exploring. No obligation; I thought the observations might be useful.`,
     }),
   });
 }
@@ -412,8 +413,8 @@ export async function generateOutreach(
     promptVersion: "outreach-1.0.0",
     refs: ["opportunity-summary", "findings"],
     mock: () => ({
-      subject: `A quick observation about ${lead.businessName}'s site`,
-      body: `Hi ${name},\n\nI'm Jordan, founder of Artifex Labs.\n\nI came across ${lead.businessName} while researching established local businesses and was impressed by the reputation your team has built.\n\nWhile reviewing your website, I noticed a few opportunities to make it easier for prospective customers to reach and book with you.\n\n${opts.hasVideo ? "I recorded a short walkthrough and " : "I "}prepared a complimentary Business Modernization Brief for your team. There is no obligation attached — I thought the observations might be useful.\n\nWould you be open to a brief conversation after reviewing it?\n\n${settings.signature}`,
+      subject: `A few notes on ${lead.businessName}, from the outside`,
+      body: `Hi ${name},\n\n${IDENTITY_LINE}\n\nI spent a little time understanding how ${lead.businessName} attracts and serves customers, and was impressed by the reputation you've built. I noticed a couple of specific, practical things worth comparing with how it actually works for you.\n\n${opts.hasVideo ? "I recorded a short walkthrough and " : "I "}${opts.hasBrief ? "put together a short outside-in snapshot" : "have a couple of quick notes"} — no obligation. Public information only shows part of the picture, so I'd genuinely like to compare notes. If it's already handled well, I'm happy to be wrong.\n\nWould a brief, low-pressure conversation be useful?\n\n${settings.signature}`,
     }),
   });
 }

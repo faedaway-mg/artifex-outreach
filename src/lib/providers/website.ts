@@ -23,6 +23,12 @@ export interface WebsiteAnalysis {
   findings: AnalyzedFinding[];
   screenshots: Array<{ pageUrl: string; viewport: "mobile" | "desktop"; caption: string; storageUrl: string; storageKey: string | null }>;
   performedWith: "mock" | "live-fetch" | "live-fetch+pagespeed";
+  /**
+   * Raw page content fetched during analysis, exposed so the Business Intelligence
+   * engine can reuse it (Website Intelligence provider) WITHOUT a duplicate crawl.
+   * Empty in mock/offline modes.
+   */
+  pages: Array<{ url: string; html: string }>;
 }
 
 function placeholder(label: string, viewport: "mobile" | "desktop") {
@@ -96,6 +102,7 @@ export async function analyzeWebsite(lead: Lead): Promise<WebsiteAnalysis> {
       ],
       screenshots: [],
       performedWith: "mock",
+      pages: [],
     };
   }
 
@@ -103,10 +110,12 @@ export async function analyzeWebsite(lead: Lead): Promise<WebsiteAnalysis> {
   const page = await fetchText(url);
   const findings: AnalyzedFinding[] = [];
   let performedWith: WebsiteAnalysis["performedWith"] = "mock";
+  const pages: Array<{ url: string; html: string }> = [];
 
   let signals: WebsiteSignals;
   if (page.ok && page.html) {
     performedWith = "live-fetch";
+    pages.push({ url: page.finalUrl || url, html: page.html });
     const html = page.html.toLowerCase();
     const httpsOk = page.finalUrl.startsWith("https://");
     const hasViewport = /<meta[^>]+name=["']viewport["']/i.test(page.html);
@@ -150,7 +159,7 @@ export async function analyzeWebsite(lead: Lead): Promise<WebsiteAnalysis> {
   const screenshots = await captureScreenshots(lead);
 
   // Cap to 3 primary findings for a focused brief.
-  return { signals, findings: findings.slice(0, 3), screenshots, performedWith };
+  return { signals, findings: findings.slice(0, 3), screenshots, performedWith, pages };
 }
 
 function fnd(
