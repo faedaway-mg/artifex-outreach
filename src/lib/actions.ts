@@ -56,6 +56,7 @@ import {
   generateDiscoveryQuestions,
 } from "./providers/ai";
 import { analyzeWebsite } from "./providers/website";
+import { generateAndStoreBI } from "./intelligence-actions";
 import { scheduleFollowUps, stopFollowUps } from "./followups";
 import { stopPlansForLead } from "./acquisition/stop";
 import type {
@@ -329,7 +330,27 @@ export async function runWebsiteAnalysisAction(leadId: string): Promise<void> {
     recommendationReason: act.reason,
     pipelineStage: ["Discovered", "Qualified"].includes(lead.pipelineStage) ? "Analysis Ready" : lead.pipelineStage,
   });
+
+  // Generate + persist the full Business Intelligence profile from content already
+  // collected (website pages + signals) — no duplicate crawl. Never break analysis.
+  try {
+    const analyzed = (await getLead(leadId)) ?? lead;
+    await generateAndStoreBI(analyzed, { pages: analysis.pages, signals: analysis.signals });
+  } catch (err) {
+    await audit("lead.bi_error", "lead", leadId, { error: (err as Error).message });
+  }
+
   await audit("lead.analyze", "lead", leadId, { performedWith: analysis.performedWith, findings: analysis.findings.length });
+  touch(leadId);
+}
+
+// ── Regenerate Business Intelligence on demand (dashboard "Refresh") ───────────
+export async function regenerateBusinessIntelligenceAction(leadId: string): Promise<void> {
+  const lead = await getLead(leadId);
+  if (!lead) return;
+  // No fresh crawl here; regenerates from stored findings + any available content.
+  await generateAndStoreBI(lead);
+  await audit("lead.bi_regenerate", "lead", leadId, {});
   touch(leadId);
 }
 

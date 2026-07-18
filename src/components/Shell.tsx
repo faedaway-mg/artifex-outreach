@@ -13,6 +13,7 @@ import {
   Command,
   Plus,
   ShieldCheck,
+  Rocket,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CommandPalette } from "@/components/CommandPalette";
@@ -20,20 +21,22 @@ import { CommandPalette } from "@/components/CommandPalette";
 const NAV = [
   { href: "/", label: "Today", icon: LayoutGrid },
   { href: "/discover", label: "Discover", icon: Search },
-  { href: "/pipeline", label: "Pipeline", icon: KanbanSquare },
-  { href: "/approvals", label: "Approvals", icon: ShieldCheck },
-  { href: "/meetings", label: "Meetings", icon: CalendarClock },
-  { href: "/performance", label: "Performance", icon: BarChart3 },
+  { href: "/pipeline", label: "Journey", icon: KanbanSquare },
+  { href: "/approvals", label: "Recommendations", icon: ShieldCheck },
+  { href: "/meetings", label: "Conversations", icon: CalendarClock },
+  { href: "/performance", label: "Insights", icon: BarChart3 },
+  { href: "/launch", label: "Launch", icon: Rocket },
   { href: "/settings", label: "Settings", icon: SettingsIcon },
 ];
 
 const TITLES: Record<string, string> = {
   "/": "Today",
   "/discover": "Discover",
-  "/pipeline": "Pipeline",
-  "/approvals": "Approval Center",
-  "/meetings": "Meetings",
-  "/performance": "Performance",
+  "/pipeline": "Business Journey",
+  "/approvals": "Recommendations",
+  "/meetings": "Discovery Conversations",
+  "/performance": "Insights",
+  "/launch": "Launch Readiness",
   "/settings": "Settings",
 };
 
@@ -70,7 +73,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
             <span className="block text-sm font-semibold text-chalk-50">Artifex Outreach</span>
             <span className="flex items-center gap-1.5 text-[10.5px] text-chalk-500">
               <span className="h-1.5 w-1.5 rounded-full bg-teal-400 shadow-[0_0_8px_rgba(66,201,166,0.7)]" />
-              Client-acquisition studio
+              Business technology partner
             </span>
           </span>
         </Link>

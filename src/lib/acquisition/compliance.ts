@@ -40,8 +40,11 @@ export function checkPlanCompliance(
     // Every email step must carry an unsubscribe mechanism.
     const missingUnsub = steps.filter((s) => s.channel === "email" && !/\{\{unsubscribe\}\}|unsubscribe/i.test(s.content));
     if (missingUnsub.length) blockers.push("An email step is missing an opt-out/unsubscribe mechanism.");
+    // CAN-SPAM requires a physical postal address IN the message body, not just in
+    // sender config. Promoted from warning to blocker: the guide's complianceFooter
+    // injects it into every generated step, so only a hand-edited step can trip this.
     const missingPostal = steps.filter((s) => s.channel === "email" && !s.content.includes(settings.businessAddress));
-    if (settings.businessAddress && missingPostal.length) warnings.push("An email step does not include the postal address.");
+    if (settings.businessAddress && missingPostal.length) blockers.push("An email step is missing the required postal address in the message body.");
   }
 
   // Touch limit

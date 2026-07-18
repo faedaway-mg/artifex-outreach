@@ -10,6 +10,11 @@ export async function middleware(req: NextRequest) {
     pathname.startsWith("/api/auth") ||
     pathname.startsWith("/api/health") ||
     pathname.startsWith("/api/cron") ||
+    // Communication layer: webhooks (Svix-signature verified), the public
+    // one-click unsubscribe (HMAC-token verified), and comms status/metrics
+    // (CRON_SECRET Bearer) each enforce their own auth inside the handler.
+    pathname.startsWith("/api/webhooks") ||
+    pathname.startsWith("/api/comms") ||
     pathname.startsWith("/share/previews") ||
     pathname.startsWith("/api/placeholder");
 

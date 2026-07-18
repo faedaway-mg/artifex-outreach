@@ -72,7 +72,7 @@ export default async function MeetingPage({ params }: { params: { id: string } }
 
           {/* Objections */}
           <div className="card p-5">
-            <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-chalk-100"><ShieldAlert size={15} /> Likely objections</h2>
+            <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-chalk-100"><ShieldAlert size={15} /> Questions they may raise</h2>
             <ul className="space-y-1.5">
               {meeting.likelyObjections.map((o, i) => (
                 <li key={i} className="text-sm text-chalk-300">• {o}</li>
@@ -96,12 +96,14 @@ export default async function MeetingPage({ params }: { params: { id: string } }
           <div className="card p-5">
             <h2 className="mb-3 text-sm font-semibold text-chalk-100">Brief & context</h2>
             <dl className="space-y-2 text-sm">
-              <div className="flex justify-between"><dt className="text-chalk-500">Recommended</dt><dd className="text-right text-chalk-200">{lead.recommendedService ?? "—"}</dd></div>
-              <div className="flex justify-between"><dt className="text-chalk-500">Budget range</dt><dd className="text-chalk-200">{formatRange(lead.estimatedValueLow, lead.estimatedValueHigh)}</dd></div>
-              <div className="flex justify-between"><dt className="text-chalk-500">Lead score</dt><dd className="text-chalk-200">{lead.leadScore ?? "—"}/100</dd></div>
+              <div className="flex justify-between"><dt className="text-chalk-500">Likely direction</dt><dd className="text-right text-chalk-200">{lead.recommendedService ?? "—"}</dd></div>
+              <div className="flex justify-between"><dt className="text-chalk-500">Investment range</dt><dd className="text-chalk-200">{formatRange(lead.estimatedValueLow, lead.estimatedValueHigh)}</dd></div>
+              <div className="flex justify-between"><dt className="text-chalk-500">Opportunity score</dt><dd className="text-chalk-200">{lead.leadScore ?? "—"}/100</dd></div>
             </dl>
             <div className="mt-3 flex flex-col gap-2">
-              <Link href={`/leads/${lead.id}`} className="btn-secondary text-xs">Open full lead</Link>
+              <Link href={`/conversation/${lead.id}`} className="btn-primary text-xs">Enter conversation mode</Link>
+              <Link href={`/leads/${lead.id}/discovery`} className="btn-secondary text-xs">Discovery workspace</Link>
+              <Link href={`/leads/${lead.id}`} className="btn-secondary text-xs">Open full business</Link>
               {deliverable && <a href={`/api/deliverable/${deliverable.id}/pdf`} target="_blank" rel="noreferrer" className="btn-secondary text-xs">View Modernization Brief</a>}
               {video?.videoUrl && <a href={video.videoUrl} target="_blank" rel="noreferrer" className="btn-secondary text-xs">Watch sent video</a>}
             </div>

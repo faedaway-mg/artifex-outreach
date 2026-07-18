@@ -9,11 +9,13 @@ import { headers } from "next/headers";
 import {
   getLead, updateLead, findingsForLead, getSettings, isSuppressed, addSuppression,
   plansForLead, getPlan, insertPlan, updatePlan, stepsForPlan, insertStep, updateStep, appendAudit, insertFeedback,
+  deliverablesForLead, previewsForLead, videosForLead, contactsForLead,
 } from "./repo";
 import { computeAcquisitionStrategy } from "./acquisition/strategy";
 import { policyFor, ASSISTED_BATCH_MAX } from "./acquisition/policy";
 import { buildSequence } from "./acquisition/sequences";
 import { checkPlanCompliance } from "./acquisition/compliance";
+import { buildApprovalSnapshot } from "./acquisition/snapshot";
 import { stopPlansForLead } from "./acquisition/stop";
 import type { AcquisitionStrategy } from "./types";
 
@@ -62,14 +64,16 @@ export async function prepareAcquisitionPlanAction(leadId: string): Promise<void
   const settings = await getSettings();
 
   // Manual Review / Do Not Contact: a tracking plan with no channel + no steps.
-  const observation = lead.opportunitySummary ?? (await findingsForLead(leadId)).find((f) => f.approved)?.modernizationDirection ?? "there are a few clear opportunities to modernize the customer experience.";
+  const observation = lead.opportunitySummary ?? (await findingsForLead(leadId)).find((f) => f.approved)?.observation ?? "I had a couple of specific, practical observations worth comparing with how things actually work for you.";
   const plan = await insertPlan({
     leadId, strategy, objective: policy.objective, assetPackage: policy.assetPackage,
     primaryChannel: policy.primaryChannel, secondaryChannel: policy.secondaryChannel,
     status: "prepared", approvalStatus: policy.automated ? "pending" : "draft",
     currentStep: 0, maxTouches: policy.maxTouches, nextScheduledAt: null, replyState: null,
     approvedBy: null, approvedAt: null, startedAt: null, pausedAt: null, completedAt: null,
-    pauseReason: null, stopReason: null, estimatedCost: policy.estimatedCost, owner: "jordan",
+    pauseReason: null, stopReason: null, estimatedCost: policy.estimatedCost,
+    estimatedValueSnapshot: null, assetReadinessSnapshot: null, assetMissingSnapshot: null,
+    contactConfidenceSnapshot: null, websiteHealthSnapshot: null, owner: "jordan",
   });
   if (policy.automated) {
     for (const s of buildSequence(strategy, lead, settings, observation)) {
@@ -93,8 +97,19 @@ async function tryApprove(planId: string): Promise<{ ok: boolean; blockers: stri
   const compliance = checkPlanCompliance(lead, plan, steps, settings, { suppressed });
   if (!compliance.ok) return { ok: false, blockers: compliance.blockers };
 
+  // Freeze the decision context. These immutable snapshots never change when the
+  // Lead is later edited — historical approvals must stay auditable exactly as
+  // they were approved. Live values are still shown in the Approval Center before
+  // approval; this is what the record retains after.
+  const [findings, deliverables, previews, videos, contacts] = await Promise.all([
+    findingsForLead(lead.id), deliverablesForLead(lead.id), previewsForLead(lead.id), videosForLead(lead.id), contactsForLead(lead.id),
+  ]);
+  const snapshot = buildApprovalSnapshot(lead, {
+    strategy: plan.strategy, findings, deliverables, previews, videos, contacts: contacts.length,
+  });
+
   const now = new Date();
-  await updatePlan(planId, { approvalStatus: "approved", approvedBy: "jordan", approvedAt: now.toISOString(), status: "active", currentStep: 1, startedAt: now.toISOString() });
+  await updatePlan(planId, { approvalStatus: "approved", approvedBy: "jordan", approvedAt: now.toISOString(), status: "active", currentStep: 1, startedAt: now.toISOString(), ...snapshot });
   // Schedule (do NOT send) each step relative to now; approve step gate.
   for (const step of steps) {
     const when = new Date(now.getTime() + step.delayDays * 86_400_000).toISOString();

@@ -19,7 +19,7 @@ export default function DiscoverPage() {
     <div className="space-y-6">
       <div>
         <p className="label">Discover</p>
-        <h1 className="mt-1 text-2xl font-semibold text-chalk-50">Find qualified local businesses</h1>
+        <h1 className="mt-1 text-2xl font-semibold text-chalk-50">Find local businesses to understand</h1>
         <p className="mt-1 text-sm text-chalk-400">{MODE_COPY[mode]}</p>
       </div>
 

@@ -82,7 +82,7 @@ describe("comms abstraction", () => {
 
 describe("acquisition analytics", () => {
   it("computes approval rate + distribution", () => {
-    const plan = (over: Partial<AcquisitionPlan>): AcquisitionPlan => ({ id: "p", leadId: "l1", strategy: "Assisted", objective: "", assetPackage: "Focused", primaryChannel: "email", secondaryChannel: null, status: "active", approvalStatus: "approved", currentStep: 1, maxTouches: 3, nextScheduledAt: null, replyState: null, approvedBy: "jordan", approvedAt: "2026-07-02T10:00:00Z", startedAt: null, pausedAt: null, completedAt: null, pauseReason: null, stopReason: null, estimatedCost: 0.15, owner: "jordan", createdAt: "2026-07-02T08:00:00Z", updatedAt: "", ...over });
+    const plan = (over: Partial<AcquisitionPlan>): AcquisitionPlan => ({ id: "p", leadId: "l1", strategy: "Assisted", objective: "", assetPackage: "Focused", primaryChannel: "email", secondaryChannel: null, status: "active", approvalStatus: "approved", currentStep: 1, maxTouches: 3, nextScheduledAt: null, replyState: null, approvedBy: "jordan", approvedAt: "2026-07-02T10:00:00Z", startedAt: null, pausedAt: null, completedAt: null, pauseReason: null, stopReason: null, estimatedCost: 0.15, estimatedValueSnapshot: null, assetReadinessSnapshot: null, assetMissingSnapshot: null, contactConfidenceSnapshot: null, websiteHealthSnapshot: null, owner: "jordan", createdAt: "2026-07-02T08:00:00Z", updatedAt: "", ...over });
     const m = acquisitionMetrics([lead({ acquisitionStrategy: "Assisted" })], [plan({}), plan({ id: "p2", approvalStatus: "rejected" })], [], [], [], []);
     expect(m.approvedPlans).toBe(1);
     expect(m.approvalRate).toBe(50);

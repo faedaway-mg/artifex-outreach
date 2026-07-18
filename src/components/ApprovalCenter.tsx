@@ -13,6 +13,19 @@ export interface ApprovalItem {
   reason: string; contactEmail: string | null; channel: string; cost: number; assetPackage: string; assetReady: boolean; assetMissing: string[];
   sequence: { stepNumber: number; delayDays: number; subject: string; body: string }[];
   compliance: { ok: boolean; blockers: string[]; warnings: string[] }; riskFlags: string[]; suppressed: boolean; canBatch: boolean;
+  // Business Intelligence reasoning (present once the lead has been analyzed).
+  bi?: {
+    whyItMatters: string;
+    treatment: string;
+    improvementScore: number;
+    evidenceConfidence: number;
+    bestAngle: string;
+    recommendedEngagement: string;
+    topEvidence: string[];
+    uncertainty: string;
+    providers: string[];
+    contradictions: number;
+  };
 }
 
 const STRAT_STYLE: Record<string, string> = {
@@ -30,7 +43,7 @@ export function ApprovalCenter({ items, batchMax }: { items: ApprovalItem[]; bat
   const batchEligible = items.filter((i) => i.canBatch && i.compliance.ok);
   const selectedIds = Object.keys(selected).filter((k) => selected[k]);
 
-  if (items.length === 0) return <EmptyState icon={ShieldAlert} title="No plans awaiting approval." hint="Prepare an acquisition plan from a lead to queue it here. Nothing sends without your approval." />;
+  if (items.length === 0) return <EmptyState icon={ShieldAlert} title="No recommendations awaiting your confirmation." hint="Prepare an engagement plan from a business to queue it here. Nothing is ever sent without your confirmation." />;
 
   return (
     <div className="space-y-4">
@@ -71,6 +84,32 @@ export function ApprovalCenter({ items, batchMax }: { items: ApprovalItem[]; bat
               <p className="text-xs text-chalk-500">{it.reason}</p>
             </div>
           </div>
+
+          {/* Business Intelligence reasoning — approve on intelligence, not raw data */}
+          {it.bi && (
+            <div className="mt-3 rounded-xl border border-azure-500/20 bg-azure-500/[0.05] p-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-[11px] uppercase tracking-wide text-azure-300">Intelligence</span>
+                <span className="rounded-full border border-white/10 px-2 py-0.5 text-[11px] text-chalk-300">{it.bi.treatment}</span>
+                <span className="text-[11px] text-chalk-500">Improvement {it.bi.improvementScore}/100</span>
+                <span className={`text-[11px] ${it.bi.evidenceConfidence >= 45 ? "text-teal-300" : "text-amber-300"}`}>Evidence {it.bi.evidenceConfidence}%</span>
+                {it.bi.contradictions > 0 && <span className="flex items-center gap-1 text-[11px] text-amber-300/90"><AlertTriangle size={10} /> {it.bi.contradictions} conflict(s)</span>}
+              </div>
+              <p className="mt-2 text-sm text-chalk-300"><span className="text-chalk-600">Why it matters:</span> {it.bi.whyItMatters}</p>
+              <p className="mt-1 text-xs text-chalk-400"><span className="text-chalk-600">Recommended angle:</span> {it.bi.bestAngle}</p>
+              <p className="mt-1 text-xs text-chalk-400"><span className="text-chalk-600">Engagement:</span> {it.bi.recommendedEngagement}</p>
+              {it.bi.topEvidence.length > 0 && (
+                <ul className="mt-1.5 space-y-0.5">
+                  {it.bi.topEvidence.map((e, i) => <li key={i} className="text-[11px] text-chalk-500">• {e}</li>)}
+                </ul>
+              )}
+              <p className="mt-1.5 text-[11px] text-chalk-500"><span className="text-chalk-600">Uncertainty:</span> {it.bi.uncertainty}</p>
+              <div className="mt-1.5 flex flex-wrap items-center gap-1">
+                <span className="text-[11px] text-chalk-600">Sources:</span>
+                {it.bi.providers.map((p) => <span key={p} className="rounded-full border border-white/10 px-1.5 py-0.5 text-[10px] text-chalk-400">{p}</span>)}
+              </div>
+            </div>
+          )}
 
           {/* Sequence preview */}
           <details className="mt-3">

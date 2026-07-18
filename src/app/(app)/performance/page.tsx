@@ -57,75 +57,75 @@ export default async function PerformancePage() {
   return (
     <div className="space-y-8">
       <div>
-        <p className="label">Performance</p>
-        <h1 className="mt-1 text-2xl font-semibold text-chalk-50">Results that matter</h1>
-        <p className="mt-1 text-sm text-chalk-400">Qualified conversations and revenue — not vanity metrics.</p>
+        <p className="label">Insights</p>
+        <h1 className="mt-1 text-2xl font-semibold text-chalk-50">What we're learning</h1>
+        <p className="mt-1 text-sm text-chalk-400">Understanding, relationships, and outcomes — not vanity metrics.</p>
       </div>
 
-      {/* Funnel */}
+      {/* Understanding & engagement funnel */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-        <Stat label="Leads discovered" value={discovered} />
-        <Stat label="Qualified" value={qualified} tone="azure" />
-        <Stat label="Tier A leads" value={tierA} tone="amber" />
-        <Stat label="Reports generated" value={reportsGenerated} />
-        <Stat label="Reports approved" value={reportsApproved} />
-        <Stat label="Videos prepared" value={videosPrepared} tone="indigo" />
+        <Stat label="Businesses discovered" value={discovered} />
+        <Stat label="Understood" value={qualified} tone="azure" />
+        <Stat label="Priority businesses" value={tierA} tone="amber" />
+        <Stat label="Snapshots prepared" value={reportsGenerated} />
+        <Stat label="Snapshots shared" value={reportsApproved} />
+        <Stat label="Walkthroughs prepared" value={videosPrepared} tone="indigo" />
         <Stat label="Outreach sent" value={sent} />
         <Stat label="Replies received" value={replies} tone="emerald" />
-        <Stat label="Meetings booked" value={meetingsBooked} tone="amber" />
-        <Stat label="Proposals sent" value={proposalsSent} />
-        <Stat label="Deals won" value={won} tone="emerald" />
+        <Stat label="Discovery conversations" value={meetingsBooked} tone="amber" />
+        <Stat label="Evolution plans shared" value={proposalsSent} />
+        <Stat label="Partnerships formed" value={won} tone="emerald" />
         <Stat label="Revenue won" value={formatCurrency(revenue)} tone="emerald" />
       </div>
 
-      {/* Conversion rates */}
+      {/* Progression rates */}
       <section>
-        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-chalk-400">Conversion</h2>
+        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-chalk-400">Progression</h2>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <Stat label="Lead → reply" value={pct(replies, sent)} hint={`${replies}/${sent}`} />
-          <Stat label="Reply → meeting" value={pct(meetingsBooked, replies || 1)} hint={`${meetingsBooked}/${replies}`} />
-          <Stat label="Meeting → proposal" value={pct(proposalsSent, meetingsBooked || 1)} hint={`${proposalsSent}/${meetingsBooked}`} />
-          <Stat label="Proposal → close" value={pct(won, proposalsSent || 1)} hint={`${won}/${proposalsSent}`} />
-          <Stat label="Avg project value" value={formatCurrency(avgValue)} />
+          <Stat label="Contact → reply" value={pct(replies, sent)} hint={`${replies}/${sent}`} />
+          <Stat label="Reply → conversation" value={pct(meetingsBooked, replies || 1)} hint={`${meetingsBooked}/${replies}`} />
+          <Stat label="Conversation → plan" value={pct(proposalsSent, meetingsBooked || 1)} hint={`${proposalsSent}/${meetingsBooked}`} />
+          <Stat label="Plan → partnership" value={pct(won, proposalsSent || 1)} hint={`${won}/${proposalsSent}`} />
+          <Stat label="Avg first engagement" value={formatCurrency(avgValue)} />
         </div>
       </section>
 
-      {/* Acquisition analytics */}
+      {/* Recommendations & readiness */}
       <section>
-        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-chalk-400">Acquisition</h2>
+        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-chalk-400">Recommendations &amp; readiness</h2>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
           <Stat label="Plans prepared" value={acq.totalPlans} />
-          <Stat label="Approval rate" value={acq.totalPlans ? `${acq.approvalRate}%` : "—"} hint={`${acq.approvedPlans} approved / ${acq.rejectedPlans} rejected`} tone="teal" />
-          <Stat label="Avg time to approval" value={acq.avgTimeToApprovalHours != null ? `${acq.avgTimeToApprovalHours}h` : "—"} />
-          <Stat label="Manual overrides" value={acq.overrides} tone="amber" />
-          <Stat label="Avg est. value" value={formatCurrency(acq.avgEstValue)} />
+          <Stat label="Recommendation confidence" value={acq.totalPlans ? `${acq.approvalRate}%` : "—"} hint={`${acq.approvedPlans} confirmed / ${acq.rejectedPlans} declined`} tone="teal" />
+          <Stat label="Avg time to confirm" value={acq.avgTimeToApprovalHours != null ? `${acq.avgTimeToApprovalHours}h` : "—"} />
+          <Stat label="Operator adjustments" value={acq.overrides} tone="amber" />
+          <Stat label="Avg opportunity value" value={formatCurrency(acq.avgEstValue)} />
           <Stat label="Suppression rate" value={`${acq.suppressionRate}%`} />
           <Stat label="Manual review" value={acq.manualReview} />
           <Stat label="Assisted" value={acq.assisted} tone="indigo" />
         </div>
         <div className="mt-4 grid gap-6 lg:grid-cols-2">
-          <Breakdown title="Strategy distribution" data={acq.strategyDistribution} />
-          <Breakdown title="Asset cost by strategy ($)" data={acq.assetCostByStrategy.map(([k, v]) => [k, Math.round(v * 100)] as [string, number])} />
+          <Breakdown title="Engagement approach distribution" data={acq.strategyDistribution} />
+          <Breakdown title="Preparation cost by approach ($)" data={acq.assetCostByStrategy.map(([k, v]) => [k, Math.round(v * 100)] as [string, number])} />
         </div>
-        {acq.approvedPlans < MIN_SAMPLE && <p className="mt-2 text-[11px] text-amber-300/70">Early data — insufficient sample for reliable acquisition conclusions (&lt;{MIN_SAMPLE} approved plans). Targeting changes require your approval.</p>}
+        {acq.approvedPlans < MIN_SAMPLE && <p className="mt-2 text-[11px] text-amber-300/70">Early data — insufficient sample for reliable conclusions (&lt;{MIN_SAMPLE} confirmed recommendations). Targeting changes always require your confirmation.</p>}
       </section>
 
       {/* Performance by category group */}
       <section>
-        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-chalk-400">Performance by category group</h2>
+        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-chalk-400">By industry</h2>
         <div className="card overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="border-b border-white/[0.06] text-left text-xs text-chalk-500">
               <tr>
-                <th className="px-4 py-3 font-medium">Group</th>
+                <th className="px-4 py-3 font-medium">Industry</th>
                 <th className="px-3 py-3 text-right font-medium">Discovered</th>
-                <th className="px-3 py-3 text-right font-medium">Qualified</th>
+                <th className="px-3 py-3 text-right font-medium">Understood</th>
                 <th className="px-3 py-3 text-right font-medium">Contacted</th>
                 <th className="px-3 py-3 text-right font-medium">Replies</th>
-                <th className="px-3 py-3 text-right font-medium">Meetings</th>
-                <th className="px-3 py-3 text-right font-medium">Proposals</th>
-                <th className="px-3 py-3 text-right font-medium">Won</th>
-                <th className="px-4 py-3 text-right font-medium">Pipeline value</th>
+                <th className="px-3 py-3 text-right font-medium">Conversations</th>
+                <th className="px-3 py-3 text-right font-medium">Plans</th>
+                <th className="px-3 py-3 text-right font-medium">Partnerships</th>
+                <th className="px-4 py-3 text-right font-medium">Relationship value</th>
               </tr>
             </thead>
             <tbody>
@@ -148,13 +148,13 @@ export default async function PerformancePage() {
             </tbody>
           </table>
         </div>
-        <p className="mt-2 text-[11px] text-chalk-600">Reply/meeting/proposal rates are shown as conclusions only once a group has ≥ {MIN_SAMPLE} contacted prospects. Targeting-rule changes always require your approval.</p>
+        <p className="mt-2 text-[11px] text-chalk-600">Rates are shown as conclusions only once an industry has ≥ {MIN_SAMPLE} contacted businesses. Targeting changes always require your confirmation.</p>
       </section>
 
       {/* Breakdowns */}
       <div className="grid gap-6 lg:grid-cols-2">
-        <Breakdown title="Source performance" data={bySource} />
-        <Breakdown title="Recommended-action mix" data={byAction} />
+        <Breakdown title="Where businesses come from" data={bySource} />
+        <Breakdown title="Recommended next-step mix" data={byAction} />
       </div>
     </div>
   );
