@@ -7,6 +7,8 @@
 // caller falls back to an operator-pasted payment link. Never logs the key.
 // ─────────────────────────────────────────────────────────────────────────────
 
+import { ARTIFEX_IDENTITY } from "../identity";
+
 const API_BASE = process.env.STRIPE_API_BASE ?? "https://api.stripe.com";
 const TIMEOUT_MS = Number(process.env.STRIPE_TIMEOUT_MS ?? 15_000);
 
@@ -38,15 +40,19 @@ export async function createDepositCheckoutSession(input: DepositLinkInput): Pro
   const key = process.env.STRIPE_SECRET_KEY;
   if (!key) return { ok: false, url: null, sessionId: null, error: "STRIPE_SECRET_KEY not set." };
 
-  const base = process.env.PUBLIC_BASE_URL ?? process.env.APP_BASE_URL ?? "https://outreach.artifexlabs.tech";
+  // Client-facing redirect targets. Default to the public marketing site (which
+  // exists) rather than an app route the client can't reach — overridable via env.
+  const site = ARTIFEX_IDENTITY.publicWebsite.replace(/\/$/, "");
+  const successUrl = process.env.STRIPE_DEPOSIT_SUCCESS_URL ?? site;
+  const cancelUrl = process.env.STRIPE_DEPOSIT_CANCEL_URL ?? site;
   const params: Record<string, string> = {
     mode: "payment",
     "line_items[0][quantity]": "1",
     "line_items[0][price_data][currency]": input.currency.toLowerCase(),
     "line_items[0][price_data][unit_amount]": String(input.amountCents),
     "line_items[0][price_data][product_data][name]": input.productName,
-    success_url: `${base.replace(/\/$/, "")}/deposit/thank-you`,
-    cancel_url: `${base.replace(/\/$/, "")}/deposit/cancelled`,
+    success_url: successUrl,
+    cancel_url: cancelUrl,
   };
   for (const [k, v] of Object.entries(input.metadata ?? {})) params[`metadata[${k}]`] = v;
 

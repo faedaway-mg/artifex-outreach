@@ -21,6 +21,7 @@ import {
   deliverablesForLead,
   getSettings,
   allAgreements,
+  agreementsForProposal,
   getAgreement,
   insertAgreement,
   updateAgreement,
@@ -108,7 +109,11 @@ async function sendAgreementEmail(opts: {
     unsubscribedAt: null,
     failedAt: null,
   });
-  if (!inserted && row.status !== "sending") return; // already handled
+  // Idempotent: skip only if this key already sent successfully. A previously
+  // FAILED attempt must be retryable (never silently report success), so we reset
+  // it to sending and re-dispatch — Resend's Idempotency-Key dedupes provider-side.
+  if (!inserted && row.status === "sent") return;
+  if (!inserted) await updateEmailSend(row.id, { status: "sending", sendingAt: nowIso(), lastError: null, lastErrorCode: null });
   const result = await provider.send({ to: opts.to, from, subject: opts.subject, text: opts.body, idempotencyKey: opts.idempotencyKey });
   if (result.sent) {
     await updateEmailSend(row.id, { status: "sent", providerMessageId: result.providerMessageId, sentAt: nowIso() });
@@ -169,6 +174,14 @@ export async function generateAgreementAction(leadId: string, proposalId: string
   ]);
   if (!lead) throw new Error("Lead not found.");
   if (!proposal || proposal.leadId !== leadId) throw new Error("Proposal not found for this lead.");
+
+  // Guard against accidental duplicate generation: refuse if a live (non-terminal)
+  // agreement already exists for this proposal. Use "Create a new version" to
+  // supersede an existing one intentionally.
+  const forProposal = await agreementsForProposal(proposalId);
+  if (forProposal.some((a) => a.status !== "voided" && a.status !== "declined")) {
+    throw new Error("An agreement already exists for this proposal. Void it or create a new version instead.");
+  }
 
   const agreementNumber = nextAgreementNumber(existingAgreements.map((a) => a.agreementNumber), nowIso());
   const contact = contacts.find((c) => c.email) ?? contacts[0] ?? null;

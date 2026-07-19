@@ -14,7 +14,7 @@
 // Logs never include the API key, the PDF bytes, or signer PII beyond a redacted
 // email domain.
 // ─────────────────────────────────────────────────────────────────────────────
-import type { CreateSignatureRequestInput, CreateSignatureRequestResult, EsignProvider, EsignStatusResult } from "./provider";
+import type { CreateSignatureRequestInput, CreateSignatureRequestResult, EsignProvider } from "./provider";
 
 const API_BASE = process.env.SIGNWELL_API_BASE ?? "https://www.signwell.com";
 const SEND_TIMEOUT_MS = Number(process.env.SIGNWELL_TIMEOUT_MS ?? 20_000);
@@ -49,16 +49,6 @@ interface SignwellDocument {
   test_mode?: boolean;
   recipients?: Array<{ id?: string; email?: string; status?: string; embedded_signing_url?: string }>;
   files?: Array<{ name?: string; pdf_url?: string }>;
-  // completion certificate / signed file locations vary by API version.
-  completed_pdf_url?: string | null;
-  audit_page_url?: string | null;
-}
-
-function classifyStatus(doc: SignwellDocument): { signed: boolean; declined: boolean } {
-  const s = (doc.status ?? "").toLowerCase();
-  const signed = s === "completed" || s === "signed";
-  const declined = s === "declined" || s === "canceled" || s === "cancelled" || s === "voided";
-  return { signed, declined };
 }
 
 export function createSignwellProvider(): EsignProvider {
@@ -109,26 +99,6 @@ export function createSignwellProvider(): EsignProvider {
         const code = e instanceof Error && e.name === "AbortError" ? "timeout" : "network";
         console.error(`[signwell] create error code=${code}`);
         return { ok: false, requestId: null, signingUrl: null, error: (e as Error).message, errorCode: code };
-      }
-    },
-
-    async getStatus(requestId: string): Promise<EsignStatusResult> {
-      if (!configured) return { ok: false, status: null, signed: false, declined: false, signedPdfUrl: null, certificateUrl: null, error: "SIGNWELL_API_KEY not set." };
-      try {
-        const res = await apiFetch(`/api/v1/documents/${encodeURIComponent(requestId)}/`, { method: "GET" }, HEALTH_TIMEOUT_MS);
-        if (!res.ok) return { ok: false, status: null, signed: false, declined: false, signedPdfUrl: null, certificateUrl: null, error: `SignWell HTTP ${res.status}` };
-        const doc = (await res.json().catch(() => ({}))) as SignwellDocument;
-        const { signed, declined } = classifyStatus(doc);
-        return {
-          ok: true,
-          status: doc.status ?? null,
-          signed,
-          declined,
-          signedPdfUrl: doc.completed_pdf_url ?? null,
-          certificateUrl: doc.audit_page_url ?? null,
-        };
-      } catch (e) {
-        return { ok: false, status: null, signed: false, declined: false, signedPdfUrl: null, certificateUrl: null, error: (e as Error).message };
       }
     },
 

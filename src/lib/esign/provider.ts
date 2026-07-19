@@ -36,16 +36,6 @@ export interface CreateSignatureRequestResult {
   errorCode?: string;
 }
 
-export interface EsignStatusResult {
-  ok: boolean;
-  status: string | null; // provider-native status
-  signed: boolean;
-  declined: boolean;
-  signedPdfUrl: string | null;
-  certificateUrl: string | null;
-  error?: string;
-}
-
 export interface EsignProviderMeta {
   name: string;
   mode: "live" | "disabled";
@@ -57,7 +47,6 @@ export interface EsignProvider {
   readonly canSend: boolean;
   readonly meta: EsignProviderMeta;
   createSignatureRequest(input: CreateSignatureRequestInput): Promise<CreateSignatureRequestResult>;
-  getStatus(requestId: string): Promise<EsignStatusResult>;
   healthCheck(): Promise<{ ok: boolean; issues: string[]; latencyMs?: number }>;
 }
 
@@ -69,9 +58,6 @@ export const disabledEsignProvider: EsignProvider = {
   meta: { name: "disabled", mode: "disabled", configured: false },
   async createSignatureRequest() {
     return { ok: false, requestId: null, signingUrl: null, error: DISABLED_REASON, errorCode: "disabled" };
-  },
-  async getStatus() {
-    return { ok: false, status: null, signed: false, declined: false, signedPdfUrl: null, certificateUrl: null, error: DISABLED_REASON };
   },
   async healthCheck() {
     return { ok: false, issues: ["E-signature disabled — SIGNWELL_API_KEY not set."] };
@@ -94,9 +80,4 @@ export function getEsignProvider(): EsignProvider {
 export function resetEsignProvider(): void {
   cached = null;
   cachedForKey = undefined;
-}
-
-export function esignStatus(): { provider: string; canSend: boolean; meta: EsignProviderMeta } {
-  const p = getEsignProvider();
-  return { provider: p.name, canSend: p.canSend, meta: p.meta };
 }

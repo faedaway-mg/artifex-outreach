@@ -52,7 +52,7 @@ export default async function LeadPage({ params }: { params: { id: string } }) {
   const lead = await getLead(params.id);
   if (!lead) notFound();
 
-  const [contacts, findings, screenshots, deliverables, videos, outreach, meetings, proposals, settings] = await Promise.all([
+  const [contacts, findings, screenshots, deliverables, videos, outreach, meetings, proposals, settings, agreements, payments] = await Promise.all([
     contactsForLead(lead.id),
     findingsForLead(lead.id),
     screenshotsForLead(lead.id),
@@ -62,8 +62,9 @@ export default async function LeadPage({ params }: { params: { id: string } }) {
     meetingsForLead(lead.id),
     proposalsForLead(lead.id),
     getSettings(),
+    agreementsForLead(lead.id),
+    paymentsForLead(lead.id),
   ]);
-  const [agreements, payments] = await Promise.all([agreementsForLead(lead.id), paymentsForLead(lead.id)]);
 
   const previews = (await previewsForLead(lead.id)).filter((p) => p.status !== "Archived");
   const activePreview = previews.sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt))[0] ?? null;
