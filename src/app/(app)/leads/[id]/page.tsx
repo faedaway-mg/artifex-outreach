@@ -10,6 +10,8 @@ import {
   outreachForLead,
   meetingsForLead,
   proposalsForLead,
+  agreementsForLead,
+  paymentsForLead,
   getSettings,
   daysInStage,
   previewsForLead,
@@ -31,6 +33,10 @@ import { DeliverablePanel } from "@/components/lead/DeliverablePanel";
 import { VideoPanel } from "@/components/lead/VideoPanel";
 import { OutreachPanel } from "@/components/lead/OutreachPanel";
 import { MeetingProposalPanel } from "@/components/lead/MeetingProposalPanel";
+import { AgreementPanel } from "@/components/lead/AgreementPanel";
+import { agreementSendingEnabled } from "@/lib/esign/gate";
+import { getEsignProvider } from "@/lib/esign/provider";
+import { stripeConfigured } from "@/lib/payments/stripe";
 import { IntelligencePanel } from "@/components/lead/IntelligencePanel";
 import { BusinessUnderstanding } from "@/components/lead/BusinessUnderstanding";
 import { EvolutionTimeline } from "@/components/lead/EvolutionTimeline";
@@ -57,6 +63,7 @@ export default async function LeadPage({ params }: { params: { id: string } }) {
     proposalsForLead(lead.id),
     getSettings(),
   ]);
+  const [agreements, payments] = await Promise.all([agreementsForLead(lead.id), paymentsForLead(lead.id)]);
 
   const previews = (await previewsForLead(lead.id)).filter((p) => p.status !== "Archived");
   const activePreview = previews.sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt))[0] ?? null;
@@ -235,6 +242,19 @@ export default async function LeadPage({ params }: { params: { id: string } }) {
           {/* Meeting + proposal */}
           <div id="meeting">
             <MeetingProposalPanel lead={lead} meetings={meetings} proposals={proposals} />
+          </div>
+
+          {/* Client agreement lifecycle */}
+          <div id="agreement">
+            <AgreementPanel
+              lead={lead}
+              proposals={proposals}
+              agreements={agreements}
+              payments={payments}
+              sendingEnabled={agreementSendingEnabled()}
+              esignConfigured={getEsignProvider().canSend}
+              stripeConfigured={stripeConfigured()}
+            />
           </div>
         </div>
       </div>

@@ -629,12 +629,18 @@ export async function setMeetingOutcomeAction(meetingId: string, leadId: string,
 // ── Proposals ────────────────────────────────────────────────────────────────
 export async function createProposalAction(leadId: string, formData: FormData): Promise<void> {
   const amount = Number(formData.get("amount")) || null;
+  const now = new Date().toISOString();
+  const { allProposals } = await import("./repo");
+  const { nextProposalNumber } = await import("./agreement/numbering");
+  const existing = await allProposals();
   await insertProposal({
     leadId,
+    number: nextProposalNumber(existing.map((p) => p.number), now),
+    version: 1,
     status: "sent",
     amount,
     proposalUrl: String(formData.get("proposalUrl") || "") || null,
-    sentAt: new Date().toISOString(),
+    sentAt: now,
     acceptedAt: null,
   });
   await updateLead(leadId, { pipelineStage: "Proposal Sent" });
