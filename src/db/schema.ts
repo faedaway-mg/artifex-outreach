@@ -35,8 +35,28 @@ export const pipelineStageEnum = pgEnum("pipeline_stage", [
   "Lost",
   "Nurture",
   "Disqualified",
+  // ── Agreement lifecycle (client-agreement system) ──────────────────────────
+  // Coarse operator-facing gates only. Fine-grained agreement sub-status lives on
+  // the agreements record (agreement_status), NOT here.
+  "Proposal Accepted",
+  "Agreement Signed",
+  "Deposit Paid",
 ]);
 export const confidenceEnum = pgEnum("confidence", ["Verified", "Likely", "Unknown"]);
+
+// ── Client-agreement system ────────────────────────────────────────────────
+export const agreementStatusEnum = pgEnum("agreement_status", [
+  "draft",
+  "generated",
+  "approved",
+  "sent",
+  "viewed",
+  "signed",
+  "declined",
+  "voided",
+]);
+export const paymentTypeEnum = pgEnum("payment_type", ["deposit", "balance", "monthly"]);
+export const paymentStatusEnum = pgEnum("payment_status", ["pending", "link_sent", "paid", "failed", "void"]);
 
 export const users = pgTable("users", {
   id: text("id").primaryKey(),
@@ -298,6 +318,10 @@ export const proposals = pgTable(
   {
     id: text("id").primaryKey(),
     leadId: text("lead_id").notNull(),
+    // Stable human-readable identifier, e.g. "AL-P-2026-001". Nullable for rows
+    // written before the agreement system; assigned on creation going forward.
+    number: text("number"),
+    version: integer("version").notNull().default(1),
     status: text("status").notNull().default("draft"),
     amount: integer("amount"),
     proposalUrl: text("proposal_url"),
@@ -631,5 +655,106 @@ export const emailEvents = pgTable(
   (t) => ({
     eventIdx: uniqueIndex("email_events_event_idx").on(t.providerEventId),
     msgIdx: index("email_events_msg_idx").on(t.providerMessageId),
+  }),
+);
+
+// ── Client-agreement system ──────────────────────────────────────────────────
+// One master Professional Services Agreement, generated per accepted proposal.
+// contentSnapshot is the IMMUTABLE resolved field set frozen at approval — editing
+// the lead/proposal/price afterward must never mutate an approved/signed agreement
+// (a material change creates a NEW version, a new row). E-sign is delegated to
+// SignWell; we only store its identifiers + the returned signed artifacts.
+export const agreements = pgTable(
+  "agreements",
+  {
+    id: text("id").primaryKey(),
+    leadId: text("lead_id").notNull(),
+    proposalId: text("proposal_id").notNull(),
+    // Stable human-readable identifier, e.g. "AL-A-2026-001".
+    agreementNumber: text("agreement_number").notNull(),
+    // Which revision of the master PSA template produced this agreement.
+    templateVersion: text("template_version").notNull(),
+    // Monotonic version of THIS agreement (a material post-approval change bumps it).
+    version: integer("version").notNull().default(1),
+    // Points at the agreement this one supersedes (new-version chain), if any.
+    supersedesId: text("supersedes_id"),
+    supersededById: text("superseded_by_id"),
+    status: agreementStatusEnum("status").notNull().default("draft"),
+    contentSnapshot: jsonb("content_snapshot").notNull(),
+    effectiveDate: text("effective_date"),
+    signerName: text("signer_name"),
+    signerEmail: text("signer_email"),
+    signerCompany: text("signer_company"),
+    pdfKey: text("pdf_key"),
+    pdfUrl: text("pdf_url"),
+    // Final signed PDF + completion certificate (from SignWell, when available).
+    signedPdfKey: text("signed_pdf_key"),
+    signedPdfUrl: text("signed_pdf_url"),
+    certificateUrl: text("certificate_url"),
+    esignProvider: text("esign_provider"),
+    esignRequestId: text("esign_request_id"),
+    esignUrl: text("esign_url"),
+    approvedAt: ts("approved_at"),
+    sentAt: ts("sent_at"),
+    viewedAt: ts("viewed_at"),
+    signedAt: ts("signed_at"),
+    declinedAt: ts("declined_at"),
+    voidedAt: ts("voided_at"),
+    createdAt: ts("created_at").notNull(),
+    updatedAt: ts("updated_at").notNull(),
+  },
+  (t) => ({
+    leadIdx: index("agreements_lead_idx").on(t.leadId),
+    proposalIdx: index("agreements_proposal_idx").on(t.proposalId),
+    statusIdx: index("agreements_status_idx").on(t.status),
+    numberIdx: uniqueIndex("agreements_number_idx").on(t.agreementNumber),
+    esignIdx: index("agreements_esign_idx").on(t.esignRequestId),
+  }),
+);
+
+// Raw e-sign provider webhook events. Keyed by a unique dedupeKey so duplicate
+// deliveries are idempotent — the second arrival is a recorded no-op. Append-only.
+export const agreementEvents = pgTable(
+  "agreement_events",
+  {
+    id: text("id").primaryKey(),
+    agreementId: text("agreement_id").notNull(),
+    provider: text("provider").notNull().default("signwell"),
+    eventType: text("event_type").notNull(),
+    dedupeKey: text("dedupe_key").notNull(),
+    payload: jsonb("payload"),
+    occurredAt: ts("occurred_at").notNull(),
+    createdAt: ts("created_at").notNull(),
+  },
+  (t) => ({
+    dedupeIdx: uniqueIndex("agreement_events_dedupe_idx").on(t.dedupeKey),
+    agreementIdx: index("agreement_events_agreement_idx").on(t.agreementId),
+  }),
+);
+
+// Lightweight payment records — deposit collection only (NOT invoicing/accounting).
+// The Stripe payment LINK is stored as a URL, mirroring the external-link pattern
+// used by proposals. A deposit row is created only when its agreement is signed.
+export const payments = pgTable(
+  "payments",
+  {
+    id: text("id").primaryKey(),
+    leadId: text("lead_id").notNull(),
+    agreementId: text("agreement_id").notNull(),
+    type: paymentTypeEnum("type").notNull().default("deposit"),
+    amountCents: integer("amount_cents").notNull().default(0),
+    currency: text("currency").notNull().default("usd"),
+    status: paymentStatusEnum("status").notNull().default("pending"),
+    stripePaymentLinkUrl: text("stripe_payment_link_url"),
+    stripeSessionId: text("stripe_session_id"),
+    sentAt: ts("sent_at"),
+    paidAt: ts("paid_at"),
+    createdAt: ts("created_at").notNull(),
+    updatedAt: ts("updated_at").notNull(),
+  },
+  (t) => ({
+    leadIdx: index("payments_lead_idx").on(t.leadId),
+    agreementIdx: index("payments_agreement_idx").on(t.agreementId),
+    statusIdx: index("payments_status_idx").on(t.status),
   }),
 );

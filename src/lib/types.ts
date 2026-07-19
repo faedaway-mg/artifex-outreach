@@ -21,6 +21,10 @@ export const PIPELINE_STAGES = [
   "Lost",
   "Nurture",
   "Disqualified",
+  // Agreement lifecycle coarse gates (see agreements.status for fine-grained state).
+  "Proposal Accepted",
+  "Agreement Signed",
+  "Deposit Paid",
 ] as const;
 export type PipelineStage = (typeof PIPELINE_STAGES)[number];
 
@@ -103,6 +107,16 @@ export type MeetingOutcome = (typeof MEETING_OUTCOME)[number];
 
 export const PROPOSAL_STATUS = ["draft", "sent", "accepted", "declined"] as const;
 export type ProposalStatus = (typeof PROPOSAL_STATUS)[number];
+
+// ── Client-agreement system ──────────────────────────────────────────────────
+export const AGREEMENT_STATUS = ["draft", "generated", "approved", "sent", "viewed", "signed", "declined", "voided"] as const;
+export type AgreementStatus = (typeof AGREEMENT_STATUS)[number];
+
+export const PAYMENT_TYPES = ["deposit", "balance", "monthly"] as const;
+export type PaymentType = (typeof PAYMENT_TYPES)[number];
+
+export const PAYMENT_STATUS = ["pending", "link_sent", "paid", "failed", "void"] as const;
+export type PaymentStatus = (typeof PAYMENT_STATUS)[number];
 
 // ── Score breakdown ──────────────────────────────────────────────────────────
 export interface ScoreBreakdown {
@@ -352,11 +366,112 @@ export interface Meeting {
 export interface Proposal {
   id: string;
   leadId: string;
+  number: string | null; // stable human-readable id, e.g. "AL-P-2026-001"
+  version: number;
   status: ProposalStatus;
   amount: number | null;
   proposalUrl: string | null;
   sentAt: string | null;
   acceptedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// The immutable resolved field set frozen onto an agreement at generation. This is
+// the exact commercial + party record of WHAT WAS SIGNED — it must not change when
+// the underlying lead/proposal is later edited. All monetary values are in cents.
+export interface AgreementContentSnapshot {
+  agreementNumber: string;
+  templateVersion: string;
+  version: number;
+  proposalId: string;
+  proposalNumber: string | null;
+  proposalVersion: number;
+  // Parties
+  clientLegalName: string;
+  clientBusinessName: string;
+  clientContactName: string;
+  clientEmail: string;
+  clientBusinessAddress: string;
+  artifexSignatory: string;
+  artifexLegalEntity: string;
+  // Project
+  projectName: string;
+  projectSummary: string;
+  scope: string[];
+  deliverables: string[];
+  exclusions: string[];
+  timeline: string;
+  startDateAssumption: string;
+  // Commercial (cents)
+  totalPriceCents: number;
+  depositPercent: number;
+  depositAmountCents: number;
+  remainingBalanceCents: number;
+  monthlyPartnershipCents: number | null;
+  currency: string;
+  // Legal
+  effectiveDate: string;
+  governingLaw: string;
+  generatedAt: string;
+}
+
+export interface Agreement {
+  id: string;
+  leadId: string;
+  proposalId: string;
+  agreementNumber: string;
+  templateVersion: string;
+  version: number;
+  supersedesId: string | null;
+  supersededById: string | null;
+  status: AgreementStatus;
+  contentSnapshot: AgreementContentSnapshot;
+  effectiveDate: string | null;
+  signerName: string | null;
+  signerEmail: string | null;
+  signerCompany: string | null;
+  pdfKey: string | null;
+  pdfUrl: string | null;
+  signedPdfKey: string | null;
+  signedPdfUrl: string | null;
+  certificateUrl: string | null;
+  esignProvider: string | null;
+  esignRequestId: string | null;
+  esignUrl: string | null;
+  approvedAt: string | null;
+  sentAt: string | null;
+  viewedAt: string | null;
+  signedAt: string | null;
+  declinedAt: string | null;
+  voidedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AgreementEvent {
+  id: string;
+  agreementId: string;
+  provider: string;
+  eventType: string; // sent | viewed | signed | declined | voided | completed | ...
+  dedupeKey: string; // unique — dedupes duplicate webhook deliveries
+  payload: unknown;
+  occurredAt: string;
+  createdAt: string;
+}
+
+export interface Payment {
+  id: string;
+  leadId: string;
+  agreementId: string;
+  type: PaymentType;
+  amountCents: number;
+  currency: string;
+  status: PaymentStatus;
+  stripePaymentLinkUrl: string | null;
+  stripeSessionId: string | null;
+  sentAt: string | null;
+  paidAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -754,6 +869,16 @@ export interface Settings {
   // confirmation. Stored so the checklist / validation stay green after sign-off.
   launchReviewConfirmedAt?: string | null;
   launchReviewConfirmedBy?: string | null;
+  // ── Client-agreement defaults ───────────────────────────────────────────────
+  agreementDefaults?: AgreementDefaults;
+}
+
+export interface AgreementDefaults {
+  depositPercent: number; // e.g. 50
+  defaultTimelineWeeks: number; // used when a proposal has no explicit timeline
+  projectManagerName: string; // Artifex signatory / PM on the agreement
+  governingLawState: string; // e.g. "California"
+  agreementValidityDays: number; // signing-link validity window
 }
 
 export interface ProspectingRun {

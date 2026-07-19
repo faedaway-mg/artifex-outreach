@@ -63,6 +63,10 @@ const STAGE_TO_PHASE: Partial<Record<PipelineStage, JourneyPhase>> = {
   "Meeting Booked": "Discovery Complete",
   "Discovery Complete": "Discovery Complete",
   "Proposal Sent": "Evolution Plan Ready",
+  // Agreement lifecycle → moving from an accepted plan into active implementation.
+  "Proposal Accepted": "Evolution Plan Ready",
+  "Agreement Signed": "Focused Improvement",
+  "Deposit Paid": "Focused Improvement",
 };
 
 /** Signals that split a Won business into a relationship sub-phase. */

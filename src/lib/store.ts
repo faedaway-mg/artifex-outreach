@@ -21,6 +21,9 @@ import type {
   Task,
   Meeting,
   Proposal,
+  Agreement,
+  AgreementEvent,
+  Payment,
   Suppression,
   Settings,
   StoredBusinessIntelligence,
@@ -40,6 +43,9 @@ export interface Collections {
   tasks: Task[];
   meetings: Meeting[];
   proposals: Proposal[];
+  agreements: Agreement[];
+  agreementEvents: AgreementEvent[];
+  payments: Payment[];
   suppressions: Suppression[];
   businessIntelligence: StoredBusinessIntelligence[];
   settings: Settings;
@@ -61,6 +67,9 @@ function createEmpty(): Collections {
     tasks: [],
     meetings: [],
     proposals: [],
+    agreements: [],
+    agreementEvents: [],
+    payments: [],
     suppressions: [],
     businessIntelligence: [],
     settings: defaultSettings(),
@@ -88,6 +97,13 @@ export function defaultSettings(): Settings {
     followUpTiming: [0, 3, 7, 14],
     prospecting: defaultProspecting(),
     sendingWindow: { timezone: "America/Los_Angeles", startHour: 8, endHour: 17, weekdays: [1, 2, 3, 4, 5] },
+    agreementDefaults: {
+      depositPercent: 50,
+      defaultTimelineWeeks: 8,
+      projectManagerName: "Jordan Jackson",
+      governingLawState: "California",
+      agreementValidityDays: 30,
+    },
   };
 }
 

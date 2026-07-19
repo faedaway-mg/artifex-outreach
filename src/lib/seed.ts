@@ -805,6 +805,8 @@ export function buildSeed(store: Collections): void {
   store.proposals.push({
     id: "prop_nadia",
     leadId: nadia.id,
+    number: "AL-P-2026-001",
+    version: 1,
     status: "sent",
     amount: 11000,
     proposalUrl: "https://artifexlabs.tech/proposals/nadia-cole",
@@ -818,6 +820,8 @@ export function buildSeed(store: Collections): void {
   store.proposals.push({
     id: id("prop"),
     leadId: copper.id,
+    number: "AL-P-2026-002",
+    version: 1,
     status: "accepted",
     amount: 14500,
     proposalUrl: "https://artifexlabs.tech/proposals/copper-oak",

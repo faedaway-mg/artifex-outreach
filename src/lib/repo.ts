@@ -25,6 +25,9 @@ import type {
   Task,
   Meeting,
   Proposal,
+  Agreement,
+  AgreementEvent,
+  Payment,
   Suppression,
   Settings,
   PipelineStage,
@@ -109,6 +112,10 @@ const EmailSends = collection<EmailSend>(t.emailSends, () => ((mem() as any).ema
 const memEmailSends = () => ((mem() as any).emailSends ??= []) as EmailSend[];
 const EmailEvents = collection<EmailEvent>(t.emailEvents, () => ((mem() as any).emailEvents ??= []));
 const memEmailEvents = () => ((mem() as any).emailEvents ??= []) as EmailEvent[];
+const Agreements = collection<Agreement>(t.agreements, () => ((mem() as any).agreements ??= []));
+const AgreementEvents = collection<AgreementEvent>(t.agreementEvents, () => ((mem() as any).agreementEvents ??= []));
+const memAgreementEvents = () => ((mem() as any).agreementEvents ??= []) as AgreementEvent[];
+const Payments = collection<Payment>(t.payments, () => ((mem() as any).payments ??= []));
 
 // ── Leads ────────────────────────────────────────────────────────────────────
 export async function listLeads(): Promise<Lead[]> {
@@ -279,6 +286,62 @@ export async function insertProposal(p: Omit<Proposal, "id" | "createdAt" | "upd
 }
 export const updateProposal = (id: string, patch: Partial<Proposal>) => Proposals.update(id, patch);
 
+// ── Agreements ───────────────────────────────────────────────────────────────
+export const agreementsForLead = (leadId: string) => Agreements.byLead(leadId);
+export const allAgreements = () => Agreements.all();
+export const getAgreement = (id: string) => Agreements.byId(id);
+export const updateAgreement = (id: string, patch: Partial<Agreement>) => Agreements.update(id, patch);
+export async function insertAgreement(a: Omit<Agreement, "id" | "createdAt" | "updatedAt">): Promise<Agreement> {
+  return Agreements.insert({ ...a, id: newId("agr"), createdAt: nowIso(), updatedAt: nowIso() } as Agreement);
+}
+export async function agreementsForProposal(proposalId: string): Promise<Agreement[]> {
+  if (hasDb()) return (await getDb().select().from(t.agreements).where(eq(t.agreements.proposalId, proposalId))) as any;
+  return (await Agreements.all()).filter((a) => a.proposalId === proposalId);
+}
+export async function getAgreementByEsignRequestId(esignRequestId: string): Promise<Agreement | undefined> {
+  if (!esignRequestId) return undefined;
+  if (hasDb()) return (await getDb().select().from(t.agreements).where(eq(t.agreements.esignRequestId, esignRequestId)))[0] as any;
+  return (await Agreements.all()).find((a) => a.esignRequestId === esignRequestId);
+}
+
+/** Insert-or-get an agreement webhook event by dedupeKey. `inserted:false` = dup. */
+export async function insertAgreementEventIfAbsent(seed: Omit<AgreementEvent, "id" | "createdAt">): Promise<{ inserted: boolean; row: AgreementEvent }> {
+  const row = { ...seed, id: newId("aevt"), createdAt: nowIso() } as AgreementEvent;
+  if (hasDb()) {
+    const ins = (await getDb().insert(t.agreementEvents).values(row as any).onConflictDoNothing({ target: t.agreementEvents.dedupeKey }).returning()) as any as AgreementEvent[];
+    if (ins[0]) return { inserted: true, row: ins[0] };
+    const existing = (await getDb().select().from(t.agreementEvents).where(eq(t.agreementEvents.dedupeKey, seed.dedupeKey)))[0] as any as AgreementEvent;
+    return { inserted: false, row: existing };
+  }
+  const arr = memAgreementEvents();
+  const existing = arr.find((r) => r.dedupeKey === seed.dedupeKey);
+  if (existing) return { inserted: false, row: existing };
+  arr.push(row);
+  return { inserted: true, row };
+}
+export async function eventsForAgreement(agreementId: string): Promise<AgreementEvent[]> {
+  if (hasDb()) return (await getDb().select().from(t.agreementEvents).where(eq(t.agreementEvents.agreementId, agreementId))) as any;
+  return memAgreementEvents().filter((r) => r.agreementId === agreementId);
+}
+
+// ── Payments (deposit collection only) ───────────────────────────────────────
+export const paymentsForLead = (leadId: string) => Payments.byLead(leadId);
+export const getPayment = (id: string) => Payments.byId(id);
+export const updatePayment = (id: string, patch: Partial<Payment>) => Payments.update(id, patch);
+export const allPayments = () => Payments.all();
+export async function insertPayment(p: Omit<Payment, "id" | "createdAt" | "updatedAt">): Promise<Payment> {
+  return Payments.insert({ ...p, id: newId("pay"), createdAt: nowIso(), updatedAt: nowIso() } as Payment);
+}
+export async function paymentsForAgreement(agreementId: string): Promise<Payment[]> {
+  if (hasDb()) return (await getDb().select().from(t.payments).where(eq(t.payments.agreementId, agreementId))) as any;
+  return (await Payments.all()).filter((p) => p.agreementId === agreementId);
+}
+export async function getStripeSessionPayment(sessionId: string): Promise<Payment | undefined> {
+  if (!sessionId) return undefined;
+  if (hasDb()) return (await getDb().select().from(t.payments).where(eq(t.payments.stripeSessionId, sessionId)))[0] as any;
+  return (await Payments.all()).find((p) => p.stripeSessionId === sessionId);
+}
+
 // ── Global collections (analytics + batch hydration) ─────────────────────────
 export const allOutreach = () => Outreaches.all();
 export const allVideos = () => Videos.all();
@@ -330,7 +393,10 @@ function withDefaults(data: Partial<Settings> | undefined): Settings {
   // centralized. Only rewrites the exact known-stale/broken values, so any
   // intentional customization made in Settings is preserved.
   if (merged.contactEmail === "jordan@artifexlabs.tech") merged.contactEmail = ARTIFEX_IDENTITY.publicEmail;
-  if (merged.calendarLink === "https://cal.com/artifexlabs/discovery") merged.calendarLink = ARTIFEX_IDENTITY.bookingUrl;
+  // Both the original spec vanity slug (never existed) and the earlier personal
+  // auto-slug (now 404) heal to the current verified booking URL.
+  const DEAD_BOOKING_URLS = new Set(["https://cal.com/artifexlabs/discovery", "https://cal.com/jordan-jackson-coa1a0/30min"]);
+  if (DEAD_BOOKING_URLS.has(merged.calendarLink)) merged.calendarLink = ARTIFEX_IDENTITY.bookingUrl;
   return merged;
 }
 
