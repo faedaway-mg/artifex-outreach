@@ -74,7 +74,7 @@ describe("conversationState (Phase 7)", () => {
     expect(cs.currentStage).toBe("Replied");
 
     await insertMeeting({ leadId: lead.id, contactId: null, scheduledAt: "2026-07-20T17:00:00Z", meetingUrl: null, discoveryQuestions: [], likelyObjections: [], notes: "", nextStep: "", outcome: "scheduled" as any });
-    await insertProposal({ leadId: lead.id, status: "sent", amount: 12000, proposalUrl: null, sentAt: "2026-07-22T00:00:00Z", acceptedAt: null });
+    await insertProposal({ leadId: lead.id, number: null, version: 1, status: "sent", amount: 12000, proposalUrl: null, sentAt: "2026-07-22T00:00:00Z", acceptedAt: null });
     cs = await conversationState(lead.id);
     expect(cs.currentStage).toBe("Proposal");
 

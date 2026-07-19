@@ -1,0 +1,125 @@
+import { describe, it, expect, beforeEach } from "vitest";
+import { createHmac } from "node:crypto";
+import { __resetStoreForTests } from "../store";
+import { insertAgreement, getAgreement, paymentsForAgreement, getLead, insertLead } from "../repo";
+import { handleSignwellWebhook, verifySignwellSignature, nextAgreementStatus, parseSignwellEvent } from "./webhook";
+import { makeAgreement } from "../agreement/test-fixtures";
+
+const SECRET = "whsec_test_signwell";
+
+function sign(body: string): string {
+  return createHmac("sha256", SECRET).update(body).digest("hex");
+}
+
+async function seedAgreement(overrides = {}) {
+  const a = makeAgreement({ status: "sent", esignRequestId: "doc_1", esignProvider: "signwell", ...overrides });
+  const { id, createdAt, updatedAt, ...rest } = a;
+  void id; void createdAt; void updatedAt;
+  return insertAgreement(rest);
+}
+
+function baseLeadSeed(): any {
+  return {
+    googlePlaceId: null, businessName: "Copper & Oak", normalizedName: "copperoak", industry: "Restaurant",
+    normalizedCategory: null, categoryGroup: null, address: "1", city: "LA", state: "CA", postalCode: "90012",
+    latitude: null, longitude: null, phone: null, website: null, websiteDomain: null, publicEmail: null, contactFormUrl: null,
+    socialLinks: [], locationsCount: null, rating: null, reviewCount: null, businessStatus: null, googleMapsUrl: null, hours: null,
+    source: "test", retrievedAt: null, tier: null, leadScore: null, scoreBreakdown: null, pipelineStage: "Proposal Accepted",
+    estimatedValueLow: null, estimatedValueHigh: null, recommendedService: null, recommendedAction: null, recommendationReason: null,
+    opportunitySummary: null, strengths: [], acquisitionStrategy: null, acquisitionScore: null, acquisitionReason: null,
+    acquisitionScoreBreakdown: null, acquisitionOverride: false, assignedTo: "jordan", note: null, lastContactAt: null, nextFollowUpAt: null,
+  };
+}
+
+function payload(type: string, docId = "doc_1", eventId = "evt_1", extra: Record<string, unknown> = {}) {
+  return JSON.stringify({ event: { id: eventId, type, time: "2026-07-11T00:00:00.000Z" }, data: { object: { id: docId, status: type === "document_completed" ? "completed" : "viewed", ...extra } } });
+}
+
+beforeEach(() => {
+  __resetStoreForTests();
+});
+
+describe("verifySignwellSignature", () => {
+  it("accepts a correct hex HMAC and rejects a wrong one", () => {
+    const body = payload("document_viewed");
+    expect(verifySignwellSignature(SECRET, body, sign(body))).toBe(true);
+    expect(verifySignwellSignature(SECRET, body, "deadbeef")).toBe(false);
+    expect(verifySignwellSignature(SECRET, body, null)).toBe(false);
+  });
+});
+
+describe("nextAgreementStatus (monotonic)", () => {
+  it("advances forward but never regresses or reopens a terminal", () => {
+    expect(nextAgreementStatus("sent", "viewed")).toBe("viewed");
+    expect(nextAgreementStatus("approved", "viewed")).toBeNull(); // don't regress to viewed from before sent
+    expect(nextAgreementStatus("viewed", "signed")).toBe("signed");
+    expect(nextAgreementStatus("signed", "viewed")).toBeNull(); // already signed — ignore late view
+    expect(nextAgreementStatus("signed", "signed")).toBeNull();
+    expect(nextAgreementStatus("voided", "signed")).toBeNull();
+    expect(nextAgreementStatus("sent", "declined")).toBe("declined");
+  });
+});
+
+describe("parseSignwellEvent", () => {
+  it("returns null for unknown event types", () => {
+    expect(parseSignwellEvent({ event: { type: "document_api_something" }, data: { object: { id: "x" } } })).toBeNull();
+  });
+});
+
+describe("handleSignwellWebhook", () => {
+  it("rejects an unsigned request when a secret is configured", async () => {
+    await seedAgreement();
+    const body = payload("document_viewed");
+    const res = await handleSignwellWebhook({ rawBody: body, signature: "bad", secret: SECRET });
+    expect(res.status).toBe(401);
+    expect(res.kind).toBe("invalid_signature");
+  });
+
+  it("fails closed in production when no secret is set", async () => {
+    const body = payload("document_viewed");
+    const res = await handleSignwellWebhook({ rawBody: body, signature: null, secret: null, isProduction: true });
+    expect(res.status).toBe(401);
+  });
+
+  it("applies a viewed event and dedupes a duplicate delivery", async () => {
+    const agreement = await seedAgreement();
+    const body = payload("document_viewed", "doc_1", "evt_view");
+    const first = await handleSignwellWebhook({ rawBody: body, signature: sign(body), secret: SECRET });
+    expect(first.result).toBe("applied");
+    expect((await getAgreement(agreement.id))?.status).toBe("viewed");
+    const dup = await handleSignwellWebhook({ rawBody: body, signature: sign(body), secret: SECRET });
+    expect(dup.result).toBe("duplicate");
+  });
+
+  it("marks signed, advances the lead, and unlocks a pending deposit", async () => {
+    const lead = await insertLead(baseLeadSeed());
+    const a = makeAgreement({ status: "sent", esignRequestId: "doc_1", leadId: lead.id });
+    const { id, createdAt, updatedAt, ...rest } = a;
+    const agreement = await insertAgreement(rest);
+
+    const body = payload("document_completed", "doc_1", "evt_sign", { completed_pdf_url: "https://signwell.example/signed.pdf", audit_page_url: "https://signwell.example/cert" });
+    const res = await handleSignwellWebhook({ rawBody: body, signature: sign(body), secret: SECRET });
+    expect(res.result).toBe("applied");
+
+    const after = await getAgreement(agreement.id);
+    expect(after?.status).toBe("signed");
+    expect(after?.signedPdfUrl).toBe("https://signwell.example/signed.pdf");
+    expect(after?.certificateUrl).toBe("https://signwell.example/cert");
+
+    const deposits = await paymentsForAgreement(agreement.id);
+    expect(deposits).toHaveLength(1);
+    expect(deposits[0].type).toBe("deposit");
+    expect(deposits[0].status).toBe("pending");
+    expect(deposits[0].amountCents).toBe(after!.contentSnapshot.depositAmountCents);
+
+    expect((await getLead(lead.id))?.pipelineStage).toBe("Agreement Signed");
+    void id; void createdAt; void updatedAt;
+  });
+
+  it("acks an unmatched document without applying", async () => {
+    const body = payload("document_completed", "doc_UNKNOWN", "evt_x");
+    const res = await handleSignwellWebhook({ rawBody: body, signature: sign(body), secret: SECRET });
+    expect(res.result).toBe("unmatched");
+    expect(res.status).toBe(200);
+  });
+});
