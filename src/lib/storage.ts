@@ -32,6 +32,9 @@ export function storageStatus(): { provider: string; configured: boolean } {
 function keyForPdf(leadId: string, deliverableId: string): string {
   return `leads/${leadId}/deliverables/${deliverableId}.pdf`;
 }
+function keyForAgreementPdf(leadId: string, agreementId: string): string {
+  return `leads/${leadId}/agreements/${agreementId}.pdf`;
+}
 function keyForScreenshot(leadId: string, name: string): string {
   const safe = name.replace(/[^a-zA-Z0-9._-]/g, "_");
   return `leads/${leadId}/screenshots/${safe}`;
@@ -72,6 +75,17 @@ export async function uploadPdf(leadId: string, deliverableId: string, buffer: B
   }
   await putObject(key, buffer, "application/pdf");
   return { url: publicUrl(key) ?? `/api/deliverable/${deliverableId}/pdf`, key };
+}
+
+export async function uploadAgreementPdf(leadId: string, agreementId: string, buffer: Buffer): Promise<StoredObject> {
+  if (buffer.byteLength > MAX_PDF_BYTES) throw new Error("PDF exceeds max size");
+  const key = keyForAgreementPdf(leadId, agreementId);
+  if (storageProvider() === "mock") {
+    // Not persisted; regenerated on demand from Postgres via the agreement route.
+    return { url: `/api/agreement/${agreementId}/pdf`, key };
+  }
+  await putObject(key, buffer, "application/pdf");
+  return { url: publicUrl(key) ?? `/api/agreement/${agreementId}/pdf`, key };
 }
 
 export async function uploadScreenshot(leadId: string, name: string, buffer: Buffer, contentType: string): Promise<StoredObject> {
