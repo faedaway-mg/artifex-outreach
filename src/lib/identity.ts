@@ -10,9 +10,9 @@ export const ARTIFEX_IDENTITY = {
   companyName: "Artifex Labs",
   publicWebsite: "https://artifexlabs.tech",
   publicEmail: "hello@artifexlabs.tech",
-  // Verified live 2026-07-14 (returns 200). NOTE: cal.com/artifexlabs/discovery
-  // from the spec currently 404s; point that vanity slug here once it exists.
-  bookingUrl: "https://cal.com/jordan-jackson-coa1a0/30min",
+  // Verified live 2026-07-20 (HTTP 200): "Business Technology Conversation",
+  // 30 min, Cal Video. The old jordan-jackson-coa1a0 slug 404s — do not restore it.
+  bookingUrl: "https://cal.com/artifex-labs-discovery-call/30min",
   location: "Los Angeles, CA",
   // Company legal name of record is "Faedaway M.G. LLC" (spec wrote "Fadeaway MG LLC").
   legalEntity: "Faedaway M.G. LLC",

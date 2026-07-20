@@ -68,6 +68,6 @@ describe("Modernization Brief PDF", () => {
 
   it("self-heals the public contact email/booking to the canonical identity", () => {
     expect(settings.contactEmail).toBe("hello@artifexlabs.tech");
-    expect(settings.calendarLink).toBe("https://cal.com/jordan-jackson-coa1a0/30min");
+    expect(settings.calendarLink).toBe("https://cal.com/artifex-labs-discovery-call/30min");
   });
 });
