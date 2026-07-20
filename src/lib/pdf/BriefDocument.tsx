@@ -1,12 +1,30 @@
 /* eslint-disable jsx-a11y/alt-text */
+/**
+ * Business Technology Review — the prospect-facing deliverable.
+ * ------------------------------------------------------------------
+ * Rebuilt on the Artifex Labs PDF design system (src/lib/pdf/design):
+ * a dark, branded cover & closing; warm-paper editorial body; serif
+ * display type (Playfair) over Inter, mono accents (JetBrains); crisp
+ * vector iconography; and section-by-section visual storytelling.
+ *
+ * Data contract is unchanged — renderBriefPdf(lead, deliverable,
+ * settings) → BriefDocument({ lead, deliverable, settings }).
+ */
 import React from "react";
-import { Document, Page, Text, View, StyleSheet } from "@react-pdf/renderer";
+import { Document, Page, Text, View, Svg, Path, Circle } from "@react-pdf/renderer";
 import type { Lead, Deliverable, Settings, ArtifexService } from "@/lib/types";
 import { ARTIFEX_IDENTITY } from "@/lib/identity";
+import {
+  color, space, radius, type,
+  Row, Eyebrow, Title, Label, Caption,
+  Wordmark, Icon, IconChip,
+  pageStyles, RunningHeader, RunningFooter, SectionHeader,
+  Card, InsightCell, RatingDots, Chip, Callout,
+  JourneyColumn, RecommendationCard, InvestmentBlock, ContactRow,
+} from "@/lib/pdf/design";
 
 // Customer-facing engagement label. The internal ArtifexService names are a
 // productized menu; a prospect should see the OUTCOME we propose, not a SKU.
-// The stored content keeps the service enum; only the printed label is reframed.
 function engagementLabel(service: ArtifexService | string): string {
   switch (service) {
     case "Launch Website":
@@ -26,212 +44,356 @@ function engagementLabel(service: ArtifexService | string): string {
   }
 }
 
-// Premium, minimal, calm brief — light document for easy sharing/printing.
-const INK = "#0D0F13";
-const MUTE = "#5B6270";
-const LINE = "#E4E7EC";
-const ACCENT = "#3E75E6";
-const INDIGO = "#6D6FE0";
-const AMBER = "#E89B3B";
-const BG = "#FBFBFD";
+const clean = (s: string | null | undefined) => (s ?? "").replace(/^https?:\/\//, "").replace(/\/$/, "");
 
-const s = StyleSheet.create({
-  page: { backgroundColor: BG, paddingTop: 54, paddingBottom: 54, paddingHorizontal: 54, fontSize: 10.5, color: INK, fontFamily: "Helvetica", lineHeight: 1.5 },
-  brandRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 6 },
-  brand: { fontSize: 11, fontFamily: "Helvetica-Bold", color: INK, letterSpacing: 1 },
-  brandTag: { fontSize: 8, color: MUTE },
-  footer: { position: "absolute", bottom: 26, left: 54, right: 54, flexDirection: "row", justifyContent: "space-between", fontSize: 7.5, color: MUTE, borderTopWidth: 1, borderTopColor: LINE, paddingTop: 8 },
-  eyebrow: { fontSize: 8, letterSpacing: 1.6, color: ACCENT, fontFamily: "Helvetica-Bold", textTransform: "uppercase", marginBottom: 6 },
-  h1: { fontSize: 26, fontFamily: "Helvetica-Bold", color: INK, marginBottom: 8 },
-  h2: { fontSize: 15, fontFamily: "Helvetica-Bold", color: INK, marginBottom: 10 },
-  p: { fontSize: 10.5, color: "#2A2F39", marginBottom: 8 },
-  muted: { color: MUTE },
-  card: { borderWidth: 1, borderColor: LINE, borderRadius: 8, padding: 14, marginBottom: 10, backgroundColor: "#FFFFFF" },
-  label: { fontSize: 7.5, letterSpacing: 1, color: MUTE, textTransform: "uppercase", fontFamily: "Helvetica-Bold", marginBottom: 3 },
-  bullet: { flexDirection: "row", marginBottom: 5 },
-  dot: { width: 3, height: 3, borderRadius: 2, backgroundColor: INDIGO, marginTop: 5, marginRight: 8 },
-  // minWidth:0 lets flex text wrap correctly inside row bullets / two-column cards.
-  bulletText: { flex: 1, minWidth: 0 },
-  journeyCol: { flex: 1, minWidth: 0 },
-  chip: { fontSize: 8, color: ACCENT, borderWidth: 1, borderColor: "#CBD9F5", borderRadius: 4, paddingVertical: 2, paddingHorizontal: 6, marginRight: 4, marginBottom: 4 },
-});
+/* ================================================================== *
+ * COVER — dark, branded hero
+ * ================================================================== */
 
-function Header() {
+function Cover({ lead, subtitle, confidentiality, dateStr }: { lead: Lead; subtitle: string; confidentiality: string; dateStr: string }) {
   return (
-    <View style={s.brandRow} fixed>
-      <Text style={s.brand}>{ARTIFEX_IDENTITY.companyName.toUpperCase()}</Text>
-      <Text style={s.brandTag}>{ARTIFEX_IDENTITY.brandTagline} · {ARTIFEX_IDENTITY.publicWebsite.replace(/^https?:\/\//, "")}</Text>
-    </View>
+    <Page size="A4" style={pageStyles.hero}>
+      {/* oversized brand mark watermark, bottom-right — quiet structural texture */}
+      <View style={{ position: "absolute", right: -30, bottom: -22 }}>
+        <Svg viewBox="0 0 32 32" style={{ width: 288, height: 288 }}>
+          <Path d="M16 4 L27 27 M16 4 L5 27 M9.5 19 L22.5 19" stroke={color.hairlineOnInkStrong} strokeWidth={0.45} strokeLinecap="round" strokeLinejoin="round" />
+          <Circle cx={27} cy={27} r={0.85} fill={color.accentDeep} />
+        </Svg>
+      </View>
+
+      {/* inset bronze hairline frame */}
+      <View style={{ position: "absolute", top: 22, left: 22, right: 22, bottom: 22, borderWidth: 0.75, borderColor: color.hairlineOnInk, borderRadius: radius.md }} />
+      {/* top accent bar */}
+      <View style={{ position: "absolute", top: 22, left: 22, width: 64, height: 3, backgroundColor: color.accent, borderTopLeftRadius: radius.md }} />
+
+      <View style={{ flexGrow: 1, paddingHorizontal: 52, paddingTop: 54, paddingBottom: 50 }}>
+        {/* header */}
+        <Row style={{ alignItems: "center", justifyContent: "space-between" }}>
+          <Wordmark tone={color.onInkPrimary} size={16} />
+          <View style={{ borderWidth: 0.75, borderColor: color.hairlineOnInkStrong, borderRadius: radius.pill, paddingVertical: 4, paddingHorizontal: 11 }}>
+            <Text style={[type.fine, { color: color.onInkMuted, letterSpacing: 1.4, textTransform: "uppercase" }]}>Confidential</Text>
+          </View>
+        </Row>
+
+        {/* title block */}
+        <View style={{ flexGrow: 1, justifyContent: "center" }}>
+          <Eyebrow color={color.accentSoft}>{subtitle}</Eyebrow>
+          <View style={{ height: 18 }} />
+          <Text style={[type.displayXl, { color: color.onInkPrimary, maxWidth: 430 }]}>{lead.businessName}</Text>
+          <View style={{ height: 18 }} />
+          <Row style={{ alignItems: "center", gap: 7 }}>
+            <Icon name="mapPin" size={13} color={color.accentSoft} strokeWidth={1.8} />
+            <Text style={[type.subtitle, { color: color.onInkBody }]}>
+              {[lead.industry, [lead.city, lead.state].filter(Boolean).join(", ")].filter(Boolean).join("  ·  ")}
+            </Text>
+          </Row>
+          <View style={{ height: 22 }} />
+          <View style={{ width: 54, height: 2.5, backgroundColor: color.accent, borderRadius: 2 }} />
+        </View>
+
+        {/* footer meta */}
+        <Row style={{ alignItems: "flex-end", justifyContent: "space-between" }}>
+          <View style={{ maxWidth: 320 }}>
+            <Text style={[type.label, { color: color.onInkFaint }]}>Prepared exclusively for</Text>
+            <Text style={[type.bodyStrong, { color: color.onInkPrimary, fontSize: 10.5, marginTop: 3 }]}>{lead.businessName}</Text>
+            <Text style={[type.caption, { color: color.onInkMuted, marginTop: 6 }]}>{confidentiality}</Text>
+          </View>
+          <View style={{ alignItems: "flex-end" }}>
+            <Text style={[type.label, { color: color.onInkFaint }]}>Date prepared</Text>
+            <Text style={[type.bodyStrong, { color: color.onInkPrimary, fontSize: 10.5, marginTop: 3 }]}>{dateStr}</Text>
+            <Text style={[type.mono, { color: color.onInkMuted, marginTop: 6, fontSize: 8 }]}>{clean(ARTIFEX_IDENTITY.publicWebsite)}</Text>
+          </View>
+        </Row>
+      </View>
+    </Page>
   );
 }
-function Footer({ note }: { note: string }) {
+
+/* ================================================================== *
+ * EXECUTIVE SUMMARY
+ * ================================================================== */
+
+function ExecutiveSummary({ lead, c, footerNote, index }: { lead: Lead; c: Deliverable["content"]; footerNote: string; index: string }) {
+  const hasRating = typeof lead.rating === "number" && lead.rating > 0;
+  const hasReviews = typeof lead.reviewCount === "number" && (lead.reviewCount ?? 0) > 0;
+  const showRep = hasRating || hasReviews;
+
   return (
-    <View style={s.footer} fixed>
-      <Text>{note}</Text>
-      <Text render={({ pageNumber, totalPages }) => `${pageNumber} / ${totalPages}`} />
-    </View>
+    <Page size="A4" style={pageStyles.content}>
+      <RunningHeader businessName={lead.businessName} />
+      <RunningFooter note={footerNote} />
+
+      <SectionHeader index={index} eyebrow="Executive Summary" title="The opportunity in brief" intro={c.executiveSnapshot.overview} icon="compass" />
+
+      {/* reputation band — real, verifiable signal */}
+      {showRep && (
+        <Card style={{ marginBottom: space.lg }} padding={space.lg} wrap={false}>
+          <Row style={{ alignItems: "center" }}>
+            {hasRating && (
+              <View style={{ flex: 1 }}>
+                <Row style={{ alignItems: "flex-end", gap: 8 }}>
+                  <Text style={[type.stat, { color: color.textPrimary }]}>{(lead.rating as number).toFixed(1)}</Text>
+                  <View style={{ marginBottom: 5 }}><RatingDots rating={lead.rating as number} /></View>
+                </Row>
+                <Label style={{ marginTop: 5 }}>Public rating</Label>
+              </View>
+            )}
+            {hasReviews && (
+              <>
+                <View style={{ width: 0.75, height: 40, backgroundColor: color.hairline, marginHorizontal: space.lg }} />
+                <View style={{ flex: 1 }}>
+                  <Text style={[type.stat, { color: color.textPrimary }]}>{(lead.reviewCount as number).toLocaleString()}</Text>
+                  <Label style={{ marginTop: 5 }}>Customer reviews</Label>
+                </View>
+              </>
+            )}
+            <View style={{ width: 0.75, height: 40, backgroundColor: color.hairline, marginHorizontal: space.lg }} />
+            <View style={{ flex: 1.4 }}>
+              <Text style={[type.h3, { color: color.textPrimary }]}>{lead.industry}</Text>
+              <Label style={{ marginTop: 5 }}>{[lead.city, lead.state].filter(Boolean).join(", ")}</Label>
+            </View>
+          </Row>
+        </Card>
+      )}
+
+      {/* primary opportunity — the headline of the whole review */}
+      <View wrap={false} style={{ backgroundColor: color.inkBg, borderRadius: radius.lg, padding: space.lg, marginBottom: space.lg }}>
+        <Row style={{ alignItems: "center", gap: 8, marginBottom: 9 }}>
+          <Icon name="target" size={14} color={color.accentSoft} strokeWidth={1.9} />
+          <Label color={color.accentSoft}>Primary opportunity</Label>
+        </Row>
+        <Text style={[type.subtitle, { color: color.onInkPrimary, lineHeight: 1.5 }]}>{c.executiveSnapshot.primaryOpportunity}</Text>
+      </View>
+
+      {/* supporting insight grid */}
+      <Row style={{ gap: space.md }}>
+        <InsightCell icon="check" label="What's working" body={c.executiveSnapshot.whatIsWorking} accent={color.positive} tint={color.positiveBgTint} />
+        <InsightCell icon="trend" label="Potential impact" body={c.executiveSnapshot.potentialImpact} accent={color.heat} tint="#FBEBDD" />
+      </Row>
+      <View style={{ height: space.md }} />
+      <Callout icon="chat" label="Recommended first conversation" variant="info">
+        {c.executiveSnapshot.recommendedFirstConversation}
+      </Callout>
+    </Page>
   );
 }
+
+/* ================================================================== *
+ * STRENGTHS
+ * ================================================================== */
+
+function Strengths({ lead, c, footerNote, index }: { lead: Lead; c: Deliverable["content"]; footerNote: string; index: string }) {
+  return (
+    <Page size="A4" style={pageStyles.content}>
+      <RunningHeader businessName={lead.businessName} />
+      <RunningFooter note={footerNote} />
+      <SectionHeader
+        index={index}
+        eyebrow="Strengths"
+        title="What's working well"
+        intro={`An honest look at the foundations ${lead.businessName} can build on.`}
+        icon="shield"
+      />
+      <Row style={{ flexWrap: "wrap", justifyContent: "space-between" }}>
+        {c.strengths.map((str, i) => (
+          <View key={i} wrap={false} style={{ width: "48.5%", marginBottom: space.md, backgroundColor: color.surface, borderWidth: 0.75, borderColor: color.hairline, borderRadius: radius.lg, borderLeftWidth: 3, borderLeftColor: color.positive, paddingVertical: space.lg, paddingHorizontal: space.lg, minHeight: 88 }}>
+            <IconChip name="check" size={26} icon={13} bg={color.positiveBgTint} fg={color.positive} />
+            <View style={{ height: 10 }} />
+            <Text style={[type.body, { color: color.textBody, fontSize: 9.5 }]}>{str}</Text>
+          </View>
+        ))}
+      </Row>
+    </Page>
+  );
+}
+
+/* ================================================================== *
+ * OPPORTUNITIES
+ * ================================================================== */
+
+function Opportunities({ lead, c, footerNote, index }: { lead: Lead; c: Deliverable["content"]; footerNote: string; index: string }) {
+  return (
+    <Page size="A4" style={pageStyles.content}>
+      <RunningHeader businessName={lead.businessName} />
+      <RunningFooter note={footerNote} />
+      <SectionHeader
+        index={index}
+        eyebrow="Key Opportunities"
+        title="Where modernization would help most"
+        intro="Each observation pairs what we saw with its likely business consequence and a concrete direction forward."
+        icon="search"
+      />
+      {c.opportunities.map((o, i) => (
+        <RecommendationCard
+          key={i}
+          index={i + 1}
+          title={o.observation}
+          rows={[
+            { label: "Evidence", text: o.evidence, icon: "monitor", accent: color.textFaint },
+            { label: "Consequence", text: o.businessConsequence, icon: "bolt", accent: color.heat },
+            { label: "Direction", text: o.modernizationDirection, icon: "route", accent: color.accentDeep },
+          ]}
+        />
+      ))}
+    </Page>
+  );
+}
+
+/* ================================================================== *
+ * CUSTOMER JOURNEY
+ * ================================================================== */
+
+function CustomerJourney({ lead, c, footerNote, index }: { lead: Lead; c: Deliverable["content"]; footerNote: string; index: string }) {
+  return (
+    <Page size="A4" style={pageStyles.content}>
+      <RunningHeader businessName={lead.businessName} />
+      <RunningFooter note={footerNote} />
+      <SectionHeader
+        index={index}
+        eyebrow="Customer Journey"
+        title="From today's experience to an improved flow"
+        intro="The same customer, before and after — where friction lives now, and how the experience could feel instead."
+        icon="route"
+      />
+      <Row style={{ alignItems: "flex-start" }}>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <JourneyColumn title="Today" steps={c.customerJourney.currentState} variant="current" />
+        </View>
+        <View style={{ width: 34, paddingTop: 18, alignItems: "center" }}>
+          <View style={{ width: 26, height: 26, borderRadius: 26, backgroundColor: color.surface, borderWidth: 0.75, borderColor: color.hairlineStrong, alignItems: "center", justifyContent: "center" }}>
+            <Icon name="arrowRight" size={13} color={color.accentDeep} strokeWidth={1.9} />
+          </View>
+        </View>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <JourneyColumn title="With modernization" steps={c.customerJourney.futureState} variant="future" />
+        </View>
+      </Row>
+    </Page>
+  );
+}
+
+/* ================================================================== *
+ * RECOMMENDED PATH + INVESTMENT
+ * ================================================================== */
+
+function RecommendedPath({ lead, c, footerNote, index }: { lead: Lead; c: Deliverable["content"]; footerNote: string; index: string }) {
+  const mp = c.modernizationPath;
+  return (
+    <Page size="A4" style={pageStyles.content}>
+      <RunningHeader businessName={lead.businessName} />
+      <RunningFooter note={footerNote} />
+      <SectionHeader
+        index={index}
+        eyebrow="Recommended Path"
+        title="A clear, staged way forward"
+        icon="layers"
+      />
+
+      {/* engagement card */}
+      <View wrap={false} style={{ backgroundColor: color.surface, borderWidth: 0.75, borderColor: color.hairline, borderRadius: radius.lg, borderTopWidth: 3, borderTopColor: color.accent, padding: space.lg, marginBottom: space.lg }}>
+        <Label color={color.accentDeep}>Recommended engagement</Label>
+        <View style={{ height: 6 }} />
+        <Title style={{ fontSize: 17 }}>{engagementLabel(mp.primaryEngagement)}</Title>
+        <View style={{ height: space.md }} />
+        <Label style={{ marginBottom: 8 }}>Potential components</Label>
+        <Row style={{ flexWrap: "wrap" }}>
+          {mp.components.map((comp, i) => (
+            <Chip key={i}>{comp}</Chip>
+          ))}
+        </Row>
+      </View>
+
+      {mp.secondaryOpportunity ? (
+        <View style={{ marginBottom: space.lg }}>
+          <Callout icon="spark" label="Optional secondary opportunity" variant="accent">
+            {mp.secondaryOpportunity}
+          </Callout>
+        </View>
+      ) : null}
+
+      {mp.investmentRange ? (
+        <InvestmentBlock range={mp.investmentRange} disclaimer={mp.disclaimer} />
+      ) : (
+        <Callout icon="clock" label="Investment" variant="neutral">
+          {mp.disclaimer || "A tailored investment range is shared during discovery, once the right scope is confirmed together."}
+        </Callout>
+      )}
+    </Page>
+  );
+}
+
+/* ================================================================== *
+ * NEXT STEPS / CTA — dark closing
+ * ================================================================== */
+
+function NextSteps({ lead, c, settings }: { lead: Lead; c: Deliverable["content"]; settings: Settings }) {
+  return (
+    <Page size="A4" style={pageStyles.hero}>
+      <View style={{ position: "absolute", right: -30, bottom: -22 }}>
+        <Svg viewBox="0 0 32 32" style={{ width: 288, height: 288 }}>
+          <Path d="M16 4 L27 27 M16 4 L5 27 M9.5 19 L22.5 19" stroke={color.hairlineOnInkStrong} strokeWidth={0.45} strokeLinecap="round" strokeLinejoin="round" />
+          <Circle cx={27} cy={27} r={0.85} fill={color.accentDeep} />
+        </Svg>
+      </View>
+      <View style={{ position: "absolute", top: 22, left: 22, right: 22, bottom: 22, borderWidth: 0.75, borderColor: color.hairlineOnInk, borderRadius: radius.md }} />
+
+      <View style={{ flexGrow: 1, paddingHorizontal: 52, paddingTop: 54, paddingBottom: 50 }}>
+        <Wordmark tone={color.onInkPrimary} size={16} />
+
+        <View style={{ flexGrow: 1, justifyContent: "center" }}>
+          <Eyebrow color={color.accentSoft}>Next step</Eyebrow>
+          <View style={{ height: 16 }} />
+          <Text style={[type.displayLg, { color: color.onInkPrimary, maxWidth: 420 }]}>{c.cta.headline}</Text>
+          <View style={{ height: 14 }} />
+          <Text style={[type.lede, { color: color.onInkBody, maxWidth: 430 }]}>{c.cta.body}</Text>
+          <View style={{ height: 26 }} />
+          <View style={{ width: 54, height: 2.5, backgroundColor: color.accent, borderRadius: 2, marginBottom: 24 }} />
+
+          <View style={{ maxWidth: 400 }}>
+            <ContactRow icon="calendar" label="Schedule a discovery call" value={clean(settings.calendarLink)} />
+            <ContactRow icon="globe" label="Website" value={clean(settings.website)} />
+            <ContactRow icon="mail" label="Email" value={settings.contactEmail} />
+          </View>
+        </View>
+
+        <Row style={{ alignItems: "center", justifyContent: "space-between" }}>
+          <Text style={[type.caption, { color: color.onInkMuted }]}>{settings.businessAddress}</Text>
+          <Text style={[type.mono, { color: color.onInkFaint, fontSize: 8 }]}>{ARTIFEX_IDENTITY.brandTagline}</Text>
+        </Row>
+      </View>
+    </Page>
+  );
+}
+
+/* ================================================================== *
+ * DOCUMENT
+ * ================================================================== */
 
 export function BriefDocument({ lead, deliverable, settings }: { lead: Lead; deliverable: Deliverable; settings: Settings }) {
   const c = deliverable.content;
   const dateStr = new Date(deliverable.createdAt).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
-  const footerNote = `Prepared for ${lead.businessName} · Confidential`;
+  const footerNote = `Prepared for ${lead.businessName}  ·  Confidential`;
 
-  // Build pages conditionally so a section with no approved content never
-  // produces a blank page (fixes the empty "Key Opportunities" page).
   const hasJourney = (c.customerJourney?.currentState?.length ?? 0) > 0 || (c.customerJourney?.futureState?.length ?? 0) > 0;
-  const pages: React.ReactElement[] = [];
 
-  pages.push(
-    <Page key="cover" size="A4" style={s.page}>
-      <Header />
-      <View style={{ flex: 1, justifyContent: "center" }}>
-        <Text style={s.eyebrow}>{c.cover.subtitle}</Text>
-        <Text style={s.h1}>{lead.businessName}</Text>
-        <Text style={[s.p, s.muted]}>{lead.industry} · {lead.city}, {lead.state}</Text>
-        <View style={{ height: 1, backgroundColor: LINE, marginVertical: 18 }} />
-        <Text style={s.p}>Prepared specifically for {lead.businessName}</Text>
-        <Text style={[s.p, s.muted]}>Date prepared: {dateStr}</Text>
-        <Text style={[s.p, s.muted]}>{c.cover.confidentialityNote}</Text>
-      </View>
-      <Footer note={footerNote} />
-    </Page>
-  );
+  // Numbered content sections are assembled conditionally, then labelled
+  // "0N / 0T" against the real total — so a brief with no strengths/opps
+  // never shows a misleading denominator.
+  const two = (n: number) => String(n).padStart(2, "0");
+  const sections: Array<(index: string) => React.ReactElement> = [
+    (index) => <ExecutiveSummary key="exec" lead={lead} c={c} footerNote={footerNote} index={index} />,
+  ];
+  if (c.strengths.length > 0) sections.push((index) => <Strengths key="strengths" lead={lead} c={c} footerNote={footerNote} index={index} />);
+  if (c.opportunities.length > 0) sections.push((index) => <Opportunities key="opps" lead={lead} c={c} footerNote={footerNote} index={index} />);
+  if (hasJourney) sections.push((index) => <CustomerJourney key="journey" lead={lead} c={c} footerNote={footerNote} index={index} />);
+  sections.push((index) => <RecommendedPath key="path" lead={lead} c={c} footerNote={footerNote} index={index} />);
 
-  pages.push(
-    <Page key="exec" size="A4" style={s.page}>
-      <Header />
-      <Text style={s.eyebrow}>Executive snapshot</Text>
-      <Text style={s.h2}>The opportunity in brief</Text>
-      <Text style={s.p}>{c.executiveSnapshot.overview}</Text>
-      <View style={s.card}>
-        <Text style={s.label}>What's already working</Text>
-        <Text style={s.p}>{c.executiveSnapshot.whatIsWorking}</Text>
-      </View>
-      <View style={s.card}>
-        <Text style={s.label}>Primary opportunity</Text>
-        <Text style={s.p}>{c.executiveSnapshot.primaryOpportunity}</Text>
-      </View>
-      <View style={s.card}>
-        <Text style={s.label}>Potential business impact</Text>
-        <Text style={s.p}>{c.executiveSnapshot.potentialImpact}</Text>
-      </View>
-      <View style={s.card}>
-        <Text style={s.label}>Recommended first conversation</Text>
-        <Text style={s.p}>{c.executiveSnapshot.recommendedFirstConversation}</Text>
-      </View>
-      <Footer note={footerNote} />
-    </Page>
-  );
-
-  if (c.strengths.length > 0) {
-    pages.push(
-      <Page key="strengths" size="A4" style={s.page}>
-        <Header />
-        <Text style={s.eyebrow}>Strengths</Text>
-        <Text style={s.h2}>What's working well</Text>
-        <Text style={[s.p, s.muted]}>An honest look at what already sets {lead.businessName} apart.</Text>
-        <View style={{ marginTop: 8 }}>
-          {c.strengths.map((str, i) => (
-            <View key={i} style={s.bullet} wrap={false}>
-              <View style={[s.dot, { backgroundColor: "#2FA97D" }]} />
-              <Text style={[s.bulletText, { color: "#2A2F39" }]}>{str}</Text>
-            </View>
-          ))}
-        </View>
-        <Footer note={footerNote} />
-      </Page>
-    );
-  }
-
-  if (c.opportunities.length > 0) {
-    pages.push(
-      <Page key="opps" size="A4" style={s.page}>
-        <Header />
-        <Text style={s.eyebrow}>Key opportunities</Text>
-        <Text style={s.h2}>Where improvement would help most</Text>
-        {c.opportunities.map((o, i) => (
-          <View key={i} style={s.card} wrap={false}>
-            <Text style={[s.label, { color: ACCENT }]}>Opportunity {i + 1}</Text>
-            <Text style={{ fontSize: 11.5, fontFamily: "Helvetica-Bold", marginBottom: 6 }}>{o.observation}</Text>
-            <Text style={s.p}><Text style={s.muted}>Evidence: </Text>{o.evidence}</Text>
-            <Text style={s.p}><Text style={s.muted}>Possible consequence: </Text>{o.businessConsequence}</Text>
-            <Text style={s.p}><Text style={s.muted}>Suggested direction: </Text>{o.modernizationDirection}</Text>
-          </View>
-        ))}
-        <Footer note={footerNote} />
-      </Page>
-    );
-  }
-
-  if (hasJourney) {
-    pages.push(
-      <Page key="journey" size="A4" style={s.page}>
-        <Header />
-        <Text style={s.eyebrow}>Customer journey</Text>
-        <Text style={s.h2}>From current experience to an improved flow</Text>
-        <View style={{ flexDirection: "row", gap: 12 }}>
-          <View style={[s.card, s.journeyCol]}>
-            <Text style={s.label}>Current state</Text>
-            {c.customerJourney.currentState.map((step, i) => (
-              <View key={i} style={s.bullet}><View style={[s.dot, { backgroundColor: MUTE }]} /><Text style={s.bulletText}>{step}</Text></View>
-            ))}
-          </View>
-          <View style={[s.card, s.journeyCol, { borderColor: "#CBD9F5" }]}>
-            <Text style={[s.label, { color: ACCENT }]}>Improved state</Text>
-            {c.customerJourney.futureState.map((step, i) => (
-              <View key={i} style={s.bullet}><View style={[s.dot, { backgroundColor: ACCENT }]} /><Text style={s.bulletText}>{step}</Text></View>
-            ))}
-          </View>
-        </View>
-        <Footer note={footerNote} />
-      </Page>
-    );
-  }
-
-  pages.push(
-    <Page key="path" size="A4" style={s.page}>
-      <Header />
-      <Text style={s.eyebrow}>Recommended path</Text>
-      <Text style={s.h2}>{engagementLabel(c.modernizationPath.primaryEngagement)}</Text>
-      <Text style={s.label}>Potential components</Text>
-      <View style={{ flexDirection: "row", flexWrap: "wrap", marginBottom: 12, marginTop: 4 }}>
-        {c.modernizationPath.components.map((comp, i) => (
-          <Text key={i} style={s.chip}>{comp}</Text>
-        ))}
-      </View>
-      <View style={s.card}>
-        <Text style={s.label}>Optional secondary opportunity</Text>
-        <Text style={s.p}>{c.modernizationPath.secondaryOpportunity}</Text>
-      </View>
-      {c.modernizationPath.investmentRange && (
-        <View style={[s.card, { borderColor: "#F0D9B5" }]}>
-          <Text style={[s.label, { color: AMBER }]}>Preliminary investment range</Text>
-          <Text style={{ fontSize: 16, fontFamily: "Helvetica-Bold", color: INK }}>{c.modernizationPath.investmentRange}</Text>
-        </View>
-      )}
-      <Text style={[s.p, s.muted, { fontSize: 9 }]}>{c.modernizationPath.disclaimer}</Text>
-      <Footer note={footerNote} />
-    </Page>
-  );
-
-  pages.push(
-    <Page key="cta" size="A4" style={s.page}>
-      <Header />
-      <View style={{ flex: 1, justifyContent: "center" }}>
-        <Text style={s.eyebrow}>Next step</Text>
-        <Text style={s.h1}>{c.cta.headline}</Text>
-        <Text style={s.p}>{c.cta.body}</Text>
-        <View style={{ height: 1, backgroundColor: LINE, marginVertical: 18 }} />
-        <Text style={s.p}><Text style={s.muted}>Schedule a discovery call: </Text>{settings.calendarLink}</Text>
-        <Text style={s.p}><Text style={s.muted}>Website: </Text>{settings.website}</Text>
-        <Text style={s.p}><Text style={s.muted}>Email: </Text>{settings.contactEmail}</Text>
-        <Text style={[s.p, s.muted, { marginTop: 16, fontSize: 9 }]}>{settings.businessAddress}</Text>
-      </View>
-      <Footer note={footerNote} />
-    </Page>
-  );
+  const total = sections.length;
+  const pages: React.ReactElement[] = [
+    <Cover key="cover" lead={lead} subtitle={c.cover.subtitle} confidentiality={c.cover.confidentialityNote} dateStr={dateStr} />,
+    ...sections.map((render, i) => render(`${two(i + 1)} / ${two(total)}`)),
+    <NextSteps key="cta" lead={lead} c={c} settings={settings} />,
+  ];
 
   return (
     <Document title={`${c.cover.subtitle} — ${lead.businessName}`} author="Artifex Labs">

@@ -11,3 +11,4 @@ next-env.d.ts
 /coverage
 /.vercel
 /drizzle/*.sql.meta
+/.pdf-preview
