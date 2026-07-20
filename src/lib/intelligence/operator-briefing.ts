@@ -20,6 +20,10 @@ export interface OperatorBriefing {
   strongestOpportunities: string[];
   greatestUncertainty: string;
   bestOutreachAngle: string;
+  /** The full, handcrafted opening conversation, written to what the business actually has online. */
+  openingConversation: string;
+  /** What NOT to say (e.g. never assume a website that doesn't exist). */
+  openingGuardrails: string[];
   bestDiscoveryQuestions: string[];
   likelyPriorities: string[];
   technologyMaturity: string;
@@ -65,6 +69,8 @@ export function buildOperatorBriefing(i: BriefingInputs): OperatorBriefing {
         ? "Public evidence is thin — most conclusions are hypotheses to validate in conversation."
         : "Internal operations (follow-up, tooling, manual work) can't be seen from outside and must be confirmed.",
     bestOutreachAngle: `${snapshot.outreachAngle.category}: ${snapshot.outreachAngle.opener}`,
+    openingConversation: snapshot.conversationStrategy.bestOpening,
+    openingGuardrails: snapshot.conversationStrategy.openingConversation.avoid,
     bestDiscoveryQuestions: snapshot.discoveryQuestions.slice(0, 3),
     likelyPriorities: snapshot.conversationStrategy.likelyPriorities,
     technologyMaturity: `${maturity.overall} overall — most room in ${maturity.priorityDimensions.join(", ")}.`,

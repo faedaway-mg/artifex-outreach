@@ -21,6 +21,8 @@ import {
 } from "./positioning";
 import { businessImprovementPotential, type BusinessImprovementPotential } from "./improvement";
 import type { WebsiteSignals } from "./scoring";
+import { detectPresence, type DigitalPresence, type PresenceProfile } from "./presence";
+import { openingConversation, type OpeningConversation } from "./conversation-engine";
 
 export interface SnapshotObservation {
   category: FrictionCategory | string;
@@ -71,7 +73,10 @@ export interface BusinessTechnologySnapshot {
   };
   // J. Human conversation strategy for the closer.
   conversationStrategy: {
+    /** The full, handcrafted opening conversation — presence-aware, style-checked. */
     bestOpening: string;
+    /** The structured opening (opener / bridge / question) and what NOT to say. */
+    openingConversation: OpeningConversation;
     validateFirst: string[];
     doNotAssume: string[];
     likelyPriorities: string[];
@@ -79,6 +84,8 @@ export interface BusinessTechnologySnapshot {
     signsOfBroaderOpportunity: string[];
     goalOfFirstConversation: string;
   };
+  /** What the business actually has online — drives the whole opening. */
+  presence: DigitalPresence;
   improvement: BusinessImprovementPotential;
 }
 
@@ -134,7 +141,15 @@ export function buildSnapshot(
   const hypothesesToValidate = buildHypotheses(lead, visibleFriction);
   const discoveryQuestions = buildDiscoveryQuestions(lead, findings);
   const opportunityAreas = deriveOpportunityAreas(lead, findings);
-  const outreachAngle = chooseOutreachAngle(lead, visibleFriction, improvement);
+
+  // What the business actually has online drives everything the opener says.
+  const presence = detectPresence(lead, signals);
+  const safeFriction = visibleFriction.find((f) => f.safeForOutreach);
+  const opening = openingConversation(
+    { businessName: lead.businessName, industry: lead.industry, city: lead.city, observedFriction: safeFriction?.observation ?? null },
+    presence,
+  );
+  const outreachAngle = chooseOutreachAngle(lead, visibleFriction, improvement, presence, opening);
 
   return {
     leadId: lead.id,
@@ -155,7 +170,8 @@ export function buildSnapshot(
       sources: ["Google Places", lead.website ? "Website signals" : null, findings.length ? "Automated technical analysis" : null].filter(Boolean) as string[],
     },
     outreachAngle,
-    conversationStrategy: buildConversationStrategy(lead, outreachAngle, improvement),
+    conversationStrategy: buildConversationStrategy(lead, improvement, opening),
+    presence,
     improvement,
   };
 }
@@ -244,57 +260,67 @@ export function chooseOutreachAngle(
   lead: Lead,
   friction: SnapshotObservation[],
   improvement: BusinessImprovementPotential,
+  presence: DigitalPresence,
+  opening: OpeningConversation,
 ): BusinessTechnologySnapshot["outreachAngle"] {
-  const d = improvement.dimensions;
-  const name = lead.businessName;
-
-  // Prefer a directly-observed, safe friction item as the concrete hook.
-  const safe = friction.find((f) => f.safeForOutreach);
-
-  if ((lead.locationsCount ?? 1) > 1 && d.operationalComplexity >= 55)
-    return {
-      category: "Multi-location complexity",
-      opener: `Serving several locations usually means customer requests get routed and re-entered in ways that add quiet overhead.`,
-      why: "Multi-location signal + operational complexity is the strongest, most specific angle.",
-    };
-  if (d.operationalComplexity >= d.customerExperience && d.operationalComplexity >= 55)
-    return {
-      category: "Operational complexity",
-      opener: `From the outside it looks like ${name} may be carrying manual, repeatable work behind the scenes — the kind that quietly costs time.`,
-      why: "Operational complexity outranks visible customer-facing friction.",
-    };
-  if (safe)
-    return {
-      category: safe.category,
-      opener: `While looking at ${name}, I noticed ${safe.observation.toLowerCase()}`,
-      why: "A directly-observed, safe-to-state fact makes the most honest, specific opener.",
-    };
-  if (d.growthSignals >= 55)
-    return {
-      category: "Growth readiness",
-      opener: `${name} looks like it's growing — which is usually when systems that worked at a smaller size start to strain.`,
-      why: "Growth signals are strong and non-critical (not implying anything is 'broken').",
-    };
+  // The opener now comes from the presence-aware conversation engine — it never
+  // assumes a channel the business doesn't have. Here we only pick the internal
+  // CATEGORY label that best describes the strongest angle for this business.
   return {
-    category: "Website as a doorway to broader improvement",
-    opener: `I had a look at how ${name} shows up online and had a couple of small, specific observations worth comparing with your own experience.`,
-    why: "No single strong signal — lead with humility and a low-pressure, specific opener.",
+    category: angleCategory(lead, friction, improvement, presence),
+    opener: opening.opener,
+    why: opening.rationale,
   };
+}
+
+/** Internal label for the strongest angle — presence first, then dimensions. */
+function angleCategory(
+  lead: Lead,
+  friction: SnapshotObservation[],
+  improvement: BusinessImprovementPotential,
+  presence: DigitalPresence,
+): FrictionCategory | string {
+  const d = improvement.dimensions;
+
+  // Multi-location operational load is the most specific angle when present.
+  if (presence.multipleLocations && d.operationalComplexity >= 55) return "Multi-location complexity";
+
+  // No owned website — the angle depends on which channel is doing the work.
+  const noWebsiteAngle: Partial<Record<PresenceProfile, FrictionCategory>> = {
+    "facebook-only": "Reputation-to-conversion gap",
+    "instagram-only": "Reputation-to-conversion gap",
+    "social-only": "Reputation-to-conversion gap",
+    "yelp-only": "Reputation-to-conversion gap",
+    "google-only": presence.appointmentDriven ? "Scheduling or intake friction" : "Reputation-to-conversion gap",
+    invisible: "Growth readiness",
+  };
+  if (presence.profile !== "website") return noWebsiteAngle[presence.profile] ?? "Reputation-to-conversion gap";
+
+  // Has a website — rank operational load, a concrete observed fact, then growth.
+  if (d.operationalComplexity >= d.customerExperience && d.operationalComplexity >= 55) return "Operational complexity";
+  const safe = friction.find((f) => f.safeForOutreach);
+  if (safe) return safe.category;
+  if (d.growthSignals >= 55) return "Growth readiness";
+  return "Website as a doorway to broader improvement";
 }
 
 function buildConversationStrategy(
   lead: Lead,
-  angle: BusinessTechnologySnapshot["outreachAngle"],
   improvement: BusinessImprovementPotential,
+  opening: OpeningConversation,
 ): BusinessTechnologySnapshot["conversationStrategy"] {
   return {
-    bestOpening: `Lead with the ${String(angle.category).toLowerCase()} angle, and frame it as comparing notes — not a diagnosis.`,
+    bestOpening: opening.full,
+    openingConversation: opening,
     validateFirst: [
       "Whether the friction we observed is actually a problem for them",
       "How new inquiries are handled from first contact to booked customer",
       "What the owner already knows is inefficient",
     ],
+    // Presence-specific guardrails first (e.g. never say "your website" when there
+    // isn't one), then the general discipline.
     doNotAssume: [
+      ...opening.avoid,
       "That they need custom software — a simpler existing tool may be the right answer",
       "That the visible issue is the real bottleneck",
       "Anything about internal operations we could not see from outside",

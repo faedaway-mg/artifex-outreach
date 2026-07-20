@@ -85,6 +85,19 @@ function Body({ bi }: { bi: StoredBusinessIntelligence }) {
       {/* Best angle + discovery questions */}
       <Section icon={<HelpCircle size={13} />} title="Discovery prep">
         <p className="text-sm text-chalk-300"><span className="text-chalk-500">Best angle:</span> {b.bestOutreachAngle}</p>
+        {b.openingConversation && (
+          <div className="mt-2 rounded border border-chalk-800 bg-chalk-950/40 p-2.5">
+            <p className="text-xs uppercase tracking-wide text-chalk-500">How to open the call</p>
+            <p className="mt-1 text-sm leading-relaxed text-chalk-200">{b.openingConversation}</p>
+            {b.openingGuardrails.length > 0 && (
+              <ul className="mt-2 space-y-0.5">
+                {b.openingGuardrails.map((g, i) => (
+                  <li key={i} className="text-[11px] text-chalk-500">— {g}</li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
         <ul className="mt-2 space-y-1">
           {b.bestDiscoveryQuestions.map((q, i) => (
             <li key={i} className="text-xs text-chalk-400">• {q}</li>
