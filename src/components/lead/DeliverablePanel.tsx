@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { FileText, Eye, Check, Send, Save, Trash2, Plus } from "lucide-react";
+import { FileText, Eye, Check, Send, Save, Trash2, Plus, ShieldCheck, ShieldAlert, AlertTriangle } from "lucide-react";
 import { ActionButton } from "@/components/ActionButton";
 import {
   generateBriefAction,
@@ -75,6 +75,12 @@ function DeliverableEditor({ lead, deliverable, onRefresh }: { lead: Lead; deliv
 
   return (
     <div className="space-y-5">
+      {/* Automated QC status */}
+      {deliverable.qc && <QcBanner qc={deliverable.qc} status={deliverable.status} />}
+
+      {/* Explainable investment model */}
+      {c.modernizationPath.investmentModel && <InvestmentBreakdown model={c.modernizationPath.investmentModel} />}
+
       {/* Executive snapshot */}
       <Section title="Executive snapshot">
         <TextArea label="Overview" value={c.executiveSnapshot.overview} disabled={!editable} onChange={(v) => patch((d) => { d.executiveSnapshot.overview = v; })} />
@@ -149,6 +155,74 @@ function DeliverableEditor({ lead, deliverable, onRefresh }: { lead: Lead; deliv
         )}
         {dirty && <span className="text-xs text-amber-300/80">Save before previewing to see edits.</span>}
       </div>
+    </div>
+  );
+}
+
+function QcBanner({ qc, status }: { qc: NonNullable<Deliverable["qc"]>; status: Deliverable["status"] }) {
+  const failed = !qc.passed;
+  const blockers = qc.checks.filter((c) => !c.passed && c.severity === "blocker");
+  const warnings = qc.checks.filter((c) => !c.passed && c.severity === "warning");
+  return (
+    <div className={`rounded-lg border p-3 ${failed ? "border-red-400/30 bg-red-500/[0.04]" : "border-emerald-400/25 bg-emerald-500/[0.04]"}`}>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          {failed ? <ShieldAlert size={16} className="text-red-300" /> : <ShieldCheck size={16} className="text-emerald-300" />}
+          <span className="text-sm font-medium text-chalk-100">Quality control</span>
+          <span className={`rounded-full border px-2 py-0.5 text-[10px] ${failed ? "border-red-400/30 text-red-300" : "border-emerald-400/30 text-emerald-300"}`}>
+            {failed ? "Needs attention" : "Passed"} · {qc.score}/100
+          </span>
+        </div>
+        <span className="text-[10px] text-chalk-600">{qc.checks.length} checks · {qc.attempts} pass{qc.attempts === 1 ? "" : "es"}</span>
+      </div>
+      <p className="mt-1 text-xs text-chalk-500">{qc.summary}</p>
+      {failed && status === "draft" && (
+        <p className="mt-1 text-[11px] text-amber-300/80">Approval is blocked until these clear. Editing + saving re-runs QC and auto-repairs what it can.</p>
+      )}
+      {(blockers.length > 0 || warnings.length > 0) && (
+        <ul className="mt-2 space-y-1">
+          {blockers.slice(0, 6).map((c) => (
+            <li key={c.id} className="flex items-start gap-1.5 text-[11px] text-red-200/90">
+              <ShieldAlert size={12} className="mt-0.5 shrink-0" /> <span><b>{c.label}:</b> {c.issues[0]?.message}{c.issues.length > 1 ? ` (+${c.issues.length - 1} more)` : ""}</span>
+            </li>
+          ))}
+          {warnings.slice(0, 4).map((c) => (
+            <li key={c.id} className="flex items-start gap-1.5 text-[11px] text-amber-200/80">
+              <AlertTriangle size={12} className="mt-0.5 shrink-0" /> <span><b>{c.label}:</b> {c.issues[0]?.message}{c.issues.length > 1 ? ` (+${c.issues.length - 1} more)` : ""}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function InvestmentBreakdown({ model }: { model: NonNullable<DeliverableContent["modernizationPath"]["investmentModel"]> }) {
+  const fmt = (n: number) => `$${n.toLocaleString()}`;
+  return (
+    <div className="rounded-lg border border-white/[0.06] p-3">
+      <div className="mb-2 flex items-center justify-between">
+        <p className="label !mb-0">Investment model · explained</p>
+        <span className="text-sm font-semibold text-chalk-100">{model.rangeLabel}</span>
+      </div>
+      <p className="mb-2 text-[11px] text-chalk-500">{model.explanation}</p>
+      <div className="space-y-2">
+        {model.lineItems.map((li, i) => (
+          <div key={li.id} className="rounded-md border border-white/[0.05] bg-white/[0.015] p-2.5">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] uppercase tracking-wide text-chalk-600">Item {i + 1} · {li.effort.complexity}</span>
+              <span className="text-xs font-medium text-chalk-200">{fmt(li.investmentLow)}–{fmt(li.investmentHigh)}</span>
+            </div>
+            <p className="mt-1 text-xs text-chalk-300"><span className="text-chalk-600">Observation → </span>{li.observation}</p>
+            <p className="text-xs text-chalk-300"><span className="text-chalk-600">Impact → </span>{li.businessImpact}</p>
+            <p className="text-xs text-chalk-300"><span className="text-chalk-600">Recommendation → </span>{li.recommendation}</p>
+            <p className="text-xs text-chalk-300"><span className="text-chalk-600">Effort → </span>{li.effort.summary} ({li.effort.lowHours}–{li.effort.highHours} hrs)</p>
+            <p className="text-xs text-chalk-300"><span className="text-chalk-600">Outcome → </span>{li.expectedOutcome}</p>
+            <p className="mt-0.5 text-[10px] text-chalk-600">{li.rateBasis}</p>
+          </div>
+        ))}
+      </div>
+      <p className="mt-2 text-[10px] text-chalk-600">{model.discoveryNote}</p>
     </div>
   );
 }

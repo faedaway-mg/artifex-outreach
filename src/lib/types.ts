@@ -6,6 +6,8 @@
 // Business Intelligence record.
 import type { BusinessIntelligence } from "./intelligence/engine";
 import type { EnrichmentDelta } from "./intelligence/enrichment-delta";
+// Type-only (no import cycle — qc/types is self-contained).
+import type { QcReport } from "./qc/types";
 
 export const PIPELINE_STAGES = [
   "Discovered",
@@ -258,6 +260,58 @@ export interface Screenshot {
   createdAt: string;
 }
 
+// ── Explainable investment model ─────────────────────────────────────────────
+// Replaces vague ranges (e.g. "$8,000–$18,000") with a transparent decomposition
+// where every dollar is traced through a fixed reasoning chain:
+//   Observation → Business Impact → Recommendation → Estimated Effort →
+//   Deliverables → Estimated Investment → Expected Business Outcome.
+// Line items always reconcile to the totals, so the range is EXPLAINED, not asserted.
+export type InvestmentComplexity = "Focused" | "Standard" | "Involved";
+
+export interface InvestmentLineItem {
+  id: string; // stable within a model (e.g. "li-1")
+  /** What we observed (the trigger for this work). */
+  observation: string;
+  /** Why it matters to the business — the cost of leaving it unaddressed. */
+  businessImpact: string;
+  /** What we recommend doing about it. */
+  recommendation: string;
+  /** Scoped effort behind the number — never an opaque quote. */
+  effort: {
+    lowHours: number;
+    highHours: number;
+    complexity: InvestmentComplexity;
+    summary: string; // human phrasing, e.g. "≈ 2–3 weeks of focused build"
+  };
+  /** Concrete outputs the client receives for this line. */
+  deliverables: string[];
+  /** Derived from effort × blended rate — reconciles to totals. */
+  investmentLow: number;
+  investmentHigh: number;
+  /** How the number was derived (rate transparency). */
+  rateBasis: string;
+  /** The business result this line is expected to produce. */
+  expectedOutcome: string;
+}
+
+export interface InvestmentModel {
+  currency: "USD";
+  engagement: ArtifexService;
+  billing: "one-time" | "monthly";
+  blendedHourlyRate: number;
+  lineItems: InvestmentLineItem[];
+  subtotalLow: number;
+  subtotalHigh: number;
+  totalLow: number;
+  totalHigh: number;
+  /** e.g. "$8,000–$18,000" — formatted from the reconciled totals. */
+  rangeLabel: string;
+  /** Plain-language statement of why every dollar exists. */
+  explanation: string;
+  /** Discovery/contingency framing so the number is honest, not binding. */
+  discoveryNote: string;
+}
+
 export interface DeliverableContent {
   cover: { subtitle: string; confidentialityNote: string };
   executiveSnapshot: {
@@ -280,6 +334,10 @@ export interface DeliverableContent {
     components: string[];
     secondaryOpportunity: string;
     investmentRange: string | null; // null until Jordan approves sharing
+    // Explainable decomposition behind the range. Always computed internally so the
+    // operator sees WHY; surfaced to the prospect in the PDF only when the range is
+    // shared. Optional so older/hand-authored content stays valid.
+    investmentModel?: InvestmentModel | null;
     disclaimer: string;
   };
   cta: { headline: string; body: string };
@@ -296,6 +354,9 @@ export interface Deliverable {
   approvedAt: string | null;
   sentAt: string | null;
   aiMeta: AiMeta | null;
+  // Automated Quality Control result from the last generation/repair pass. Null for
+  // legacy deliverables generated before QC existed. Approval is gated on qc.passed.
+  qc?: QcReport | null;
   createdAt: string;
   updatedAt: string;
 }

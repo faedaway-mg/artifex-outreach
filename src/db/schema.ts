@@ -205,6 +205,8 @@ export const deliverables = pgTable(
     approvedAt: ts("approved_at"),
     sentAt: ts("sent_at"),
     aiMeta: jsonb("ai_meta"),
+    // Automated Quality Control report from the last generation/repair pass.
+    qc: jsonb("qc"),
     createdAt: ts("created_at").notNull(),
     updatedAt: ts("updated_at").notNull(),
   },

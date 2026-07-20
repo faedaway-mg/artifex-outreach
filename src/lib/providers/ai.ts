@@ -44,6 +44,7 @@ import {
 } from "../schemas";
 import { computeScore, type WebsiteSignals } from "../scoring";
 import { IDENTITY_LINE } from "../communication-guide";
+import { buildInvestmentModel } from "../investment";
 
 function providerName(): "mock" | "openai" | "anthropic" {
   const p = (process.env.AI_PROVIDER ?? "mock").toLowerCase();
@@ -357,6 +358,15 @@ export async function generateBrief(
   });
 
   const content: DeliverableContent = result.data;
+
+  // Attach the explainable investment model, regardless of provider, so every
+  // dollar is traced through Observation → Impact → Recommendation → Effort →
+  // Deliverables → Investment → Outcome. The model reconciles to the engagement
+  // band, so the shared range is derived from it (never an opaque separate number).
+  const model = buildInvestmentModel(lead, content.opportunities, service, settings);
+  content.modernizationPath.investmentModel = model;
+  content.modernizationPath.investmentRange = shareInvestmentRange ? model.rangeLabel : null;
+
   return { content, meta: result.meta };
 }
 

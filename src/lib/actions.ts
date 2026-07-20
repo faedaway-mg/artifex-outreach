@@ -59,6 +59,8 @@ import { analyzeWebsite } from "./providers/website";
 import { generateAndStoreBI } from "./intelligence-actions";
 import { scheduleFollowUps, stopFollowUps } from "./followups";
 import { stopPlansForLead } from "./acquisition/stop";
+import { runQcWithRepair, type QcContext } from "./qc";
+import { buildInvestmentModel } from "./investment";
 import type {
   PipelineStage,
   Tier,
@@ -390,16 +392,39 @@ export async function generateBriefAction(leadId: string, type: DeliverableType)
   const service = lead.recommendedService ?? "Launch Website";
   const findings = await findingsForLead(leadId);
   const { content, meta } = await generateBrief(lead, findings, settings, type, service, false);
-  const deliv = await insertDeliverable({ leadId, type, status: "draft", content, pdfUrl: null, pdfKey: null, approvedAt: null, sentAt: null, aiMeta: meta });
+
+  // Automated Quality Control: run the full check battery and auto-repair any
+  // blocker before the report is ever persisted, so the operator never opens a
+  // broken draft. The stored qc report shows exactly what was checked/fixed.
+  const screenshots = await screenshotsForLead(leadId);
+  const ctx: QcContext = { lead, settings, type, screenshots };
+  const { content: qcedContent, report } = runQcWithRepair(content, ctx);
+  const qc = { ...report, ranAt: new Date().toISOString() };
+
+  const deliv = await insertDeliverable({ leadId, type, status: "draft", content: qcedContent, pdfUrl: null, pdfKey: null, approvedAt: null, sentAt: null, aiMeta: meta, qc });
   await updateLead(leadId, {
     pipelineStage: ["Discovered", "Qualified", "Analysis Ready"].includes(lead.pipelineStage) ? "Deliverable Ready" : lead.pipelineStage,
   });
-  await audit("deliverable.generate", "deliverable", deliv.id, { type });
+  await audit("deliverable.generate", "deliverable", deliv.id, { type, qcPassed: report.passed, qcScore: report.score, qcAttempts: report.attempts });
   touch(leadId);
 }
 
 export async function updateDeliverableAction(deliverableId: string, leadId: string, content: DeliverableContent): Promise<void> {
-  await updateDeliverable(deliverableId, { content });
+  // Re-run QC after every operator edit so the stored report always reflects the
+  // current content (edits can reintroduce defects). Repair fixes what it can.
+  const lead = await getLead(leadId);
+  const settings = await getSettings();
+  const d = await getDeliverable(deliverableId);
+  let next = content;
+  let qc = d?.qc ?? null;
+  if (lead) {
+    const screenshots = await screenshotsForLead(leadId);
+    const ctx: QcContext = { lead, settings, type: d?.type ?? "Modernization Brief", screenshots };
+    const res = runQcWithRepair(content, ctx);
+    next = res.content;
+    qc = { ...res.report, ranAt: new Date().toISOString() };
+  }
+  await updateDeliverable(deliverableId, { content: next, qc });
   touch(leadId);
 }
 
@@ -407,11 +432,21 @@ export async function setDeliverableRangeAction(deliverableId: string, leadId: s
   const d = await getDeliverable(deliverableId);
   if (!d) return;
   const lead = await getLead(leadId);
+  const settings = await getSettings();
+  const path = d.content.modernizationPath;
+  // Prefer the explainable model's reconciled range; rebuild it if a legacy
+  // deliverable has none. Fall back to the lead estimate only as a last resort.
+  let model = path.investmentModel ?? null;
+  if (!model && lead) model = buildInvestmentModel(lead, d.content.opportunities, path.primaryEngagement, settings);
   const range =
-    lead && lead.estimatedValueLow != null && lead.estimatedValueHigh != null
+    model?.rangeLabel ??
+    (lead && lead.estimatedValueLow != null && lead.estimatedValueHigh != null
       ? `$${lead.estimatedValueLow.toLocaleString()}–$${lead.estimatedValueHigh.toLocaleString()}`
-      : null;
-  const content: DeliverableContent = { ...d.content, modernizationPath: { ...d.content.modernizationPath, investmentRange: share ? range : null } };
+      : null);
+  const content: DeliverableContent = {
+    ...d.content,
+    modernizationPath: { ...path, investmentModel: model, investmentRange: share ? range : null },
+  };
   await updateDeliverable(deliverableId, { content });
   touch(leadId);
 }
@@ -420,7 +455,29 @@ export async function approveDeliverableAction(deliverableId: string, leadId: st
   // Approval marks the brief ready. The PDF is rendered + persisted to durable
   // storage by the /api/deliverable/[id]/pdf route (Node runtime; keeps the
   // react-pdf renderer out of the server-action bundle).
-  await updateDeliverable(deliverableId, { status: "approved", approvedAt: new Date().toISOString() });
+  //
+  // Quality gate: re-run QC (with repair) at approval so a broken report can never
+  // be approved. If blockers survive repair, approval is refused and the refreshed
+  // qc report tells the operator exactly what remains.
+  const d = await getDeliverable(deliverableId);
+  if (!d) return;
+  const lead = await getLead(leadId);
+  const settings = await getSettings();
+  if (lead) {
+    const screenshots = await screenshotsForLead(leadId);
+    const ctx: QcContext = { lead, settings, type: d.type, screenshots };
+    const { content, report } = runQcWithRepair(d.content, ctx);
+    const qc = { ...report, ranAt: new Date().toISOString() };
+    if (!report.passed) {
+      await updateDeliverable(deliverableId, { content, qc });
+      await audit("deliverable.approve.blocked", "deliverable", deliverableId, { blockers: report.blockerCount });
+      touch(leadId);
+      return;
+    }
+    await updateDeliverable(deliverableId, { content, qc, status: "approved", approvedAt: new Date().toISOString() });
+  } else {
+    await updateDeliverable(deliverableId, { status: "approved", approvedAt: new Date().toISOString() });
+  }
   await audit("deliverable.approve", "deliverable", deliverableId);
   touch(leadId);
 }

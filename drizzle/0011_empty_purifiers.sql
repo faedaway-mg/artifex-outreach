@@ -1,0 +1,1 @@
+ALTER TABLE "deliverables" ADD COLUMN "qc" jsonb;
