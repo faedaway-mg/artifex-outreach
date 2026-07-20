@@ -393,9 +393,14 @@ function withDefaults(data: Partial<Settings> | undefined): Settings {
   // centralized. Only rewrites the exact known-stale/broken values, so any
   // intentional customization made in Settings is preserved.
   if (merged.contactEmail === "jordan@artifexlabs.tech") merged.contactEmail = ARTIFEX_IDENTITY.publicEmail;
-  // Both the original spec vanity slug (never existed) and the earlier personal
-  // auto-slug (now 404) heal to the current verified booking URL.
-  const DEAD_BOOKING_URLS = new Set(["https://cal.com/artifexlabs/discovery", "https://cal.com/jordan-jackson-coa1a0/30min"]);
+  // Superseded booking URLs heal to the current verified Artifex Labs (M365) URL.
+  // Includes the spec vanity slug (never existed), the personal auto-slug (404),
+  // and artifex-labs-discovery-call (old personal-Gmail account, now retired).
+  const DEAD_BOOKING_URLS = new Set([
+    "https://cal.com/artifexlabs/discovery",
+    "https://cal.com/jordan-jackson-coa1a0/30min",
+    "https://cal.com/artifex-labs-discovery-call/30min",
+  ]);
   if (DEAD_BOOKING_URLS.has(merged.calendarLink)) merged.calendarLink = ARTIFEX_IDENTITY.bookingUrl;
   return merged;
 }

@@ -10,9 +10,11 @@ export const ARTIFEX_IDENTITY = {
   companyName: "Artifex Labs",
   publicWebsite: "https://artifexlabs.tech",
   publicEmail: "hello@artifexlabs.tech",
-  // Verified live 2026-07-20 (HTTP 200): "Business Technology Conversation",
-  // 30 min, Cal Video. The old jordan-jackson-coa1a0 slug 404s — do not restore it.
-  bookingUrl: "https://cal.com/artifex-labs-discovery-call/30min",
+  // NEW Microsoft 365-connected Artifex Labs Cal.com account (organizer =
+  // hello@artifexlabs.tech, name "Artifex Labs"). Verified live 2026-07-20
+  // (HTTP 200): 30 min, Cal Video. Do NOT use artifex-labs-discovery-call
+  // (old personal-Gmail account) or jordan-jackson-coa1a0 (404).
+  bookingUrl: "https://cal.com/artifex-labs-ob2qbv/30min",
   location: "Los Angeles, CA",
   // Company legal name of record is "Faedaway M.G. LLC" (spec wrote "Fadeaway MG LLC").
   legalEntity: "Faedaway M.G. LLC",
