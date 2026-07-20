@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { regenerateBusinessIntelligenceAction } from "@/lib/actions";
 import type { StoredBusinessIntelligence } from "@/lib/types";
+import type { BusinessProfile, DimensionReport, ReadingStatus } from "@/lib/business-intelligence";
 
 function confTone(c: number): string {
   return c >= 60 ? "text-teal-300" : c >= 40 ? "text-amber-300" : "text-coral-300";
@@ -128,6 +129,13 @@ function Body({ bi }: { bi: StoredBusinessIntelligence }) {
         </p>
       </Section>
 
+      {/* Structured Business Intelligence Profile (guarded — absent on records
+          generated before the profile engine shipped; they show on Refresh). */}
+      <ProfileSection profile={p.businessProfile} />
+
+      {/* Categorized modernization opportunities from the profile */}
+      <OpportunitiesSection profile={p.businessProfile} />
+
       {/* Provider contributions + contradictions */}
       <div className="flex flex-wrap items-center gap-2 border-t border-white/[0.06] pt-3">
         <span className="text-[11px] text-chalk-600">Providers:</span>
@@ -174,5 +182,63 @@ function Section({ icon, title, children }: { icon: React.ReactNode; title: stri
       <p className="mb-1 flex items-center gap-1.5 text-[11px] uppercase tracking-wide text-chalk-600">{icon} {title}</p>
       {children}
     </div>
+  );
+}
+
+const STATUS_DOT: Record<ReadingStatus, string> = {
+  strong: "bg-teal-300",
+  adequate: "bg-azure-300",
+  weak: "bg-amber-300",
+  absent: "bg-coral-300",
+  unknown: "bg-chalk-600",
+};
+
+/** Structured four-dimension profile. Guarded: renders only when present. */
+function ProfileSection({ profile }: { profile?: BusinessProfile }) {
+  if (!profile) return null;
+  const dims = Object.values(profile.dimensions) as DimensionReport[];
+  return (
+    <Section icon={<Brain size={13} />} title="Structured profile">
+      <p className="text-sm text-chalk-300">{profile.executiveSummary}</p>
+      <div className="mt-2 grid gap-1.5 sm:grid-cols-2">
+        {dims.map((d) => (
+          <details key={d.dimension} className="rounded-lg border border-white/[0.06] p-2">
+            <summary className="flex cursor-pointer items-center justify-between text-xs text-chalk-300">
+              <span>{d.label}</span>
+              <span className="font-mono text-chalk-500">{d.score === null ? "n/a" : `${d.score}/100`} · {d.measured}/{d.total}</span>
+            </summary>
+            <ul className="mt-1.5 space-y-1">
+              {d.readings.map((r) => (
+                <li key={r.key} className="flex items-start gap-1.5 text-[11px] text-chalk-400">
+                  <span className={`mt-1 h-1.5 w-1.5 shrink-0 rounded-full ${STATUS_DOT[r.status]}`} />
+                  <span><span className="text-chalk-300">{r.label}:</span> {r.summary} <span className="text-chalk-600">({r.confidence.label})</span></span>
+                </li>
+              ))}
+            </ul>
+          </details>
+        ))}
+      </div>
+    </Section>
+  );
+}
+
+/** Categorized modernization opportunities. Guarded: renders only when present. */
+function OpportunitiesSection({ profile }: { profile?: BusinessProfile }) {
+  if (!profile || profile.opportunities.length === 0) return null;
+  return (
+    <Section icon={<Sparkles size={13} />} title="Modernization opportunities">
+      <ul className="space-y-1.5">
+        {profile.opportunities.slice(0, 6).map((o) => (
+          <li key={o.id} className="rounded-lg border border-white/[0.06] p-2">
+            <div className="flex items-center gap-2">
+              <span className="rounded-full border border-azure-500/20 bg-azure-500/[0.06] px-2 py-0.5 text-[10px] uppercase tracking-wide text-azure-200">{o.category}</span>
+              <span className="text-[10px] text-chalk-500">{o.estimatedImpact.level} · {o.confidence.label}</span>
+            </div>
+            <p className="mt-1 text-xs text-chalk-300">{o.observation}</p>
+            <p className="mt-0.5 text-[11px] text-chalk-500">{o.whyItMatters}</p>
+          </li>
+        ))}
+      </ul>
+    </Section>
   );
 }

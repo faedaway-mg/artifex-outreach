@@ -25,6 +25,7 @@ import { projectEvolution, type EvolutionPlan } from "./evolution";
 import { buildOperatorBriefing, type OperatorBriefing } from "./operator-briefing";
 import { buildKnowledgeGraph, type KnowledgeGraph } from "./knowledge-graph";
 import type { LearningStore } from "./learning";
+import { buildBusinessProfile, type BusinessProfile } from "../business-intelligence";
 
 export interface BusinessIntelligence {
   leadId: string;
@@ -43,6 +44,14 @@ export interface BusinessIntelligence {
   improvement: BusinessImprovementPotential;
   snapshot: BusinessTechnologySnapshot;
   briefing: OperatorBriefing;
+  /**
+   * The structured Business Intelligence Profile — the single source of truth for
+   * every downstream system (conversation, Review PDF, investment, roadmap, CRM,
+   * follow-ups). Organizes the analysis above into four confidence-scored
+   * dimensions and categorized modernization opportunities. See
+   * src/lib/business-intelligence/ARCHITECTURE.md.
+   */
+  businessProfile: BusinessProfile;
   /** Which providers contributed vs. which planned ones are still dark. */
   providerCoverage: { contributing: string[]; evidenceCount: number };
 }
@@ -129,6 +138,11 @@ export async function analyzeBusiness(input: AnalyzeInput): Promise<BusinessInte
   // 9) Operator briefing — one-screen decision surface.
   const briefing = buildOperatorBriefing({ businessName: lead.businessName, improvement, snapshot, maturity, graph: opportunityGraph, evolution });
 
+  // 10) Business Intelligence Profile — organize everything above into the single
+  //     structured profile every downstream system consumes. Reuses presence,
+  //     evidence, maturity, and improvement; it does not re-analyze anything.
+  const businessProfile = buildBusinessProfile({ lead, presence: snapshot.presence, evidence, websiteSignals: signals ?? null, maturity, improvement });
+
   return {
     leadId: lead.id,
     businessName: lead.businessName,
@@ -145,6 +159,7 @@ export async function analyzeBusiness(input: AnalyzeInput): Promise<BusinessInte
     improvement,
     snapshot,
     briefing,
+    businessProfile,
     // A provider "contributes" only when it actually produced evidence.
     providerCoverage: { contributing: results.filter((r) => r.ok && r.evidence.length > 0).map((r) => r.providerId), evidenceCount: evidence.length },
   };
