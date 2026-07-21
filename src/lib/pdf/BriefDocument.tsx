@@ -294,7 +294,9 @@ function RecommendedPath({ lead, c, footerNote, index, hasSharedModel }: { lead:
 
       {mp.secondaryOpportunity ? (
         <View style={{ marginBottom: space.lg }}>
-          <Callout icon="spark" label="Optional secondary opportunity" variant="accent">
+          {/* Neutral (not bronze) so the optional phase visibly recedes and reads as
+              genuinely optional — and doesn't mirror the Investment callout below it. */}
+          <Callout icon="spark" label="Optional secondary opportunity" variant="neutral">
             {mp.secondaryOpportunity}
           </Callout>
         </View>
