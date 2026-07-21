@@ -12,7 +12,7 @@
  */
 import React from "react";
 import { Document, Page, Text, View, Svg, Path, Circle } from "@react-pdf/renderer";
-import type { Lead, Deliverable, Settings, ArtifexService } from "@/lib/types";
+import type { Lead, Deliverable, Settings } from "@/lib/types";
 import { ARTIFEX_IDENTITY } from "@/lib/identity";
 import {
   color, space, radius, type,
@@ -22,27 +22,8 @@ import {
   Card, InsightCell, RatingDots, Chip, Callout,
   JourneyColumn, RecommendationCard, InvestmentBlock, ContactRow,
 } from "@/lib/pdf/design";
-
-// Customer-facing engagement label. The internal ArtifexService names are a
-// productized menu; a prospect should see the OUTCOME we propose, not a SKU.
-function engagementLabel(service: ArtifexService | string): string {
-  switch (service) {
-    case "Launch Website":
-    case "Business Website System":
-      return "A stronger customer-facing experience";
-    case "AI Operations System":
-    case "Automation Sprint":
-      return "Streamlined day-to-day operations";
-    case "Product or MVP Build":
-      return "A focused product build";
-    case "Visual Asset System":
-      return "A cohesive visual system";
-    case "Product Strategy Engagement":
-      return "Product strategy & roadmap";
-    default:
-      return String(service);
-  }
-}
+import { InvestmentSection } from "./InvestmentSection";
+import { engagementLabel, sharesInvestmentModel } from "./investment-view";
 
 const clean = (s: string | null | undefined) => (s ?? "").replace(/^https?:\/\//, "").replace(/\/$/, "");
 
@@ -276,7 +257,7 @@ function CustomerJourney({ lead, c, footerNote, index }: { lead: Lead; c: Delive
  * RECOMMENDED PATH + INVESTMENT
  * ================================================================== */
 
-function RecommendedPath({ lead, c, footerNote, index }: { lead: Lead; c: Deliverable["content"]; footerNote: string; index: string }) {
+function RecommendedPath({ lead, c, footerNote, index, hasSharedModel }: { lead: Lead; c: Deliverable["content"]; footerNote: string; index: string; hasSharedModel: boolean }) {
   const mp = c.modernizationPath;
   return (
     <Page size="A4" style={pageStyles.content}>
@@ -311,7 +292,13 @@ function RecommendedPath({ lead, c, footerNote, index }: { lead: Lead; c: Delive
         </View>
       ) : null}
 
-      {mp.investmentRange ? (
+      {/* When a full explainable model is shared, the investment gets its own
+          dedicated section; otherwise show the legacy range block / neutral note here. */}
+      {hasSharedModel ? (
+        <Callout icon="gauge" label="Investment" variant="accent">
+          A full, itemized investment breakdown follows on the next page — every figure tied to a specific piece of work.
+        </Callout>
+      ) : mp.investmentRange ? (
         <InvestmentBlock range={mp.investmentRange} disclaimer={mp.disclaimer} />
       ) : (
         <Callout icon="clock" label="Investment" variant="neutral">
@@ -386,7 +373,12 @@ export function BriefDocument({ lead, deliverable, settings }: { lead: Lead; del
   if (c.strengths.length > 0) sections.push((index) => <Strengths key="strengths" lead={lead} c={c} footerNote={footerNote} index={index} />);
   if (c.opportunities.length > 0) sections.push((index) => <Opportunities key="opps" lead={lead} c={c} footerNote={footerNote} index={index} />);
   if (hasJourney) sections.push((index) => <CustomerJourney key="journey" lead={lead} c={c} footerNote={footerNote} index={index} />);
-  sections.push((index) => <RecommendedPath key="path" lead={lead} c={c} footerNote={footerNote} index={index} />);
+
+  // The explainable investment breakdown is surfaced to the prospect only when a
+  // range has been approved for sharing AND a model exists behind it.
+  const shareModel = sharesInvestmentModel(c.modernizationPath);
+  sections.push((index) => <RecommendedPath key="path" lead={lead} c={c} footerNote={footerNote} index={index} hasSharedModel={shareModel} />);
+  if (shareModel) sections.push((index) => <InvestmentSection key="investment" lead={lead} model={c.modernizationPath.investmentModel!} footerNote={footerNote} index={index} />);
 
   const total = sections.length;
   const pages: React.ReactElement[] = [

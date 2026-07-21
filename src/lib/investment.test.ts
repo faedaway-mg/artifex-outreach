@@ -87,4 +87,27 @@ describe("explainable investment model", () => {
       expect(ENGAGEMENT_DELIVERABLES[service].length).toBeGreaterThan(0);
     }
   });
+
+  it("attaches ongoing third-party costs for hosting/usage-bearing engagements, none for advisory", () => {
+    const web = buildInvestmentModel(makeLead(), opps(), "Business Website System", settings);
+    const ai = buildInvestmentModel(makeLead(), opps(), "AI Operations System", settings);
+    const strategy = buildInvestmentModel(makeLead(), opps(), "Product Strategy Engagement", settings);
+    expect((web.ongoingCosts ?? []).length).toBeGreaterThan(0);
+    expect((ai.ongoingCosts ?? []).length).toBeGreaterThan(0);
+    expect((strategy.ongoingCosts ?? []).length).toBe(0);
+  });
+
+  it("keeps ongoing/third-party costs SEPARATE from the reconciled implementation total", () => {
+    const service: ArtifexService = "AI Operations System";
+    const band = settings.defaultPricing[service];
+    const m = buildInvestmentModel(makeLead(), opps(), service, settings);
+    // Reconciliation is unaffected by ongoing costs — they are never summed in.
+    expect(m.lineItems.reduce((a, l) => a + l.investmentLow, 0)).toBe(band.low);
+    expect(m.lineItems.reduce((a, l) => a + l.investmentHigh, 0)).toBe(band.high);
+    for (const oc of m.ongoingCosts ?? []) {
+      expect(oc.paidTo).toBe("third-party"); // client pays the provider directly
+      expect(oc.label.length).toBeGreaterThan(0);
+      expect(oc.amount.length).toBeGreaterThan(0);
+    }
+  });
 });

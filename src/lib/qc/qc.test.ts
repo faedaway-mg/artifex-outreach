@@ -151,6 +151,53 @@ describe("QC — detects and auto-repairs defects", () => {
   });
 });
 
+describe("QC — investment section integrity", () => {
+  const pricing = (c: DeliverableContent) => runQc(c, ctx()).checks.find((x) => x.id === "pricing-consistency")!;
+
+  it("clean model with hosting costs still passes (ongoing costs are valid + separate)", () => {
+    const c = cleanContent();
+    const m = c.modernizationPath.investmentModel!;
+    expect((m.ongoingCosts ?? []).length).toBeGreaterThan(0); // Business Website System → hosting
+    expect(m.lineItems.reduce((a, l) => a + l.investmentLow, 0)).toBe(m.totalLow); // separation: not summed in
+    expect(pricing(c).passed).toBe(true);
+  });
+
+  it("flags a line item with no deliverables", () => {
+    const c = cleanContent();
+    c.modernizationPath.investmentModel!.lineItems[0].deliverables = [];
+    expect(pricing(c).issues.some((i) => /no deliverables/.test(i.message))).toBe(true);
+  });
+
+  it("flags a missing expected outcome", () => {
+    const c = cleanContent();
+    c.modernizationPath.investmentModel!.lineItems[0].expectedOutcome = "   ";
+    expect(pricing(c).issues.some((i) => /expected outcome/.test(i.message))).toBe(true);
+  });
+
+  it("flags duplicate line items", () => {
+    const c = cleanContent();
+    const li = c.modernizationPath.investmentModel!.lineItems;
+    li[1] = { ...li[0], id: "li-dup" };
+    expect(pricing(c).issues.some((i) => /Duplicate line item/.test(i.message))).toBe(true);
+  });
+
+  it("flags non-integer / negative investment figures", () => {
+    const c = cleanContent();
+    c.modernizationPath.investmentModel!.lineItems[0].investmentLow = -100;
+    expect(pricing(c).issues.some((i) => /non-negative whole dollars/.test(i.message))).toBe(true);
+  });
+
+  it("flags an ongoing cost missing its amount, and an undeclared payer", () => {
+    const c = cleanContent();
+    const m = c.modernizationPath.investmentModel!;
+    m.ongoingCosts = [{ label: "Hosting", amount: "", cadence: "monthly", paidTo: "third-party" }];
+    expect(pricing(c).issues.some((i) => /Ongoing cost is missing an amount/.test(i.message))).toBe(true);
+    // @ts-expect-error deliberately invalid payer to exercise the guard
+    m.ongoingCosts = [{ label: "Hosting", amount: "$20 / mo", cadence: "monthly", paidTo: "nobody" }];
+    expect(pricing(c).issues.some((i) => /who bills it/.test(i.message))).toBe(true);
+  });
+});
+
 describe("QC — warnings do not block approval", () => {
   it("a visual-cue evidence with no screenshot is a warning, not a blocker", () => {
     const c = cleanContent();

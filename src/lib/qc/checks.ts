@@ -205,6 +205,31 @@ export function checkPricingConsistency(input: QcInput): QcCheckResult {
     // If the range is shared to the prospect, it must match the model exactly.
     if (path.investmentRange && path.investmentRange !== m.rangeLabel)
       issues.push({ location: "modernizationPath.investmentRange", message: `Shared range "${path.investmentRange}" disagrees with the model (${m.rangeLabel}).` });
+
+    // Field completeness — a client-facing line must carry its full chain and
+    // clean, whole-dollar figures (no inconsistent currency formatting).
+    const seen = new Set<string>();
+    for (const [i, l] of m.lineItems.entries()) {
+      if (!l.observation?.trim()) issues.push({ location: `investment[${i}].observation`, message: "Line item is missing its observation." });
+      if (!l.recommendation?.trim()) issues.push({ location: `investment[${i}].recommendation`, message: "Line item is missing its recommendation." });
+      if (!l.expectedOutcome?.trim()) issues.push({ location: `investment[${i}].expectedOutcome`, message: "Line item is missing its expected outcome." });
+      if (!l.effort?.summary?.trim()) issues.push({ location: `investment[${i}].effort`, message: "Line item is missing an effort summary." });
+      if (!l.deliverables?.length || l.deliverables.every((d) => !d?.trim())) issues.push({ location: `investment[${i}].deliverables`, message: "Line item has no deliverables." });
+      if (!Number.isInteger(l.investmentLow) || !Number.isInteger(l.investmentHigh) || l.investmentLow < 0) issues.push({ location: `investment[${i}]`, message: "Line item investment must be non-negative whole dollars." });
+      // Duplicate line items read as a copy-paste error to the client.
+      const key = `${(l.observation || "").trim().toLowerCase()}|${(l.recommendation || "").trim().toLowerCase()}`;
+      if (seen.has(key)) issues.push({ location: `investment[${i}]`, message: "Duplicate line item (same observation and recommendation)." });
+      seen.add(key);
+    }
+
+    // Ongoing / third-party costs must be structurally separate from the
+    // implementation total (guaranteed by reconciliation above) and each must
+    // declare who bills it — so implementation fees are never confused with them.
+    for (const [i, oc] of (m.ongoingCosts ?? []).entries()) {
+      if (!oc.label?.trim()) issues.push({ location: `ongoingCosts[${i}].label`, message: "Ongoing cost is missing a label." });
+      if (!oc.amount?.trim()) issues.push({ location: `ongoingCosts[${i}].amount`, message: "Ongoing cost is missing an amount." });
+      if (oc.paidTo !== "third-party" && oc.paidTo !== "artifex") issues.push({ location: `ongoingCosts[${i}].paidTo`, message: "Ongoing cost must declare who bills it (third-party or artifex)." });
+    }
   } else if (path.investmentRange) {
     issues.push({ location: "modernizationPath.investmentRange", message: "A range is shared but there is no explainable investment model behind it." });
   }

@@ -294,6 +294,22 @@ export interface InvestmentLineItem {
   expectedOutcome: string;
 }
 
+/**
+ * An ongoing cost that lives OUTSIDE the Artifex implementation total — a
+ * third-party subscription (hosting, domain, usage-based APIs) or a recurring
+ * partnership fee. Kept structurally separate so it is never summed into, or
+ * implied to be included in, the implementation figures. Amounts are stored
+ * pre-formatted (planning estimates), never recomputed in the view layer.
+ */
+export interface InvestmentOngoingCost {
+  label: string; // e.g. "Website hosting & domain"
+  amount: string; // pre-formatted, e.g. "$20–40 / month"
+  cadence: "monthly" | "annual" | "usage-based" | "one-time";
+  /** Who bills it — keeps third-party costs visibly distinct from Artifex fees. */
+  paidTo: "third-party" | "artifex";
+  note?: string;
+}
+
 export interface InvestmentModel {
   currency: "USD";
   engagement: ArtifexService;
@@ -310,6 +326,12 @@ export interface InvestmentModel {
   explanation: string;
   /** Discovery/contingency framing so the number is honest, not binding. */
   discoveryNote: string;
+  /**
+   * Ongoing/third-party costs, kept explicitly SEPARATE from the implementation
+   * totals above (never summed in). Optional — absent unless known, so existing
+   * models and the reconciliation remain unchanged.
+   */
+  ongoingCosts?: InvestmentOngoingCost[];
 }
 
 export interface DeliverableContent {

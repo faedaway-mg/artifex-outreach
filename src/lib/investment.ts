@@ -21,6 +21,7 @@ import type {
   InvestmentModel,
   InvestmentLineItem,
   InvestmentComplexity,
+  InvestmentOngoingCost,
 } from "./types";
 
 type OpportunityInput = DeliverableContent["opportunities"][number];
@@ -205,7 +206,33 @@ export function buildInvestmentModel(
     explanation: `This ${BILLING[service] === "monthly" ? "monthly" : "one-time"} figure is the sum of ${lineItems.length} scoped work items below — each tied to a specific observation, an effort estimate, the deliverables it produces, and the outcome it is expected to create. Nothing here is a round-number guess.`,
     discoveryNote:
       "Final scope and price are confirmed in a short discovery conversation. These figures are a planning estimate, not a binding quote — the best answer is sometimes a smaller, simpler first step.",
+    // Ongoing / third-party costs — kept structurally SEPARATE (never summed into
+    // the implementation totals above) so the report never implies operating costs
+    // are included. Deterministic, honest planning estimates the client pays
+    // directly to the provider; the PDF surfaces them in their own panel.
+    ongoingCosts: ongoingCostsFor(service),
   };
+}
+
+// Typical third-party operating costs for an engagement — hosting, platform, or
+// usage-based fees the client pays directly to the provider (never to Artifex,
+// never part of the implementation total). Empty when an engagement has no
+// inherent third-party dependency.
+function ongoingCostsFor(service: ArtifexService): InvestmentOngoingCost[] {
+  switch (service) {
+    case "Launch Website":
+    case "Business Website System":
+      return [{ label: "Website hosting & domain", amount: "$20–40 / mo", cadence: "monthly", paidTo: "third-party", note: "Paid directly to the hosting provider." }];
+    case "Automation Sprint":
+      return [{ label: "Automation platform", amount: "$30–120 / mo", cadence: "monthly", paidTo: "third-party", note: "Scales with volume; billed by the platform." }];
+    case "AI Operations System":
+      return [{ label: "AI & software usage", amount: "$100–400 / mo", cadence: "usage-based", paidTo: "third-party", note: "Model/API and platform usage, billed to the client at cost." }];
+    case "Product or MVP Build":
+      return [{ label: "Cloud hosting & services", amount: "$40–200 / mo", cadence: "monthly", paidTo: "third-party", note: "Infrastructure scales with usage after launch." }];
+    case "Visual Asset System":
+    case "Product Strategy Engagement":
+      return [];
+  }
 }
 
 // ── Allocation ────────────────────────────────────────────────────────────────
