@@ -21,6 +21,7 @@ import {
   pageStyles, RunningHeader, RunningFooter, SectionHeader,
   Card, InsightCell, RatingDots, Chip, Callout,
   JourneyColumn, RecommendationCard, InvestmentBlock, ContactRow,
+  PageField, HeroAtmosphere,
 } from "@/lib/pdf/design";
 import { InvestmentSection } from "./InvestmentSection";
 import { engagementLabel, sharesInvestmentModel } from "./investment-view";
@@ -34,6 +35,7 @@ const clean = (s: string | null | undefined) => (s ?? "").replace(/^https?:\/\//
 function Cover({ lead, subtitle, confidentiality, dateStr }: { lead: Lead; subtitle: string; confidentiality: string; dateStr: string }) {
   return (
     <Page size="A4" style={pageStyles.hero}>
+      <HeroAtmosphere variant="cover" />
       {/* oversized brand mark watermark, bottom-right — quiet structural texture */}
       <View style={{ position: "absolute", right: -30, bottom: -22 }}>
         <Svg viewBox="0 0 32 32" style={{ width: 288, height: 288 }}>
@@ -101,6 +103,7 @@ function ExecutiveSummary({ lead, c, footerNote, index }: { lead: Lead; c: Deliv
 
   return (
     <Page size="A4" style={pageStyles.content}>
+      <PageField variant="exec" numeral={index.split(" ")[0]} />
       <RunningHeader businessName={lead.businessName} />
       <RunningFooter note={footerNote} />
 
@@ -166,6 +169,7 @@ function ExecutiveSummary({ lead, c, footerNote, index }: { lead: Lead; c: Deliv
 function Strengths({ lead, c, footerNote, index }: { lead: Lead; c: Deliverable["content"]; footerNote: string; index: string }) {
   return (
     <Page size="A4" style={pageStyles.content}>
+      <PageField variant="strengths" numeral={index.split(" ")[0]} />
       <RunningHeader businessName={lead.businessName} />
       <RunningFooter note={footerNote} />
       <SectionHeader
@@ -195,6 +199,7 @@ function Strengths({ lead, c, footerNote, index }: { lead: Lead; c: Deliverable[
 function Opportunities({ lead, c, footerNote, index }: { lead: Lead; c: Deliverable["content"]; footerNote: string; index: string }) {
   return (
     <Page size="A4" style={pageStyles.content}>
+      <PageField variant="opps" numeral={index.split(" ")[0]} />
       <RunningHeader businessName={lead.businessName} />
       <RunningFooter note={footerNote} />
       <SectionHeader
@@ -227,6 +232,7 @@ function Opportunities({ lead, c, footerNote, index }: { lead: Lead; c: Delivera
 function CustomerJourney({ lead, c, footerNote, index }: { lead: Lead; c: Deliverable["content"]; footerNote: string; index: string }) {
   return (
     <Page size="A4" style={pageStyles.content}>
+      <PageField variant="journey" numeral={index.split(" ")[0]} />
       <RunningHeader businessName={lead.businessName} />
       <RunningFooter note={footerNote} />
       <SectionHeader
@@ -261,6 +267,7 @@ function RecommendedPath({ lead, c, footerNote, index, hasSharedModel }: { lead:
   const mp = c.modernizationPath;
   return (
     <Page size="A4" style={pageStyles.content}>
+      <PageField variant="path" numeral={index.split(" ")[0]} />
       <RunningHeader businessName={lead.businessName} />
       <RunningFooter note={footerNote} />
       <SectionHeader
@@ -316,6 +323,7 @@ function RecommendedPath({ lead, c, footerNote, index, hasSharedModel }: { lead:
 function NextSteps({ lead, c, settings }: { lead: Lead; c: Deliverable["content"]; settings: Settings }) {
   return (
     <Page size="A4" style={pageStyles.hero}>
+      <HeroAtmosphere variant="closing" />
       <View style={{ position: "absolute", right: -30, bottom: -22 }}>
         <Svg viewBox="0 0 32 32" style={{ width: 288, height: 288 }}>
           <Path d="M16 4 L27 27 M16 4 L5 27 M9.5 19 L22.5 19" stroke={color.hairlineOnInkStrong} strokeWidth={0.45} strokeLinecap="round" strokeLinejoin="round" />

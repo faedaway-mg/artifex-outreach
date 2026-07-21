@@ -19,7 +19,7 @@ import type { Lead, InvestmentModel, InvestmentLineItem, InvestmentOngoingCost }
 import {
   color, space, radius, type,
   Row, Icon, Label,
-  pageStyles, RunningHeader, RunningFooter, SectionHeader,
+  pageStyles, RunningHeader, RunningFooter, SectionHeader, PageField,
 } from "@/lib/pdf/design";
 import {
   formatMoneyRange, cadenceLabel, engagementLabel, effortLabel,
@@ -228,6 +228,7 @@ function DiscoveryNote({ model }: { model: InvestmentModel }) {
 export function InvestmentSection({ lead, model, footerNote, index }: { lead: Lead; model: InvestmentModel; footerNote: string; index: string }) {
   return (
     <Page size="A4" style={pageStyles.content}>
+      <PageField variant="investment" numeral={index.split(" ")[0]} />
       <RunningHeader businessName={lead.businessName} />
       <RunningFooter note={footerNote} />
       <SectionHeader
