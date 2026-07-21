@@ -213,6 +213,7 @@ function Opportunities({ lead, c, footerNote, index }: { lead: Lead; c: Delivera
         <RecommendationCard
           key={i}
           index={i + 1}
+          emphasis={i === 0 ? "primary" : "secondary"}
           title={o.observation}
           rows={[
             { label: "Evidence", text: o.evidence, icon: "monitor", accent: color.textFaint },

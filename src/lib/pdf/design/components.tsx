@@ -372,18 +372,39 @@ export function RecommendationCard({
   index,
   title,
   rows,
+  emphasis = "primary",
 }: {
   index: number;
   title: string;
   rows: Array<{ label: string; text: string; icon: IconName; accent?: string }>;
+  /** The first recommendation reads as primary; the rest visibly recede. */
+  emphasis?: "primary" | "secondary";
 }) {
+  const primary = emphasis === "primary";
   return (
-    <View wrap={false} style={{ backgroundColor: color.surface, borderWidth: 0.75, borderColor: color.hairline, borderRadius: radius.lg, borderLeftWidth: 3, borderLeftColor: color.accent, padding: space.lg, marginBottom: space.md }}>
-      <Row style={{ alignItems: "center", gap: 10, marginBottom: 11 }}>
-        <View style={{ width: 26, height: 26, borderRadius: 7, backgroundColor: color.inkBg, alignItems: "center", justifyContent: "center" }}>
-          <Text style={[type.stat, { fontSize: 12, color: color.accentSoft }]}>{pad(index)}</Text>
+    <View
+      wrap={false}
+      style={{
+        backgroundColor: color.surface,
+        borderWidth: 0.75,
+        borderColor: color.hairline,
+        borderRadius: radius.lg,
+        borderLeftWidth: primary ? 3 : 1.5,
+        borderLeftColor: primary ? color.accent : color.hairlineStrong,
+        padding: space.lg,
+        marginBottom: space.md,
+      }}
+    >
+      <Row style={{ alignItems: "center", gap: 10, marginBottom: primary ? 12 : 11 }}>
+        <View style={{ width: 26, height: 26, borderRadius: 7, backgroundColor: primary ? color.inkBg : color.surfaceSunken, alignItems: "center", justifyContent: "center" }}>
+          <Text style={[type.stat, { fontSize: 12, color: primary ? color.accentSoft : color.textMuted }]}>{pad(index)}</Text>
         </View>
-        <Text style={[type.h3, { color: color.textPrimary, flex: 1, minWidth: 0, fontSize: 12.5 }]}>{title}</Text>
+        <Text style={[type.h3, { color: color.textPrimary, flex: 1, minWidth: 0, fontSize: primary ? 13.5 : 12 }]}>{title}</Text>
+        {primary && (
+          <View style={{ backgroundColor: color.accentBgTint, borderRadius: radius.pill, paddingVertical: 2.5, paddingHorizontal: 9 }}>
+            <Text style={[type.fine, { color: color.accentDeep, fontSize: 6.8, letterSpacing: 1.2, textTransform: "uppercase" }]}>Priority</Text>
+          </View>
+        )}
       </Row>
       <View style={{ gap: 8 }}>
         {rows.map((r, i) => (
