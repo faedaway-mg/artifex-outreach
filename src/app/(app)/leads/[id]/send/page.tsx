@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, ShieldAlert, User2, Mail, AlertTriangle } from "lucide-react";
-import { getLead, getBusinessIntelligence, getSettings, contactsForLead, isSuppressed } from "@/lib/repo";
+import { getLead, getBusinessIntelligence, getSettings, contactsForLead, isSuppressed, emailSendsForLead } from "@/lib/repo";
 import { buildOutreachKit } from "@/lib/outreach/kit";
 import { renderEmailHtml, renderEmailText } from "@/lib/outreach/email-render";
 import { SendIntroForm } from "@/components/lead/SendIntroForm";
@@ -29,20 +29,26 @@ export default async function SendPage({ params }: { params: { id: string } }) {
   const dm = kit.decisionMaker;
   const recipient = dm.primary?.directEmail || dm.primary?.officeEmail || lead.publicEmail;
   const isDirect = !!dm.primary?.directEmail && recipient === dm.primary.directEmail;
-  const html = renderEmailHtml({ email: kit.email, settings, unsubscribeUrl: "https://outreach.artifexlabs.tech/api/comms/unsubscribe" });
-  const text = renderEmailText({ email: kit.email, settings });
+
+  // Intro until the ledger shows one was accepted; then this becomes the follow-up.
+  const introSent = (await emailSendsForLead(lead.id)).some((s) => !!s.sentAt);
+  const mode: "intro" | "followup" = introSent ? "followup" : "intro";
+  const email = mode === "followup" ? kit.followUp : kit.email;
+
+  const html = renderEmailHtml({ email, settings, unsubscribeUrl: "https://outreach.artifexlabs.tech/api/comms/unsubscribe" });
+  const text = renderEmailText({ email, settings });
 
   const warnings: string[] = [];
   if (!recipient) warnings.push("No email address on file — the send will be blocked until a route is found.");
   if (!dm.identified) warnings.push("Decision maker not confidently identified — this goes to the office address.");
-  if (kit.videoRecommended) warnings.push("A personal video is recommended for this high-value lead — attach it below, or send without it.");
+  if (mode === "intro" && kit.videoRecommended) warnings.push("A personal video is recommended for this high-value lead — attach it below, or send without it.");
 
   return (
     <div className="space-y-5">
       <Link href={`/leads/${lead.id}`} className="inline-flex items-center gap-1.5 text-sm text-chalk-400 hover:text-chalk-100"><ArrowLeft size={15} /> Back to {lead.businessName}</Link>
 
       <div>
-        <h1 className="text-xl font-semibold text-chalk-50">Review &amp; send the introduction</h1>
+        <h1 className="text-xl font-semibold text-chalk-50">Review &amp; send the {mode === "followup" ? "follow-up" : "introduction"}</h1>
         <p className="mt-1 text-sm text-chalk-500">Exactly what {lead.businessName} will receive. Nothing sends until you approve it.</p>
       </div>
 
@@ -77,9 +83,9 @@ export default async function SendPage({ params }: { params: { id: string } }) {
             </div>
             <div className="mt-3 border-t border-white/[0.06] pt-2">
               <p className="text-[12px] text-chalk-500">Subject</p>
-              <p className="text-chalk-200">{kit.email.subject}</p>
+              <p className="text-chalk-200">{email.subject}</p>
               <ul className="mt-1 space-y-0.5 text-[11px] text-chalk-600">
-                {kit.email.subjectAlternatives.map((a) => <li key={a}>· {a}</li>)}
+                {email.subjectAlternatives.map((a) => <li key={a}>· {a}</li>)}
               </ul>
             </div>
           </div>
@@ -94,7 +100,7 @@ export default async function SendPage({ params }: { params: { id: string } }) {
           )}
 
           <div className="card p-4">
-            <SendIntroForm leadId={lead.id} hasVideoRecommended={kit.videoRecommended} />
+            <SendIntroForm leadId={lead.id} mode={mode} hasVideoRecommended={mode === "intro" && kit.videoRecommended} />
           </div>
         </div>
       </div>

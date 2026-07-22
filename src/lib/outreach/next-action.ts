@@ -94,7 +94,7 @@ export function computeNextAction(state: OutreachState): NextAction {
     });
   }
 
-  if (s.videoRecommended && !s.hasVideo) {
+  if (s.videoRecommended && !s.hasVideo && !s.introSentAt) {
     return make("record-video", {
       title: "Record a 45-second personalized video",
       why: "This is a high-value fit. A short, human video meaningfully lifts the response — the script is written and waiting.",

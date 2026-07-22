@@ -20,6 +20,7 @@ import {
   plansForLead,
   inboundForLead,
   getBusinessIntelligence,
+  emailSendsForLead,
 } from "@/lib/repo";
 import { collectTimeline } from "@/lib/acquisition/timeline";
 import { ConceptPreviewPanel } from "@/components/lead/ConceptPreviewPanel";
@@ -90,12 +91,13 @@ export default async function LeadPage({ params }: { params: { id: string } }) {
     const improvement = intel?.improvement ?? null;
     if (profile) {
       const draft = buildOutreachKit({ lead, profile, settings, contacts, improvement });
+      const emailSends = await emailSendsForLead(lead.id);
       const state = deriveOutreachState({
         now: new Date().toISOString(),
         lead,
         deliverables,
         videos,
-        outreach,
+        emailSends,
         meetings,
         inbound,
         videoRecommended: draft.videoRecommended,

@@ -1,6 +1,10 @@
 // Maps a lead's real records → OutreachState for the Next Best Action engine.
-// Defensive by design: unknown/missing data degrades to a sensible earlier stage.
-import type { Lead, Outreach, Meeting, Video, InboundMessage } from "../types";
+//
+// The AUTHORITATIVE source for "did we send?" is the email_sends ledger (what the
+// provider actually accepted) — not the legacy outreach table. We distinguish
+// provider-accepted (sentAt) from delivered (deliveredAt) from opened (openedAt),
+// and never treat a VEED/link click as a verified video view.
+import type { Lead, Meeting, Video, InboundMessage, EmailSend } from "../types";
 import type { OutreachState } from "./types";
 
 export function deriveOutreachState(input: {
@@ -8,26 +12,31 @@ export function deriveOutreachState(input: {
   lead: Lead;
   deliverables: Array<{ content?: unknown }>;
   videos: Video[];
-  outreach: Outreach[];
+  emailSends: EmailSend[];
   meetings: Meeting[];
   inbound: InboundMessage[];
   videoRecommended: boolean;
   confidenceHigh: boolean;
 }): OutreachState {
-  const { now, lead, deliverables, videos, outreach, meetings, inbound, videoRecommended, confidenceHigh } = input;
+  const { now, lead, deliverables, videos, emailSends, meetings, inbound, videoRecommended, confidenceHigh } = input;
 
   const hasReview = deliverables.some((d) => !!d.content);
   const hasVideo = videos.length > 0;
 
-  const sent = outreach.filter((o) => !!o.sentAt).sort((a, b) => +new Date(a.sentAt as string) - +new Date(b.sentAt as string));
+  // Provider-accepted sends, oldest first: [0] = introduction, [1] = follow-up.
+  const sent = emailSends.filter((s) => !!s.sentAt).sort((a, b) => +new Date(a.sentAt as string) - +new Date(b.sentAt as string));
   const introSentAt = sent[0]?.sentAt ?? null;
   const followUpSentAt = sent[1]?.sentAt ?? null;
 
-  const engaged = (s: string) => /open|click|repl/i.test(s);
-  const emailOpened = outreach.some((o) => engaged(o.status));
-  const videoViewed = videos.some((v) => /view|open|watch/i.test(v.status));
+  // Opens are provider/privacy-dependent — used only as a soft "they looked" hint.
+  const emailOpened = emailSends.some((s) => !!s.openedAt);
+  // We have NO verified VEED watch event, so a video view is never inferred.
+  const videoViewed = false;
 
-  const replied = inbound.length > 0 || outreach.some((o) => /repl/i.test(o.status));
+  // Compliance/deliverability terminals — any of these means stop + suppress.
+  const terminal = emailSends.some((s) => s.bouncedAt || s.complainedAt || s.unsubscribedAt);
+
+  const replied = inbound.length > 0;
   const positiveReply = inbound.some((m) => /positive|interest|meeting|book|yes\b/i.test(m.classification ?? ""));
 
   const meetingScheduledAt = meetings.map((m) => m.scheduledAt).filter(Boolean).sort()[0] ?? null;
@@ -48,6 +57,6 @@ export function deriveOutreachState(input: {
     meetingScheduledAt,
     discoveryCompleteAt,
     confidenceHigh,
-    suppressed: lead.pipelineStage === "Disqualified" || lead.pipelineStage === "Lost",
+    suppressed: terminal || lead.pipelineStage === "Disqualified" || lead.pipelineStage === "Lost",
   };
 }

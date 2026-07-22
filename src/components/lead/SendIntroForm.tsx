@@ -1,15 +1,15 @@
 "use client";
 import { useState } from "react";
 import { Send, Loader2, CheckCircle2, AlertTriangle, Clock, Video } from "lucide-react";
-import { sendIntroductionAction } from "@/lib/outreach/send-actions";
+import { sendIntroductionAction, sendFollowUpAction } from "@/lib/outreach/send-actions";
 import type { IntroSendResult, VeedVideo } from "@/lib/outreach/types";
 
 /**
- * Explicit review → approve → real send. Reuses the production dispatch pipeline
- * via sendIntroductionAction. The button disables on click (client guard); the
- * ledger's step-key idempotency is the real duplicate protection.
+ * Explicit review → approve → real send. Reuses the production dispatch pipeline.
+ * The button disables on click (client guard); the ledger's step-key idempotency
+ * is the real duplicate protection.
  */
-export function SendIntroForm({ leadId, hasVideoRecommended }: { leadId: string; hasVideoRecommended: boolean }) {
+export function SendIntroForm({ leadId, mode = "intro", hasVideoRecommended }: { leadId: string; mode?: "intro" | "followup"; hasVideoRecommended: boolean }) {
   const [veedUrl, setVeedUrl] = useState("");
   const [veedThumb, setVeedThumb] = useState("");
   const [veedTitle, setVeedTitle] = useState("");
@@ -23,7 +23,7 @@ export function SendIntroForm({ leadId, hasVideoRecommended }: { leadId: string;
       ? { url: veedUrl.trim(), thumbnailUrl: veedThumb.trim() || null, title: veedTitle.trim() || null, durationSeconds: null }
       : null;
     try {
-      setResult(await sendIntroductionAction(leadId, veed));
+      setResult(mode === "followup" ? await sendFollowUpAction(leadId) : await sendIntroductionAction(leadId, veed));
     } catch {
       setResult({ outcome: "failed", reason: "Something went wrong reaching the send pipeline." });
     } finally {
@@ -53,7 +53,7 @@ export function SendIntroForm({ leadId, hasVideoRecommended }: { leadId: string;
         className="btn-primary inline-flex items-center gap-2 !px-5 !py-2.5 text-sm disabled:opacity-60"
       >
         {sending ? <Loader2 size={15} className="animate-spin" /> : done ? <CheckCircle2 size={15} /> : <Send size={15} />}
-        {sending ? "Sending…" : done ? "Sent" : "Approve & send the introduction"}
+        {sending ? "Sending…" : done ? "Sent" : `Approve & send the ${mode === "followup" ? "follow-up" : "introduction"}`}
       </button>
 
       {result && (

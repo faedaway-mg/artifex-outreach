@@ -7,7 +7,7 @@ const HREF: Partial<Record<NextActionKind, (leadId: string) => string>> = {
   "prepare-review": () => "#deliverable",
   "record-video": () => "#video",
   "send-intro": (id) => `/leads/${id}/send`,
-  "send-followup": () => "#outreach-kit",
+  "send-followup": (id) => `/leads/${id}/send`,
   call: () => "#outreach-kit",
   "schedule-discovery": () => "#outreach-kit",
   "prepare-discovery": (id) => `/leads/${id}/discovery`,
