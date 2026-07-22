@@ -96,3 +96,32 @@ export async function sendIntroductionAction(leadId: string, veed?: VeedVideo | 
 export async function sendFollowUpAction(leadId: string): Promise<IntroSendResult> {
   return sendNext(leadId, "followup");
 }
+
+// Fetch VEED title + thumbnail from a hosted VEED URL so the operator only ever
+// pastes one thing. VEED-domain-restricted (SSRF-safe). Never fabricates: on any
+// failure it returns nulls and the caller falls back gracefully.
+export async function fetchVeedMetadata(url: string): Promise<{ title: string | null; thumbnailUrl: string | null }> {
+  const empty = { title: null, thumbnailUrl: null };
+  try {
+    const u = new URL(url);
+    if (u.protocol !== "https:" || !/(^|\.)veed\.io$/i.test(u.hostname)) return empty;
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 8000);
+    const res = await fetch(u.toString(), { signal: ctrl.signal, headers: { "User-Agent": "Mozilla/5.0 (Artifex Labs)" }, redirect: "follow" });
+    clearTimeout(t);
+    if (!res.ok) return empty;
+    const html = (await res.text()).slice(0, 200_000);
+    const og = (prop: string) => {
+      const m =
+        html.match(new RegExp(`<meta[^>]+property=["']og:${prop}["'][^>]+content=["']([^"']+)["']`, "i")) ||
+        html.match(new RegExp(`<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:${prop}["']`, "i"));
+      return m ? m[1].trim() : null;
+    };
+    let title = og("title");
+    if (title) title = title.replace(/\s*[|\-–—]\s*VEED.*$/i, "").trim() || null;
+    const thumb = og("image");
+    return { title: title || null, thumbnailUrl: thumb && /^https:\/\//i.test(thumb) ? thumb : null };
+  } catch {
+    return empty;
+  }
+}

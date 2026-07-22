@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
 import { Send, Loader2, CheckCircle2, AlertTriangle, Clock, Video } from "lucide-react";
-import { sendIntroductionAction, sendFollowUpAction } from "@/lib/outreach/send-actions";
+import { sendIntroductionAction, sendFollowUpAction, fetchVeedMetadata } from "@/lib/outreach/send-actions";
 import type { IntroSendResult, VeedVideo } from "@/lib/outreach/types";
 
 /**
@@ -11,17 +11,30 @@ import type { IntroSendResult, VeedVideo } from "@/lib/outreach/types";
  */
 export function SendIntroForm({ leadId, mode = "intro", hasVideoRecommended }: { leadId: string; mode?: "intro" | "followup"; hasVideoRecommended: boolean }) {
   const [veedUrl, setVeedUrl] = useState("");
-  const [veedThumb, setVeedThumb] = useState("");
-  const [veedTitle, setVeedTitle] = useState("");
+  const [meta, setMeta] = useState<{ title: string | null; thumbnailUrl: string | null } | null>(null);
+  const [fetching, setFetching] = useState(false);
   const [sending, setSending] = useState(false);
   const [result, setResult] = useState<IntroSendResult | null>(null);
+
+  // The operator pastes ONE thing. We fetch the title + thumbnail automatically.
+  async function onVeedBlur() {
+    const url = veedUrl.trim();
+    if (!url) { setMeta(null); return; }
+    setFetching(true);
+    try {
+      setMeta(await fetchVeedMetadata(url));
+    } catch {
+      setMeta({ title: null, thumbnailUrl: null });
+    } finally {
+      setFetching(false);
+    }
+  }
 
   async function onSend() {
     if (sending || result?.outcome === "sent") return;
     setSending(true);
-    const veed: VeedVideo | null = veedUrl.trim()
-      ? { url: veedUrl.trim(), thumbnailUrl: veedThumb.trim() || null, title: veedTitle.trim() || null, durationSeconds: null }
-      : null;
+    const url = veedUrl.trim();
+    const veed: VeedVideo | null = url ? { url, thumbnailUrl: meta?.thumbnailUrl ?? null, title: meta?.title ?? null, durationSeconds: null } : null;
     try {
       setResult(mode === "followup" ? await sendFollowUpAction(leadId) : await sendIntroductionAction(leadId, veed));
     } catch {
@@ -37,13 +50,26 @@ export function SendIntroForm({ leadId, mode = "intro", hasVideoRecommended }: {
     <div className="space-y-4">
       {hasVideoRecommended && (
         <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3">
-          <p className="flex items-center gap-1.5 text-[12px] font-medium text-chalk-300"><Video size={13} className="text-azure-300" /> Attach the personal video (optional)</p>
-          <p className="mb-2 mt-0.5 text-[11px] text-chalk-600">Paste the hosted VEED link. A thumbnail is shown if you add one — we never fabricate one.</p>
-          <div className="grid gap-2 sm:grid-cols-3">
-            <input value={veedUrl} onChange={(e) => setVeedUrl(e.target.value)} placeholder="VEED URL" className="rounded-lg border border-white/10 bg-ink-950/40 px-2.5 py-1.5 text-xs text-chalk-200 placeholder:text-chalk-600" />
-            <input value={veedThumb} onChange={(e) => setVeedThumb(e.target.value)} placeholder="Thumbnail URL" className="rounded-lg border border-white/10 bg-ink-950/40 px-2.5 py-1.5 text-xs text-chalk-200 placeholder:text-chalk-600" />
-            <input value={veedTitle} onChange={(e) => setVeedTitle(e.target.value)} placeholder="Title (optional)" className="rounded-lg border border-white/10 bg-ink-950/40 px-2.5 py-1.5 text-xs text-chalk-200 placeholder:text-chalk-600" />
-          </div>
+          <p className="flex items-center gap-1.5 text-[12px] font-medium text-chalk-300"><Video size={13} className="text-azure-300" /> Personal video <span className="font-normal text-chalk-600">(optional)</span></p>
+          <p className="mb-2 mt-0.5 text-[11px] text-chalk-600">Paste your VEED link. That's it — the title and preview are pulled in automatically.</p>
+          <input
+            value={veedUrl}
+            onChange={(e) => setVeedUrl(e.target.value)}
+            onBlur={onVeedBlur}
+            placeholder="https://veed.io/…"
+            className="w-full rounded-lg border border-white/10 bg-ink-950/40 px-3 py-2 text-sm text-chalk-200 placeholder:text-chalk-600 focus:border-azure-400/40 focus:outline-none"
+          />
+          {fetching && <p className="mt-2 flex items-center gap-1.5 text-[11px] text-chalk-500"><Loader2 size={12} className="animate-spin" /> Fetching preview…</p>}
+          {!fetching && veedUrl.trim() && meta?.thumbnailUrl && (
+            <div className="mt-2 flex items-center gap-2.5">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={meta.thumbnailUrl} alt={meta.title ?? "Video preview"} className="h-12 w-20 rounded-md border border-white/10 object-cover" />
+              <span className="text-[12px] text-chalk-400">{meta.title ?? "Video attached"}</span>
+            </div>
+          )}
+          {!fetching && veedUrl.trim() && meta && !meta.thumbnailUrl && (
+            <p className="mt-2 text-[11px] text-chalk-500">Couldn't pull a preview — the email will show a clean text link instead. You can still send.</p>
+          )}
         </div>
       )}
 

@@ -58,6 +58,37 @@ export default async function SendPage({ params }: { params: { id: string } }) {
         </div>
       )}
 
+      {/* Why this email — helps Jordan judge in seconds whether it represents Artifex well */}
+      {(() => {
+        const words = email.paragraphs.join(" ").split(/\s+/).filter(Boolean).length;
+        const readSec = Math.max(15, Math.round(words / 3.3));
+        const obs = Math.min(2, profile.opportunities.length);
+        return (
+          <div className="card p-4">
+            <p className="eyebrow text-azure-300">Why this email</p>
+            <div className="mt-2 grid gap-x-8 gap-y-1.5 text-[13px] text-chalk-400 sm:grid-cols-2">
+              {mode === "intro" ? (
+                <>
+                  <span>· Acknowledges what's working before anything else</span>
+                  <span>· References {obs} specific thing{obs === 1 ? "" : "s"} I noticed — no assumptions</span>
+                  <span>· Says plainly it might be wrong</span>
+                  <span>· Invites a conversation, with zero pressure</span>
+                </>
+              ) : (
+                <>
+                  <span>· A brief, respectful check-in — nothing more</span>
+                  <span>· Acknowledges they're busy; no guilt, no pressure</span>
+                  <span>· Makes clear it's the last nudge</span>
+                  <span>· Warm close, no ask beyond a reply</span>
+                </>
+              )}
+              <span>· Reading time: ~{readSec}s</span>
+              <span>· Confidence: {kit.confidence.overall}/100</span>
+            </div>
+          </div>
+        );
+      })()}
+
       <div className="grid gap-5 lg:grid-cols-[1.4fr_1fr]">
         {/* Rendered email */}
         <div className="card p-4">
