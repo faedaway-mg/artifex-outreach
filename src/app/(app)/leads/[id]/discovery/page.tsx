@@ -24,8 +24,11 @@ import {
   meetingsForLead,
   findingsForLead,
   getSettings,
+  contactsForLead,
 } from "@/lib/repo";
 import { LeadHeader } from "@/components/lead/LeadHeader";
+import { MissionBriefCard } from "@/components/lead/MissionBriefCard";
+import { buildMissionBrief } from "@/lib/outreach/mission-brief";
 import { updateMeetingNotesAction } from "@/lib/actions";
 
 export const dynamic = "force-dynamic";
@@ -67,8 +70,7 @@ export default async function DiscoveryWorkspacePage({
 
   if (!lead) notFound();
 
-  // Kept available for parity with sibling pages; not surfaced directly here.
-  await Promise.all([findingsForLead(id), getSettings()]);
+  const [, settings, contacts] = await Promise.all([findingsForLead(id), getSettings(), contactsForLead(id)]);
 
   // ── No intelligence yet ────────────────────────────────────────────────────
   if (!bi) {
@@ -98,6 +100,7 @@ export default async function DiscoveryWorkspacePage({
 
   const p = bi.profile;
   const meeting = meetings[0];
+  const missionBrief = buildMissionBrief({ lead, profile: p.businessProfile, settings, contacts, meetingAt: meeting?.scheduledAt ?? null });
 
   const topOpportunities =
     p.briefing.strongestOpportunities.length > 0
@@ -148,6 +151,9 @@ export default async function DiscoveryWorkspacePage({
   return (
     <div className="space-y-6">
       <LeadHeader lead={lead} />
+
+      {/* Mission brief — the one thing to read before the conversation */}
+      <MissionBriefCard brief={missionBrief} businessName={lead.businessName} />
 
       <div className="grid gap-6 lg:grid-cols-3">
         {/* ── Main column ─────────────────────────────────────────────────── */}

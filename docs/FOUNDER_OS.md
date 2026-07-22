@@ -86,6 +86,31 @@ operator edits — the Business Technology Review already proves this pipeline.
 
 ---
 
+## Phase III — Discovery Workspace + Mission Brief (built this phase)
+
+- **Discovery Mission Brief** — `src/lib/outreach/mission-brief.ts` → `buildMissionBrief`.
+  A deterministic, voice-clean one-pager: executive summary, meeting goal (never
+  "sell"), a natural recommended opening, five discovery questions that build,
+  assumptions-to-avoid (what we DON'T know, deduped + cleaned of analyst language),
+  likely priorities with confidence (only where observations support them), and a
+  "if we leave today knowing ___, then this was a success" criterion. Rendered by
+  `MissionBriefCard` at the top of the Discovery Workspace — quiet, one-page,
+  printable. Tested (answers the seven questions, names what it doesn't know,
+  confidence-bounded priorities, passes the voice engine).
+
+- **Discovery Workspace** — `/leads/[id]/discovery` now leads with the Mission
+  Brief, above the existing company summary, opportunities, maturity, growth, root
+  constraints, evolution preview, discovery questions, hypotheses-to-validate, and
+  notes. The `prepare-discovery` Next Best Action already routes here once a
+  meeting is booked, so it becomes the primary surface after a booking.
+
+**Still to build (architected above, unchanged):** the live Meeting Workspace
+(lightweight notes/decisions/actions/parking-lot — extend `ConversationMode`),
+Relationship Memory (the structured knowledge model in §8/§9 that discovery
+updates rather than isolated notes), the auto-drafted Proposal (§10), and the
+Conversation-Capture provider interface (§8) for Fathom/Fireflies/Teams/Zoom/Meet
+that feeds Relationship Memory rather than dumping raw transcripts.
+
 ## The end-to-end spine
 Lead → Review → Email (voice + quality gated) → Reply/stop → Booking → Discovery
 (workspace + prep brief) → Conversation (capture) → Proposal (from captured
