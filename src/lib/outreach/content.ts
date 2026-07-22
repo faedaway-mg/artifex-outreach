@@ -10,7 +10,7 @@ import type { BusinessProfile } from "../business-intelligence/types";
 import type { OutreachEmail, VideoScript, DecisionMakerIntelligence } from "./types";
 import { complianceFooter } from "../communication-guide";
 import { openingConversation } from "../conversation-engine";
-import { audienceNoun, tradeNoun, addressName, leadStrength, topOpportunities, noticed, uniqueNoticed, naturalList, pick, estimateSpeakingSeconds } from "./voice";
+import { audienceNoun, tradeNoun, addressName, humanStrength, topOpportunities, noticed, trimNoticed, uniqueNoticed, naturalList, pick, estimateSpeakingSeconds } from "./voice";
 
 function singular(noun: string): string {
   return noun.endsWith("s") ? noun.slice(0, -1) : noun;
@@ -46,44 +46,29 @@ export function buildOutreachEmail(lead: Lead, profile: BusinessProfile, dm: Dec
   const audience = audienceNoun(lead.industry);
   const subjects = buildSubjectLines(lead, profile);
 
-  const strength = leadStrength(profile);
-  const phrases = uniqueNoticed(topOpportunities(profile, 3).map((o) => noticed(o, audience))).slice(0, 2);
+  const one = singular(audience);
+  const strength = humanStrength(lead.rating, lead.reviewCount, profile.strengths.length > 0, lead.businessName);
+  const phrases = uniqueNoticed(topOpportunities(profile, 3).map((o) => trimNoticed(noticed(o, audience)))).slice(0, 2);
 
   const openers = [
-    `I spent about ten minutes experiencing your ${trade} the same way one of your ${audience} would — starting from a phone, the way most people do now.`,
-    `I spent a little time going through ${lead.businessName} the way a new ${singular(audience)} would, before ever picking up the phone.`,
+    `I spent a little time looking at ${lead.businessName} the way a new ${one} would, and a couple of small things stood out.`,
+    `I went through ${lead.businessName} the way a new ${one} might — before ever calling — and a few small things caught my eye.`,
   ];
   const opener = pick(openers, lead.businessName, 7);
 
   const paras: string[] = [];
   paras.push(greeting(lead, dm));
-  paras.push(`I'm Jordan with Artifex Labs. ${opener}`);
+  paras.push(`I'm Jordan — I run Artifex Labs. ${opener}`);
 
-  if (strength) {
-    paras.push(`First, the obvious: ${strength.charAt(0).toLowerCase() + strength.slice(1)}. That is not a small thing, and it is clearly earned.`);
-  }
-
-  if (phrases.length >= 2) {
-    paras.push(
-      `A couple of moments stood out where things get a little harder than they probably need to be — ${naturalList(phrases)}. Small things, but they sit right in the path a new ${singular(audience)} takes.`,
-    );
-  } else if (phrases.length === 1) {
-    paras.push(
-      `One moment stood out where things get a little harder than they probably need to be — ${phrases[0]}. A small thing, but it sits right in the path a new ${singular(audience)} takes.`,
-    );
+  const lead2 = strength ? `${strength} — so this isn't a "you have a problem" note. ` : "";
+  if (phrases.length >= 1) {
+    paras.push(`${lead2}A few moments just felt harder than they probably need to be: ${naturalList(phrases)}. Little things, but they sit right where a new ${one} is deciding whether to reach out.`);
   } else {
-    paras.push(
-      `A couple of small moments stood out in how a new ${singular(audience)} first reaches you — the kind of thing that is easy to miss from the inside.`,
-    );
+    paras.push(`${lead2}A couple of small things in how a new ${one} first reaches you felt harder than they probably need to be — easy to miss from the inside.`);
   }
 
-  paras.push(
-    `I am not writing because I think you need a new website, or software, or anything in particular. Honestly, I might be wrong — public information only shows part of the picture. I am mostly curious whether what I noticed matches your experience.`,
-  );
-  const invite = settings.calendarLink
-    ? ` If you'd like to talk it through, you're welcome to grab whatever time works best for you: ${settings.calendarLink}.`
-    : "";
-  paras.push(`If it is useful, would a short, low-pressure conversation be worth fifteen minutes?${invite} And if not, no hard feelings at all.`);
+  paras.push(`I could be wrong — I'm only seeing part of the picture from outside. I mostly wanted to check whether it lines up with what you're seeing day to day.`);
+  paras.push(`If it's useful, I'd genuinely enjoy a short conversation — no pressure either way.`);
 
   const paragraphs = [...paras];
   const body = [...paragraphs, complianceFooter(settings)].join("\n\n");
@@ -103,12 +88,11 @@ export function buildFollowUpEmail(lead: Lead, profile: BusinessProfile, dm: Dec
     `One quick note for ${lead.businessName}`,
     `No pressure — ${lead.businessName}`,
   ];
-  const invite = settings.calendarLink ? ` If they are, you can grab a time whenever suits you: ${settings.calendarLink}.` : "";
   const paragraphs = [
     greeting(lead, dm),
-    `I know how these weeks go — a note like mine is easy to miss. I just wanted to make sure it didn't get buried.`,
-    `No pressure at all. If the couple of things I noticed aren't worth a conversation right now, I completely understand — I'll leave it there and won't send another.${invite}`,
-    `Either way, thanks for the time you put into ${lead.businessName}.`,
+    `I sent a short note last week and wanted to make sure it didn't get buried — I know how full a week gets.`,
+    `No pressure at all. If it's not the right time, I completely understand and won't keep knocking.`,
+    `Either way, I appreciate what you're building at ${lead.businessName}.`,
   ];
   const body = [...paragraphs, complianceFooter(settings)].join("\n\n");
   return {
@@ -127,7 +111,7 @@ export function buildVideoScript(lead: Lead, profile: BusinessProfile): VideoScr
   const one = singular(audience);
   const convo = openingConversation(profile.conversationInput, profile.presence);
 
-  const opening = `Hi — I'm Jordan with Artifex Labs. I spent about ten minutes going through ${lead.businessName} the way a brand-new ${one} would, and I recorded a few of the things I noticed.`;
+  const opening = `Hi — my name's Jordan, I run Artifex Labs. I spent a little time going through ${lead.businessName} the way a brand-new ${one} would, and recorded a few of the things that stood out.`;
 
   // Three distinct observations: real ones first, padded with grounded fallbacks.
   const real = uniqueNoticed(topOpportunities(profile, 5).map((o) => noticed(o, audience)));

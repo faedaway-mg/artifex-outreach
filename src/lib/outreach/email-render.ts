@@ -33,14 +33,18 @@ function logoMark(logoUrl?: string | null): string {
   return `<div style="width:36px;height:36px;border-radius:9px;background:${ACCENT};color:#ffffff;font-weight:700;font-size:16px;line-height:36px;text-align:center;font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;">A</div>`;
 }
 
-function signatureHtml(logoUrl?: string | null): string {
+function signatureHtml(logoUrl?: string | null, bookingUrl?: string | null): string {
+  const booking = bookingUrl
+    ? `<div style="margin-top:5px;font-size:13px;line-height:1.5;"><a href="${escapeHtml(bookingUrl)}" style="color:${ACCENT};text-decoration:none;">Book a conversation</a></div>`
+    : "";
   return `
-  <table role="presentation" cellpadding="0" cellspacing="0" style="margin-top:26px;">
+  <table role="presentation" cellpadding="0" cellspacing="0" style="margin-top:28px;">
     <tr>
-      <td valign="top" style="width:44px;">${logoMark(logoUrl)}</td>
-      <td valign="top" style="padding-left:12px;">
-        <div style="font-weight:600;color:${INK};font-size:15px;">Jordan Jackson</div>
-        <div style="color:${MUTE};font-size:13px;">Artifex Labs</div>
+      <td valign="top" style="width:46px;">${logoMark(logoUrl)}</td>
+      <td valign="top" style="padding-left:13px;">
+        <div style="font-weight:600;color:${INK};font-size:15px;line-height:1.4;">Jordan Jackson</div>
+        <div style="color:${MUTE};font-size:13px;line-height:1.5;">Founder, Artifex Labs</div>
+        ${booking}
       </td>
     </tr>
   </table>`;
@@ -84,15 +88,15 @@ export function renderEmailHtml(input: RenderInput): string {
   const addr = settings.businessAddress ? escapeHtml(settings.businessAddress) : "";
 
   return `<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light"><title>${escapeHtml(email.subject)}</title></head>
-<body style="margin:0;padding:0;background:#ffffff;">
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light"><meta name="supported-color-schemes" content="light"><title>${escapeHtml(email.subject)}</title></head>
+<body style="margin:0;padding:0;background:#ffffff;color-scheme:light;">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#ffffff;">
     <tr><td align="center" style="padding:24px 12px;">
       <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;color:${INK};font-size:15px;line-height:1.62;">
         <tr><td style="padding:8px 32px 0;">
           ${paras}
           ${videoHtml}
-          ${signatureHtml(logoUrl)}
+          ${signatureHtml(logoUrl, settings.calendarLink)}
         </td></tr>
         <tr><td style="padding:22px 32px 28px;">
           <div style="border-top:1px solid #eef0f2;padding-top:14px;color:${MUTE};font-size:12px;line-height:1.5;">
@@ -113,7 +117,8 @@ export function renderEmailText(input: RenderInput): string {
     const dur = veed.durationSeconds ? `${veed.durationSeconds}-second ` : "";
     parts.push(`Watch the ${dur}video${veed.title ? ` (${veed.title})` : ""}: ${veed.url}`);
   }
-  parts.push(`Jordan Jackson\nArtifex Labs`);
+  const sig = `Jordan Jackson\nFounder, Artifex Labs${settings.calendarLink ? `\nBook a conversation: ${settings.calendarLink}` : ""}`;
+  parts.push(sig);
   const footer = `${settings.businessAddress ?? ""}\nNot useful? ${unsubscribeUrl ?? "{{unsubscribe}}"} and I won't follow up.`.trim();
   parts.push(footer);
   return parts.join("\n\n");

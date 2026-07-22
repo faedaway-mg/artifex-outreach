@@ -72,6 +72,23 @@ export function leadStrength(profile: BusinessProfile): string | null {
   return s ? s.replace(/\.$/, "") : null;
 }
 
+// A warm, human acknowledgement of what's working — never a statistics dump.
+// "4.8★ across 921 reviews" becomes "You've clearly built something people trust."
+export function humanStrength(rating: number | null | undefined, reviewCount: number | null | undefined, hasStrength: boolean, seed: string): string | null {
+  const r = rating ?? 0;
+  const n = reviewCount ?? 0;
+  const strong = [
+    "You've clearly built something people trust",
+    "It's obvious a lot of people have had a good experience with you",
+    "You've earned real trust — that's the hard part",
+  ];
+  const solid = ["You've built a good reputation", "People clearly think well of you"];
+  if (r >= 4.5 && n >= 40) return pick(strong, seed, 3);
+  if (r >= 4 || (hasStrength && n >= 10)) return pick(solid, seed, 4);
+  if (hasStrength) return "There's clearly something here worth building on";
+  return null;
+}
+
 // The top opportunities, phrased as things we *noticed*, never as prescriptions.
 export function topOpportunities(profile: BusinessProfile, n: number): ModernizationOpportunity[] {
   return profile.opportunities.slice(0, n);
@@ -115,6 +132,15 @@ export function noticed(o: ModernizationOpportunity, audience: string): string {
   }
   const body = /[A-Z]/.test(c.charAt(1)) ? c : c.charAt(0).toLowerCase() + c.slice(1);
   return body;
+}
+
+// Tighten a noticed phrase for email/video: drop a generic "this is a…" lead-in
+// and keep the concrete, customer-facing clause. Keeps the writing crisp.
+export function trimNoticed(p: string): string {
+  const parts = p.split(/\s+—\s+/);
+  let s = parts.length > 1 && /^(this is an?|it'?s an?)\b/i.test(parts[0].trim()) ? parts.slice(1).join(" — ") : parts[0];
+  s = s.replace(/^(this is an?|it'?s an?)\s+/i, "").trim();
+  return s;
 }
 
 // Dedupe observation phrasings while preserving order.

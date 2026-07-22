@@ -62,12 +62,14 @@ describe("outreach v2 — kit", () => {
   it("email is human, curious, and free of banned/agency language", () => {
     expect(containsBanned(kit.email.body)).toEqual([]);
     expect(kit.email.body).not.toContain("!");
-    // curiosity, not selling
-    expect(kit.email.body.toLowerCase()).toMatch(/curious|might be wrong/);
-    // grounded — it actually looked at the business
-    expect(kit.email.body).toContain("ten minutes");
-    expect(kit.email.body.toLowerCase()).toContain("i am not writing because i think you need a new website");
-    expect(kit.email.wordCount).toBeGreaterThan(60);
+    // founder voice — a real person, not "I'm Jordan with Artifex Labs"
+    expect(kit.email.body).toContain("I run Artifex Labs");
+    expect(kit.email.body).not.toContain("I'm Jordan with Artifex Labs");
+    // curiosity + humility, not selling
+    expect(kit.email.body.toLowerCase()).toMatch(/could be wrong|wanted to check/);
+    // no statistics dump (natural strength language, not "4.8★ across 921 reviews")
+    expect(kit.email.body).not.toMatch(/\d★|\d+\s*reviews/);
+    expect(kit.email.wordCount).toBeGreaterThan(50);
   });
 
   it("subject lines are conversational, specific, and not clickbait", () => {

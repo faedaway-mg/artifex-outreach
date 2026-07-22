@@ -55,7 +55,7 @@ export function buildPhoneGuide(lead: Lead, profile: BusinessProfile, dm: Decisi
         steps: [
           {
             label: "Open — who you are and what you actually did",
-            say: `${dmName ? `Hi ${dmName} — ` : "Hi — "}I'm Jordan with Artifex Labs. I spent about ten minutes experiencing your ${trade} the same way a brand-new ${one} would.`,
+            say: `${dmName ? `Hi ${dmName} — ` : "Hi — "}my name's Jordan, I run Artifex Labs. I spent a little time looking at your ${trade} the way a brand-new ${one} would.`,
             branches: [],
           },
           {
