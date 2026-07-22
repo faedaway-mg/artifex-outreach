@@ -43,6 +43,11 @@ import { EvolutionTimeline } from "@/components/lead/EvolutionTimeline";
 import { LeadSubNav } from "@/components/lead/LeadSubNav";
 import { JourneyBadge } from "@/components/JourneyBadge";
 import { journeyPhaseOf } from "@/lib/journey";
+import { buildOutreachKit } from "@/lib/outreach/kit";
+import { deriveOutreachState } from "@/lib/outreach/state";
+import type { OutreachKit } from "@/lib/outreach/types";
+import { NextBestActionCard } from "@/components/lead/NextBestActionCard";
+import { OutreachKitPanel } from "@/components/lead/OutreachKitPanel";
 import { formatRange, joinMeta, formatLocation, deslug } from "@/lib/utils";
 import { ArrowLeft, Globe, Phone, Mail, MapPin, Star, ExternalLink, Compass } from "lucide-react";
 
@@ -77,11 +82,39 @@ export default async function LeadPage({ params }: { params: { id: string } }) {
   const businessIntelligence = await getBusinessIntelligence(lead.id);
   const timeline = collectTimeline({ lead, findings, deliverables, videos, shares: previewShares, meetings, proposals, plans: acquisitionPlans, outreach, inbound });
 
+  // Outreach Experience v2 — the momentum kit. Defensive: never break the page.
+  let outreachKit: OutreachKit | null = null;
+  try {
+    const intel = businessIntelligence?.profile ?? null;
+    const profile = intel?.businessProfile ?? null;
+    const improvement = intel?.improvement ?? null;
+    if (profile) {
+      const draft = buildOutreachKit({ lead, profile, settings, contacts, improvement });
+      const state = deriveOutreachState({
+        now: new Date().toISOString(),
+        lead,
+        deliverables,
+        videos,
+        outreach,
+        meetings,
+        inbound,
+        videoRecommended: draft.videoRecommended,
+        confidenceHigh: draft.confidence.overall >= 70,
+      });
+      outreachKit = buildOutreachKit({ lead, profile, settings, contacts, improvement, outreachState: state });
+    }
+  } catch {
+    outreachKit = null;
+  }
+
   return (
     <div className="space-y-6">
       <Link href="/" className="inline-flex items-center gap-1.5 text-sm text-chalk-400 hover:text-chalk-100">
         <ArrowLeft size={15} /> Back to Today
       </Link>
+
+      {/* Next best action — the one thing to do now */}
+      {outreachKit && <NextBestActionCard action={outreachKit.nextAction} leadId={lead.id} />}
 
       {/* Header */}
       <div className="card p-5">
@@ -225,6 +258,9 @@ export default async function LeadPage({ params }: { params: { id: string } }) {
           <div id="video">
             <VideoPanel lead={lead} videos={videos} screenshots={screenshots} />
           </div>
+
+          {/* Outreach kit (v2) — email, follow-up, video, phone guide, discovery, confidence */}
+          {outreachKit && <OutreachKitPanel kit={outreachKit} />}
 
           {/* Outreach */}
           <div id="outreach">
