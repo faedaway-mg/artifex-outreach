@@ -84,13 +84,14 @@ export function buildOutreachEmail(lead: Lead, profile: BusinessProfile, dm: Dec
     ? ` If you'd like to talk it through, you're welcome to grab whatever time works best for you: ${settings.calendarLink}.`
     : "";
   paras.push(`If it is useful, would a short, low-pressure conversation be worth fifteen minutes?${invite} And if not, no hard feelings at all.`);
-  paras.push(complianceFooter(settings));
 
-  const body = paras.join("\n\n");
+  const paragraphs = [...paras];
+  const body = [...paragraphs, complianceFooter(settings)].join("\n\n");
   return {
     subject: subjects[0],
     subjectAlternatives: subjects.slice(1),
     body,
+    paragraphs,
     wordCount: body.split(/\s+/).filter(Boolean).length,
   };
 }
@@ -103,18 +104,18 @@ export function buildFollowUpEmail(lead: Lead, profile: BusinessProfile, dm: Dec
     `No pressure — ${lead.businessName}`,
   ];
   const invite = settings.calendarLink ? ` If they are, you can grab a time whenever suits you: ${settings.calendarLink}.` : "";
-  const paras = [
+  const paragraphs = [
     greeting(lead, dm),
     `I know how these weeks go — a note like mine is easy to miss. I just wanted to make sure it didn't get buried.`,
     `No pressure at all. If the couple of things I noticed aren't worth a conversation right now, I completely understand — I'll leave it there and won't send another.${invite}`,
     `Either way, thanks for the time you put into ${lead.businessName}.`,
-    complianceFooter(settings),
   ];
-  const body = paras.join("\n\n");
+  const body = [...paragraphs, complianceFooter(settings)].join("\n\n");
   return {
     subject: subjects[0],
     subjectAlternatives: subjects.slice(1),
     body,
+    paragraphs,
     wordCount: body.split(/\s+/).filter(Boolean).length,
   };
 }

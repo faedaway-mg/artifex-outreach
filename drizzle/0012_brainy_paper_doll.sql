@@ -1,0 +1,1 @@
+ALTER TABLE "acquisition_steps" ADD COLUMN "html" text;

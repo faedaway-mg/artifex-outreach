@@ -77,7 +77,7 @@ export async function prepareAcquisitionPlanAction(leadId: string): Promise<void
   });
   if (policy.automated) {
     for (const s of buildSequence(strategy, lead, settings, observation)) {
-      await insertStep({ planId: plan.id, stepNumber: s.stepNumber, channel: s.channel, delayDays: s.delayDays, subject: s.subject, content: s.content, approvalRequired: s.approvalRequired, approvalStatus: "pending", scheduledAt: null, sentAt: null, providerMessageId: null, deliveryStatus: null, stoppedAt: null, stopReason: null });
+      await insertStep({ planId: plan.id, stepNumber: s.stepNumber, channel: s.channel, delayDays: s.delayDays, subject: s.subject, content: s.content, html: null, approvalRequired: s.approvalRequired, approvalStatus: "pending", scheduledAt: null, sentAt: null, providerMessageId: null, deliveryStatus: null, stoppedAt: null, stopReason: null });
     }
   }
   await audit("acq.prepare_plan", plan.id, { leadId, strategy, steps: policy.maxTouches, estimatedCost: policy.estimatedCost });

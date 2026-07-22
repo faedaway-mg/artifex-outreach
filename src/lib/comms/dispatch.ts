@@ -129,8 +129,11 @@ export async function dispatchStep(stepId: string, opts: { now?: Date } = {}): P
   }
 
   const text = renderBody(step.content, { replyEmail: settings.contactEmail, unsubscribeUrl: unsubscribeUrlFor(lead.id) });
+  // Optional pre-rendered HTML (e.g. the v2 premium template). The {{unsubscribe}}
+  // token is replaced here so the ledger/idempotency path is unchanged.
+  const html = step.html ? step.html.split("{{unsubscribe}}").join(unsubscribeUrlFor(lead.id) ?? "") : undefined;
   const headers = listUnsubscribeHeaders(lead.id, settings.contactEmail);
-  const msg: EmailMessage = { to: lead.publicEmail!, from, replyTo: settings.contactEmail, subject: step.subject, text, headers, idempotencyKey: key };
+  const msg: EmailMessage = { to: lead.publicEmail!, from, replyTo: settings.contactEmail, subject: step.subject, text, ...(html ? { html } : {}), headers, idempotencyKey: key };
   const res = await provider.send(msg);
 
   if (res.sent) {

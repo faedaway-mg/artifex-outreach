@@ -6,7 +6,7 @@ import type { NextAction, NextActionKind } from "@/lib/outreach/types";
 const HREF: Partial<Record<NextActionKind, (leadId: string) => string>> = {
   "prepare-review": () => "#deliverable",
   "record-video": () => "#video",
-  "send-intro": () => "#outreach-kit",
+  "send-intro": (id) => `/leads/${id}/send`,
   "send-followup": () => "#outreach-kit",
   call: () => "#outreach-kit",
   "schedule-discovery": () => "#outreach-kit",

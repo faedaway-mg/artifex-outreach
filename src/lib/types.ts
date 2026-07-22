@@ -718,6 +718,8 @@ export interface AcquisitionStep {
   delayDays: number;
   subject: string;
   content: string;
+  /** Optional pre-rendered HTML body (e.g. the v2 premium template). */
+  html?: string | null;
   approvalRequired: boolean;
   approvalStatus: PlanApproval;
   scheduledAt: string | null;

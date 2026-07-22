@@ -59,6 +59,7 @@ function body(msg: EmailMessage) {
     to: [msg.to],
     subject: msg.subject,
     text: msg.text,
+    ...(msg.html ? { html: msg.html } : {}),
     ...(msg.replyTo ? { reply_to: msg.replyTo } : {}),
     ...(msg.headers ? { headers: msg.headers } : {}),
   };

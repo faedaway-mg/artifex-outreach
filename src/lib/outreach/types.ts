@@ -57,8 +57,28 @@ export interface OutreachEmail {
   subject: string;
   /** 2–4 alternative subject lines, most natural first. */
   subjectAlternatives: string[];
+  /** The full plaintext body (content + signature + unsubscribe). */
   body: string;
+  /** Content paragraphs only (no footer) — for clean HTML + text rendering. */
+  paragraphs: string[];
   wordCount: number;
+}
+
+// ── Real send result (from the existing dispatch pipeline) ───────────────────
+export type IntroSendOutcome = "sent" | "queued" | "blocked" | "failed";
+export interface IntroSendResult {
+  outcome: IntroSendOutcome;
+  reason?: string;
+  providerMessageId?: string | null;
+  stepId?: string;
+}
+
+// ── A personalized VEED video the operator attaches (never fabricated) ───────
+export interface VeedVideo {
+  url: string;
+  thumbnailUrl: string | null;
+  title: string | null;
+  durationSeconds: number | null;
 }
 
 // ── Personalized video (a script for Jordan to record — never AI-generated) ──

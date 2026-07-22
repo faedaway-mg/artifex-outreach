@@ -15,6 +15,8 @@ export interface EmailMessage {
   replyTo?: string;
   subject: string;
   text: string;
+  /** Optional HTML body. When present, sent alongside the plaintext part. */
+  html?: string;
   headers?: Record<string, string>;
   idempotencyKey: string; // dedupes retries — a step never sends twice
 }

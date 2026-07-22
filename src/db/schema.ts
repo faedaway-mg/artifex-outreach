@@ -405,6 +405,7 @@ export const acquisitionSteps = pgTable(
     delayDays: integer("delay_days").notNull().default(0),
     subject: text("subject").notNull().default(""),
     content: text("content").notNull().default(""),
+    html: text("html"),
     approvalRequired: boolean("approval_required").notNull().default(true),
     approvalStatus: text("approval_status").notNull().default("draft"),
     scheduledAt: ts("scheduled_at"),
