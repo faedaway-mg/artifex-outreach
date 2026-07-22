@@ -185,6 +185,52 @@ knowledge-base UI (`RelationshipMemory`) on `/leads/[id]/relationship`.
 cite verified memory items), and the capture-provider interface. These write into
 Meeting Notes → Review Queue → Relationship Memory, never directly into memory.
 
+## Phase VI — Live Meeting Workspace + memory detection (built this phase)
+
+Relationship Memory (Phase V) is the foundation and is untouched. This phase makes
+it come alive *during* the conversation.
+
+- **Memory detection engine** — `src/lib/memory-detect.ts`. A small, honest
+  extraction layer (NOT keyword matching): structured sentence patterns per concept
+  — named tools after "we use/run/switched to" → Existing Systems; "the owner is X"
+  / "X runs it" → Decision Makers; "we're trying to hire/grow/open…" → Business
+  Goals; "we never … after 2pm" → Known Constraints; "we don't like subscriptions"
+  → Business Philosophy; phone-first → Communication Style; dates/priorities too.
+  **Every detection preserves the exact original quote** as evidence, dedupes by
+  fact keeping the highest confidence, and returns the operator's natural concepts
+  (People/Goals/Systems/Constraints/Preferences/Decisions/History/Questions).
+  `missingConcepts()` powers the adaptive assistant. Deterministic, runs in the
+  browser. Tested (12 cases incl. all five Phase VI examples + no-hallucination).
+
+- **Live Meeting Workspace** — `/leads/[id]/meeting` + `LiveMeetingWorkspace`
+  (client). A distraction-free notes surface (autofocus, browser auto-save so a
+  refresh mid-call loses nothing) with a running meeting clock. As the operator
+  types, detection surfaces candidate memories with **Approve / Edit / Dismiss** —
+  edit the title/value/category/confidence before committing. A "Still worth
+  learning" panel gently names concepts that haven't come up (never a script). An
+  in-session conversation timeline records what was committed and when. The meeting
+  objective (from the Phase IV consulting read) sits quietly in the corner.
+
+- **Approve → memory** — `saveDetectedMemoryAction` reuses the Phase V persistence:
+  an approved detection lands as **Proposed** (never auto-verified), source
+  "Discovery Meeting", the original quote stored as `supportingContext`. Knowledge
+  is still earned; the operator verifies it later on the Relationship tab. Wired
+  from a new "Meeting" sub-nav tab and a "Start the live meeting" link on Discovery.
+
+**Clearly still architected (NOT built this phase):**
+- *Persistent conversation timeline* — the in-meeting timeline is session-only
+  (in-memory). Persisting `memory_events` (Added/Verified/Updated/Resolved) and
+  folding them into `collectTimeline` is the next storage step (model exists).
+- *Memory-drives-everything* — verified memory does not yet bias downstream copy
+  (e.g. "uses Square → never propose replacing without evidence"). The read path is
+  in place; the generators don't consume memory yet.
+- *Opportunity lifecycle persistence* (Observed→Validated→Accepted→Implemented→
+  Measured) still needs a stage store.
+- *Proposal intelligence* — `buildProposalDraft` citing verified memories remains
+  architected; the memory model is its foundation.
+- *Capture-provider interface* (Fathom/Fireflies/Teams) unchanged from Phase V —
+  notes are typed by the operator; no transcript ingestion is fabricated.
+
 ## The end-to-end spine
 Lead → Review → Email (voice + quality gated) → Reply/stop → Booking → Discovery
 (workspace + prep brief) → Conversation (capture) → Proposal (from captured

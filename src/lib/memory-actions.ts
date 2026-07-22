@@ -44,6 +44,31 @@ export async function addMemoryAction(leadId: string, formData: FormData): Promi
   touch(leadId);
 }
 
+/** Approve a memory the detection layer surfaced during a live meeting.
+ * The operator has read it (and possibly edited it) — but nothing is auto-verified:
+ * it lands as "Proposed", carrying the exact words that produced it as provenance. */
+export async function saveDetectedMemoryAction(
+  leadId: string,
+  input: { category: string; title: string; value: string; confidence: string; quote: string },
+): Promise<void> {
+  const title = input.title.trim();
+  const value = input.value.trim();
+  if (!title || !value) return;
+  const item = await insertMemoryItem({
+    leadId,
+    category: asCategory(input.category),
+    title,
+    value,
+    status: "Proposed", // earned — the operator verifies later, never automatic
+    confidence: asConfidence(input.confidence),
+    source: "Discovery Meeting",
+    supportingContext: input.quote.trim() || null,
+    operatorNotes: null,
+  });
+  await appendAudit({ action: "memory.detect", actor: "jordan", targetType: "memory", targetId: item.id, meta: { category: item.category, source: "Discovery Meeting", status: "Proposed" }, ip: null });
+  touch(leadId);
+}
+
 /** Verify / supersede / resolve — the operator earns the status change. */
 export async function setMemoryStatusAction(id: string, leadId: string, statusRaw: string): Promise<void> {
   const status = asStatus(statusRaw);

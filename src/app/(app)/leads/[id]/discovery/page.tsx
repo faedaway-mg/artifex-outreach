@@ -17,6 +17,7 @@ import {
   Sparkles,
   TrendingUp,
   Circle,
+  Radio,
 } from "lucide-react";
 import {
   getLead,
@@ -317,9 +318,14 @@ export default async function DiscoveryWorkspacePage({
 
           {/* 10. Operator notes */}
           <div className="card p-5">
-            <SectionHeading icon={<CalendarClock size={16} />}>
-              Operator notes
-            </SectionHeading>
+            <div className="flex items-center justify-between gap-2">
+              <SectionHeading icon={<CalendarClock size={16} />}>
+                Operator notes
+              </SectionHeading>
+              <Link href={`/leads/${id}/meeting`} className="inline-flex items-center gap-1 text-xs text-teal-300 hover:text-chalk-100">
+                <Radio size={13} /> Start the live meeting →
+              </Link>
+            </div>
             {meeting ? (
               <form
                 action={updateMeetingNotesAction.bind(null, meeting.id, lead.id)}
