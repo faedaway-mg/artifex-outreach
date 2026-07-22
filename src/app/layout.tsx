@@ -6,8 +6,10 @@ const inter = Inter({ subsets: ["latin"], variable: "--font-sans", display: "swa
 const mono = JetBrains_Mono({ subsets: ["latin"], variable: "--font-mono", display: "swap" });
 
 export const metadata: Metadata = {
-  title: "Artifex Outreach",
-  description: "Daily client-acquisition system for Artifex Labs.",
+  title: "Artifex Labs",
+  description: "A relationship operating system for thoughtful business conversations.",
+  // Internal operator tool — keep it out of search indexes.
+  robots: { index: false, follow: false },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

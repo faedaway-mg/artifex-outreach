@@ -70,7 +70,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
             A
           </span>
           <span className="leading-tight">
-            <span className="block text-sm font-semibold text-chalk-50">Artifex Outreach</span>
+            <span className="block text-sm font-semibold text-chalk-50">Artifex Labs</span>
             <span className="flex items-center gap-1.5 text-[10.5px] text-chalk-500">
               <span className="h-1.5 w-1.5 rounded-full bg-teal-400 shadow-[0_0_8px_rgba(66,201,166,0.7)]" />
               Business technology partner
