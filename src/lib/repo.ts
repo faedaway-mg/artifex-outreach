@@ -47,6 +47,7 @@ import type {
   StoredBusinessIntelligence,
   RelationshipMemoryItem,
   RoadmapProgressItem,
+  OutcomeReviewItem,
 } from "./types";
 
 // ── Generic collection helper ────────────────────────────────────────────────
@@ -98,6 +99,7 @@ const Deliverables = collection<Deliverable>(t.deliverables, () => mem().deliver
 const BusinessIntel = collection<StoredBusinessIntelligence>(t.businessIntelligence, () => mem().businessIntelligence);
 const RelationshipMemory = collection<RelationshipMemoryItem>(t.relationshipMemory, () => mem().relationshipMemory);
 const RoadmapProgress = collection<RoadmapProgressItem>(t.roadmapProgress, () => mem().roadmapProgress);
+const OutcomeReviews = collection<OutcomeReviewItem>(t.outcomeReviews, () => mem().outcomeReviews);
 const Videos = collection<Video>(t.videos, () => mem().videos);
 const Outreaches = collection<Outreach>(t.outreach, () => mem().outreach);
 const Tasks = collection<Task>(t.tasks, () => mem().tasks);
@@ -189,6 +191,7 @@ export const deleteMemoryItem = (id: string) => RelationshipMemory.remove(id);
 
 // ── Implementation Journal (roadmap progress) ────────────────────────────────
 export const roadmapProgressForLead = (leadId: string) => RoadmapProgress.byLead(leadId);
+export const allRoadmapProgress = () => RoadmapProgress.all();
 /** Set (or create) the lifecycle status for one recommendation on one lead. */
 export async function setRoadmapStatus(
   leadId: string,
@@ -212,6 +215,15 @@ export async function setRoadmapStatus(
     updatedAt: nowIso(),
   } as RoadmapProgressItem);
 }
+
+// ── Outcome Reviews ──────────────────────────────────────────────────────────
+export const outcomeReviewsForLead = (leadId: string) => OutcomeReviews.byLead(leadId);
+export const getOutcomeReview = (id: string) => OutcomeReviews.byId(id);
+export const allOutcomeReviews = () => OutcomeReviews.all();
+export async function insertOutcomeReview(o: Omit<OutcomeReviewItem, "id" | "createdAt" | "updatedAt">): Promise<OutcomeReviewItem> {
+  return OutcomeReviews.insert({ ...o, id: newId("oc"), createdAt: nowIso(), updatedAt: nowIso() } as OutcomeReviewItem);
+}
+export const updateOutcomeReview = (id: string, patch: Partial<OutcomeReviewItem>) => OutcomeReviews.update(id, patch);
 
 // ── Screenshots ──────────────────────────────────────────────────────────────
 export const screenshotsForLead = (leadId: string) => Screenshots.byLead(leadId);

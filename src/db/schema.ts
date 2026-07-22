@@ -803,3 +803,31 @@ export const roadmapProgress = pgTable(
     recIdx: index("roadmap_progress_rec_idx").on(t.recommendationId),
   }),
 );
+
+// ── Outcome Reviews — evidence-grounded record of whether work actually helped ─
+export const outcomeReviews = pgTable(
+  "outcome_reviews",
+  {
+    id: text("id").primaryKey(),
+    leadId: text("lead_id").notNull(),
+    recommendationId: text("recommendation_id").notNull(),
+    title: text("title").notNull(),
+    status: text("status").notNull().default("Awaiting Review"),
+    expectedOutcome: text("expected_outcome").notNull().default(""),
+    beforeState: text("before_state").notNull().default(""),
+    observedOutcome: text("observed_outcome").notNull().default(""),
+    evidence: text("evidence").notNull().default(""),
+    unexpectedConsequences: text("unexpected_consequences").notNull().default(""),
+    lessonsLearned: text("lessons_learned").notNull().default(""),
+    confidence: text("confidence").notNull().default("Low"),
+    reviewedAt: ts("reviewed_at"),
+    operatorNotes: text("operator_notes"),
+    createdAt: ts("created_at").notNull(),
+    updatedAt: ts("updated_at").notNull(),
+  },
+  (t) => ({
+    leadIdx: index("outcome_reviews_lead_idx").on(t.leadId),
+    recIdx: index("outcome_reviews_rec_idx").on(t.recommendationId),
+    statusIdx: index("outcome_reviews_status_idx").on(t.status),
+  }),
+);

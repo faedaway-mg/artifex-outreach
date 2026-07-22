@@ -340,6 +340,59 @@ dependencies — every placement is explained and traces to evidence.
 - *Follow-up + reasoning → live email generator* (carried from Phase VII) — still
   surfaced, not auto-woven into `content.ts`.
 
+## Phase IX — Outcomes Intelligence & Continuous Learning (built this phase — closes the lifecycle)
+
+The system understood businesses and recommended what to do; this phase answers "did
+it actually work?" — grounded only in operator observations and measurable evidence.
+Deterministic engine in `src/lib/outcomes/`. Nothing is ever marked successful
+automatically; failures are shown, never hidden.
+
+- **Outcomes engine + persistence** — migration `0015` adds `outcome_reviews` (one per
+  completed recommendation): expectedOutcome (the hypothesis), beforeState,
+  observedOutcome, evidence, unexpectedConsequences, lessonsLearned, confidence,
+  status, reviewedAt. Repo (`outcomeReviewsForLead`/`insertOutcomeReview`/
+  `updateOutcomeReview`/`allOutcomeReviews`) + server actions
+  (`startOutcomeReviewAction`/`saveOutcomeReviewAction`/`setOutcomeStatusAction`).
+  Every review **begins "Awaiting Review"**; the verdict is always the operator's.
+- **Before / after intelligence** (`before-after.ts`) — reads before → implementation
+  → observed → evidence straight from the record; an observation only "counts" with at
+  least one evidence source.
+- **Hypothesis validation** — the review status IS the verdict: Awaiting Review →
+  Supported / Mixed / Not Supported / Insufficient Evidence. Operator-set.
+- **Business evolution timeline** (`evolution.ts`) — real recorded change only:
+  implemented events (journal) + observed events (reviews), each citing evidence.
+- **Business health narrative** (`health-narrative.ts`) — "Over the past N months…"
+  drawn only from reviewed outcomes; surfaces failures explicitly; voice-clean (tested).
+- **Recommendation effectiveness** (`effectiveness.ts`) — recommended / implemented /
+  reviewed / supported / mixed / unsupported counts per recommendation type, across
+  engagements. Counts, not grades.
+- **Consulting knowledge graph** (`knowledge-graph.ts`) — a pattern is recorded ONLY
+  after ≥2 **distinct** supporting businesses (never from one engagement; two supports
+  from the same business is still one); every pattern cites the leads behind it.
+- **Adaptive proposal improvement** (`proposal-improvement.ts`) — evidence-backed
+  proposal lines ("In N similar businesses, … was followed by the improvement we
+  expected"), produced only when a pattern supports it, always citing the count.
+- **Executive outcomes dashboard + surface** — `/leads/[id]/outcomes` +
+  `OutcomesWorkspace`: validated / mixed / awaiting-review / needs-follow-up lanes, the
+  health narrative, the evolution timeline, per-recommendation review editors
+  (before/observed/evidence/lessons + verdict buttons), effectiveness rollup, knowledge
+  graph, and proposal-evidence lines. Completed-but-unreviewed journal work surfaces as
+  "awaiting review" so measurement is never skipped. New "Outcomes" sub-nav tab. Tested:
+  16 cases (nothing self-succeeds, evidence-required observation, ≥2-engagement
+  knowledge rule, failures surfaced, dashboard lanes).
+
+**Clearly still future work (NOT built this phase):**
+- *Outcomes → the actual proposal document* — proposal-evidence lines are surfaced on
+  the Outcomes page but not yet auto-woven into the Business Technology Review PDF.
+- *Auto-population of before-state* — the "before" is operator-entered; deriving it
+  from memory/reasoning snapshots at completion time is future work.
+- *Cross-lead executive roll-up* — effectiveness/knowledge are cross-engagement, but a
+  portfolio-level dashboard page isn't built.
+- *Automated measurement* — outcomes are recorded by the operator; no analytics
+  integration reads live business metrics.
+- Carried items from Phases VII–VIII (reasoning/roadmap → PDF, live-email weaving)
+  remain as previously noted.
+
 ## The end-to-end spine
 Lead → Review → Email (voice + quality gated) → Reply/stop → Booking → Discovery
 (workspace + prep brief) → Conversation (capture) → Proposal (from captured

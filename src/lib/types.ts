@@ -809,6 +809,42 @@ export interface RoadmapProgressItem {
   updatedAt: string;
 }
 
+// ── Outcome Reviews — did the recommendation actually work? ───────────────────
+// One per completed recommendation. Begins "Awaiting Review"; nothing is ever marked
+// successful automatically. Every verdict is the operator's, grounded in observed
+// evidence — the record that lets the system learn from real engagements.
+export const OUTCOME_STATUSES = [
+  "Awaiting Review",
+  "Supported",
+  "Mixed",
+  "Not Supported",
+  "Insufficient Evidence",
+] as const;
+export type OutcomeStatus = (typeof OUTCOME_STATUSES)[number];
+
+export interface OutcomeReviewItem {
+  id: string;
+  leadId: string;
+  recommendationId: string;
+  title: string;
+  status: OutcomeStatus;
+  /** The hypothesis: what we expected the recommendation to change. */
+  expectedOutcome: string;
+  /** The business state before implementation. */
+  beforeState: string;
+  /** What actually happened, in the operator's / client's words. */
+  observedOutcome: string;
+  /** Where the observation comes from (operator note, client conversation, review, system observation). */
+  evidence: string;
+  unexpectedConsequences: string;
+  lessonsLearned: string;
+  confidence: MemoryConfidence;
+  reviewedAt: string | null;
+  operatorNotes: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface InboundMessage {
   id: string;
   leadId: string;

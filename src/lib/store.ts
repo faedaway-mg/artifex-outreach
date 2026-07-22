@@ -29,6 +29,7 @@ import type {
   StoredBusinessIntelligence,
   RelationshipMemoryItem,
   RoadmapProgressItem,
+  OutcomeReviewItem,
 } from "./types";
 import { buildSeed } from "./seed";
 import { defaultCategories } from "./categories";
@@ -52,6 +53,7 @@ export interface Collections {
   businessIntelligence: StoredBusinessIntelligence[];
   relationshipMemory: RelationshipMemoryItem[];
   roadmapProgress: RoadmapProgressItem[];
+  outcomeReviews: OutcomeReviewItem[];
   settings: Settings;
   seeded: boolean;
 }
@@ -78,6 +80,7 @@ function createEmpty(): Collections {
     businessIntelligence: [],
     relationshipMemory: [],
     roadmapProgress: [],
+    outcomeReviews: [],
     settings: defaultSettings(),
     seeded: false,
   };
