@@ -22,6 +22,7 @@ import type {
   ArtifexService,
   FollowUpStep,
 } from "../types";
+import { ARTIFEX_SERVICES } from "../types";
 import {
   qualificationSchema,
   opportunitySummarySchema,
@@ -308,9 +309,33 @@ export async function generateBrief(
   const approvedFindings = findings.filter((f) => f.approved).slice(0, type === "Quick Snapshot" ? 1 : 3);
   const used = approvedFindings.length ? approvedFindings : findings.slice(0, type === "Quick Snapshot" ? 1 : 3);
 
+  const investmentField = shareInvestmentRange
+    ? `"$${price.low.toLocaleString()}–$${price.high.toLocaleString()}"`
+    : "null";
   const result = await generate<ModernizationBriefResult>({
     system: BASE_SYSTEM,
-    user: `Write a ${type} for ${lead.businessName} (${lead.industry}) recommending ${service}. Findings: ${JSON.stringify(used.map((f) => ({ o: f.observation, e: f.evidence })))}.`,
+    user: `Write a ${type} for ${lead.businessName} — a ${deslug(lead.industry.toLowerCase())}${lead.city ? ` in ${lead.city}` : ""}. Recommend the engagement "${service}".
+
+Ground every observation in these findings (do not invent others): ${JSON.stringify(used.map((f) => ({ observation: f.observation, evidence: f.evidence })))}.
+
+Return ONLY a JSON object with EXACTLY this shape and these keys (no extra keys, no markdown fences):
+{
+  "cover": { "subtitle": string, "confidentialityNote": string },
+  "executiveSnapshot": { "overview": string, "whatIsWorking": string, "primaryOpportunity": string, "potentialImpact": string, "recommendedFirstConversation": string },
+  "strengths": string[],
+  "opportunities": [ { "observation": string, "evidence": string, "businessConsequence": string, "modernizationDirection": string } ],
+  "customerJourney": { "currentState": string[], "futureState": string[] },
+  "modernizationPath": { "primaryEngagement": string, "components": string[], "secondaryOpportunity": string, "investmentRange": ${investmentField}, "disclaimer": string },
+  "cta": { "headline": string, "body": string }
+}
+
+Constraints:
+- Every string must be non-empty and specific; no placeholders.
+- "strengths": 2 to 4 concrete strengths. "opportunities": AT MOST 3, each grounded in the findings above. "currentState"/"futureState": 2 to 4 short steps each. "components": 2 to 5 items.
+- "modernizationPath.primaryEngagement" MUST be exactly one of ${JSON.stringify(ARTIFEX_SERVICES)} — use "${service}".
+- "modernizationPath.investmentRange" MUST be ${investmentField}.
+- Write calm, honest, specific B2B consulting prose. Distinguish verified facts from inferences. Never fabricate metrics, people, or results.
+- Vary wording across sections — do NOT reuse the same sentences or phrases in more than one field.`,
     schema: modernizationBriefSchema,
     promptVersion: "brief-1.0.0",
     refs: ["findings", "opportunity-summary", "google-places"],
