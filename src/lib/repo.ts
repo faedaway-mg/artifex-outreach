@@ -46,6 +46,7 @@ import type {
   EmailEvent,
   StoredBusinessIntelligence,
   RelationshipMemoryItem,
+  RoadmapProgressItem,
 } from "./types";
 
 // ── Generic collection helper ────────────────────────────────────────────────
@@ -96,6 +97,7 @@ const Screenshots = collection<Screenshot>(t.screenshots, () => mem().screenshot
 const Deliverables = collection<Deliverable>(t.deliverables, () => mem().deliverables);
 const BusinessIntel = collection<StoredBusinessIntelligence>(t.businessIntelligence, () => mem().businessIntelligence);
 const RelationshipMemory = collection<RelationshipMemoryItem>(t.relationshipMemory, () => mem().relationshipMemory);
+const RoadmapProgress = collection<RoadmapProgressItem>(t.roadmapProgress, () => mem().roadmapProgress);
 const Videos = collection<Video>(t.videos, () => mem().videos);
 const Outreaches = collection<Outreach>(t.outreach, () => mem().outreach);
 const Tasks = collection<Task>(t.tasks, () => mem().tasks);
@@ -184,6 +186,32 @@ export async function insertMemoryItem(m: Omit<RelationshipMemoryItem, "id" | "c
 }
 export const updateMemoryItem = (id: string, patch: Partial<RelationshipMemoryItem>) => RelationshipMemory.update(id, patch);
 export const deleteMemoryItem = (id: string) => RelationshipMemory.remove(id);
+
+// ── Implementation Journal (roadmap progress) ────────────────────────────────
+export const roadmapProgressForLead = (leadId: string) => RoadmapProgress.byLead(leadId);
+/** Set (or create) the lifecycle status for one recommendation on one lead. */
+export async function setRoadmapStatus(
+  leadId: string,
+  recommendationId: string,
+  title: string,
+  status: RoadmapProgressItem["status"],
+  operatorNotes?: string | null,
+): Promise<RoadmapProgressItem> {
+  const existing = (await RoadmapProgress.byLead(leadId)).find((r) => r.recommendationId === recommendationId);
+  if (existing) {
+    return (await RoadmapProgress.update(existing.id, { status, title, ...(operatorNotes !== undefined ? { operatorNotes } : {}) }))!;
+  }
+  return RoadmapProgress.insert({
+    id: newId("rmp"),
+    leadId,
+    recommendationId,
+    title,
+    status,
+    operatorNotes: operatorNotes ?? null,
+    createdAt: nowIso(),
+    updatedAt: nowIso(),
+  } as RoadmapProgressItem);
+}
 
 // ── Screenshots ──────────────────────────────────────────────────────────────
 export const screenshotsForLead = (leadId: string) => Screenshots.byLead(leadId);

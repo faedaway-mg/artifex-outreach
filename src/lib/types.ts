@@ -781,6 +781,34 @@ export interface RelationshipMemoryItem {
   updatedAt: string;
 }
 
+// ── Implementation Journal — the consulting lifecycle of one recommendation ────
+// Persistent per (lead, recommendation). Every transition is an operator decision;
+// nothing advances on its own. Keyed by the deterministic recommendation id so the
+// journal survives even when the underlying reasoning is recomputed.
+export const ROADMAP_STATUSES = [
+  "Observed",
+  "Validated",
+  "Recommended",
+  "Approved",
+  "In Progress",
+  "Completed",
+  "Measured",
+] as const;
+export type RoadmapStatus = (typeof ROADMAP_STATUSES)[number];
+
+export interface RoadmapProgressItem {
+  id: string;
+  leadId: string;
+  /** The deterministic recommendation id from the reasoning engine (e.g. rec_manual-scheduling). */
+  recommendationId: string;
+  /** A human label kept alongside the id so completed work reads clearly even if evidence shifts. */
+  title: string;
+  status: RoadmapStatus;
+  operatorNotes: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface InboundMessage {
   id: string;
   leadId: string;

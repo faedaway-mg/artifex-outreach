@@ -283,6 +283,63 @@ for every conclusion. `buildReasoning(memories, ctx, now)` returns the whole rea
 - *Opportunity-stage persistence* — chain nodes are derived, not yet a stored
   lifecycle (Observed→…→Measured).
 
+## Phase VIII — Execution Intelligence & Adaptive Consulting Plans (built this phase)
+
+The reasoning layer answers "what do we know?"; this answers "what should happen
+next?". A deterministic execution layer in `src/lib/roadmap/`, built on the reasoned
+recommendations. It never creates projects, invents urgency, or fabricates
+dependencies — every placement is explained and traces to evidence.
+
+- **Adaptive roadmap engine** (`roadmap.ts`) — places every recommendation into
+  Immediate / Near-term / Long-term / Future consideration / Blocked / Completed, each
+  with a one-line why plus full explainability (why now · why not earlier · what
+  blocks it · what happens if we wait). Placement respects the operator-approved
+  journal status and the dependency graph before any impact/effort read.
+- **Dependency graph** (`dependencies.ts` + `meta.ts`) — prerequisite edges (rollout
+  judgment, not fabricated facts), applied only between recommendations that exist;
+  stable topological order; a recommendation with an unfinished prerequisite is
+  **Blocked**, not pretend-ready.
+- **Impact vs effort** — each item carries impact (grounded per recommendation),
+  effort, and the measured confidence from the reasoning layer. No arbitrary scores.
+- **Consultant sequencing** (`sequencing.ts`) — a rollout order (dependencies first,
+  then leverage: impact → lighter effort → confidence), each step with the reason
+  ("start here", "follows X", "waits on Y").
+- **Success metrics** (`meta.ts`) — every recommendation defines what success looks
+  like, how it's measured, and when to review — grounded in the recommendation, never
+  an invented KPI.
+- **Implementation Journal** — real persistence. Migration `0014` adds
+  `roadmap_progress` (per lead × recommendation), repo `setRoadmapStatus`, and the
+  `advanceRoadmapAction` server action. The lifecycle (Observed → Validated →
+  Recommended → Approved → In Progress → Completed → Measured) **only advances on an
+  operator click** — nothing self-promotes.
+- **Business transformation timeline** (`transformation.ts`) — Discovery →
+  Understanding → Proposal → Implementation → Optimization → Ongoing Partnership;
+  monotonic, each stage reached only on evidence, the current stage marked.
+- **Proposal evolution** — completed/measured work is carried in a separate lane and
+  excluded from the active plan and sequence, so a solved problem is never
+  re-recommended.
+- **Executive dashboard + Roadmap surface** — `/leads/[id]/roadmap` +
+  `RoadmapWorkspace`: a calm executive read (priorities, quick wins, blocked, momentum,
+  high-confidence, long-term, completed, relationship health, recently learned), the
+  transformation timeline, the recommended sequence, and the phased roadmap with
+  inline journal controls and a shared **EvidenceTrail** on every item (extracted so
+  Strategist and Roadmap explain evidence identically). New "Roadmap" sub-nav tab.
+  Tested: 12 cases (dependency integrity, no-fabricated-deps, topological order,
+  block/unblock, in-progress→Immediate, full explainability, sequencing reasons,
+  monotonic timeline, proposal-evolution suppression, empty-business→empty-plan).
+
+**Clearly still future work (NOT built this phase):**
+- *Roadmap → the actual proposal document* — the plan is the reasoning object; wiring
+  it (phases, sequence, success metrics, provenance) into the Business Technology
+  Review PDF still extends the existing pipeline and is not done.
+- *Auto-measurement of success metrics* — metrics are defined and reviewed by hand; no
+  analytics integration reads live outcomes yet.
+- *Cross-lead portfolio dashboard* — the executive view is per-business; a book-of-
+  business roll-up is not built.
+- *Review scheduling / reminders* — "review when" is stated, not yet scheduled.
+- *Follow-up + reasoning → live email generator* (carried from Phase VII) — still
+  surfaced, not auto-woven into `content.ts`.
+
 ## The end-to-end spine
 Lead → Review → Email (voice + quality gated) → Reply/stop → Booking → Discovery
 (workspace + prep brief) → Conversation (capture) → Proposal (from captured

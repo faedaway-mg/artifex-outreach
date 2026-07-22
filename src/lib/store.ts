@@ -28,6 +28,7 @@ import type {
   Settings,
   StoredBusinessIntelligence,
   RelationshipMemoryItem,
+  RoadmapProgressItem,
 } from "./types";
 import { buildSeed } from "./seed";
 import { defaultCategories } from "./categories";
@@ -50,6 +51,7 @@ export interface Collections {
   suppressions: Suppression[];
   businessIntelligence: StoredBusinessIntelligence[];
   relationshipMemory: RelationshipMemoryItem[];
+  roadmapProgress: RoadmapProgressItem[];
   settings: Settings;
   seeded: boolean;
 }
@@ -75,6 +77,7 @@ function createEmpty(): Collections {
     suppressions: [],
     businessIntelligence: [],
     relationshipMemory: [],
+    roadmapProgress: [],
     settings: defaultSettings(),
     seeded: false,
   };

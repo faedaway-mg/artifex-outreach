@@ -784,3 +784,22 @@ export const relationshipMemory = pgTable(
     categoryIdx: index("relationship_memory_category_idx").on(t.category),
   }),
 );
+
+// ── Implementation Journal — operator-approved lifecycle of a recommendation ──
+export const roadmapProgress = pgTable(
+  "roadmap_progress",
+  {
+    id: text("id").primaryKey(),
+    leadId: text("lead_id").notNull(),
+    recommendationId: text("recommendation_id").notNull(),
+    title: text("title").notNull(),
+    status: text("status").notNull().default("Recommended"),
+    operatorNotes: text("operator_notes"),
+    createdAt: ts("created_at").notNull(),
+    updatedAt: ts("updated_at").notNull(),
+  },
+  (t) => ({
+    leadIdx: index("roadmap_progress_lead_idx").on(t.leadId),
+    recIdx: index("roadmap_progress_rec_idx").on(t.recommendationId),
+  }),
+);
