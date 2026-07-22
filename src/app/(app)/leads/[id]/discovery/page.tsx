@@ -29,6 +29,8 @@ import {
 import { LeadHeader } from "@/components/lead/LeadHeader";
 import { MissionBriefCard } from "@/components/lead/MissionBriefCard";
 import { buildMissionBrief } from "@/lib/outreach/mission-brief";
+import { ConsultingReadCard } from "@/components/lead/ConsultingReadCard";
+import { buildConsultingRead } from "@/lib/outreach/consulting-read";
 import { updateMeetingNotesAction } from "@/lib/actions";
 
 export const dynamic = "force-dynamic";
@@ -101,6 +103,7 @@ export default async function DiscoveryWorkspacePage({
   const p = bi.profile;
   const meeting = meetings[0];
   const missionBrief = buildMissionBrief({ lead, profile: p.businessProfile, settings, contacts, meetingAt: meeting?.scheduledAt ?? null });
+  const consultingRead = buildConsultingRead(lead, p.businessProfile);
 
   const topOpportunities =
     p.briefing.strongestOpportunities.length > 0
@@ -152,7 +155,8 @@ export default async function DiscoveryWorkspacePage({
     <div className="space-y-6">
       <LeadHeader lead={lead} />
 
-      {/* Mission brief — the one thing to read before the conversation */}
+      {/* The consulting read — judgment for the room, then the detailed brief */}
+      <ConsultingReadCard read={consultingRead} />
       <MissionBriefCard brief={missionBrief} businessName={lead.businessName} />
 
       <div className="grid gap-6 lg:grid-cols-3">

@@ -111,6 +111,49 @@ updates rather than isolated notes), the auto-drafted Proposal (§10), and the
 Conversation-Capture provider interface (§8) for Fathom/Fireflies/Teams/Zoom/Meet
 that feeds Relationship Memory rather than dumping raw transcripts.
 
+## Phase IV — Live consulting layer (built this phase)
+
+- **Consulting read** — `src/lib/outreach/consulting-read.ts` → `buildConsultingRead`.
+  Judgment, not data: exactly **three things that matter** (start from trust; is the
+  top friction deliberate or evolved; relationships likely matter more than tech),
+  the **biggest unknown** to validate early (one sentence), the **meeting objective**
+  (one calm sentence, never "sell"), and the **one risk** worth naming ("talking
+  about solutions before you understand their priorities"). Deterministic, voice-
+  clean, tested. Rendered by `ConsultingReadCard` atop the Discovery Workspace,
+  above the Mission Brief — the quiet co-pilot for the room.
+
+### Relationship Memory + evolving timeline (architecture, next build)
+Meeting notes should update **structured knowledge**, not become static text. Model:
+`RelationshipMemory { decisionMaker; communicationStyle; goals[]; priorities[];
+constraints[]; systems[]; importantDates[]; decisions[]; followupStyle;
+openQuestions[] }`, stored per lead and **updated** (not replaced) after each
+conversation. A `MemoryEvent { at; kind: "observed"|"verified"|"changed"|"resolved"|
+"new-priority"|"decision"|"followup"; note; source }` stream becomes the relationship
+*story* (extends the existing `collectTimeline`). Jordan never rediscovers the same
+thing twice. Storage: additive `relationship_memory` (jsonb) + `memory_events`
+tables; the meeting-workspace save action writes structured deltas, not free text.
+
+### Opportunity lifecycle (architecture)
+Every `ModernizationOpportunity` gains a `stage: "observed"|"validated"|"discussed"|
+"accepted"|"implemented"|"measured"` (additive column, defaults "observed"). The
+discovery/meeting workspace advances the stage; the operator sees at a glance where
+each recommendation stands. Feeds the timeline and the proposal.
+
+### Proposal intelligence (architecture)
+`buildProposalDraft(lead)` assembles from accumulated knowledge — each recommendation
+carries its provenance chain: **observation → validation (memory) → conversation
+(memory event) → expected outcome (investment model)**. "Why are we recommending
+this?" is answered from stored evidence, never invented. The Business Technology
+Review pipeline already proves the render path; this adds the citation model so
+nothing is retyped and every claim is grounded.
+
+### Conversation capture (architecture — one interface, all providers)
+`CaptureSource` provider interface (mirroring `EmailProvider`/`EnrichmentSource`):
+Fathom / Fireflies / Teams / Zoom / Google Meet / voice memo / manual all normalize
+to a `ConversationRecord { transcript?; summary; actionItems[]; decisions[];
+openQuestions[]; concerns[]; opportunities[] }` that feeds **Relationship Memory** —
+never provider-specific logic in the UI, never raw transcripts dumped on screen.
+
 ## The end-to-end spine
 Lead → Review → Email (voice + quality gated) → Reply/stop → Booking → Discovery
 (workspace + prep brief) → Conversation (capture) → Proposal (from captured
