@@ -92,6 +92,13 @@
       "when": 1784712451667,
       "tag": "0012_brainy_paper_doll",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1784755238406,
+      "tag": "0013_gifted_franklin_richards",
+      "breakpoints": true
     }
   ]
 }

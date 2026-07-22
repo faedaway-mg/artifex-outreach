@@ -45,6 +45,7 @@ import type {
   EmailSendStatus,
   EmailEvent,
   StoredBusinessIntelligence,
+  RelationshipMemoryItem,
 } from "./types";
 
 // ── Generic collection helper ────────────────────────────────────────────────
@@ -94,6 +95,7 @@ const Findings = collection<Finding>(t.findings, () => mem().findings);
 const Screenshots = collection<Screenshot>(t.screenshots, () => mem().screenshots);
 const Deliverables = collection<Deliverable>(t.deliverables, () => mem().deliverables);
 const BusinessIntel = collection<StoredBusinessIntelligence>(t.businessIntelligence, () => mem().businessIntelligence);
+const RelationshipMemory = collection<RelationshipMemoryItem>(t.relationshipMemory, () => mem().relationshipMemory);
 const Videos = collection<Video>(t.videos, () => mem().videos);
 const Outreaches = collection<Outreach>(t.outreach, () => mem().outreach);
 const Tasks = collection<Task>(t.tasks, () => mem().tasks);
@@ -173,6 +175,15 @@ export async function insertFinding(f: Omit<Finding, "id" | "createdAt" | "updat
 }
 export const updateFinding = (id: string, patch: Partial<Finding>) => Findings.update(id, patch);
 export const deleteFinding = (id: string) => Findings.remove(id);
+
+// ── Relationship Memory ──────────────────────────────────────────────────────
+export const memoryForLead = (leadId: string) => RelationshipMemory.byLead(leadId);
+export const getMemoryItem = (id: string) => RelationshipMemory.byId(id);
+export async function insertMemoryItem(m: Omit<RelationshipMemoryItem, "id" | "createdAt" | "updatedAt">): Promise<RelationshipMemoryItem> {
+  return RelationshipMemory.insert({ ...m, id: newId("mem"), createdAt: nowIso(), updatedAt: nowIso() } as RelationshipMemoryItem);
+}
+export const updateMemoryItem = (id: string, patch: Partial<RelationshipMemoryItem>) => RelationshipMemory.update(id, patch);
+export const deleteMemoryItem = (id: string) => RelationshipMemory.remove(id);
 
 // ── Screenshots ──────────────────────────────────────────────────────────────
 export const screenshotsForLead = (leadId: string) => Screenshots.byLead(leadId);

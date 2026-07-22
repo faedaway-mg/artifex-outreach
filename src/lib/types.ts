@@ -731,6 +731,56 @@ export interface AcquisitionStep {
   createdAt: string;
 }
 
+// ── Relationship Memory — the first persistent intelligence layer ────────────
+// Knowledge is earned: nothing here is auto-promoted. Every item keeps its
+// provenance and confidence, and can be verified, superseded, or resolved.
+export const MEMORY_CATEGORIES = [
+  "Decision Makers",
+  "Business Goals",
+  "Current Priorities",
+  "Known Constraints",
+  "Existing Systems",
+  "Communication Style",
+  "Business Philosophy",
+  "Preferred Follow-up Style",
+  "Important Dates",
+  "Open Questions",
+  "Previous Decisions",
+] as const;
+export type MemoryCategory = (typeof MEMORY_CATEGORIES)[number];
+
+export const MEMORY_STATUSES = ["Proposed", "Verified", "Superseded", "Resolved"] as const;
+export type MemoryStatus = (typeof MEMORY_STATUSES)[number];
+
+export const MEMORY_CONFIDENCES = ["High", "Medium", "Low"] as const;
+export type MemoryConfidence = (typeof MEMORY_CONFIDENCES)[number];
+
+export const MEMORY_SOURCES = [
+  "Discovery Meeting",
+  "Operator Note",
+  "Business Technology Review",
+  "Public Website",
+  "Email Conversation",
+  "Manual Confirmation",
+] as const;
+export type MemorySource = (typeof MEMORY_SOURCES)[number];
+
+export interface RelationshipMemoryItem {
+  id: string;
+  leadId: string;
+  category: MemoryCategory;
+  title: string;
+  value: string;
+  status: MemoryStatus;
+  confidence: MemoryConfidence;
+  source: MemorySource;
+  /** Where this came from in the operator's words — the "why do we believe this". */
+  supportingContext: string | null;
+  operatorNotes: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface InboundMessage {
   id: string;
   leadId: string;

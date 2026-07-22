@@ -27,6 +27,7 @@ import type {
   Suppression,
   Settings,
   StoredBusinessIntelligence,
+  RelationshipMemoryItem,
 } from "./types";
 import { buildSeed } from "./seed";
 import { defaultCategories } from "./categories";
@@ -48,6 +49,7 @@ export interface Collections {
   payments: Payment[];
   suppressions: Suppression[];
   businessIntelligence: StoredBusinessIntelligence[];
+  relationshipMemory: RelationshipMemoryItem[];
   settings: Settings;
   seeded: boolean;
 }
@@ -72,6 +74,7 @@ function createEmpty(): Collections {
     payments: [],
     suppressions: [],
     businessIntelligence: [],
+    relationshipMemory: [],
     settings: defaultSettings(),
     seeded: false,
   };

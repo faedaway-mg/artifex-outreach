@@ -761,3 +761,26 @@ export const payments = pgTable(
     statusIdx: index("payments_status_idx").on(t.status),
   }),
 );
+
+// ── Relationship Memory — persistent, provenance-carrying business knowledge ──
+export const relationshipMemory = pgTable(
+  "relationship_memory",
+  {
+    id: text("id").primaryKey(),
+    leadId: text("lead_id").notNull(),
+    category: text("category").notNull(),
+    title: text("title").notNull(),
+    value: text("value").notNull(),
+    status: text("status").notNull().default("Proposed"),
+    confidence: text("confidence").notNull().default("Medium"),
+    source: text("source").notNull(),
+    supportingContext: text("supporting_context"),
+    operatorNotes: text("operator_notes"),
+    createdAt: ts("created_at").notNull(),
+    updatedAt: ts("updated_at").notNull(),
+  },
+  (t) => ({
+    leadIdx: index("relationship_memory_lead_idx").on(t.leadId),
+    categoryIdx: index("relationship_memory_category_idx").on(t.category),
+  }),
+);
