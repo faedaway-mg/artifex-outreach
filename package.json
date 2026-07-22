@@ -16,6 +16,10 @@
     "test": "vitest run",
     "db:clear": "tsx scripts/clear.ts",
     "db:backfill-categories": "tsx scripts/backfill-categories.ts",
+    "db:backfill-intelligence": "tsx scripts/backfill-intelligence.ts",
+    "db:migration-status": "node scripts/migration-status.mjs --count",
+    "railway:verify": "bash scripts/railway-guard.sh",
+    "deploy:production": "bash scripts/deploy-production.sh",
     "launch:validate": "tsx scripts/launch-validate.ts",
     "launch:review": "tsx scripts/daily-review.ts"
   },

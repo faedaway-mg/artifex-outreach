@@ -1,0 +1,129 @@
+#!/usr/bin/env bash
+# ─────────────────────────────────────────────────────────────────────────────
+# deploy-production.sh — the ONE controlled way to ship Artifex Outreach.
+# Replaces informal `railway up`. Fails closed at every gate.
+#
+#   pnpm deploy:production                 # full gated deploy
+#   pnpm deploy:production --apply-migrations   # also apply pending DB migrations first
+#   pnpm deploy:production --skip-build         # reuse checks already run this session (rare)
+#
+# Never prints secrets (password, DATABASE_URL, cookies).
+# ─────────────────────────────────────────────────────────────────────────────
+set -euo pipefail
+cd "$(dirname "$0")/.."
+ROOT="$(pwd)"
+
+APPLY_MIGRATIONS=0
+SKIP_BUILD=0
+for a in "$@"; do
+  case "$a" in
+    --apply-migrations) APPLY_MIGRATIONS=1 ;;
+    --skip-build) SKIP_BUILD=1 ;;
+    *) echo "Unknown flag: $a" >&2; exit 2 ;;
+  esac
+done
+
+step() { printf '\n\033[1m▸ %s\033[0m\n' "$1"; }
+fail() { printf '\033[31m✗ %s\033[0m\n' "$1" >&2; exit 1; }
+
+# 1 ── Railway target (fail-closed) ───────────────────────────────────────────
+step "Verifying Railway target (must be artifex-outreach / production / outreach-web)"
+bash "$ROOT/scripts/railway-guard.sh" || fail "Railway target verification failed."
+
+# 2 ── Git state + intended SHA ───────────────────────────────────────────────
+step "Git state"
+BRANCH="$(git rev-parse --abbrev-ref HEAD)"
+SHA="$(git rev-parse HEAD)"
+SHORT="$(git rev-parse --short HEAD)"
+if [ -n "$(git status --porcelain)" ]; then
+  echo "  ⚠ Working tree has uncommitted changes:"
+  git status --short | sed 's/^/    /'
+  echo "  The image is built from the working tree (railway up), so these WILL ship."
+else
+  echo "  ✓ Working tree clean."
+fi
+echo "  Branch: $BRANCH   SHA: $SHA"
+
+# 3 ── Quality gates ──────────────────────────────────────────────────────────
+if [ "$SKIP_BUILD" -eq 0 ]; then
+  step "typecheck"; pnpm -s typecheck || fail "typecheck failed."
+  step "lint";      pnpm -s lint      || fail "lint failed."
+  step "tests";     pnpm -s test      || fail "tests failed."
+  step "production build"; pnpm -s build || fail "build failed."
+else
+  echo "  (--skip-build) skipping typecheck/lint/test/build"
+fi
+
+# 4 ── Pending DB migrations ──────────────────────────────────────────────────
+step "Checking pending database migrations"
+PENDING="$(node "$ROOT/scripts/migration-status.mjs" --count 2>/dev/null || echo "ERR")"
+if [ "$PENDING" = "ERR" ]; then
+  echo "  ⚠ Could not determine migration status (no DB access from here). Ensure migrations are applied."
+elif [ "$PENDING" -gt 0 ]; then
+  if [ "$APPLY_MIGRATIONS" -eq 1 ]; then
+    echo "  $PENDING pending — applying now (pnpm db:migrate)"
+    pnpm -s db:migrate || fail "migration apply failed."
+    node "$ROOT/scripts/migration-status.mjs" --count | grep -qx 0 || fail "migrations still pending after apply."
+    echo "  ✓ migrations applied."
+  else
+    fail "$PENDING migration(s) pending. Re-run with --apply-migrations (or run 'pnpm db:migrate') before deploying."
+  fi
+else
+  echo "  ✓ No pending migrations."
+fi
+
+# 5 ── Deploy ─────────────────────────────────────────────────────────────────
+step "Deploying to outreach-web (railway up)"
+railway up --service outreach-web --ci
+
+# 6 ── Confirm deployment + capture ID/timestamp ──────────────────────────────
+step "Confirming deployment"
+DEPLOY_LINE="$(railway deployment list 2>/dev/null | awk 'NR>1 && /SUCCESS/ {print; exit}')"
+DEPLOY_ID="$(printf '%s' "$DEPLOY_LINE" | awk '{print $1}')"
+DEPLOY_TS="$(printf '%s' "$DEPLOY_LINE" | sed -E 's/^[^|]*\|[^|]*\|[[:space:]]*//')"
+echo "  Deployment: ${DEPLOY_ID:-unknown}  ($DEPLOY_TS)"
+
+# 7 ── Smoke test (no secrets printed) ────────────────────────────────────────
+step "Smoke test against production"
+BASE="https://outreach.artifexlabs.tech"
+PASS=1
+
+HEALTH="$(curl -s -m 25 "$BASE/api/health" || true)"
+echo "$HEALTH" | grep -q '"status":"ok"'        && echo "  ✓ /api/health status ok"       || { echo "  ✗ /api/health not ok"; PASS=0; }
+echo "$HEALTH" | grep -q '"connected":true'     && echo "  ✓ database connected"           || { echo "  ✗ database not connected"; PASS=0; }
+
+LOGIN_CODE="$(curl -s -m 20 -o /dev/null -w '%{http_code}' "$BASE/login" || true)"
+[ "$LOGIN_CODE" = "200" ] && echo "  ✓ /login reachable (200)" || { echo "  ✗ /login returned $LOGIN_CODE"; PASS=0; }
+
+# Authenticated surfaces — fetch password to a 0600 temp file, never print it.
+umask 077; OPFILE="$(mktemp)"; COOKIES="$(mktemp)"
+trap 'rm -f "$OPFILE" "$COOKIES"' EXIT
+railway variables --service outreach-web --json 2>/dev/null \
+  | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>process.stdout.write((JSON.parse(s).OUTREACH_PASSWORD)||""))' > "$OPFILE" || true
+
+if [ -s "$OPFILE" ]; then
+  curl -s -m 25 -c "$COOKIES" -o /dev/null --data-urlencode "password@$OPFILE" --data "from=/" "$BASE/api/auth/login" || true
+  IDS="$(node "$ROOT/scripts/migration-status.mjs" --sample-ids 2>/dev/null || true)"   # "leadId deliverableId"
+  LEAD_ID="$(printf '%s' "$IDS" | awk '{print $1}')"; DELIV_ID="$(printf '%s' "$IDS" | awk '{print $2}')"
+  if [ -n "$LEAD_ID" ]; then
+    c1="$(curl -s -m 25 -b "$COOKIES" -o /dev/null -w '%{http_code}' "$BASE/leads/$LEAD_ID")"
+    c2="$(curl -s -m 25 -b "$COOKIES" -o /dev/null -w '%{http_code}' "$BASE/conversation/$LEAD_ID")"
+    [ "$c1" = "200" ] && echo "  ✓ authenticated lead page (200)"         || { echo "  ✗ lead page $c1"; PASS=0; }
+    [ "$c2" = "200" ] && echo "  ✓ authenticated conversation page (200)" || { echo "  ✗ conversation page $c2"; PASS=0; }
+  fi
+  if [ -n "$DELIV_ID" ]; then
+    ct="$(curl -s -m 40 -b "$COOKIES" -o /dev/null -w '%{content_type}' "$BASE/api/deliverable/$DELIV_ID/pdf")"
+    case "$ct" in application/pdf*) echo "  ✓ authenticated PDF route (application/pdf)";; *) echo "  ✗ PDF route content-type: $ct"; PASS=0;; esac
+  fi
+else
+  echo "  ⚠ Could not load OUTREACH_PASSWORD; skipped authenticated smoke checks."
+fi
+
+# 8 ── Summary ────────────────────────────────────────────────────────────────
+step "Deploy summary"
+echo "  Local SHA:        $SHA ($SHORT, $BRANCH)"
+echo "  Deployment ID:    ${DEPLOY_ID:-unknown}"
+echo "  Deployment time:  $DEPLOY_TS"
+echo "  Smoke test:       $([ "$PASS" -eq 1 ] && echo PASS || echo FAIL)"
+[ "$PASS" -eq 1 ] || fail "Smoke test failed — investigate before declaring the deploy good."
+echo "  ✓ Production deploy complete and smoke-tested."

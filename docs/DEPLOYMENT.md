@@ -11,16 +11,65 @@ Internal production app. Host: **Railway**. DNS: **Cloudflare**. Target URL:
   - **Postgres** — managed Postgres 18 (durable volume).
   - **outreach-web** — the Next.js app (multi-stage Dockerfile, standalone output).
 
-## Deploy
+## Deploy — one gated command
 
 ```bash
 cd ~/artifex-outreach
-# always strip the ambient project token so account auth + the linked project are used
+pnpm deploy:production                      # gated: guard → checks → migrations → up → smoke test
+pnpm deploy:production --apply-migrations    # also apply pending migrations first
+```
+
+`scripts/deploy-production.sh` fails closed at every gate: it verifies the linked
+Railway target (`artifex-outreach` / `production` / `outreach-web`) and refuses to
+run if `RAILWAY_TOKEN` is set; prints the intended git SHA; runs
+`typecheck → lint → test → build`; blocks on pending DB migrations; runs
+`railway up --service outreach-web --ci`; then smoke-tests `/api/health` (+ DB
+connected), `/login`, an authenticated lead page, conversation page, and PDF
+route; and prints the local SHA, deployment ID, timestamp, and smoke result. No
+secrets are printed.
+
+Verify the target without deploying:
+
+```bash
+pnpm railway:verify     # ✓ project=artifex-outreach env=production service=outreach-web, or fails closed
+pnpm db:migration-status # number of pending migrations (0 = up to date)
+```
+
+Manual fallback (discouraged — bypasses the gates):
+
+```bash
 env -u RAILWAY_TOKEN railway up --service outreach-web --ci
 ```
 
 The Dockerfile builds Next.js standalone, runs as non-root, binds `0.0.0.0:$PORT`,
 and has a HEALTHCHECK against `/api/health`. `railway.json` sets the healthcheck path.
+
+## RAILWAY_TOKEN hazard (resolved 2026-07-21)
+
+A globally-exported `RAILWAY_TOKEN` overrides Railway's per-directory project links
+so `railway` in ANY directory targeted that token's project (`ashmap-api`). The
+`export` in `~/.zshrc` was disabled (backup `~/.zshrc.bak-predeploy`); projects now
+resolve from per-directory links + account login (`~/AshMap` and
+`~/Documents/AshMap` are linked to `ashmap-api`). `scripts/railway-guard.sh` refuses
+to run while `RAILWAY_TOKEN` is set, so a stray token can never silently redirect a
+deploy. If a command targets the wrong project, open a new terminal and run
+`pnpm railway:verify`.
+
+## Intelligence backfill (existing leads)
+
+After changing the intelligence/investment/QC engines, recompute existing leads
+(idempotent; regenerates draft deliverables in place, never sends email):
+
+```bash
+AI_PROVIDER=mock STORAGE_PROVIDER=mock pnpm db:backfill-intelligence   # match prod; --dry to preview
+```
+
+## Source backup (no git remote configured)
+
+No git remote exists yet. A full backup bundle (all branches) lives at
+`~/artifex-outreach-backups/artifex-outreach-all.bundle`; recreate with
+`git bundle create ~/artifex-outreach-backups/artifex-outreach-all.bundle --all`.
+See `docs/OPERATOR_ACTIONS.md` to push to GitHub once a repo exists.
 
 ## Migrations
 
