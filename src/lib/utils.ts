@@ -70,3 +70,24 @@ export const ACTION_LABELS: Record<NextAction, string> = {
   Nurture: "Nurture",
   Skip: "Skip",
 };
+
+/** "Los Angeles, CA" | "Los Angeles" | "CA" | "" — never leaves dangling commas. */
+export function formatLocation(city?: string | null, state?: string | null): string {
+  return [city, state].map((s) => (s ?? "").trim()).filter(Boolean).join(", ");
+}
+
+/** Join non-empty parts with " · " so no dangling separators appear. */
+export function joinMeta(...parts: Array<string | null | undefined>): string {
+  return parts.map((s) => (s ?? "").trim()).filter(Boolean).join(" · ");
+}
+
+/** Turn an internal slug ("ongoing-partnership", "dental_clinic") into readable text. */
+export function deslug(s: string | null | undefined): string {
+  return (s ?? "").replace(/[-_]+/g, " ").replace(/\s+/g, " ").trim();
+}
+
+/** Deslug + capitalize the first letter, for standalone labels/chips. */
+export function titleizeSlug(s: string | null | undefined): string {
+  const d = deslug(s);
+  return d ? d.charAt(0).toUpperCase() + d.slice(1) : "";
+}

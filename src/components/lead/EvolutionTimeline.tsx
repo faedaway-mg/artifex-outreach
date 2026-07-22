@@ -3,6 +3,7 @@
 // immediate → near-term → strategic → future, plus where completed work will land.
 // A reusable server component. Given the same EvolutionPlan it renders identically.
 import { GitCommitVertical } from "lucide-react";
+import { titleizeSlug } from "@/lib/utils";
 
 // Local prop shape (mirrors lib/intelligence/evolution.ts EvolutionPlan, but kept
 // self-contained so this component stays decoupled from the engine internals).
@@ -47,7 +48,7 @@ function OpportunityRow({ o }: { o: EvolutionOpportunity }) {
       <p className="text-sm font-medium text-chalk-100">{o.title}</p>
       <p className="mt-0.5 text-sm text-chalk-400">{o.rationale}</p>
       <div className="mt-2 flex flex-wrap items-center gap-2">
-        <Chip>{o.suggestedEngagement}</Chip>
+        <Chip>{titleizeSlug(o.suggestedEngagement)}</Chip>
         {o.dependsOn.length > 0 && (
           <span className="text-[11px] text-chalk-500">Depends on earlier steps</span>
         )}

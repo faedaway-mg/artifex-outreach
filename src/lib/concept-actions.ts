@@ -13,6 +13,7 @@ import type { ApprovedFact, PreviewType, VisualDirection, TargetAction, ConceptP
 import { generateConceptSpec, GEN_COST, MAX_GENERATIONS, MAX_COST_PER_PREVIEW } from "./concept/generate";
 import { renderConcept } from "./concept/render";
 import { validateConcept } from "./concept/validate";
+import { formatLocation } from "./utils";
 import { conceptSpecSchema } from "./concept/spec";
 import { generateShareToken } from "./concept/share";
 import { captureConceptScreenshots } from "./concept/screenshots";
@@ -41,7 +42,7 @@ export async function createConceptPreviewAction(leadId: string, formData: FormD
     { key: "businessName", label: "Business name", value: lead.businessName, status: "confirmed" },
     { key: "category", label: "Category", value: lead.industry, status: "confirmed" },
     ...(lead.phone ? [{ key: "phone", label: "Phone", value: lead.phone, status: "confirmed" as const }] : []),
-    ...(lead.address ? [{ key: "address", label: "Address", value: `${lead.address}, ${lead.city}, ${lead.state}`, status: "confirmed" as const }] : []),
+    ...(lead.address ? [{ key: "address", label: "Address", value: [lead.address, formatLocation(lead.city, lead.state)].filter(Boolean).join(", "), status: "confirmed" as const }] : []),
     ...(lead.website ? [{ key: "website", label: "Website", value: lead.website, status: "confirmed" as const }] : []),
     ...(lead.rating != null ? [{ key: "rating", label: "Rating", value: String(lead.rating), status: "confirmed" as const }] : []),
     ...(lead.reviewCount != null ? [{ key: "reviewCount", label: "Reviews", value: String(lead.reviewCount), status: "confirmed" as const }] : []),

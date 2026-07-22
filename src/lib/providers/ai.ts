@@ -43,6 +43,7 @@ import {
   type DiscoveryQuestionsResult,
 } from "../schemas";
 import { computeScore, type WebsiteSignals } from "../scoring";
+import { formatLocation, deslug } from "../utils";
 import { IDENTITY_LINE } from "../communication-guide";
 import { buildInvestmentModel } from "../investment";
 
@@ -231,8 +232,9 @@ function strengthsFor(lead: Lead): string[] {
   if ((lead.rating ?? 0) >= 4.5 && (lead.reviewCount ?? 0) > 40)
     out.push(`Excellent review reputation (${lead.rating}★ across ${lead.reviewCount} reviews)`);
   else if ((lead.rating ?? 0) >= 4) out.push(`Solid reputation (${lead.rating}★)`);
-  out.push(`Established presence in ${lead.city}, ${lead.state}`);
-  out.push(`Clear specialization as a ${lead.industry.toLowerCase()}`);
+  const presenceLoc = formatLocation(lead.city, lead.state);
+  out.push(presenceLoc ? `Established presence in ${presenceLoc}` : "Established local presence");
+  out.push(`Clear specialization as a ${deslug(lead.industry.toLowerCase())}`);
   return out.slice(0, 4);
 }
 

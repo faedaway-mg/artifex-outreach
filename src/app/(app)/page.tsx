@@ -11,7 +11,7 @@ import { JourneyBadge } from "@/components/JourneyBadge";
 import { TaskActions } from "@/components/TaskActions";
 import { TodayControls } from "@/components/TodayControls";
 import { MorningWarming } from "@/components/MorningWarming";
-import { formatCurrency, relativeDate, timeOfDay, shortDate } from "@/lib/utils";
+import { formatCurrency, relativeDate, timeOfDay, shortDate, joinMeta, formatLocation, deslug } from "@/lib/utils";
 import {
   Video, Mail, Phone, CalendarClock, FileText, ArrowRight, Sunrise, AlertTriangle, Clock, Brain,
   Sparkles, Compass, AlertCircle, GitBranch, HeartHandshake, RotateCcw, ClipboardCheck, Lightbulb,
@@ -202,7 +202,7 @@ export default async function TodayPage() {
                         <TierBadge tier={lead.tier} />
                         <JourneyBadge phase={journeyPhaseOf(lead)} />
                       </div>
-                      <p className="mt-1 text-xs text-chalk-500">{lead.industry} · {lead.city}, {lead.state}</p>
+                      <p className="mt-1 text-xs text-chalk-500">{joinMeta(deslug(lead.industry), formatLocation(lead.city, lead.state))}</p>
                       <p className={`mt-2.5 flex items-center gap-1.5 text-xs font-medium ${meta.tone}`}>
                         <Icon size={13} /> {meta.label}
                         {task.type === "follow_up" && <span className="text-chalk-500">· {relativeDate(task.dueAt)}</span>}

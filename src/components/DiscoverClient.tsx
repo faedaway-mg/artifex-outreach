@@ -5,6 +5,7 @@ import { searchPlacesAction, saveLeadFromPlace } from "@/lib/actions";
 import { defaultCategories } from "@/lib/categories";
 import { CATEGORY_GROUPS } from "@/lib/types";
 import type { PlaceResult, PlacesSearchResult, PlacesMode } from "@/lib/providers/places";
+import { formatLocation } from "@/lib/utils";
 
 const ALL_CATS = defaultCategories();
 const CATEGORIES = ALL_CATS.map((c) => c.label);
@@ -157,7 +158,7 @@ export function DiscoverClient({ initialMode }: { initialMode: PlacesMode }) {
                     <tr key={r.googlePlaceId} className="border-b border-white/[0.04] last:border-0">
                       <td className="px-4 py-3">
                         <p className="font-medium text-chalk-100">{r.businessName}</p>
-                        <p className="text-xs text-chalk-500">{r.address || `${r.city}, ${r.state}`}</p>
+                        <p className="text-xs text-chalk-500">{r.address || formatLocation(r.city, r.state)}</p>
                       </td>
                       <td className="px-4 py-3">
                         <span className="flex items-center gap-1 text-chalk-200"><Star size={12} className="text-amber-400" /> {r.rating ?? "—"}</span>

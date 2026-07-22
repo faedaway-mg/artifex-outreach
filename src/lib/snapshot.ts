@@ -22,6 +22,7 @@ import {
 import { businessImprovementPotential, type BusinessImprovementPotential } from "./improvement";
 import type { WebsiteSignals } from "./scoring";
 import { detectPresence, type DigitalPresence, type PresenceProfile } from "./presence";
+import { formatLocation, deslug } from "./utils";
 import { openingConversation, type OpeningConversation } from "./conversation-engine";
 
 export interface SnapshotObservation {
@@ -112,11 +113,12 @@ export function buildSnapshot(
   const reviews = lead.reviewCount ?? 0;
   const rating = lead.rating ?? 0;
   const multiLocation = (lead.locationsCount ?? 1) > 1;
+  const loc = formatLocation(lead.city, lead.state);
 
   const context = {
     industry: lead.industry,
     likelyCustomerTypes: likelyCustomers(lead),
-    serviceArea: multiLocation ? `${lead.city}, ${lead.state} and ${lead.locationsCount} locations` : `${lead.city}, ${lead.state}`,
+    serviceArea: multiLocation ? `${loc || "Service area"} and ${lead.locationsCount} locations` : (loc || "Local service area"),
     apparentStage: reviews >= 150 ? "Established, high-volume" : reviews >= 40 ? "Established" : "Earlier-stage or lower public footprint",
     reputationSignal: rating >= 4.5 ? `Strong (${rating}★, ${reviews} reviews)` : rating >= 4 ? `Solid (${rating}★)` : rating ? `Mixed (${rating}★)` : "No public rating",
     visibleChannels: visibleChannels(lead),
@@ -203,8 +205,9 @@ function strengths(lead: Lead): string[] {
   if ((lead.rating ?? 0) >= 4.5 && (lead.reviewCount ?? 0) > 40)
     out.push(`Excellent reputation (${lead.rating}★ across ${lead.reviewCount} reviews) — a real asset to build on.`);
   else if ((lead.rating ?? 0) >= 4) out.push(`Solid public reputation (${lead.rating}★).`);
-  out.push(`Established presence in ${lead.city}, ${lead.state}.`);
-  out.push(`Clear specialization as a ${lead.industry.toLowerCase()}.`);
+  const presenceLoc = formatLocation(lead.city, lead.state);
+  out.push(presenceLoc ? `Established presence in ${presenceLoc}.` : "Established local presence.");
+  out.push(`Clear specialization as a ${deslug(lead.industry.toLowerCase())}.`);
   if (lead.website) out.push("Already invests in a web presence to build from.");
   return out.slice(0, 4);
 }

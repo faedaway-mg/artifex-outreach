@@ -11,7 +11,7 @@ import {
 } from "@/lib/repo";
 import { updateMeetingNotesAction } from "@/lib/actions";
 import { MeetingOutcome } from "@/components/lead/MeetingOutcome";
-import { formatRange, shortDate, timeOfDay } from "@/lib/utils";
+import { formatRange, shortDate, timeOfDay, joinMeta, formatLocation, deslug } from "@/lib/utils";
 import { ArrowLeft, HelpCircle, ShieldAlert } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -45,7 +45,7 @@ export default async function MeetingPage({ params }: { params: { id: string } }
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h1 className="text-2xl font-semibold text-chalk-50">{lead.businessName}</h1>
-            <p className="mt-1 text-sm text-chalk-400">{lead.industry} · {lead.city}, {lead.state}</p>
+            <p className="mt-1 text-sm text-chalk-400">{joinMeta(deslug(lead.industry), formatLocation(lead.city, lead.state))}</p>
             <p className="mt-2 text-sm text-amber-300">{shortDate(meeting.scheduledAt)} · {timeOfDay(meeting.scheduledAt)}</p>
           </div>
           <div className="text-right text-sm">

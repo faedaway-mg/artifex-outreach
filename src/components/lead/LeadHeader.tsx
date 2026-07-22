@@ -8,6 +8,7 @@ import { TierBadge } from "@/components/ui";
 import { JourneyBadge } from "@/components/JourneyBadge";
 import { LeadSubNav } from "@/components/lead/LeadSubNav";
 import { journeyPhaseOf } from "@/lib/journey";
+import { joinMeta, formatLocation, deslug } from "@/lib/utils";
 
 export function LeadHeader({ lead }: { lead: Lead }) {
   return (
@@ -22,7 +23,7 @@ export function LeadHeader({ lead }: { lead: Lead }) {
           <JourneyBadge phase={journeyPhaseOf(lead)} showMotion />
         </div>
         <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-chalk-500">
-          <span>{lead.industry} · {lead.city}, {lead.state}</span>
+          <span>{joinMeta(deslug(lead.industry), formatLocation(lead.city, lead.state))}</span>
           {lead.websiteDomain && (
             <a href={lead.website ?? "#"} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 hover:text-azure-300"><Globe size={12} /> {lead.websiteDomain}</a>
           )}

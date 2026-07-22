@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { allMeetings, listLeads } from "@/lib/repo";
 import { EmptyState } from "@/components/ui";
-import { shortDate, timeOfDay } from "@/lib/utils";
+import { shortDate, timeOfDay, joinMeta, formatLocation, deslug } from "@/lib/utils";
 import { CalendarClock } from "lucide-react";
 import type { Meeting, Lead } from "@/lib/types";
 
@@ -44,7 +44,7 @@ function Group({ title, items, leadMap }: { title: string; items: Meeting[]; lea
             <Link key={m.id} href={`/meetings/${m.id}`} className="card card-hover flex items-center justify-between p-4">
               <div>
                 <p className="font-medium text-chalk-100">{lead?.businessName ?? "Unknown"}</p>
-                <p className="text-xs text-chalk-500">{lead?.industry} · {lead?.city}, {lead?.state}</p>
+                <p className="text-xs text-chalk-500">{joinMeta(deslug(lead?.industry), formatLocation(lead?.city, lead?.state))}</p>
               </div>
               <div className="flex items-center gap-4">
                 <span className="text-xs capitalize text-chalk-500">{m.outcome.replace("_", " ")}</span>

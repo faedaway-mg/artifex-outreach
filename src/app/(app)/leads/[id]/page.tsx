@@ -43,7 +43,7 @@ import { EvolutionTimeline } from "@/components/lead/EvolutionTimeline";
 import { LeadSubNav } from "@/components/lead/LeadSubNav";
 import { JourneyBadge } from "@/components/JourneyBadge";
 import { journeyPhaseOf } from "@/lib/journey";
-import { formatRange } from "@/lib/utils";
+import { formatRange, joinMeta, formatLocation, deslug } from "@/lib/utils";
 import { ArrowLeft, Globe, Phone, Mail, MapPin, Star, ExternalLink, Compass } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -93,7 +93,7 @@ export default async function LeadPage({ params }: { params: { id: string } }) {
               <JourneyBadge phase={journeyPhaseOf(lead)} showMotion />
             </div>
             <p className="mt-1 text-sm text-chalk-400">
-              {lead.industry} · {lead.city}, {lead.state}
+              {joinMeta(deslug(lead.industry), formatLocation(lead.city, lead.state))}
             </p>
             <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-sm text-chalk-400">
               {lead.website && (

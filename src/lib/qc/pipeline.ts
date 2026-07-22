@@ -15,6 +15,7 @@ import type { DeliverableContent, Lead, Settings, Screenshot, DeliverableType, A
 import type { QcReport, QcCheckResult } from "./types";
 import { ALL_CHECKS, type QcInput } from "./checks";
 import { COMMON_MISSPELLINGS } from "./text";
+import { formatLocation } from "../utils";
 import { buildInvestmentModel } from "../investment";
 
 export interface QcContext {
@@ -81,7 +82,8 @@ export function repairContent(content: DeliverableContent, ctx: QcContext): Deli
 
   // 3. Structural fixes.
   if (!c.cover.subtitle?.trim()) c.cover.subtitle = "Business Technology Review";
-  c.strengths = clampList(c.strengths, 8, [`Established presence in ${ctx.lead.city}, ${ctx.lead.state}.`]);
+  const presenceLoc = formatLocation(ctx.lead.city, ctx.lead.state);
+  c.strengths = clampList(c.strengths, 8, [presenceLoc ? `Established presence in ${presenceLoc}.` : "Established local presence."]);
   c.modernizationPath.components = clampList(c.modernizationPath.components, 8, ["A focused first improvement"]);
   c.customerJourney.currentState = clampList(c.customerJourney.currentState, 6, ["A prospective customer finds the business online"]);
   c.customerJourney.futureState = clampList(c.customerJourney.futureState, 6, ["A clear next step guides them to make contact"]);

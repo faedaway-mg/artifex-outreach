@@ -14,6 +14,7 @@ import React from "react";
 import { Document, Page, Text, View, Svg, Path, Circle } from "@react-pdf/renderer";
 import type { Lead, Deliverable, Settings } from "@/lib/types";
 import { ARTIFEX_IDENTITY } from "@/lib/identity";
+import { deslug } from "@/lib/utils";
 import {
   color, space, radius, type,
   Row, Eyebrow, Title, Label, Caption,
@@ -67,7 +68,7 @@ function Cover({ lead, subtitle, confidentiality, dateStr }: { lead: Lead; subti
           <Row style={{ alignItems: "center", gap: 7 }}>
             <Icon name="mapPin" size={13} color={color.accentSoft} strokeWidth={1.8} />
             <Text style={[type.subtitle, { color: color.onInkBody }]}>
-              {[lead.industry, [lead.city, lead.state].filter(Boolean).join(", ")].filter(Boolean).join("  ·  ")}
+              {[deslug(lead.industry), [lead.city, lead.state].filter(Boolean).join(", ")].filter(Boolean).join("  ·  ")}
             </Text>
           </Row>
           <View style={{ height: 22 }} />
@@ -133,7 +134,7 @@ function ExecutiveSummary({ lead, c, footerNote, index }: { lead: Lead; c: Deliv
             )}
             <View style={{ width: 0.75, height: 40, backgroundColor: color.hairline, marginHorizontal: space.lg }} />
             <View style={{ flex: 1.4 }}>
-              <Text style={[type.h3, { color: color.textPrimary }]}>{lead.industry}</Text>
+              <Text style={[type.h3, { color: color.textPrimary }]}>{deslug(lead.industry)}</Text>
               <Label style={{ marginTop: 5 }}>{[lead.city, lead.state].filter(Boolean).join(", ")}</Label>
             </View>
           </Row>
