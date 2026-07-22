@@ -154,6 +154,37 @@ to a `ConversationRecord { transcript?; summary; actionItems[]; decisions[];
 openQuestions[]; concerns[]; opportunities[] }` that feeds **Relationship Memory** —
 never provider-specific logic in the UI, never raw transcripts dumped on screen.
 
+## Phase V — Relationship Memory (built this phase — the first PERSISTENT layer)
+
+Real persistence, not a generator. Migration `0013` adds `relationship_memory`
+(id, leadId, category, title, value, status, confidence, source,
+supportingContext, operatorNotes, timestamps), with repo functions
+(`memoryForLead`/`insertMemoryItem`/`updateMemoryItem`/`deleteMemoryItem`,
+dual-backend), server actions (`src/lib/memory-actions.ts`), and a calm
+knowledge-base UI (`RelationshipMemory`) on `/leads/[id]/relationship`.
+
+- **Model** — 11 categories (Decision Makers, Business Goals, Current Priorities,
+  Known Constraints, Existing Systems, Communication Style, Business Philosophy,
+  Preferred Follow-up Style, Important Dates, Open Questions, Previous Decisions);
+  each item is independently editable, never one summary blob.
+- **Provenance + confidence** — every item carries a `source` (Discovery Meeting /
+  Operator Note / Business Technology Review / Public Website / Email Conversation
+  / Manual Confirmation) and `confidence` (High/Medium/Low). "Why do we believe
+  this?" is always answerable.
+- **Knowledge is earned** — nothing auto-promotes. A discovery starts **Proposed**;
+  only an explicit **Manual Confirmation** starts Verified. The operator verifies,
+  supersedes, or resolves by hand. (Tested: 6 cases incl. the no-auto-promote rule.)
+- **Promote workflow** — a "Promote a discovery to memory" form turns a note into a
+  structured, provenance-carrying item.
+
+**Clearly still architected (NOT built this phase):** the live Meeting Workspace
+(interactive notes → Review Queue → promote), memory *timeline event types*
+(Memory Added/Verified/Updated/Resolved — the model exists; wiring into
+`collectTimeline` is next), opportunity-stage persistence (needs a stage store),
+`buildProposalDraft` (the memory model is now its foundation — recommendations can
+cite verified memory items), and the capture-provider interface. These write into
+Meeting Notes → Review Queue → Relationship Memory, never directly into memory.
+
 ## The end-to-end spine
 Lead → Review → Email (voice + quality gated) → Reply/stop → Booking → Discovery
 (workspace + prep brief) → Conversation (capture) → Proposal (from captured

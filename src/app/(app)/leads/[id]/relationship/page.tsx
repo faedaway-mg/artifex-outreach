@@ -27,9 +27,11 @@ import {
   inboundForLead,
   previewsForLead,
   findingsForLead,
+  memoryForLead,
 } from "@/lib/repo";
 import { collectTimeline } from "@/lib/acquisition/timeline";
 import { LeadHeader } from "@/components/lead/LeadHeader";
+import { RelationshipMemory } from "@/components/lead/RelationshipMemory";
 import { EvolutionTimeline } from "@/components/lead/EvolutionTimeline";
 import { JourneyBadge } from "@/components/JourneyBadge";
 import { journeyPhaseOf, JOURNEY_META } from "@/lib/journey";
@@ -96,6 +98,7 @@ export default async function RelationshipOverviewPage({
     inbound,
     previews,
     findings,
+    memory,
   ] = await Promise.all([
     getBusinessIntelligence(lead.id),
     plansForLead(lead.id),
@@ -107,6 +110,7 @@ export default async function RelationshipOverviewPage({
     inboundForLead(lead.id),
     previewsForLead(lead.id),
     findingsForLead(lead.id),
+    memoryForLead(lead.id),
   ]);
 
   const p = bi?.profile;
@@ -177,6 +181,9 @@ export default async function RelationshipOverviewPage({
   return (
     <div className="space-y-6">
       <LeadHeader lead={lead} />
+
+      {/* Relationship Memory — the persistent understanding of this business */}
+      <RelationshipMemory items={memory} leadId={lead.id} />
 
       <div className="grid gap-6 lg:grid-cols-3">
         {/* ── Main column: history-heavy ──────────────────────────────────── */}
