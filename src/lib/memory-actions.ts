@@ -15,6 +15,8 @@ function touch(leadId: string) {
   revalidatePath(`/leads/${leadId}`);
   revalidatePath(`/leads/${leadId}/relationship`);
   revalidatePath(`/leads/${leadId}/discovery`);
+  revalidatePath(`/leads/${leadId}/reasoning`);
+  revalidatePath(`/leads/${leadId}/meeting`);
 }
 const asCategory = (v: unknown): MemoryCategory => (MEMORY_CATEGORIES as readonly string[]).includes(String(v)) ? (v as MemoryCategory) : "Open Questions";
 const asConfidence = (v: unknown): MemoryConfidence => (MEMORY_CONFIDENCES as readonly string[]).includes(String(v)) ? (v as MemoryConfidence) : "Medium";

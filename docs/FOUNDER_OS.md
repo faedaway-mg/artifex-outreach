@@ -231,6 +231,58 @@ it come alive *during* the conversation.
 - *Capture-provider interface* (Fathom/Fireflies/Teams) unchanged from Phase V —
   notes are typed by the operator; no transcript ingestion is fabricated.
 
+## Phase VII — Relationship Reasoning (built this phase)
+
+Memory stores facts; this phase *connects* them. A deterministic reasoning layer in
+`src/lib/reasoning/` that never fabricates, never overstates, and cites its evidence
+for every conclusion. `buildReasoning(memories, ctx, now)` returns the whole read.
+
+- **Confidence engine** (`confidence.ts`) — measured, never invented. Score from
+  five transparent factors (count · verification · operator confirmation · agreement ·
+  recency), each explained in one line. A single unverified observation can never
+  reach High. Superseded/Resolved memories stop supporting a claim. `now` is passed
+  in for determinism.
+- **Reasoning engine** (`engine.ts`) — pattern rules that fire only when the
+  supporting memories exist (manual-scheduling, capacity-bound growth, integration-
+  over-replacement, values-resist-recurring, relationships-carry-work). Every
+  inference cites ≥2 memory ids; confidence is scored from that same evidence.
+- **Business narrative** (`narrative.ts`) — a living account ("Over the last three
+  conversations we've learned…"), eight sections (Current State / Goals / Constraints
+  / Systems / People / Risks / Opportunities / Unknowns), each linking to its
+  memories, naming gaps as Unknowns. Voice-clean (asserted against the voice engine).
+- **Contradiction detection** (`contradiction.ts`) — flags opposite polarity on a
+  shared topic (handles negated problems) and rival named decision-makers. Never
+  auto-resolves; asks the operator which stands.
+- **Opportunity graph** (`opportunity-graph.ts`) — cause→effect chains rooted in a
+  grounded inference; downstream nodes marked "observed" vs "projected" honestly.
+- **Relationship health** (`health.ts`) — seven evidence-explained milestones, no
+  arbitrary scores.
+- **Proposal intelligence** (`proposal.ts`) — `reasonedRecommendations` carry
+  evidence, related inference, observed impact, expected outcome, dependencies,
+  effort, and confidence.
+- **Adaptive follow-up** (`follow-up.ts`) — natural, memory-grounded opening lines
+  ("You mentioned…"), only from confirmed memory, never "our system detected".
+
+- **Strategist surface** — `/leads/[id]/reasoning` + `StrategistView`. Renders the
+  full read with an **EvidenceTrail** on every claim (open it to see the exact
+  memories, when learned, who confirmed, confidence factors — click backward through
+  the reasoning). Contradictions resolve inline via the existing
+  `setMemoryStatusAction` (operator supersedes). New "Strategist" sub-nav tab.
+  Tested: 24 cases (confidence bounds, no-evidence→no-inference, citation integrity,
+  contradiction flag-not-resolve, voice-clean narrative, empty-business honesty).
+
+**Clearly still future work (NOT built this phase):**
+- *Reasoning → the actual proposal document* — `reasonedRecommendations` is the
+  reasoning object; rendering it into the Business Technology Review PDF (with the
+  citation chain) still reuses/extends the existing PDF pipeline and is not wired.
+- *Follow-up references → the live email generator* — `memoryReferences` produces
+  the grounded lines; they're surfaced on the Strategist page but not yet auto-woven
+  into `content.ts`/the send pipeline.
+- *Persisted reasoning history* — reasoning is recomputed per view (deterministic);
+  a stored `memory_events`/inference-history stream (Phase VI item) is still pending.
+- *Opportunity-stage persistence* — chain nodes are derived, not yet a stored
+  lifecycle (Observed→…→Measured).
+
 ## The end-to-end spine
 Lead → Review → Email (voice + quality gated) → Reply/stop → Booking → Discovery
 (workspace + prep brief) → Conversation (capture) → Proposal (from captured

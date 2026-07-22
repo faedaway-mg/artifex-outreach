@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BookOpen, Compass, HeartHandshake, MessagesSquare, Radio } from "lucide-react";
+import { BookOpen, Compass, HeartHandshake, MessagesSquare, Radio, Brain } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export function LeadSubNav({ id }: { id: string }) {
@@ -11,6 +11,7 @@ export function LeadSubNav({ id }: { id: string }) {
     { href: base, label: "Understand", icon: BookOpen },
     { href: `${base}/discovery`, label: "Discovery", icon: Compass },
     { href: `${base}/meeting`, label: "Meeting", icon: Radio },
+    { href: `${base}/reasoning`, label: "Strategist", icon: Brain },
     { href: `${base}/relationship`, label: "Relationship", icon: HeartHandshake },
     { href: `/conversation/${id}`, label: "Conversation", icon: MessagesSquare },
   ];
