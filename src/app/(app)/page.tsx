@@ -11,10 +11,12 @@ import { JourneyBadge } from "@/components/JourneyBadge";
 import { TaskActions } from "@/components/TaskActions";
 import { TodayControls } from "@/components/TodayControls";
 import { MorningWarming } from "@/components/MorningWarming";
+import { TodaysFocus } from "@/components/TodaysFocus";
+import { decideTodaysFocus } from "@/lib/today";
 import { formatCurrency, relativeDate, timeOfDay, shortDate, joinMeta, formatLocation, deslug } from "@/lib/utils";
 import {
-  Video, Mail, Phone, CalendarClock, FileText, ArrowRight, Sunrise, AlertTriangle, Clock, Brain,
-  Sparkles, Compass, AlertCircle, GitBranch, HeartHandshake, RotateCcw, ClipboardCheck, Lightbulb,
+  Video, Mail, Phone, CalendarClock, FileText, ArrowRight, AlertTriangle, Clock, Brain,
+  Sparkles, Compass, AlertCircle, GitBranch, HeartHandshake, RotateCcw, ClipboardCheck, Lightbulb, ChevronRight,
 } from "lucide-react";
 import type { TaskType, Lead, StoredBusinessIntelligence } from "@/lib/types";
 
@@ -89,7 +91,7 @@ export default async function TodayPage() {
     { label: "Analyzed today", count: analyzedToday, meaning: "New businesses understood since this morning", href: "/discover", icon: Brain, tone: "text-azure-300" },
   ];
 
-  const greeting = now.getHours() < 12 ? "Good morning" : now.getHours() < 18 ? "Good afternoon" : "Good evening";
+  const dateLabel = now.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
 
   // Today's queue, deduped, with intelligence-readiness for morning warming.
   const seenQueue = new Set<string>();
@@ -99,167 +101,153 @@ export default async function TodayPage() {
     if (l && !seenQueue.has(l.id)) { seenQueue.add(l.id); todaysBusinesses.push({ id: l.id, name: l.businessName, warm: biByLead.has(l.id) }); }
   }
 
+  // ── The one decision — the system has already chosen what to do next ─────────
+  const focus = decideTodaysFocus({
+    tasks,
+    leads: leadMap,
+    meetingsToday: meetingsToday.map((m) => ({ leadId: m.leadId, scheduledAt: m.scheduledAt })),
+    now,
+  });
+
+  const revenueWon = proposals.filter((p) => p.status === "accepted").reduce((s, p) => s + (p.amount ?? 0), 0);
+
   return (
-    <div className="space-y-8">
-      {/* Daily focus header — attention, not pipeline value */}
-      <section className="card relative overflow-hidden p-6 md:p-7">
-        <div className="pointer-events-none absolute -right-10 -top-16 h-48 w-48 rounded-full bg-azure-500/10 blur-3xl" />
-        <div className="pointer-events-none absolute -left-8 bottom-0 h-32 w-40 rounded-full bg-indigo-500/[0.07] blur-3xl" />
-        <div className="relative flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <p className="eyebrow flex items-center gap-1.5"><Sunrise size={13} /> {now.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}</p>
-            <h1 className="mt-2 text-[1.9rem] font-semibold leading-tight tracking-[-0.02em] text-chalk-50">{greeting}, Jordan.</h1>
-            <p className="mt-1.5 max-w-xl text-sm leading-relaxed text-chalk-300">
-              {tasks.length > 0
-                ? <>{tasks.length} {tasks.length === 1 ? "business" : "businesses"} could use your attention today — to understand, prepare for, or move forward thoughtfully.</>
-                : "Nothing needs your attention right now. A calm moment to understand a few new businesses."}
-            </p>
-          </div>
-          <div className="flex shrink-0 items-center gap-5 rounded-2xl border border-white/[0.06] bg-white/[0.02] px-5 py-4">
-            <div>
-              <p className="text-[11px] text-chalk-500">Opportunity score</p>
-              <p className="mt-0.5 text-metric-lg font-semibold tracking-tight text-teal-300">{om.businessOpportunityScore ?? "—"}<span className="text-sm font-normal text-chalk-500">/100</span></p>
+    <div className="space-y-6">
+      {/* THE single next action — nothing competes with it */}
+      <TodaysFocus focus={focus} dateLabel={dateLabel} />
+
+      {/* Everything else — deferred, never competing. Open it only if you want it. */}
+      <details id="everything" className="group">
+        <summary className="flex cursor-pointer list-none items-center justify-center gap-1.5 rounded-xl border border-white/[0.06] bg-white/[0.02] py-2.5 text-[12.5px] text-chalk-400 transition-colors hover:text-chalk-200">
+          <ChevronRight size={13} className="transition-transform group-open:rotate-90" />
+          Everything else today
+          {tasks.length > 0 && <span className="text-chalk-600">· {tasks.length} in the queue</span>}
+        </summary>
+
+        <div className="mt-5 space-y-8">
+          {/* Background: warm today's intelligence so nothing is a cold start */}
+          {todaysBusinesses.length > 0 && <MorningWarming businesses={todaysBusinesses} />}
+
+          {/* Discovery unavailable banner (production, no key) */}
+          {discoveryMode === "disabled" && (
+            <div className="card border-coral-500/25 bg-coral-500/[0.04] p-4">
+              <p className="flex items-center gap-2 text-sm text-coral-200">
+                <AlertTriangle size={16} /> Automatic discovery is unavailable — no Google Places key configured. Your existing work is preserved; add businesses manually from Discover.
+              </p>
             </div>
-            <div className="h-10 w-px bg-white/[0.08]" />
-            <div>
-              <p className="text-[11px] text-chalk-500">Ready to talk</p>
-              <p className="mt-0.5 flex items-baseline gap-1 text-metric-lg font-semibold tracking-tight text-chalk-50">{om.readyForConversation}<span className="text-sm font-normal text-chalk-500">businesses</span></p>
+          )}
+
+          {/* The rest of today's queue */}
+          <section>
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h2 className="flex items-center gap-2 text-sm font-semibold text-chalk-200"><Compass size={15} className="text-azure-300" /> Businesses to work with today</h2>
+                <p className="mt-0.5 flex items-center gap-1.5 text-[11px] text-chalk-500">
+                  <Clock size={11} /> {tasks.length} of {queueSize} · next auto-discovery {nextRun.relative}
+                </p>
+              </div>
+              <TodayControls atCapacity={atCapacity} />
             </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Morning intelligence warming — no cold start */}
-      {todaysBusinesses.length > 0 && <MorningWarming businesses={todaysBusinesses} />}
-
-      {/* Attention grid — what deserves my attention today? */}
-      <section>
-        <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-chalk-200"><Sparkles size={15} className="text-azure-300" /> What deserves my attention today?</h2>
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-          {attention.map((a) => {
-            const Icon = a.icon;
-            return (
-              <Link key={a.label} href={a.href} className="card card-hover p-4">
-                <div className="flex items-start justify-between">
-                  <Icon size={15} className={a.count > 0 ? a.tone : "text-chalk-600"} />
-                  <span className={`text-xl font-semibold tabular-nums ${a.count > 0 ? "text-chalk-50" : "text-chalk-600"}`}>{a.count}</span>
-                </div>
-                <p className="mt-2 text-xs font-medium text-chalk-200">{a.label}</p>
-                <p className="mt-0.5 text-[11px] leading-snug text-chalk-500">{a.meaning}</p>
-              </Link>
-            );
-          })}
-        </div>
-      </section>
-
-      {/* Learning insight (from concentration advisories) */}
-      {advisories[0] && (
-        <div className="card flex items-start gap-2.5 border-indigo-400/20 bg-indigo-400/[0.03] p-4">
-          <Lightbulb size={15} className="mt-0.5 shrink-0 text-indigo-300" />
-          <div>
-            <p className="text-[11px] font-medium uppercase tracking-wide text-chalk-500">What we're learning</p>
-            <p className="mt-0.5 text-sm text-chalk-300">{advisories[0]}</p>
-          </div>
-        </div>
-      )}
-
-      {/* Discovery unavailable banner (production, no key) */}
-      {discoveryMode === "disabled" && (
-        <div className="card border-coral-500/25 bg-coral-500/[0.04] p-4">
-          <p className="flex items-center gap-2 text-sm text-coral-200">
-            <AlertTriangle size={16} /> Automatic discovery is unavailable — no Google Places key configured. Your existing work is preserved; add businesses manually from Discover.
-          </p>
-        </div>
-      )}
-
-      {/* Attention queue — the businesses themselves */}
-      <section>
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h2 className="flex items-center gap-2 text-sm font-semibold text-chalk-200"><Compass size={15} className="text-azure-300" /> Businesses to work with today</h2>
-            <p className="mt-0.5 flex items-center gap-1.5 text-[11px] text-chalk-500">
-              <Clock size={11} /> {tasks.length} of {queueSize} · next auto-discovery {nextRun.relative}
-            </p>
-          </div>
-          <TodayControls atCapacity={atCapacity} />
-        </div>
-        {tasks.length === 0 ? (
-          <EmptyState icon={Sparkles} title="You're all caught up." hint="Ask Artifex to research and understand a few new businesses, or open Discover to search manually." />
-        ) : (
-          <div className="space-y-3">
-            {tasks.map((task, idx) => {
-              const lead = leadMap.get(task.leadId);
-              if (!lead) return null;
-              const meta = TASK_META[task.type];
-              const Icon = meta.icon;
-              const score = oppScoreOf(lead);
-              return (
-                <div key={task.id} className="card card-hover p-5 animate-fade-up" style={{ animationDelay: `${Math.min(idx * 45, 300)}ms` }}>
-                  <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <Link href={`/leads/${lead.id}`} className="truncate text-[15px] font-semibold text-chalk-50 ring-focus hover:text-azure-300">{lead.businessName}</Link>
-                        <TierBadge tier={lead.tier} />
-                        <JourneyBadge phase={journeyPhaseOf(lead)} />
-                      </div>
-                      <p className="mt-1 text-xs text-chalk-500">{joinMeta(deslug(lead.industry), formatLocation(lead.city, lead.state))}</p>
-                      <p className={`mt-2.5 flex items-center gap-1.5 text-xs font-medium ${meta.tone}`}>
-                        <Icon size={13} /> {meta.label}
-                        {task.type === "follow_up" && <span className="text-chalk-500">· {relativeDate(task.dueAt)}</span>}
-                      </p>
-                      {lead.recommendationReason && <p className="mt-1.5 max-w-2xl text-sm leading-relaxed text-chalk-300">{lead.recommendationReason}</p>}
-                      <div className="mt-2.5 flex flex-wrap items-center gap-x-5 gap-y-1 text-xs text-chalk-500">
-                        <span className="inline-flex items-center gap-1.5">Opportunity <span className="font-mono font-semibold text-teal-300/90">{score}</span><span className="text-chalk-600">/100</span></span>
-                        {lead.recommendedService && <span>Likely fit · <span className="text-chalk-300">{lead.recommendedService}</span></span>}
-                        {lead.nextFollowUpAt && <span>Next · {shortDate(lead.nextFollowUpAt)}</span>}
+            {tasks.length === 0 ? (
+              <EmptyState icon={Sparkles} title="You're all caught up." hint="Ask Artifex to research and understand a few new businesses, or open Discover to search manually." />
+            ) : (
+              <div className="space-y-3">
+                {tasks.map((task) => {
+                  const lead = leadMap.get(task.leadId);
+                  if (!lead) return null;
+                  const meta = TASK_META[task.type];
+                  const Icon = meta.icon;
+                  return (
+                    <div key={task.id} className="card p-4">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Link href={`/leads/${lead.id}`} className="truncate text-sm font-semibold text-chalk-50 ring-focus hover:text-azure-300">{lead.businessName}</Link>
+                            <JourneyBadge phase={journeyPhaseOf(lead)} />
+                          </div>
+                          <p className={`mt-1 flex items-center gap-1.5 text-xs font-medium ${meta.tone}`}>
+                            <Icon size={13} /> {meta.label}
+                            {task.type === "follow_up" && <span className="text-chalk-500">· {relativeDate(task.dueAt)}</span>}
+                          </p>
+                        </div>
+                        <div className="shrink-0">
+                          <TaskActions task={task} leadId={lead.id} primaryLabel={meta.primary} />
+                        </div>
                       </div>
                     </div>
-                    <div className="shrink-0 flex flex-col items-end gap-2">
-                      <TaskActions task={task} leadId={lead.id} primaryLabel={meta.primary} />
-                      <Link href={`/leads/${lead.id}/discovery`} className="text-[11px] text-chalk-500 hover:text-azure-300">Prepare discovery →</Link>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+
+          {/* Meetings today */}
+          {meetingsToday.length > 0 && (
+            <section>
+              <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-chalk-200"><CalendarClock size={15} className="text-teal-300" /> Discovery conversations today</h2>
+              <div className="space-y-2">
+                {meetingsToday.map((m) => {
+                  const lead = leadMap.get(m.leadId);
+                  return (
+                    <div key={m.id} className="card flex items-center justify-between p-4">
+                      <div className="min-w-0">
+                        <Link href={`/leads/${m.leadId}`} className="font-medium text-chalk-100 hover:text-azure-300">{lead?.businessName}</Link>
+                        <p className="text-xs text-chalk-500">{lead?.industry}</p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Link href={`/conversation/${m.leadId}`} className="btn-secondary !px-3 !py-1.5 text-xs">Conversation mode</Link>
+                        <span className="flex items-center gap-2 rounded-lg border border-teal-400/20 bg-teal-400/10 px-3 py-1.5 text-sm text-teal-300"><CalendarClock size={15} /> {timeOfDay(m.scheduledAt)}</span>
+                      </div>
                     </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </section>
+                  );
+                })}
+              </div>
+            </section>
+          )}
 
-      {/* Meetings today */}
-      {meetingsToday.length > 0 && (
-        <section>
-          <h2 className="mb-4 flex items-center gap-2 text-sm font-semibold text-chalk-200"><CalendarClock size={15} className="text-teal-300" /> Discovery conversations today</h2>
-          <div className="space-y-2">
-            {meetingsToday.map((m) => {
-              const lead = leadMap.get(m.leadId);
-              return (
-                <div key={m.id} className="card card-hover flex items-center justify-between p-4">
-                  <div className="min-w-0">
-                    <Link href={`/leads/${m.leadId}`} className="font-medium text-chalk-100 hover:text-azure-300">{lead?.businessName}</Link>
-                    <p className="text-xs text-chalk-500">{lead?.industry}</p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Link href={`/conversation/${m.leadId}`} className="btn-secondary !px-3 !py-1.5 text-xs">Conversation mode</Link>
-                    <span className="flex items-center gap-2 rounded-lg border border-teal-400/20 bg-teal-400/10 px-3 py-1.5 text-sm text-teal-300"><CalendarClock size={15} /> {timeOfDay(m.scheduledAt)}</span>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </section>
-      )}
+          {/* What deserves attention — the fuller picture, on request */}
+          <section>
+            <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-chalk-200"><Sparkles size={15} className="text-azure-300" /> The fuller picture</h2>
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+              {attention.filter((a) => a.count > 0).map((a) => {
+                const Icon = a.icon;
+                return (
+                  <Link key={a.label} href={a.href} className="card card-hover p-4">
+                    <div className="flex items-start justify-between">
+                      <Icon size={15} className={a.tone} />
+                      <span className="text-xl font-semibold tabular-nums text-chalk-50">{a.count}</span>
+                    </div>
+                    <p className="mt-2 text-xs font-medium text-chalk-200">{a.label}</p>
+                    <p className="mt-0.5 text-[11px] leading-snug text-chalk-500">{a.meaning}</p>
+                  </Link>
+                );
+              })}
+            </div>
+          </section>
 
-      {/* Revenue — present but intentionally low in the hierarchy */}
-      <section className="border-t border-white/[0.05] pt-5">
-        <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-chalk-600">Commercial context</p>
-        <div className="flex flex-wrap gap-x-8 gap-y-2 text-sm text-chalk-500">
-          <span>Revenue won · <span className="text-chalk-300">{formatCurrency(proposals.filter((p) => p.status === "accepted").reduce((s, p) => s + (p.amount ?? 0), 0))}</span></span>
-          <span>Partnerships · <span className="text-chalk-300">{partnerships}</span></span>
-          <span>Relationship potential · <span className="text-chalk-300">{om.relationshipPotential ?? "—"}%</span></span>
-          <span>Ready for partnership · <span className="text-chalk-300">{om.readyForPartnership}</span></span>
+          {/* Learning insight */}
+          {advisories[0] && (
+            <div className="card flex items-start gap-2.5 border-indigo-400/20 bg-indigo-400/[0.03] p-4">
+              <Lightbulb size={15} className="mt-0.5 shrink-0 text-indigo-300" />
+              <div>
+                <p className="text-[11px] font-medium uppercase tracking-wide text-chalk-500">What we're learning</p>
+                <p className="mt-0.5 text-sm text-chalk-300">{advisories[0]}</p>
+              </div>
+            </div>
+          )}
+
+          {/* Commercial context — lowest in the hierarchy */}
+          <section className="border-t border-white/[0.05] pt-5">
+            <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-chalk-600">Commercial context</p>
+            <div className="flex flex-wrap gap-x-8 gap-y-2 text-sm text-chalk-500">
+              <span>Revenue won · <span className="text-chalk-300">{formatCurrency(revenueWon)}</span></span>
+              <span>Partnerships · <span className="text-chalk-300">{partnerships}</span></span>
+              <span>Opportunity score · <span className="text-chalk-300">{om.businessOpportunityScore ?? "—"}/100</span></span>
+              <span>Ready to talk · <span className="text-chalk-300">{om.readyForConversation}</span></span>
+            </div>
+          </section>
         </div>
-      </section>
+      </details>
     </div>
   );
 }
