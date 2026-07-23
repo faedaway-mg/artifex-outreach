@@ -72,6 +72,19 @@ describe("outreach v2 — kit", () => {
     expect(kit.email.wordCount).toBeGreaterThan(50);
   });
 
+  it("the generated email passes the authenticity evaluator", async () => {
+    const { scoreAuthenticity } = await import("./authenticity");
+    const s = scoreAuthenticity(kit.email);
+    expect(s.pass).toBe(true);
+  });
+
+  it("two different businesses don't get an identical email (variation, not a template)", () => {
+    const dm = inferDecisionMakers(lead, []);
+    const a = buildOutreachEmail({ ...lead, id: "lead_aaa", businessName: "Studio Smiles" } as Lead, profile, dm, settings);
+    const b = buildOutreachEmail({ ...lead, id: "lead_bbb", businessName: "Bright Dental Co" } as Lead, profile, dm, settings);
+    expect(a.body).not.toBe(b.body);
+  });
+
   it("subject lines are conversational, specific, and not clickbait", () => {
     const subs = buildSubjectLines(lead, profile);
     expect(subs.length).toBeGreaterThanOrEqual(3);

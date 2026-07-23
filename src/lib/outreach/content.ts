@@ -11,6 +11,7 @@ import type { OutreachEmail, VideoScript, DecisionMakerIntelligence } from "./ty
 import { complianceFooter } from "../communication-guide";
 import { openingConversation } from "../conversation-engine";
 import { audienceNoun, tradeNoun, addressName, topOpportunities, noticed, trimNoticed, uniqueNoticed, pick, estimateSpeakingSeconds } from "./voice";
+import { scoreAuthenticity } from "./authenticity";
 
 function singular(noun: string): string {
   return noun.endsWith("s") ? noun.slice(0, -1) : noun;
@@ -68,27 +69,45 @@ export function buildOutreachEmail(lead: Lead, profile: BusinessProfile, dm: Dec
   const phrases = uniqueNoticed(topOpportunities(profile, 3).map((o) => trimNoticed(noticed(o, audience))))
     .filter((p) => !/\bno\b[^.]*\bwebsite\b|owned website/i.test(p));
 
-  // Written like a real note: honest, one concrete thing, a question, a light offer.
-  // The opener has to be true — never claim to have browsed a site that doesn't exist.
-  const paragraphs = [greeting(lead, dm)];
-  if (hasWebsite) {
-    const observation = phrases[0] ? lowerFirst(phrases[0]) : `how a new ${one} gets in touch after the first visit`;
-    paragraphs.push(`I was looking through ${name}'s website earlier and, honestly, most of it looked good.`);
-    paragraphs.push(`One thing I wasn't sure about: ${observation}.`);
-  } else {
-    paragraphs.push(`I came across ${name} earlier and went looking for your website.`);
-    paragraphs.push(`I couldn't really find one, just a listing. Not sure if that's on purpose, but it's usually the first thing a new ${one} checks.`);
-  }
-  paragraphs.push(`I'm Jordan, I run Artifex Labs, a small studio here in LA. I could be wrong from the outside, so mostly I wanted to ask if that lines up with what you see.`);
-  paragraphs.push(`Happy to send over the couple of things I noticed if it's useful. No pressure either way.`);
-  const body = [...paragraphs, complianceFooter(settings)].join("\n\n");
-  return {
-    subject: subjects[0],
-    subjectAlternatives: subjects.slice(1),
-    body,
-    paragraphs,
-    wordCount: body.split(/\s+/).filter(Boolean).length,
+  // The observation drives the email — the opener is chosen by what actually caught
+  // attention (no website / strong reviews / something on the site), never a fixed
+  // template. The opener must be true: never claim to have browsed a site that isn't there.
+  const observation = phrases[0] ? lowerFirst(phrases[0]) : `how a new ${one} gets in touch after the first visit`;
+  const strongReviews = (lead.rating ?? 0) >= 4.5 && (lead.reviewCount ?? 0) >= 40;
+  const opener: string[] = !hasWebsite
+    ? [`I came across ${name} earlier and went looking for your website.`, `I couldn't really find one, just a listing. Not sure if that's on purpose, but it's usually the first thing a new ${one} checks.`]
+    : strongReviews
+      ? [`I was reading through ${name}'s reviews earlier, and they're genuinely good.`, `One thing I wasn't sure about, though: ${observation}.`]
+      : [`I was looking through ${name}'s website earlier and, honestly, most of it looked good.`, `One thing I wasn't sure about: ${observation}.`];
+
+  // Always Jordan, always uncertain from the outside — the line that invites a reply.
+  const identity = `I'm Jordan, I run Artifex Labs, a small studio here in LA. I could be wrong from the outside, so mostly I wanted to ask if that lines up with what you see.`;
+
+  // Endings vary naturally — some offer, some just ask. Never forced toward one CTA.
+  const endings = [
+    `Happy to send over the couple of things I noticed if it's useful. No pressure either way.`,
+    `I was curious if that's something you've run into too.`,
+    `No pressure, I just thought I'd mention it.`,
+    `If it's useful, I'm happy to show you what I found.`,
+  ];
+  const seededFirst = pick(endings, `${lead.id}:${name}`, 3);
+  const candidateEndings = [seededFirst, ...endings.filter((e) => e !== seededFirst)];
+
+  // Generate → evaluate → keep the most authentic. The seeded ending leads, so two
+  // different businesses vary; the evaluator guards against anything that reads generated.
+  const assemble = (end: string): OutreachEmail => {
+    const paragraphs = [greeting(lead, dm), ...opener, identity, end];
+    const body = [...paragraphs, complianceFooter(settings)].join("\n\n");
+    return { subject: subjects[0], subjectAlternatives: subjects.slice(1), body, paragraphs, wordCount: body.split(/\s+/).filter(Boolean).length };
   };
+  let best: OutreachEmail | null = null;
+  let bestScore = -1;
+  for (const end of candidateEndings) {
+    const candidate = assemble(end);
+    const s = scoreAuthenticity(candidate);
+    if (s.pass && s.score > bestScore) { best = candidate; bestScore = s.score; }
+  }
+  return best ?? assemble(seededFirst);
 }
 
 // ── Follow-up email — brief, human, respectful. Never "just checking in". ────
