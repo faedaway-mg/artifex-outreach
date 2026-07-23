@@ -230,6 +230,7 @@ export const updateOutcomeReview = (id: string, patch: Partial<OutcomeReviewItem
 
 // ── Engagement Snapshots (immutable — insert + read only, never updated) ──────
 export const snapshotsForLead = (leadId: string) => EngagementSnapshots.byLead(leadId);
+export const allEngagementSnapshots = () => EngagementSnapshots.all();
 export async function insertEngagementSnapshot(s: Omit<EngagementSnapshotItem, "id" | "createdAt">): Promise<EngagementSnapshotItem> {
   return EngagementSnapshots.insert({ ...s, id: newId("snap"), createdAt: nowIso() } as EngagementSnapshotItem);
 }

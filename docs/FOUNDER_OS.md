@@ -442,6 +442,53 @@ existing PDF pipeline and is NOT wired this phase — the honest remaining work.
 still future: automated success measurement, review scheduling, and a deeper
 cross-browser pass.
 
+## Version 1.1 — Real-World Validation & Commercial Readiness (RC1)
+
+No new intelligence subsystem — this hardens the OS for daily consulting use and closes
+the two honest gaps that remained.
+
+- **Business Technology Review — completed** (`lib/engagement/dossier.ts` +
+  `/leads/[id]/review` + `ReviewDocument`). `buildConsultingDossier` assembles every
+  recommendation with its full provenance chain: verified memories, reasoning, the
+  opportunity chain, roadmap placement + implementation status, expected outcome +
+  success metric, recorded outcome evidence, cross-engagement knowledge support, and
+  measured confidence. **A recommendation never appears without traceable evidence**
+  (ideas lacking evidence are counted and held back). Rendered as a living, print-to-PDF
+  consulting document.
+- **Living proposal — completed** (`lib/engagement/proposal-doc.ts`).
+  `buildLivingProposal` reads the dossier + roadmap sequence: completed work drops to a
+  "delivered" section, future priorities rise, everything is deduped, validated outcomes
+  are cited, knowledge-backed lines appear only where repeated evidence supports them,
+  and it stays a **draft until the operator exports it**. Rendered beneath the review.
+- **End-to-end simulation** (`engagement/simulation.test.ts`) — 10 business scenarios
+  (small, large, fast-moving, inactive, contradictory, no-recommendations, heavy load,
+  failed implementation, mixed outcomes, long engagement) each run through the whole
+  workflow and asserted for coherence **and determinism** (identical input → identical
+  output). Plus `lifecycle.test.ts` (a full persisted engagement via the real actions).
+- **Reliability audit** (`lib/integrity.ts` + `integrity.test.ts`) — `checkIntegrity`
+  verifies no duplicate ids, no orphaned records, one journal/review per recommendation,
+  no impossible states, intact provenance, and immutable (non-duplicated) baselines.
+- **Production operations** — `GET /api/diagnostics` (authenticated) returns environment
+  booleans, record counts, and the live integrity report; never contents or secrets.
+  `docs/OPERATIONS.md` documents deploy, migration/health verification, troubleshooting,
+  the persistence model, the subsystem map, the testing strategy, and safe-extension
+  guidance — maintainable without tribal knowledge.
+
+**Audit results:** typecheck ✓ · lint ✓ · **627 tests / 72 files** ✓ · build ✓ ·
+regression across Phases V–X clean · integrity + 10 simulations green. No placeholder
+implementations, no dead navigation (every tab routes to a real surface), no fabricated
+evidence.
+
+**Honestly deferred to V2.0:** the *styled PDF deliverable* (`renderBriefPdf`) is a
+separate artifact from the living Review document — the Review is the integrated,
+provenance-complete surface; folding the dossier into that exact PDF template is V2.
+Also V2: automated success measurement (analytics reading live business metrics),
+review scheduling/reminders, a materialized portfolio roll-up for very large books, and
+a manual cross-browser QA pass. None of these block daily use.
+
+**RC1 verdict:** yes — if Artifex signed its first fifty clients tomorrow, the Founder OS
+could support that work every day. Declared **Release Candidate 1**.
+
 ## The end-to-end spine
 Lead → Review → Email (voice + quality gated) → Reply/stop → Booking → Discovery
 (workspace + prep brief) → Conversation (capture) → Proposal (from captured
