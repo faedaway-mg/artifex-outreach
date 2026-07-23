@@ -10,10 +10,29 @@ import type { BusinessProfile } from "../business-intelligence/types";
 import type { OutreachEmail, VideoScript, DecisionMakerIntelligence } from "./types";
 import { complianceFooter } from "../communication-guide";
 import { openingConversation } from "../conversation-engine";
-import { audienceNoun, tradeNoun, addressName, humanStrength, topOpportunities, noticed, trimNoticed, uniqueNoticed, naturalList, pick, estimateSpeakingSeconds } from "./voice";
+import { audienceNoun, tradeNoun, addressName, topOpportunities, noticed, trimNoticed, uniqueNoticed, pick, estimateSpeakingSeconds } from "./voice";
 
 function singular(noun: string): string {
   return noun.endsWith("s") ? noun.slice(0, -1) : noun;
+}
+const lowerFirst = (s: string) => (s ? s.charAt(0).toLowerCase() + s.slice(1) : s);
+
+// The business as it presents itself publicly — never the internal, industry-prefixed
+// record name ("Los Angeles Dentist - Studio Smiles" → "Studio Smiles"). Uses the
+// lead's own city + trade words to detect and strip a descriptor prefix; otherwise
+// leaves the name untouched, so a genuinely hyphenated brand is never mangled.
+function publicBusinessName(lead: Lead): string {
+  const name = (lead.businessName || "").trim();
+  const segs = name.split(/\s*[-–—|]\s*/).map((s) => s.trim()).filter(Boolean);
+  if (segs.length < 2) return name;
+  const descriptors = new Set<string>([
+    ...(lead.city || "").toLowerCase().split(/\s+/).filter(Boolean),
+    ...`${tradeNoun(lead.industry)} ${audienceNoun(lead.industry)}`.toLowerCase().split(/\s+/).filter((w) => w.length > 3),
+    "dentist", "dental", "clinic", "practice", "hvac", "heating", "cooling", "plumbing", "plumber", "salon", "spa", "law", "clinic", "care",
+  ]);
+  const head = segs[0].toLowerCase().split(/\s+/).filter(Boolean);
+  const hits = head.filter((w) => [...descriptors].some((d) => w.includes(d) || d.includes(w))).length;
+  return head.length > 0 && hits / head.length >= 0.5 ? segs.slice(1).join(" - ") : name;
 }
 
 function greeting(lead: Lead, dm: DecisionMakerIntelligence): string {
@@ -24,17 +43,15 @@ function greeting(lead: Lead, dm: DecisionMakerIntelligence): string {
 // ── Subject lines ────────────────────────────────────────────────────────────
 // Grounded and conversational — the kind a real person types. Never clickbait.
 export function buildSubjectLines(lead: Lead, profile: BusinessProfile): string[] {
-  const name = lead.businessName;
-  const trade = tradeNoun(lead.industry);
-  const audience = audienceNoun(lead.industry);
+  const name = publicBusinessName(lead);
   const templates = [
-    `A couple of things I noticed about ${name}`,
     `A quick question about ${name}`,
-    `Something about your ${singular(audience)} experience`,
-    `An outside look at ${name}`,
-    `Thought this might be worth a look`,
+    `Was looking through ${name} earlier`,
+    `One small thing I noticed`,
+    `Something on your website`,
+    `A note about ${name}`,
   ];
-  // Deterministically rotate which grounded line leads, keep the rest as alternatives.
+  // Deterministically rotate which line leads, keep the rest as alternatives.
   const lead0 = pick(templates, name, 1);
   const rest = templates.filter((t) => t !== lead0);
   return [lead0, ...rest].slice(0, 4);
@@ -42,26 +59,21 @@ export function buildSubjectLines(lead: Lead, profile: BusinessProfile): string[
 
 // ── First-touch email ────────────────────────────────────────────────────────
 export function buildOutreachEmail(lead: Lead, profile: BusinessProfile, dm: DecisionMakerIntelligence, settings: Settings): OutreachEmail {
-  const trade = tradeNoun(lead.industry);
   const audience = audienceNoun(lead.industry);
   const subjects = buildSubjectLines(lead, profile);
-
+  const name = publicBusinessName(lead);
   const one = singular(audience);
-  const strength = humanStrength(lead.rating, lead.reviewCount, profile.strengths.length > 0, lead.businessName);
-  const phrases = uniqueNoticed(topOpportunities(profile, 3).map((o) => trimNoticed(noticed(o, audience)))).slice(0, 2);
+  const phrases = uniqueNoticed(topOpportunities(profile, 3).map((o) => trimNoticed(noticed(o, audience)))).slice(0, 1);
 
-  // Short, human, skimmable. Four paragraphs, each earning its place.
-  const lead2 = strength ? `${strength}, so this isn't a "you've got problems" note. ` : "";
-  const paras: string[] = [greeting(lead, dm)];
-  paras.push(`I'm Jordan — I run Artifex Labs. I looked at ${lead.businessName} the way a new ${one} would, and a couple of small things stood out.`);
-  if (phrases.length >= 1) {
-    paras.push(`${lead2}A few of the first steps felt harder than they need to be — ${naturalList(phrases)}. Small things, but they're right where a new ${one} decides whether to reach out.`);
-  } else {
-    paras.push(`${lead2}A couple of the first moments a new ${one} runs into felt harder than they need to be — easy to miss from the inside.`);
-  }
-  paras.push(`I could be wrong from the outside — mostly I wanted to check whether it matches what you see day to day. If it's useful, I'd love a short chat. No pressure either way.`);
-
-  const paragraphs = [...paras];
+  // Written like a real note: honest, one concrete thing, a question, a light offer.
+  const observation = phrases[0] ? lowerFirst(phrases[0]) : `how a new ${one} gets in touch after the first visit`;
+  const paragraphs = [
+    greeting(lead, dm),
+    `I was looking through ${name}'s website earlier and, honestly, most of it looked good.`,
+    `One thing I wasn't sure about: ${observation}.`,
+    `I'm Jordan, I run Artifex Labs, a small studio here in LA. I could be wrong from the outside, so mostly I wanted to ask if that lines up with what you see.`,
+    `Happy to send over the couple of things I noticed if it's useful. No pressure either way.`,
+  ];
   const body = [...paragraphs, complianceFooter(settings)].join("\n\n");
   return {
     subject: subjects[0],
@@ -81,21 +93,17 @@ export function buildFollowUpEmail(
   /** Voice-clean, memory-grounded openers ("You mentioned…") from confirmed Relationship Memory. */
   memoryLines?: string[],
 ): OutreachEmail {
-  const subjects = [
-    `Following the thread — ${lead.businessName}`,
-    `One quick note for ${lead.businessName}`,
-    `No rush — ${lead.businessName}`,
-  ];
+  const name = publicBusinessName(lead);
+  const subjects = [`Following up on ${name}`, `One more note`, `No rush`];
   // Pick the thread back up. If we've confirmed something they said, lead with it —
   // a continuing conversation, never "our system detected…".
   const continuity = memoryLines && memoryLines.length > 0
-    ? `${memoryLines[0]} Didn't want to let that thread go cold.`
-    : `I sent a short note last week — figured it might've slipped past in a busy week.`;
+    ? `${memoryLines[0]} Didn't want to let that slip by.`
+    : `I sent a note last week and figured it might've slipped past in a busy week.`;
   const paragraphs = [
     greeting(lead, dm),
     continuity,
-    `No pressure at all — if now's not the time, I completely understand.`,
-    `Either way, I like what you're building at ${lead.businessName}.`,
+    `If it's helpful I can send over what I found. If not, no worries at all.`,
   ];
   const body = [...paragraphs, complianceFooter(settings)].join("\n\n");
   return {
@@ -110,27 +118,27 @@ export function buildFollowUpEmail(
 // ── Personalized video script (for Jordan to record — never AI-generated) ────
 export function buildVideoScript(lead: Lead, profile: BusinessProfile): VideoScript {
   const audience = audienceNoun(lead.industry);
-  const trade = tradeNoun(lead.industry);
   const one = singular(audience);
+  const name = publicBusinessName(lead);
   const convo = openingConversation(profile.conversationInput, profile.presence);
 
-  const opening = `Hi — I'm Jordan, I run Artifex Labs. I went through ${lead.businessName} the way a brand-new ${one} would, and recorded a couple of things that stood out.`;
+  const opening = `Hi, I'm Jordan. I was looking through ${name}'s website and recorded a couple of quick thoughts.`;
 
   // Three distinct observations: real ones first, padded with grounded fallbacks.
   const real = uniqueNoticed(topOpportunities(profile, 5).map((o) => noticed(o, audience)));
   const fallbacks = [
-    `the very first step a new ${one} takes is a little harder than the rest of your ${trade}`,
-    `how someone reaches you for the first time isn't quite as effortless as it could be`,
-    `a couple of small moments where a ${one} has to work to take the next step`,
+    `I wasn't totally sure how a new ${one} takes the next step after landing on the site`,
+    `I clicked around a little before I found how to get in touch`,
+    `I wasn't sure how a ${one} gets back in touch after a first visit`,
   ];
   const three = uniqueNoticed([...real, ...fallbacks]).slice(0, 3);
-  const observations = three.map((p) => `Here's one: ${p}.`);
+  const observations = three.map((p) => `One thing: ${lowerFirst(p)}.`);
 
   const question = convo.question;
-  const close = `I'm not selling anything here — I'm just curious whether these match what you see day to day. If they do, I'd love a short conversation. Either way, thanks for the time.`;
+  const close = `I could be wrong on any of this. If it's useful, happy to talk. Either way, thanks for the minute.`;
 
-  const emailVariant = `I recorded a quick video — about forty-five seconds — on a couple of things I noticed at ${lead.businessName}. No pitch, just what stood out. [video link]`;
-  const phoneVariant = `I sent a short video earlier with a couple of observations about ${lead.businessName} — did you get a chance to look?`;
+  const emailVariant = `I recorded a quick video, about forty-five seconds, on a couple of things I noticed on ${name}'s site. No pitch. [video link]`;
+  const phoneVariant = `I sent a short video earlier with a couple of thoughts on ${name}'s site. Did you get a chance to look?`;
 
   const script = [opening, ...observations, question, close].join("\n\n");
   return {
