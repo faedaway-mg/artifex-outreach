@@ -28,11 +28,11 @@ export function buildSubjectLines(lead: Lead, profile: BusinessProfile): string[
   const trade = tradeNoun(lead.industry);
   const audience = audienceNoun(lead.industry);
   const templates = [
-    `A few observations about ${name}`,
-    `A question after looking through your ${trade}`,
-    `Something I noticed about your ${singular(audience)} experience`,
+    `A couple of things I noticed about ${name}`,
+    `A quick question about ${name}`,
+    `Something about your ${singular(audience)} experience`,
     `An outside look at ${name}`,
-    `Thought this might be useful`,
+    `Thought this might be worth a look`,
   ];
   // Deterministically rotate which grounded line leads, keep the rest as alternatives.
   const lead0 = pick(templates, name, 1);
@@ -50,25 +50,16 @@ export function buildOutreachEmail(lead: Lead, profile: BusinessProfile, dm: Dec
   const strength = humanStrength(lead.rating, lead.reviewCount, profile.strengths.length > 0, lead.businessName);
   const phrases = uniqueNoticed(topOpportunities(profile, 3).map((o) => trimNoticed(noticed(o, audience)))).slice(0, 2);
 
-  const openers = [
-    `I spent a little time looking at ${lead.businessName} the way a new ${one} would, and a couple of small things stood out.`,
-    `I went through ${lead.businessName} the way a new ${one} might — before ever calling — and a few small things caught my eye.`,
-  ];
-  const opener = pick(openers, lead.businessName, 7);
-
-  const paras: string[] = [];
-  paras.push(greeting(lead, dm));
-  paras.push(`I'm Jordan — I run Artifex Labs. ${opener}`);
-
-  const lead2 = strength ? `${strength} — so this isn't a "you have a problem" note. ` : "";
+  // Short, human, skimmable. Four paragraphs, each earning its place.
+  const lead2 = strength ? `${strength}, so this isn't a "you've got problems" note. ` : "";
+  const paras: string[] = [greeting(lead, dm)];
+  paras.push(`I'm Jordan — I run Artifex Labs. I looked at ${lead.businessName} the way a new ${one} would, and a couple of small things stood out.`);
   if (phrases.length >= 1) {
-    paras.push(`${lead2}A few moments just felt harder than they probably need to be: ${naturalList(phrases)}. Little things, but they sit right where a new ${one} is deciding whether to reach out.`);
+    paras.push(`${lead2}A few of the first steps felt harder than they need to be — ${naturalList(phrases)}. Small things, but they're right where a new ${one} decides whether to reach out.`);
   } else {
-    paras.push(`${lead2}A couple of small things in how a new ${one} first reaches you felt harder than they probably need to be — easy to miss from the inside.`);
+    paras.push(`${lead2}A couple of the first moments a new ${one} runs into felt harder than they need to be — easy to miss from the inside.`);
   }
-
-  paras.push(`I could be wrong — I'm only seeing part of the picture from outside. I mostly wanted to check whether it lines up with what you're seeing day to day.`);
-  paras.push(`If it's useful, I'd genuinely enjoy a short conversation — no pressure either way.`);
+  paras.push(`I could be wrong from the outside — mostly I wanted to check whether it matches what you see day to day. If it's useful, I'd love a short chat. No pressure either way.`);
 
   const paragraphs = [...paras];
   const body = [...paragraphs, complianceFooter(settings)].join("\n\n");
@@ -91,20 +82,20 @@ export function buildFollowUpEmail(
   memoryLines?: string[],
 ): OutreachEmail {
   const subjects = [
-    `Making sure this didn't get buried — ${lead.businessName}`,
+    `Following the thread — ${lead.businessName}`,
     `One quick note for ${lead.businessName}`,
-    `No pressure — ${lead.businessName}`,
+    `No rush — ${lead.businessName}`,
   ];
-  // If we've actually learned something and confirmed it, pick that thread back up —
-  // a continuing relationship, never "our system detected…".
+  // Pick the thread back up. If we've confirmed something they said, lead with it —
+  // a continuing conversation, never "our system detected…".
   const continuity = memoryLines && memoryLines.length > 0
-    ? `${memoryLines[0]} I didn't want to let that thread go cold.`
-    : `I sent a short note last week and wanted to make sure it didn't get buried — I know how full a week gets.`;
+    ? `${memoryLines[0]} Didn't want to let that thread go cold.`
+    : `I sent a short note last week — figured it might've slipped past in a busy week.`;
   const paragraphs = [
     greeting(lead, dm),
     continuity,
-    `No pressure at all. If it's not the right time, I completely understand and won't keep knocking.`,
-    `Either way, I appreciate what you're building at ${lead.businessName}.`,
+    `No pressure at all — if now's not the time, I completely understand.`,
+    `Either way, I like what you're building at ${lead.businessName}.`,
   ];
   const body = [...paragraphs, complianceFooter(settings)].join("\n\n");
   return {
@@ -123,7 +114,7 @@ export function buildVideoScript(lead: Lead, profile: BusinessProfile): VideoScr
   const one = singular(audience);
   const convo = openingConversation(profile.conversationInput, profile.presence);
 
-  const opening = `Hi — my name's Jordan, I run Artifex Labs. I spent a little time going through ${lead.businessName} the way a brand-new ${one} would, and recorded a few of the things that stood out.`;
+  const opening = `Hi — I'm Jordan, I run Artifex Labs. I went through ${lead.businessName} the way a brand-new ${one} would, and recorded a couple of things that stood out.`;
 
   // Three distinct observations: real ones first, padded with grounded fallbacks.
   const real = uniqueNoticed(topOpportunities(profile, 5).map((o) => noticed(o, audience)));
@@ -136,10 +127,10 @@ export function buildVideoScript(lead: Lead, profile: BusinessProfile): VideoScr
   const observations = three.map((p) => `Here's one: ${p}.`);
 
   const question = convo.question;
-  const close = `I want to be clear — I'm not selling anything in this video. I'm just genuinely curious whether these match what you see day to day. If they do, I'd love a short conversation. Either way, thanks for the time.`;
+  const close = `I'm not selling anything here — I'm just curious whether these match what you see day to day. If they do, I'd love a short conversation. Either way, thanks for the time.`;
 
-  const emailVariant = `I recorded a short video — about forty-five seconds — walking through a couple of things I noticed while going through ${lead.businessName}. No pitch, just observations. [video link]`;
-  const phoneVariant = `I sent over a short video earlier with a couple of observations about ${lead.businessName} — did you get a chance to look at it?`;
+  const emailVariant = `I recorded a quick video — about forty-five seconds — on a couple of things I noticed at ${lead.businessName}. No pitch, just what stood out. [video link]`;
+  const phoneVariant = `I sent a short video earlier with a couple of observations about ${lead.businessName} — did you get a chance to look?`;
 
   const script = [opening, ...observations, question, close].join("\n\n");
   return {

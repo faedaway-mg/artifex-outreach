@@ -206,8 +206,9 @@ describe("outreach v2 — follow-up is human, never a nudge cliché", () => {
     expect(body).not.toContain("just checking in");
     expect(body).not.toContain("following up");
     expect(body).not.toContain("bumping");
-    expect(body).toContain("didn't get buried");
-    expect(fu.body).not.toContain("!");
+    // References the earlier note like a human, without a nudge cliché.
+    expect(body).toMatch(/short note|slipped past|thread/);
+    expect(body).not.toContain("!");
   });
 });
 
