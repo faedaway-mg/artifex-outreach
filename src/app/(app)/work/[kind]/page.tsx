@@ -15,6 +15,7 @@ import {
 import { buildWorkQueue, batchLeadIds, categoryTitle, kindOfTask, type WorkKind } from "@/lib/work-queue";
 import { buildOutreachKit } from "@/lib/outreach/kit";
 import { buildVideoScript } from "@/lib/outreach/content";
+import { renderEmailHtml } from "@/lib/outreach/email-render";
 import { readingSeconds } from "@/lib/outreach/voice-engine";
 import { memoryReferences } from "@/lib/reasoning";
 import { deslug } from "@/lib/utils";
@@ -99,7 +100,7 @@ export default async function BatchPage({ params, searchParams }: { params: { ki
 
   let contactName = "";
   let firstQuestion: string | null = null;
-  let emailProps: null | { subject: string; openingSentence: string; readingLabel: string; fullParagraphs: string[]; contact: string } = null;
+  let emailProps: null | { subject: string; openingSentence: string; readingLabel: string; fullParagraphs: string[]; contact: string; html: string } = null;
 
   if (profile && (kind === "call" || isEmail)) {
     const [contacts, memory] = await Promise.all([contactsForLead(lead.id), memoryForLead(lead.id)]);
@@ -110,12 +111,14 @@ export default async function BatchPage({ params, searchParams }: { params: { ki
       const email = kind === "follow-up" ? kit.followUp : kit.email;
       const paras = email.paragraphs;
       const secs = Math.round(readingSeconds(email.body));
+      const html = renderEmailHtml({ email, settings, businessName: lead.businessName, unsubscribeUrl: "https://outreach.artifexlabs.tech/api/comms/unsubscribe" });
       emailProps = {
         subject: email.subject,
         openingSentence: paras[1] ?? paras[0] ?? email.subject,
         readingLabel: secs < 60 ? `~${Math.max(5, secs)}s read` : `~${Math.round(secs / 60)} min read`,
         fullParagraphs: paras,
         contact: contactName,
+        html,
       };
     }
   }
@@ -156,7 +159,7 @@ export default async function BatchPage({ params, searchParams }: { params: { ki
           leadId={lead.id} mode={kind === "follow-up" ? "followup" : "intro"}
           business={lead.businessName} industry={deslug(lead.industry)} contact={emailProps.contact}
           why={why} observations={observations} subject={emailProps.subject} openingSentence={emailProps.openingSentence}
-          readingLabel={emailProps.readingLabel} fullParagraphs={emailProps.fullParagraphs}
+          readingLabel={emailProps.readingLabel} fullParagraphs={emailProps.fullParagraphs} html={emailProps.html}
           taskId={stepTask?.id ?? null} nextHref={nextHref} isLast={i + 1 >= total}
         />
       </div>

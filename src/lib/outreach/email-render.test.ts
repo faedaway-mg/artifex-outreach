@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { defaultSettings } from "../store";
-import { renderEmailHtml, renderEmailText, veedBlockHtml } from "./email-render";
+import { renderEmailHtml, renderEmailText, veedBlockHtml, ctaButton } from "./email-render";
 import type { OutreachEmail, VeedVideo } from "./types";
 
 const settings = defaultSettings();
@@ -67,5 +67,45 @@ describe("email-render — premium, restrained, honest", () => {
     expect(text).toContain("Jordan Jackson");
     expect(text).toContain("https://veed.io/w/abc");
     expect(text).not.toContain("<");
+  });
+
+  // ── Branded shell ──────────────────────────────────────────────────────────
+  it("wraps the message in a branded, client-safe shell", () => {
+    const html = renderEmailHtml({ email, settings, unsubscribeUrl: "https://x/u" });
+    expect(html).toContain("Business technology partner");    // branded header descriptor
+    expect(html).toContain("max-width:600px");                // constrained reading width
+    expect(html.toLowerCase()).toContain("<table");           // table-based, client-safe
+    expect(html).toContain("#E8A24A");                        // constellation gold accent present
+    expect(html).not.toContain("#2b6cff");                    // no legacy blue accent
+    expect(html).not.toContain("localhost");                  // no non-production asset URLs
+  });
+
+  it("footer differentiates automated (unsubscribe) from truly personal (none)", () => {
+    const commercial = renderEmailHtml({ email, settings, unsubscribeUrl: "https://x/u" }).toLowerCase();
+    expect(commercial).toContain("unsubscribe");
+    const personal = renderEmailHtml({ email, settings }).toLowerCase(); // no unsubscribe URL
+    expect(personal).not.toContain("unsubscribe");
+    expect(personal).toContain("artifexlabs.tech");
+  });
+
+  it("a hosted brand mark uses an absolute production URL and alt text", () => {
+    const html = renderEmailHtml({ email, settings, logoUrl: "https://outreach.artifexlabs.tech/icon.png" });
+    expect(html).toContain('src="https://outreach.artifexlabs.tech/icon.png"');
+    expect(html).toContain('alt="Artifex Labs"');
+  });
+
+  it("CTA button is gold with dark text and the correct href", () => {
+    const btn = ctaButton("Book a conversation", "https://cal.com/artifex/30min");
+    expect(btn).toContain('href="https://cal.com/artifex/30min"');
+    expect(btn).toContain("Book a conversation");
+    expect(btn).toContain("#14100B"); // dark text on gold
+    expect(btn).not.toContain("!");
+  });
+
+  it("video card shows the business name and never fabricates a preview", () => {
+    const veed: VeedVideo = { url: "https://veed.io/w/abc", thumbnailUrl: "https://img/t.jpg", title: "hi", durationSeconds: 45 };
+    const withName = veedBlockHtml(veed, "Studio Smiles");
+    expect(withName).toContain("Studio Smiles");
+    expect(withName).toContain('href="https://veed.io/w/abc"');
   });
 });

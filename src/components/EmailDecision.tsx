@@ -25,6 +25,8 @@ export interface EmailDecisionProps {
   openingSentence: string;
   readingLabel: string;
   fullParagraphs: string[];
+  /** The actual branded email HTML — shown on expand so the operator approves the real thing. */
+  html?: string;
   taskId: string | null;
   nextHref: string;
   isLast: boolean;
@@ -82,9 +84,14 @@ export function EmailDecision(p: EmailDecisionProps) {
             <summary className="flex cursor-pointer list-none items-center gap-1 text-[11.5px] text-amber-300/90 hover:text-amber-300">
               <ChevronDown size={13} className="transition-transform group-open:rotate-180" /> Expand email
             </summary>
-            <div className="mt-2 space-y-2 border-t border-white/[0.06] pt-2">
-              {p.fullParagraphs.map((para, i) => <p key={i} className="text-[13px] leading-relaxed text-chalk-300">{para}</p>)}
-            </div>
+            {p.html ? (
+              // The real branded email — exactly what the prospect receives.
+              <iframe title="Branded email preview" sandbox="" srcDoc={p.html} className="mt-2 w-full rounded-md border border-white/10 bg-white" style={{ height: 520 }} />
+            ) : (
+              <div className="mt-2 space-y-2 border-t border-white/[0.06] pt-2">
+                {p.fullParagraphs.map((para, i) => <p key={i} className="text-[13px] leading-relaxed text-chalk-300">{para}</p>)}
+              </div>
+            )}
           </details>
         </div>
 
