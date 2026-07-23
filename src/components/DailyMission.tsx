@@ -18,7 +18,7 @@ export function DailyMission({ mission }: { mission: Mission }) {
   return (
     <section className="card overflow-hidden p-5">
       <div className="flex items-center gap-2.5">
-        <span className={`grid h-9 w-9 place-items-center rounded-xl ${complete ? "bg-emerald-400/12 text-emerald-300" : "bg-azure-400/10 text-azure-300"}`}>
+        <span className="grid h-9 w-9 place-items-center rounded-xl bg-amber-400/12 text-amber-300">
           {complete ? <CheckCircle2 size={18} /> : <Target size={18} />}
         </span>
         <div className="min-w-0">
@@ -33,7 +33,7 @@ export function DailyMission({ mission }: { mission: Mission }) {
         </div>
       </div>
       <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-white/[0.06]">
-        <div className={`h-full rounded-full transition-all ${complete ? "bg-emerald-400/70" : "bg-azure-400/70"}`} style={{ width: `${pct}%` }} />
+        <div className="h-full rounded-full bg-amber-400/80 transition-all" style={{ width: `${pct}%` }} />
       </div>
     </section>
   );

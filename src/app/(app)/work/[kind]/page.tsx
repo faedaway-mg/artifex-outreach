@@ -14,8 +14,11 @@ import {
 } from "@/lib/repo";
 import { buildWorkQueue, batchLeadIds, categoryTitle, kindOfTask, type WorkKind } from "@/lib/work-queue";
 import { buildOutreachKit } from "@/lib/outreach/kit";
+import { readingSeconds } from "@/lib/outreach/voice-engine";
 import { memoryReferences } from "@/lib/reasoning";
+import { deslug } from "@/lib/utils";
 import { BatchAdvance } from "@/components/BatchAdvance";
+import { EmailDecision } from "@/components/EmailDecision";
 
 export const dynamic = "force-dynamic";
 
@@ -80,19 +83,35 @@ export default async function BatchPage({ params, searchParams }: { params: { ki
   const why = (lead.recommendationReason?.trim()) || bi?.profile?.briefing?.whyItMatters || "Worth a thoughtful touch today.";
   const observations = (bi?.profile?.briefing?.strongestOpportunities ?? []).slice(0, 2);
 
+  const nextHref = `/work/${kind}?ids=${idsParam}&i=${i + 1}`;
+  // The open task for this business in this batch — completing it ticks the mission.
+  const stepTask = tasks.find((t) => t.leadId === lead.id && kindOfTask(t.type) === kind) ?? null;
+  const isEmail = kind === "email" || kind === "follow-up";
+
   let suggestedOpening: string | null = null;
   let suggestedQuestion: string | null = null;
-  if (profile && (kind === "video" || kind === "call")) {
+  let emailProps: null | { subject: string; openingSentence: string; readingLabel: string; fullParagraphs: string[]; contact: string } = null;
+
+  if (profile && (kind === "video" || kind === "call" || isEmail)) {
     const [contacts, memory] = await Promise.all([contactsForLead(lead.id), memoryForLead(lead.id)]);
     const kit = buildOutreachKit({ lead, profile, settings, contacts, memoryLines: memoryReferences(memory).map((r) => r.sentence) });
     suggestedOpening = kit.video?.opening ?? null;
     suggestedQuestion = kit.video?.question ?? null;
+    if (isEmail) {
+      const email = kind === "follow-up" ? kit.followUp : kit.email;
+      const paras = email.paragraphs;
+      const secs = Math.round(readingSeconds(email.body));
+      emailProps = {
+        subject: email.subject,
+        openingSentence: paras[1] ?? paras[0] ?? email.subject,
+        readingLabel: secs < 60 ? `~${Math.max(5, secs)}s read` : `~${Math.round(secs / 60)} min read`,
+        fullParagraphs: paras,
+        contact: kit.decisionMaker.primary?.name ?? "",
+      };
+    }
   }
 
   const action = ACTION[kind];
-  const nextHref = `/work/${kind}?ids=${idsParam}&i=${i + 1}`;
-  // The open task for this business in this batch — completing it ticks the mission.
-  const stepTask = tasks.find((t) => t.leadId === lead.id && kindOfTask(t.type) === kind) ?? null;
 
   return (
     <div className="mx-auto max-w-lg space-y-5">
@@ -106,9 +125,29 @@ export default async function BatchPage({ params, searchParams }: { params: { ki
         </div>
       </div>
       <div className="h-1 w-full overflow-hidden rounded-full bg-white/[0.06]">
-        <div className="h-full rounded-full bg-azure-400/70 transition-all" style={{ width: `${((i) / total) * 100}%` }} />
+        <div className="h-full rounded-full bg-amber-400/80 transition-all" style={{ width: `${((i) / total) * 100}%` }} />
       </div>
 
+      {/* Email/follow-up: decide whether to send, don't re-read the whole thing */}
+      {isEmail && emailProps ? (
+        <EmailDecision
+          leadId={lead.id}
+          mode={kind === "follow-up" ? "followup" : "intro"}
+          business={lead.businessName}
+          industry={deslug(lead.industry)}
+          contact={emailProps.contact}
+          why={why}
+          observations={observations}
+          subject={emailProps.subject}
+          openingSentence={emailProps.openingSentence}
+          readingLabel={emailProps.readingLabel}
+          fullParagraphs={emailProps.fullParagraphs}
+          taskId={stepTask?.id ?? null}
+          nextHref={nextHref}
+          isLast={i + 1 >= total}
+        />
+      ) : (
+      <>
       {/* The focused brief */}
       <section className="card p-5 sm:p-6">
         <p className="text-[12px] text-chalk-500">{action.verb}</p>
@@ -141,6 +180,8 @@ export default async function BatchPage({ params, searchParams }: { params: { ki
       <BatchAdvance taskId={stepTask?.id ?? null} nextHref={nextHref} isLast={i + 1 >= total} />
 
       <p className="text-center text-[11px] text-chalk-600">{i + 1} of {total} · the batch stays put while you work</p>
+      </>
+      )}
     </div>
   );
 }
