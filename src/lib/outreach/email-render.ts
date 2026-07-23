@@ -26,6 +26,10 @@ const TILE = "#14110C";      // brand mark tile
 const GOLD = "#E8A24A";      // warm constellation gold (mark + button)
 const FONT = "-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif";
 
+// The official constellation mark, rasterized (renders where SVG is blocked). This is
+// the PRIMARY mark; the CSS box below is only the graceful fallback if it's absent.
+const DEFAULT_MARK_URL = "https://outreach.artifexlabs.tech/api/brand/mark";
+
 export function escapeHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
@@ -42,9 +46,12 @@ function markBox(size = 40): string {
   const a = Math.round(size * 0.5);
   return `<table role="presentation" cellpadding="0" cellspacing="0" style="width:${size}px;height:${size}px;background:${TILE};border-radius:${Math.round(size * 0.26)}px;"><tr><td align="center" valign="middle" style="font-family:Georgia,'Times New Roman',serif;font-weight:700;font-size:${a}px;line-height:1;color:${GOLD};">A</td></tr></table>`;
 }
-function markImg(logoUrl?: string | null, size = 40): string {
-  return logoUrl
-    ? `<img src="${escapeHtml(logoUrl)}" width="${size}" height="${size}" alt="Artifex Labs" style="display:block;border-radius:${Math.round(size * 0.26)}px;">`
+// `undefined` → the official hosted constellation mark (primary). `null`/"" → the CSS
+// box fallback. A blocked image degrades to the alt text, never a broken icon.
+function markImg(logoUrl: string | null | undefined, size = 40): string {
+  const url = logoUrl === undefined ? DEFAULT_MARK_URL : logoUrl;
+  return url
+    ? `<img src="${escapeHtml(url)}" width="${size}" height="${size}" alt="Artifex Labs" style="display:block;border-radius:${Math.round(size * 0.26)}px;">`
     : markBox(size);
 }
 
