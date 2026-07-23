@@ -20,6 +20,7 @@ import { getEmailProvider } from "./provider";
 import { renderBody } from "./render";
 import { isSent, backoffMs, MAX_ATTEMPTS, STUCK_SENDING_MS } from "./state";
 import { unsubscribeUrlFor, listUnsubscribeHeaders } from "./unsubscribe";
+import { threadingHeaders, priorEmailSteps, reSubject, domainFromAddress } from "./threading";
 import type { EmailMessage } from "./provider";
 import type { AcquisitionPlan, AcquisitionStep, EmailSend } from "../types";
 
@@ -132,8 +133,14 @@ export async function dispatchStep(stepId: string, opts: { now?: Date } = {}): P
   // Optional pre-rendered HTML (e.g. the v2 premium template). The {{unsubscribe}}
   // token is replaced here so the ledger/idempotency path is unchanged.
   const html = step.html ? step.html.split("{{unsubscribe}}").join(unsubscribeUrlFor(lead.id) ?? "") : undefined;
-  const headers = listUnsubscribeHeaders(lead.id, settings.contactEmail);
-  const msg: EmailMessage = { to: lead.publicEmail!, from, replyTo: settings.contactEmail, subject: step.subject, text, ...(html ? { html } : {}), headers, idempotencyKey: key };
+  // Threading: our own Message-ID, plus In-Reply-To/References + "Re:" subject on
+  // follow-ups so the whole exchange stays in one conversation (never a new chain).
+  const planSteps = await stepsForPlan(plan.id);
+  const domain = domainFromAddress(from);
+  const isFollowUp = priorEmailSteps(step, planSteps).length > 0;
+  const subject = isFollowUp ? reSubject(priorEmailSteps(step, planSteps)[0].subject) : step.subject;
+  const headers = { ...listUnsubscribeHeaders(lead.id, settings.contactEmail), ...threadingHeaders(step, planSteps, domain) };
+  const msg: EmailMessage = { to: lead.publicEmail!, from, replyTo: settings.contactEmail, subject, text, ...(html ? { html } : {}), headers, idempotencyKey: key };
   const res = await provider.send(msg);
 
   if (res.sent) {
