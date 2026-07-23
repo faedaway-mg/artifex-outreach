@@ -116,3 +116,49 @@ identical input. Key suites: `reasoning/`, `roadmap/`, `outcomes/`, `engagement/
 - Adding intelligence → keep it deterministic, cite evidence, take `now` as a param,
   and write a test that proves it never fabricates on empty input.
 - Never weaken the two absolutes: evidence-backed, operator-controlled.
+
+## 11. Reliability & recovery (Stage 4 — treat reliability as a feature)
+
+Reliability is documented against the **real** infrastructure; this section claims no
+custom systems that don't exist.
+
+**Backups.** Production data lives in Railway Postgres, which provides managed automated
+backups. Action item to confirm in the Railway dashboard (do not assume): backup
+frequency and retention are set to a level you'd accept losing. For a manual point-in-time
+snapshot before a risky migration:
+```bash
+# from a shell with the production DATABASE_URL available (never commit it)
+pg_dump "$DATABASE_URL" -Fc -f founderos-$(date +%Y%m%d).dump
+```
+
+**Recovery procedure.** After any restore or suspected corruption:
+1. Bring the app up against the restored DB.
+2. `GET /api/health` → `status:"ok"`, `database.connected:true`.
+3. `GET /api/diagnostics` (authenticated) → `integrity.ok:true`. This is the
+   authoritative "is the data sound?" check — no duplicates, orphans, impossible states,
+   lost provenance, or duplicate baselines (`lib/integrity.ts`).
+4. Spot-check one lead's Command Center + Review surface render.
+5. `pnpm db:migrate` status shows 0 pending.
+
+**Monitoring & health.** `/api/health` (public, no secrets) is the liveness/readiness
+probe Railway hits. `/api/diagnostics` (authenticated) is the data-soundness probe — run
+it after every deploy and on a periodic cadence during active engagements; a non-`ok`
+status names the offending records.
+
+**Logging & error reporting.** Structured request/deploy logs are available in the
+Railway service logs. There is intentionally **no** third-party error-reporting service
+wired yet — add one only if real engagements surface errors the logs don't already make
+obvious (Version 2.0 rule applies). Server Actions fail loudly (they throw); the deploy
+gate + smoke test catch regressions before they reach production.
+
+**Deployment confidence.** The only supported deploy path (§6) fails closed at every
+gate and smoke-tests production automatically. Never hand-run `railway up`.
+
+## 12. Field-driven roadmap (post-RC1)
+
+The Founder OS architecture is complete. From RC1 onward, **the roadmap is fed by
+`docs/FIELD_LOG.md`, not by imagination.** A change is justified only when a friction
+point appears across multiple real engagements. Version 2.0 begins only when accumulated
+evidence shows a recurring problem the current architecture genuinely cannot absorb —
+never because a new idea is interesting. Until the v1.0 checklist in the field log is
+fully met, the system stays RC1, and that's the honest status.
