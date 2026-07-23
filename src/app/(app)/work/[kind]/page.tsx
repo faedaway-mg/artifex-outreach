@@ -12,9 +12,10 @@ import { CheckCircle2, ArrowRight, ArrowLeft, X, Video, Mail, RotateCcw, FileTex
 import {
   todaysTasks, listLeads, allMeetings, getSettings, getBusinessIntelligence, contactsForLead, memoryForLead,
 } from "@/lib/repo";
-import { buildWorkQueue, batchLeadIds, categoryTitle, type WorkKind } from "@/lib/work-queue";
+import { buildWorkQueue, batchLeadIds, categoryTitle, kindOfTask, type WorkKind } from "@/lib/work-queue";
 import { buildOutreachKit } from "@/lib/outreach/kit";
 import { memoryReferences } from "@/lib/reasoning";
+import { BatchAdvance } from "@/components/BatchAdvance";
 
 export const dynamic = "force-dynamic";
 
@@ -32,7 +33,7 @@ const ACTION: Record<WorkKind, { verb: string; label: string; href: (id: string)
   understand: { verb: "Get to know", label: "Review the business", href: (id) => `/leads/${id}` },
 };
 
-export default async function BatchPage({ params, searchParams }: { params: { kind: string }; searchParams: { i?: string } }) {
+export default async function BatchPage({ params, searchParams }: { params: { kind: string }; searchParams: { i?: string; ids?: string } }) {
   const kind = params.kind as WorkKind;
   if (!KINDS.includes(kind)) notFound();
 
@@ -48,7 +49,11 @@ export default async function BatchPage({ params, searchParams }: { params: { ki
     .map((m) => ({ leadId: m.leadId, scheduledAt: m.scheduledAt }));
 
   const queue = buildWorkQueue({ tasks, meetingsToday, leads: leadMap });
-  const ids = batchLeadIds(queue, kind);
+  // The batch is fixed for its run (carried in the URL), so completing a step never
+  // reshuffles the businesses under you. Fall back to a fresh batch on first entry.
+  const carried = (searchParams.ids ?? "").split(",").map((s) => s.trim()).filter((id) => leadMap.has(id));
+  const ids = carried.length > 0 ? carried : batchLeadIds(queue, kind);
+  const idsParam = ids.join(",");
   const total = ids.length;
   const title = categoryTitle(kind);
   const Icon = ICON[kind];
@@ -85,7 +90,9 @@ export default async function BatchPage({ params, searchParams }: { params: { ki
   }
 
   const action = ACTION[kind];
-  const nextHref = `/work/${kind}?i=${i + 1}`;
+  const nextHref = `/work/${kind}?ids=${idsParam}&i=${i + 1}`;
+  // The open task for this business in this batch — completing it ticks the mission.
+  const stepTask = tasks.find((t) => t.leadId === lead.id && kindOfTask(t.type) === kind) ?? null;
 
   return (
     <div className="mx-auto max-w-lg space-y-5">
@@ -130,13 +137,10 @@ export default async function BatchPage({ params, searchParams }: { params: { ki
         </Link>
       </section>
 
-      {/* Advance — done or skip, always forward */}
-      <div className="flex items-center justify-between">
-        <Link href={nextHref} className="text-[13px] text-chalk-500 hover:text-chalk-300">Skip for now</Link>
-        <Link href={nextHref} className="btn-secondary !py-2 text-[13px]">
-          {i + 1 < total ? "Done — next business" : "Done — finish batch"} <ArrowRight size={15} />
-        </Link>
-      </div>
+      {/* Advance — completing persists and keeps the loop moving */}
+      <BatchAdvance taskId={stepTask?.id ?? null} nextHref={nextHref} isLast={i + 1 >= total} />
+
+      <p className="text-center text-[11px] text-chalk-600">{i + 1} of {total} · the batch stays put while you work</p>
     </div>
   );
 }

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import {
-  todaysTasks, listLeads, allMeetings, allProposals, getSettings, allPlans, allBusinessIntelligence, allFindings,
+  todaysTasks, listLeads, allMeetings, allProposals, getSettings, allPlans, allBusinessIntelligence, allFindings, allTasks,
 } from "@/lib/repo";
 import { placesMode } from "@/lib/providers/places";
 import { nextScheduledRun } from "@/lib/schedule";
@@ -12,7 +12,8 @@ import { TaskActions } from "@/components/TaskActions";
 import { TodayControls } from "@/components/TodayControls";
 import { MorningWarming } from "@/components/MorningWarming";
 import { WorkQueue } from "@/components/WorkQueue";
-import { buildWorkQueue } from "@/lib/work-queue";
+import { DailyMission } from "@/components/DailyMission";
+import { buildWorkQueue, buildDailyMission } from "@/lib/work-queue";
 import { formatCurrency, relativeDate, timeOfDay, shortDate, joinMeta, formatLocation, deslug } from "@/lib/utils";
 import {
   Video, Mail, Phone, CalendarClock, FileText, ArrowRight, AlertTriangle, Clock, Brain,
@@ -42,8 +43,8 @@ const isSameDay = (iso: string | null | undefined, ref: Date) => {
 export default async function TodayPage() {
   const settings = await getSettings();
   const queueSize = settings.prospecting.dailyQueueSize;
-  const [tasks, leads, meetings, proposals, plans, bi, findings] = await Promise.all([
-    todaysTasks(queueSize), listLeads(), allMeetings(), allProposals(), allPlans(), allBusinessIntelligence(), allFindings(),
+  const [tasks, leads, meetings, proposals, plans, bi, findings, everyTask] = await Promise.all([
+    todaysTasks(queueSize), listLeads(), allMeetings(), allProposals(), allPlans(), allBusinessIntelligence(), allFindings(), allTasks(),
   ]);
 
   const now = new Date();
@@ -108,10 +109,17 @@ export default async function TodayPage() {
     leads: leadMap,
   });
 
+  // Businesses moved today (tasks completed today) → the mission's progress.
+  const doneToday = everyTask.filter((t) => t.status === "done" && isSameDay(t.updatedAt, now)).length;
+  const mission = buildDailyMission(workQueue, doneToday);
+
   const revenueWon = proposals.filter((p) => p.status === "accepted").reduce((s, p) => s + (p.amount ?? 0), 0);
 
   return (
     <div className="space-y-6">
+      {/* Today's mission — the single objective, above everything */}
+      <DailyMission mission={mission} />
+
       {/* Today's work — grouped into focused batches, nothing to decide */}
       <div>
         <p className="eyebrow mb-3">{dateLabel} · Today's work</p>

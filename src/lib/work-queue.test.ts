@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import type { Task, TaskType, Lead } from "./types";
-import { buildWorkQueue, batchLeadIds, minutesLabel } from "./work-queue";
+import { buildWorkQueue, batchLeadIds, minutesLabel, buildDailyMission } from "./work-queue";
 
 const lead = (id: string): Lead => ({ id, businessName: `Biz ${id}` } as unknown as Lead);
 const task = (leadId: string, type: TaskType): Task => ({ id: `t_${leadId}_${type}`, leadId, type, title: "", dueAt: "2026-07-23T00:00:00Z", status: "open", priority: 1, snoozedUntil: null, createdAt: "", updatedAt: "" } as Task);
@@ -51,5 +51,14 @@ describe("work queue — organizes work into batches, urgency-first", () => {
     expect(minutesLabel(35)).toBe("35 min");
     expect(minutesLabel(90)).toBe("1h 30m");
     expect(minutesLabel(0)).toBe("");
+  });
+
+  it("builds today's mission: total = remaining + done, counting businesses once", () => {
+    const cats = buildWorkQueue({ tasks: [task("A", "prepare_video"), task("A", "review_and_send"), task("B", "call")], meetingsToday: [], leads: leadsMap("A", "B") });
+    const mission = buildDailyMission(cats, 3);
+    expect(mission.remaining).toBe(2); // A and B — a business counts once even with two tasks
+    expect(mission.done).toBe(3);
+    expect(mission.total).toBe(5);
+    expect(mission.estMinutes).toBeGreaterThan(0);
   });
 });

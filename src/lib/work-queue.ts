@@ -46,6 +46,11 @@ const TASK_TO_KIND: Record<TaskType, WorkKind> = {
   review: "understand",
 };
 
+/** Which batch a task belongs to. */
+export function kindOfTask(type: TaskType): WorkKind {
+  return TASK_TO_KIND[type];
+}
+
 export function buildWorkQueue(input: {
   tasks: Task[];
   meetingsToday: Array<{ leadId: string; scheduledAt: string }>;
@@ -82,6 +87,25 @@ export function buildWorkQueue(input: {
 /** The ordered lead list for one batch (for the batch runner). */
 export function batchLeadIds(cats: WorkCategory[], kind: string): string[] {
   return cats.find((c) => c.kind === kind)?.leadIds ?? [];
+}
+
+export interface DailyMission {
+  /** Businesses to move today (remaining + already done). */
+  total: number;
+  done: number;
+  remaining: number;
+  estMinutes: number;
+}
+
+/** Today's single objective: contact N businesses. Progress persists as work completes. */
+export function buildDailyMission(cats: WorkCategory[], doneToday: number): DailyMission {
+  const remaining = new Set(cats.flatMap((c) => c.leadIds)).size;
+  return {
+    total: remaining + doneToday,
+    done: doneToday,
+    remaining,
+    estMinutes: cats.reduce((s, c) => s + c.estMinutes, 0),
+  };
 }
 
 export function categoryTitle(kind: string): string {
