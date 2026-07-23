@@ -57,7 +57,7 @@ export default async function PortfolioPage() {
     <div className="space-y-6">
       <div className="flex items-center gap-2">
         <LayoutGrid size={18} className="text-azure-300" />
-        <h1 className="text-lg font-semibold text-chalk-50">Portfolio</h1>
+        <h1 className="text-lg font-semibold text-chalk-50">Businesses</h1>
         <span className="text-[12px] text-chalk-500">· every engagement, at a glance</span>
       </div>
       <PortfolioView rows={rows} patterns={patterns} />
