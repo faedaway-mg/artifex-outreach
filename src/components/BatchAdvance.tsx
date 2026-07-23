@@ -19,13 +19,15 @@ export function BatchAdvance({ taskId, nextHref, isLast }: { taskId: string | nu
       router.push(nextHref);
     });
 
+  // Workflow controls recede — the value-creating action above is the hero. "Done"
+  // only closes the loop; it stays quiet until the real work has been done.
   return (
     <div className="flex items-center justify-between">
       <button onClick={() => router.push(nextHref)} disabled={pending} className="text-[13px] text-chalk-500 hover:text-chalk-300 disabled:opacity-50">
-        Skip for now
+        Skip
       </button>
-      <button onClick={done} disabled={pending} className="btn-primary !py-2.5 text-[14px] disabled:opacity-60">
-        <Check size={16} /> {isLast ? "Done — finish batch" : "Done — next business"} <ArrowRight size={15} />
+      <button onClick={done} disabled={pending} className="btn-secondary !py-1.5 text-[12.5px] disabled:opacity-60">
+        <Check size={14} /> {isLast ? "Done — finish" : "Done — next"} <ArrowRight size={13} />
       </button>
     </div>
   );
