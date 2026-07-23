@@ -831,3 +831,20 @@ export const outcomeReviews = pgTable(
     statusIdx: index("outcome_reviews_status_idx").on(t.status),
   }),
 );
+
+// ── Engagement Snapshots — immutable "before" state (write-once) ──────────────
+export const engagementSnapshots = pgTable(
+  "engagement_snapshots",
+  {
+    id: text("id").primaryKey(),
+    leadId: text("lead_id").notNull(),
+    recommendationId: text("recommendation_id").notNull(),
+    trigger: text("trigger").notNull(),
+    payload: text("payload").notNull(),
+    createdAt: ts("created_at").notNull(),
+  },
+  (t) => ({
+    leadIdx: index("engagement_snapshots_lead_idx").on(t.leadId),
+    recIdx: index("engagement_snapshots_rec_idx").on(t.recommendationId),
+  }),
+);

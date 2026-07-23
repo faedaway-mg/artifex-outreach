@@ -8,9 +8,10 @@
 // always the operator's, and only makes sense once an observation and evidence exist.
 // ─────────────────────────────────────────────────────────────────────────────
 import { revalidatePath } from "next/cache";
-import { insertOutcomeReview, updateOutcomeReview, outcomeReviewsForLead, appendAudit } from "./repo";
+import { insertOutcomeReview, updateOutcomeReview, outcomeReviewsForLead, snapshotsForLead, appendAudit } from "./repo";
 import type { MemoryConfidence, OutcomeStatus } from "./types";
 import { OUTCOME_STATUSES, MEMORY_CONFIDENCES } from "./types";
+import { parseSnapshot, beforeStateFromSnapshot } from "./engagement";
 
 function touch(leadId: string) {
   revalidatePath(`/leads/${leadId}`);
@@ -25,11 +26,15 @@ export async function startOutcomeReviewAction(leadId: string, recommendationId:
   if (!leadId || !recommendationId) return;
   const existing = (await outcomeReviewsForLead(leadId)).find((r) => r.recommendationId === recommendationId);
   if (existing) return;
+  // Pull the immutable baseline captured at commitment as the "before" state.
+  const snaps = (await snapshotsForLead(leadId)).filter((s) => s.recommendationId === recommendationId).sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt));
+  const baseline = snaps[0] ? parseSnapshot(snaps[0].payload) : null;
+  const beforeState = baseline ? beforeStateFromSnapshot(baseline) : "";
   const item = await insertOutcomeReview({
     leadId, recommendationId, title: title || recommendationId,
     status: "Awaiting Review",
     expectedOutcome: expectedOutcome || "",
-    beforeState: "", observedOutcome: "", evidence: "", unexpectedConsequences: "", lessonsLearned: "",
+    beforeState, observedOutcome: "", evidence: "", unexpectedConsequences: "", lessonsLearned: "",
     confidence: "Low", reviewedAt: null, operatorNotes: null,
   });
   await appendAudit({ action: "outcome.start", actor: "jordan", targetType: "outcome", targetId: item.id, meta: { recommendationId }, ip: null });

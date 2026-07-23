@@ -393,6 +393,55 @@ automatically; failures are shown, never hidden.
 - Carried items from Phases VII–VIII (reasoning/roadmap → PDF, live-email weaving)
   remain as previously noted.
 
+## Phase X — Engagement Integration & Production Workflow (built this phase — makes it one OS)
+
+Not another intelligence engine — the layer that makes the foundation feel like ONE
+continuous consulting workflow. Pure composition in `src/lib/engagement/`; no new
+inference, everything deterministic, explainable, and operator-controlled.
+
+- **Engagement Command Center** — `/leads/[id]/command` + `CommandCenter` (now the
+  first lead tab). One surface answering "what needs my attention right now?": stage,
+  relationship health, momentum, awaiting reviews, surfaced follow-ups (with why +
+  evidence + next step), current focus, work in motion, blockers, latest learning,
+  recent conversations, next meeting, and a slice of the unified timeline — every card
+  linking to where the work lives.
+- **Follow-up workflow** (`follow-up.ts`) — `pendingWork` surfaces (never nags):
+  unmeasured completed work, in-progress items, blocked items, contradictions,
+  discovery gaps, out-of-date proposals. Each says why, cites evidence, and links to
+  the next step. No reminders are created.
+- **Unified engagement timeline** (`timeline.ts`) — meetings, memories, roadmap
+  transitions, outcome reviews, evolution, emails, replies, proposals, and baseline
+  snapshots merged into one sorted, explainable stream.
+- **Immutable baseline snapshots** (`snapshot.ts` + migration `0016`
+  `engagement_snapshots`) — when a recommendation moves to **Approved / In Progress**,
+  `advanceRoadmapAction` freezes a write-once snapshot (memory, strategist read,
+  roadmap placement, narratives). `startOutcomeReviewAction` pulls it as the outcome
+  review's "before" — closing the Phase IX before-state gap. History is never
+  overwritten (one per rec × trigger).
+- **Portfolio view** — `/portfolio` + `PortfolioView` (new top-level nav): one row per
+  engaged business (stage, health, implementation progress, awaiting reviews, top
+  opportunity, momentum, recent-win / at-risk flags), plus cross-engagement consulting
+  patterns. Bounded to engaged businesses for speed.
+- **Email integration** — the existing follow-up email now opens from confirmed
+  Relationship Memory (`memoryReferences` → `buildFollowUpEmail(..., memoryLines)` via
+  the kit), so it reads "You mentioned…" not "our system detected…". Every existing
+  quality gate is preserved; nothing sends automatically.
+
+Tested: 14 cases — context assembly, pending-work evidence, timeline merge/order,
+command-center composition, snapshot capture + JSON round-trip, portfolio rollup, and a
+**full simulated lifecycle** (memory → In Progress freezes baseline → Completed →
+outcome review inherits the frozen "before" → verdict sticks → timeline carries it all,
+with no history overwrite). Regression across Phases V–IX: clean (593 total).
+
+**Honest — BTR & Proposal document integration is partial:** the unified *data layer*
+(memory + reasoning + roadmap + outcomes + knowledge, all with provenance) now exists
+and is surfaced across the Command Center, Strategist, Roadmap, and Outcomes. Rendering
+it into the **Business Technology Review PDF** and a **living proposal document**
+(consuming completed work so solved problems disappear) still reuses/extends the
+existing PDF pipeline and is NOT wired this phase — the honest remaining work. Also
+still future: automated success measurement, review scheduling, and a deeper
+cross-browser pass.
+
 ## The end-to-end spine
 Lead → Review → Email (voice + quality gated) → Reply/stop → Booking → Discovery
 (workspace + prep brief) → Conversation (capture) → Proposal (from captured

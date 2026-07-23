@@ -48,6 +48,7 @@ import type {
   RelationshipMemoryItem,
   RoadmapProgressItem,
   OutcomeReviewItem,
+  EngagementSnapshotItem,
 } from "./types";
 
 // ── Generic collection helper ────────────────────────────────────────────────
@@ -100,6 +101,7 @@ const BusinessIntel = collection<StoredBusinessIntelligence>(t.businessIntellige
 const RelationshipMemory = collection<RelationshipMemoryItem>(t.relationshipMemory, () => mem().relationshipMemory);
 const RoadmapProgress = collection<RoadmapProgressItem>(t.roadmapProgress, () => mem().roadmapProgress);
 const OutcomeReviews = collection<OutcomeReviewItem>(t.outcomeReviews, () => mem().outcomeReviews);
+const EngagementSnapshots = collection<EngagementSnapshotItem>(t.engagementSnapshots, () => mem().engagementSnapshots);
 const Videos = collection<Video>(t.videos, () => mem().videos);
 const Outreaches = collection<Outreach>(t.outreach, () => mem().outreach);
 const Tasks = collection<Task>(t.tasks, () => mem().tasks);
@@ -182,6 +184,7 @@ export const deleteFinding = (id: string) => Findings.remove(id);
 
 // ── Relationship Memory ──────────────────────────────────────────────────────
 export const memoryForLead = (leadId: string) => RelationshipMemory.byLead(leadId);
+export const allRelationshipMemory = () => RelationshipMemory.all();
 export const getMemoryItem = (id: string) => RelationshipMemory.byId(id);
 export async function insertMemoryItem(m: Omit<RelationshipMemoryItem, "id" | "createdAt" | "updatedAt">): Promise<RelationshipMemoryItem> {
   return RelationshipMemory.insert({ ...m, id: newId("mem"), createdAt: nowIso(), updatedAt: nowIso() } as RelationshipMemoryItem);
@@ -224,6 +227,12 @@ export async function insertOutcomeReview(o: Omit<OutcomeReviewItem, "id" | "cre
   return OutcomeReviews.insert({ ...o, id: newId("oc"), createdAt: nowIso(), updatedAt: nowIso() } as OutcomeReviewItem);
 }
 export const updateOutcomeReview = (id: string, patch: Partial<OutcomeReviewItem>) => OutcomeReviews.update(id, patch);
+
+// ── Engagement Snapshots (immutable — insert + read only, never updated) ──────
+export const snapshotsForLead = (leadId: string) => EngagementSnapshots.byLead(leadId);
+export async function insertEngagementSnapshot(s: Omit<EngagementSnapshotItem, "id" | "createdAt">): Promise<EngagementSnapshotItem> {
+  return EngagementSnapshots.insert({ ...s, id: newId("snap"), createdAt: nowIso() } as EngagementSnapshotItem);
+}
 
 // ── Screenshots ──────────────────────────────────────────────────────────────
 export const screenshotsForLead = (leadId: string) => Screenshots.byLead(leadId);

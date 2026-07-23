@@ -30,6 +30,7 @@ import type {
   RelationshipMemoryItem,
   RoadmapProgressItem,
   OutcomeReviewItem,
+  EngagementSnapshotItem,
 } from "./types";
 import { buildSeed } from "./seed";
 import { defaultCategories } from "./categories";
@@ -54,6 +55,7 @@ export interface Collections {
   relationshipMemory: RelationshipMemoryItem[];
   roadmapProgress: RoadmapProgressItem[];
   outcomeReviews: OutcomeReviewItem[];
+  engagementSnapshots: EngagementSnapshotItem[];
   settings: Settings;
   seeded: boolean;
 }
@@ -81,6 +83,7 @@ function createEmpty(): Collections {
     relationshipMemory: [],
     roadmapProgress: [],
     outcomeReviews: [],
+    engagementSnapshots: [],
     settings: defaultSettings(),
     seeded: false,
   };

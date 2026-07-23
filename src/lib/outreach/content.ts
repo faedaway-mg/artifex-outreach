@@ -82,15 +82,27 @@ export function buildOutreachEmail(lead: Lead, profile: BusinessProfile, dm: Dec
 }
 
 // ── Follow-up email — brief, human, respectful. Never "just checking in". ────
-export function buildFollowUpEmail(lead: Lead, profile: BusinessProfile, dm: DecisionMakerIntelligence, settings: Settings): OutreachEmail {
+export function buildFollowUpEmail(
+  lead: Lead,
+  profile: BusinessProfile,
+  dm: DecisionMakerIntelligence,
+  settings: Settings,
+  /** Voice-clean, memory-grounded openers ("You mentioned…") from confirmed Relationship Memory. */
+  memoryLines?: string[],
+): OutreachEmail {
   const subjects = [
     `Making sure this didn't get buried — ${lead.businessName}`,
     `One quick note for ${lead.businessName}`,
     `No pressure — ${lead.businessName}`,
   ];
+  // If we've actually learned something and confirmed it, pick that thread back up —
+  // a continuing relationship, never "our system detected…".
+  const continuity = memoryLines && memoryLines.length > 0
+    ? `${memoryLines[0]} I didn't want to let that thread go cold.`
+    : `I sent a short note last week and wanted to make sure it didn't get buried — I know how full a week gets.`;
   const paragraphs = [
     greeting(lead, dm),
-    `I sent a short note last week and wanted to make sure it didn't get buried — I know how full a week gets.`,
+    continuity,
     `No pressure at all. If it's not the right time, I completely understand and won't keep knocking.`,
     `Either way, I appreciate what you're building at ${lead.businessName}.`,
   ];

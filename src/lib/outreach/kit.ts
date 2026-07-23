@@ -25,14 +25,16 @@ export interface OutreachKitInput {
   enrichedDecisionMakers?: DecisionMaker[];
   /** Live outreach state (what's been sent/opened/replied). Omit for a fresh lead. */
   outreachState?: OutreachState;
+  /** Voice-clean, memory-grounded follow-up openers from confirmed Relationship Memory. */
+  memoryLines?: string[];
 }
 
 export function buildOutreachKit(input: OutreachKitInput): OutreachKit {
-  const { lead, profile, settings, contacts = [], improvement, enrichedDecisionMakers = [] } = input;
+  const { lead, profile, settings, contacts = [], improvement, enrichedDecisionMakers = [], memoryLines } = input;
 
   const decisionMaker = inferDecisionMakers(lead, contacts, enrichedDecisionMakers);
   const email = buildOutreachEmail(lead, profile, decisionMaker, settings);
-  const followUp = buildFollowUpEmail(lead, profile, decisionMaker, settings);
+  const followUp = buildFollowUpEmail(lead, profile, decisionMaker, settings, memoryLines);
   const phone = buildPhoneGuide(lead, profile, decisionMaker);
   const discovery = buildDiscoveryPlan(lead, profile);
   const confidence = buildOutreachConfidence(lead, profile, decisionMaker, email);

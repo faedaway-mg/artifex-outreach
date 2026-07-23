@@ -1,8 +1,9 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, ShieldAlert, User2, Mail, AlertTriangle } from "lucide-react";
-import { getLead, getBusinessIntelligence, getSettings, contactsForLead, isSuppressed, emailSendsForLead } from "@/lib/repo";
+import { getLead, getBusinessIntelligence, getSettings, contactsForLead, isSuppressed, emailSendsForLead, memoryForLead } from "@/lib/repo";
 import { buildOutreachKit } from "@/lib/outreach/kit";
+import { memoryReferences } from "@/lib/reasoning";
 import { renderEmailHtml, renderEmailText } from "@/lib/outreach/email-render";
 import { scoreEmailQuality } from "@/lib/outreach/quality";
 import { SendIntroForm } from "@/components/lead/SendIntroForm";
@@ -14,8 +15,10 @@ export default async function SendPage({ params }: { params: { id: string } }) {
   const lead = await getLead(params.id);
   if (!lead) notFound();
 
-  const [stored, settings, contacts] = await Promise.all([getBusinessIntelligence(lead.id), getSettings(), contactsForLead(lead.id)]);
+  const [stored, settings, contacts, memory] = await Promise.all([getBusinessIntelligence(lead.id), getSettings(), contactsForLead(lead.id), memoryForLead(lead.id)]);
   const profile = stored?.profile?.businessProfile ?? null;
+  // Continuity: ground the follow-up in what we've actually confirmed we learned.
+  const memoryLines = memoryReferences(memory).map((r) => r.sentence);
   const suppressed = await isSuppressed({ email: lead.publicEmail, domain: lead.websiteDomain, phone: lead.phone });
 
   if (!profile) {
@@ -27,7 +30,7 @@ export default async function SendPage({ params }: { params: { id: string } }) {
     );
   }
 
-  const kit = buildOutreachKit({ lead, profile, settings, contacts });
+  const kit = buildOutreachKit({ lead, profile, settings, contacts, memoryLines });
   const dm = kit.decisionMaker;
   const recipient = dm.primary?.directEmail || dm.primary?.officeEmail || lead.publicEmail;
   const isDirect = !!dm.primary?.directEmail && recipient === dm.primary.directEmail;

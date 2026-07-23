@@ -14,12 +14,14 @@ import {
   Plus,
   ShieldCheck,
   Rocket,
+  Layers,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CommandPalette } from "@/components/CommandPalette";
 
 const NAV = [
   { href: "/", label: "Today", icon: LayoutGrid },
+  { href: "/portfolio", label: "Portfolio", icon: Layers },
   { href: "/discover", label: "Discover", icon: Search },
   { href: "/pipeline", label: "Journey", icon: KanbanSquare },
   { href: "/approvals", label: "Recommendations", icon: ShieldCheck },
@@ -31,6 +33,7 @@ const NAV = [
 
 const TITLES: Record<string, string> = {
   "/": "Today",
+  "/portfolio": "Portfolio",
   "/discover": "Discover",
   "/pipeline": "Business Journey",
   "/approvals": "Recommendations",

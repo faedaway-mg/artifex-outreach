@@ -845,6 +845,21 @@ export interface OutcomeReviewItem {
   updatedAt: string;
 }
 
+// ── Engagement Snapshots — immutable "before" state, captured on commitment ────
+// When a recommendation moves to Approved or In Progress, we freeze the state of the
+// engagement. These are write-once: they become the "before" for a future outcome
+// review, so history is never overwritten.
+export interface EngagementSnapshotItem {
+  id: string;
+  leadId: string;
+  recommendationId: string;
+  /** What triggered the capture — "Approved" or "In Progress". */
+  trigger: string;
+  /** Frozen JSON payload (memory, strategist read, roadmap placement, narratives). */
+  payload: string;
+  createdAt: string;
+}
+
 export interface InboundMessage {
   id: string;
   leadId: string;
