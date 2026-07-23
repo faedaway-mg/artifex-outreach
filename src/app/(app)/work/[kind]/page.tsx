@@ -8,12 +8,13 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { CheckCircle2, ArrowRight, ArrowLeft, X, Video, Mail, RotateCcw, FileText, Phone, CalendarClock, Compass } from "lucide-react";
+import { CheckCircle2, ArrowRight, ArrowLeft, X, Video, Mail, RotateCcw, FileText, Phone, CalendarClock, Compass, Clock } from "lucide-react";
 import {
   todaysTasks, listLeads, allMeetings, getSettings, getBusinessIntelligence, contactsForLead, memoryForLead,
 } from "@/lib/repo";
 import { buildWorkQueue, batchLeadIds, categoryTitle, kindOfTask, type WorkKind } from "@/lib/work-queue";
 import { buildOutreachKit } from "@/lib/outreach/kit";
+import { buildVideoScript } from "@/lib/outreach/content";
 import { readingSeconds } from "@/lib/outreach/voice-engine";
 import { memoryReferences } from "@/lib/reasoning";
 import { deslug } from "@/lib/utils";
@@ -65,12 +66,21 @@ export default async function BatchPage({ params, searchParams }: { params: { ki
 
   // ── Batch complete ──────────────────────────────────────────────────────────
   if (total === 0 || i >= total) {
+    const litUp = total > 0;
     return (
-      <div className="mx-auto max-w-lg py-10 text-center">
-        <span className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-emerald-400/12 text-emerald-300"><CheckCircle2 size={28} /></span>
-        <h1 className="mt-4 text-xl font-semibold text-chalk-50">{total === 0 ? "Nothing here right now." : `${title} — done.`}</h1>
-        <p className="mt-1.5 text-[14px] text-chalk-400">{total === 0 ? "This batch is empty. Nice — one less thing." : `You worked through all ${total}. That's the batch.`}</p>
-        <Link href="/" className="btn-primary mt-6 justify-center !py-2.5"><ArrowLeft size={16} /> Back to today's work</Link>
+      <div className="mx-auto max-w-lg py-12 text-center">
+        {/* A completed constellation — the batch, lit */}
+        <svg viewBox="0 0 120 60" className="mx-auto h-16 w-32" role="img" aria-label="batch complete">
+          {[[16, 40], [42, 20], [70, 44], [98, 24]].map((p, k, arr) => (
+            k < arr.length - 1 ? <line key={`l${k}`} x1={p[0]} y1={p[1]} x2={arr[k + 1][0]} y2={arr[k + 1][1]} stroke="#E8A24A" strokeOpacity={litUp ? 0.5 : 0.12} strokeWidth="1.2" /> : null
+          ))}
+          {[[16, 40], [42, 20], [70, 44], [98, 24]].map((p, k) => (
+            <g key={`n${k}`}><circle cx={p[0]} cy={p[1]} r="6" fill="#F5BC63" opacity={litUp ? 0.16 : 0.05} /><circle cx={p[0]} cy={p[1]} r="3" fill={litUp ? "#F6CD88" : "#5B6472"} /></g>
+          ))}
+        </svg>
+        <h1 className="mt-3 text-xl font-semibold text-chalk-50">{total === 0 ? "Nothing here right now." : `${title} — done.`}</h1>
+        <p className="mt-1.5 text-[14px] text-chalk-400">{total === 0 ? "This batch is empty. One less thing." : `All ${total} done. That's the batch.`}</p>
+        <Link href="/" className="btn-secondary mt-6 justify-center !py-2.5"><ArrowLeft size={16} /> Back to today's work</Link>
       </div>
     );
   }
@@ -84,19 +94,18 @@ export default async function BatchPage({ params, searchParams }: { params: { ki
   const observations = (bi?.profile?.briefing?.strongestOpportunities ?? []).slice(0, 2);
 
   const nextHref = `/work/${kind}?ids=${idsParam}&i=${i + 1}`;
-  // The open task for this business in this batch — completing it ticks the mission.
   const stepTask = tasks.find((t) => t.leadId === lead.id && kindOfTask(t.type) === kind) ?? null;
   const isEmail = kind === "email" || kind === "follow-up";
 
-  let suggestedOpening: string | null = null;
-  let suggestedQuestion: string | null = null;
+  let contactName = "";
+  let firstQuestion: string | null = null;
   let emailProps: null | { subject: string; openingSentence: string; readingLabel: string; fullParagraphs: string[]; contact: string } = null;
 
-  if (profile && (kind === "video" || kind === "call" || isEmail)) {
+  if (profile && (kind === "call" || isEmail)) {
     const [contacts, memory] = await Promise.all([contactsForLead(lead.id), memoryForLead(lead.id)]);
     const kit = buildOutreachKit({ lead, profile, settings, contacts, memoryLines: memoryReferences(memory).map((r) => r.sentence) });
-    suggestedOpening = kit.video?.opening ?? null;
-    suggestedQuestion = kit.video?.question ?? null;
+    contactName = kit.decisionMaker.primary?.name ?? "";
+    firstQuestion = kit.discovery?.questions?.[0]?.question ?? null;
     if (isEmail) {
       const email = kind === "follow-up" ? kit.followUp : kit.email;
       const paras = email.paragraphs;
@@ -106,82 +115,107 @@ export default async function BatchPage({ params, searchParams }: { params: { ki
         openingSentence: paras[1] ?? paras[0] ?? email.subject,
         readingLabel: secs < 60 ? `~${Math.max(5, secs)}s read` : `~${Math.round(secs / 60)} min read`,
         fullParagraphs: paras,
-        contact: kit.decisionMaker.primary?.name ?? "",
+        contact: contactName,
       };
     }
   }
-
+  const videoScript = kind === "video" && profile ? buildVideoScript(lead, profile) : null;
   const action = ACTION[kind];
 
-  return (
-    <div className="mx-auto max-w-lg space-y-5">
-      {/* Progress + exit */}
+  const Header = (
+    <>
       <div className="flex items-center gap-3">
         <Link href="/" aria-label="Exit batch" className="rounded-lg p-1.5 text-chalk-500 hover:bg-white/[0.06] hover:text-chalk-200"><X size={18} /></Link>
         <div className="flex flex-1 items-center gap-2">
-          <Icon size={15} className="text-azure-300" />
+          <Icon size={15} className="text-amber-300" />
           <span className="text-[13px] font-medium text-chalk-200">{title}</span>
           <span className="ml-auto text-[12px] tabular-nums text-chalk-500">{i + 1} of {total}</span>
         </div>
       </div>
       <div className="h-1 w-full overflow-hidden rounded-full bg-white/[0.06]">
-        <div className="h-full rounded-full bg-amber-400/80 transition-all" style={{ width: `${((i) / total) * 100}%` }} />
+        <div className="h-full rounded-full bg-amber-400/80 transition-all" style={{ width: `${(i / total) * 100}%` }} />
       </div>
+    </>
+  );
 
-      {/* Email/follow-up: decide whether to send, don't re-read the whole thing */}
-      {isEmail && emailProps ? (
+  const Observations = observations.length > 0 && (
+    <div className="mt-4">
+      <p className="text-[11px] font-medium uppercase tracking-wide text-chalk-500">What stood out</p>
+      <ul className="mt-1.5 space-y-1.5">
+        {observations.map((o, k) => <li key={k} className="flex gap-2 text-[13.5px] text-chalk-300"><span className="mt-0.5 text-amber-300">→</span><span>{o}</span></li>)}
+      </ul>
+    </div>
+  );
+
+  // Email keeps its own inline decision + advance.
+  if (isEmail && emailProps) {
+    return (
+      <div className="mx-auto max-w-lg space-y-5">
+        {Header}
         <EmailDecision
-          leadId={lead.id}
-          mode={kind === "follow-up" ? "followup" : "intro"}
-          business={lead.businessName}
-          industry={deslug(lead.industry)}
-          contact={emailProps.contact}
-          why={why}
-          observations={observations}
-          subject={emailProps.subject}
-          openingSentence={emailProps.openingSentence}
-          readingLabel={emailProps.readingLabel}
-          fullParagraphs={emailProps.fullParagraphs}
-          taskId={stepTask?.id ?? null}
-          nextHref={nextHref}
-          isLast={i + 1 >= total}
+          leadId={lead.id} mode={kind === "follow-up" ? "followup" : "intro"}
+          business={lead.businessName} industry={deslug(lead.industry)} contact={emailProps.contact}
+          why={why} observations={observations} subject={emailProps.subject} openingSentence={emailProps.openingSentence}
+          readingLabel={emailProps.readingLabel} fullParagraphs={emailProps.fullParagraphs}
+          taskId={stepTask?.id ?? null} nextHref={nextHref} isLast={i + 1 >= total}
         />
-      ) : (
-      <>
-      {/* The focused brief */}
+      </div>
+    );
+  }
+
+  // ── The step body, kind-appropriate. Video + call stay in the loop (no deep-link). ─
+  let body: React.ReactNode;
+  if (kind === "video" && videoScript) {
+    body = (
+      <section className="card p-5 sm:p-6">
+        <p className="text-[12px] text-chalk-500">Record a video for</p>
+        <h1 className="mt-0.5 text-[1.4rem] font-semibold leading-tight tracking-[-0.01em] text-chalk-50">{lead.businessName}</h1>
+        <p className="mt-1 inline-flex items-center gap-1 text-[11.5px] text-chalk-500"><Clock size={12} /> ~{videoScript.estimatedSeconds}s · read it, then record on your phone</p>
+        <div className="mt-4 space-y-3 rounded-lg border border-white/[0.06] bg-white/[0.02] p-3.5">
+          <p className="text-[14px] leading-relaxed text-chalk-100">{videoScript.opening}</p>
+          {videoScript.observations.map((o, k) => <p key={k} className="text-[14px] leading-relaxed text-chalk-200">{o}</p>)}
+          <p className="text-[14px] leading-relaxed text-chalk-200">{videoScript.question}</p>
+          <p className="text-[14px] leading-relaxed text-chalk-300">{videoScript.close}</p>
+        </div>
+      </section>
+    );
+  } else if (kind === "call") {
+    const opener = `Hi — is this ${contactName || "the owner"}? I'm Jordan, I run Artifex Labs. I looked at ${lead.businessName} recently and noticed a couple of small things — do you have a quick minute?`;
+    body = (
+      <section className="card p-5 sm:p-6">
+        <p className="text-[12px] text-chalk-500">Call</p>
+        <h1 className="mt-0.5 text-[1.4rem] font-semibold leading-tight tracking-[-0.01em] text-chalk-50">{lead.businessName}</h1>
+        <p className="mt-0.5 text-[12.5px] text-chalk-500">{[contactName, lead.phone].filter(Boolean).join(" · ") || "No direct contact on file"}</p>
+        <p className="mt-2 text-[14px] leading-relaxed text-chalk-300">{why}</p>
+        {Observations}
+        <div className="mt-4 rounded-lg border border-white/[0.06] bg-white/[0.02] p-3">
+          <p className="text-[11px] font-medium uppercase tracking-wide text-chalk-500">A natural way in</p>
+          <p className="mt-1 text-[13.5px] leading-relaxed text-chalk-200">“{opener}”</p>
+          {firstQuestion && <p className="mt-2 text-[13px] text-chalk-400">Then ask: “{firstQuestion}”</p>}
+        </div>
+        {lead.phone
+          ? <a href={`tel:${lead.phone.replace(/[^\d+]/g, "")}`} className="btn-primary mt-5 w-full justify-center !py-3 text-[15px]"><Phone size={16} /> Call now</a>
+          : <Link href={`/leads/${lead.id}`} className="btn-secondary mt-5 w-full justify-center !py-2.5 text-[14px]">Find a number →</Link>}
+      </section>
+    );
+  } else {
+    body = (
       <section className="card p-5 sm:p-6">
         <p className="text-[12px] text-chalk-500">{action.verb}</p>
         <h1 className="mt-0.5 text-[1.4rem] font-semibold leading-tight tracking-[-0.01em] text-chalk-50">{lead.businessName}</h1>
         <p className="mt-2 text-[14px] leading-relaxed text-chalk-300">{why}</p>
-
-        {observations.length > 0 && (
-          <div className="mt-4">
-            <p className="text-[11px] font-medium uppercase tracking-wide text-chalk-500">{observations.length === 1 ? "What stood out" : "What stood out"}</p>
-            <ul className="mt-1.5 space-y-1.5">
-              {observations.map((o, k) => <li key={k} className="flex gap-2 text-[13.5px] text-chalk-300"><span className="mt-0.5 text-teal-300">→</span><span>{o}</span></li>)}
-            </ul>
-          </div>
-        )}
-
-        {suggestedOpening && (
-          <div className="mt-4 rounded-lg border border-white/[0.06] bg-white/[0.02] p-3">
-            <p className="text-[11px] font-medium uppercase tracking-wide text-chalk-500">Suggested opening</p>
-            <p className="mt-1 text-[13.5px] leading-relaxed text-chalk-200">“{suggestedOpening}”</p>
-            {suggestedQuestion && <p className="mt-2 text-[13px] text-chalk-400">Then ask: “{suggestedQuestion}”</p>}
-          </div>
-        )}
-
-        <Link href={action.href(lead.id)} className="btn-primary mt-5 w-full justify-center !py-3 text-[15px]">
-          {action.label} <ArrowRight size={17} />
-        </Link>
+        {Observations}
+        <Link href={action.href(lead.id)} className="btn-primary mt-5 w-full justify-center !py-3 text-[15px]">{action.label} <ArrowRight size={17} /></Link>
       </section>
+    );
+  }
 
-      {/* Advance — completing persists and keeps the loop moving */}
+  return (
+    <div className="mx-auto max-w-lg space-y-5">
+      {Header}
+      {body}
       <BatchAdvance taskId={stepTask?.id ?? null} nextHref={nextHref} isLast={i + 1 >= total} />
-
       <p className="text-center text-[11px] text-chalk-600">{i + 1} of {total} · the batch stays put while you work</p>
-      </>
-      )}
     </div>
   );
 }
