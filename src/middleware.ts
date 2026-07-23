@@ -16,6 +16,11 @@ export async function middleware(req: NextRequest) {
     pathname.startsWith("/api/webhooks") ||
     pathname.startsWith("/api/comms") ||
     pathname.startsWith("/share/previews") ||
+    // Public brand assets (the constellation mark PNG) must be fetchable by email
+    // clients and browsers without a session, or the mark degrades to alt text.
+    pathname.startsWith("/api/brand") ||
+    pathname.startsWith("/icon") ||
+    pathname.startsWith("/manifest") ||
     pathname.startsWith("/api/placeholder");
 
   if (isPublic) return NextResponse.next();
