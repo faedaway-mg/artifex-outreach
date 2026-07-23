@@ -10,6 +10,46 @@ code — it is the evidence that decides what code comes next (if any).
 
 ---
 
+## Operator session journal
+
+One block per outreach session. Numbers over impressions; hesitations over opinions.
+
+```
+### Session: <date>
+
+Businesses reviewed: __
+Emails sent: __         Replies received: __
+Discovery calls booked: __   Proposals sent: __   Clients won: __
+Time spent: __ min
+
+Points of hesitation ("I had to stop and think"): 
+Moments of confusion ("I couldn't tell / I forgot what came next"):
+Times I left the app (and why):
+Ideas that surfaced during real work:
+```
+
+---
+
+## Go-live gate — controlled live send log
+
+- **2026-07-23** — First controlled production send through the real pipeline.
+  - Mechanism: `scripts/comms/send-one.ts` (isolated internal lead, never touches real
+    leads; does **not** open the global `OUTREACH_SENDING_ENABLED` gate).
+  - Result: `dispatch outcome: sent`, Resend `providerMessageId a8910a5f-6a73-433f-9b30-63b4aa0fa972`,
+    ledger `sent`. From `Jordan <hello@artifexlabs.tech>` → `jordant.jackson@gmail.com`.
+  - **Caveat (important):** this was the built-in **plaintext deliverability probe**
+    ("If you received it, delivery works"), NOT the branded/authentic outreach email.
+    It proves the pipeline + From + provider acceptance; it does **not** validate the
+    branded HTML shell or the authentic voice in a real inbox.
+  - Isolated test lead left in prod: `lead_8-92-bi301` (source "Internal test") — safe to delete.
+  - **Still to verify by a human (inbox side — I have no inbox access):** delivered to
+    inbox not spam; reply from Gmail lands in the `hello@` M365 inbox; reply from `hello@`
+    stays in-thread (References/In-Reply-To); sequence stop / lead-state change. And a
+    **branded** test (the real outreach email, not the probe) if you want the shell/voice
+    confirmed in-inbox.
+
+---
+
 ## How to use this log
 
 - Use the Founder OS for **every** Artifex engagement. Do not bypass it (Stage 1).
