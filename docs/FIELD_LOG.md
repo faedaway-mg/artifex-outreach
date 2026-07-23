@@ -15,18 +15,37 @@ code — it is the evidence that decides what code comes next (if any).
 One block per outreach session. Numbers over impressions; hesitations over opinions.
 
 ```
-### Session: <date>
+### Session: <date>   <start time> → <end time>   (duration __ min)
 
-Businesses reviewed: __
-Emails sent: __         Replies received: __
-Discovery calls booked: __   Proposals sent: __   Clients won: __
-Time spent: __ min
+— Outcomes (the only metrics that matter) —
+Businesses researched: __     Businesses contacted: __
+Emails approved: __           Emails sent: __
+Replies: __   (positive __ / neutral __ / negative __)
+Discovery calls booked: __    Proposals sent: __    Clients: __    Revenue: $__
+Time to first reply (if any): __     Avg time per outreach: __ min
 
-Points of hesitation ("I had to stop and think"): 
-Moments of confusion ("I couldn't tell / I forgot what came next"):
-Times I left the app (and why):
-Ideas that surfaced during real work:
+— Field notes (short; a phrase each) —
+What slowed you down:
+What surprised you:
+Did you leave the app? why:
+What felt repetitive:
+What felt especially natural:
+What would have saved time:
 ```
+
+### Anecdotal Intelligence — pattern capture
+
+The first integration point with the Anecdotal Intelligence Engine is **this list**:
+structured, anonymized patterns recorded from real work (no customer PII — patterns, not
+people). Tally frequency. **One occurrence is an anecdote; a repeated pattern is signal**
+and becomes a roadmap/engine candidate. The *engine* (automated extraction + cross-product
+synthesis for Asset Factory / Kairo / Michi / Hestia / Civix) is earned once this table has
+real volume — building it before data would be building from imagination.
+
+| Pattern | Category | Times seen | Example (anonymized) |
+|---|---|---|---|
+| _(fill from real sessions)_ | website friction / booking friction / review theme / scheduling / communication / tech request / operational bottleneck / repeated objection / discovery theme / proposal feedback / client decision factor / successful opening / successful follow-up | | |
+
 
 ---
 
