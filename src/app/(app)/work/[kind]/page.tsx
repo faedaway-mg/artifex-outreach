@@ -15,7 +15,7 @@ import {
 import { buildWorkQueue, batchLeadIds, categoryTitle, kindOfTask, type WorkKind } from "@/lib/work-queue";
 import { buildOutreachKit } from "@/lib/outreach/kit";
 import { buildVideoScript } from "@/lib/outreach/content";
-import { renderEmailHtml } from "@/lib/outreach/email-render";
+import { renderPersonalEmailHtml } from "@/lib/outreach/email-render";
 import { readingSeconds } from "@/lib/outreach/voice-engine";
 import { memoryReferences } from "@/lib/reasoning";
 import { deslug } from "@/lib/utils";
@@ -111,7 +111,7 @@ export default async function BatchPage({ params, searchParams }: { params: { ki
       const email = kind === "follow-up" ? kit.followUp : kit.email;
       const paras = email.paragraphs;
       const secs = Math.round(readingSeconds(email.body));
-      const html = renderEmailHtml({ email, settings, businessName: lead.businessName, unsubscribeUrl: "https://outreach.artifexlabs.tech/api/comms/unsubscribe" });
+      const html = renderPersonalEmailHtml({ email, settings, unsubscribeUrl: "https://outreach.artifexlabs.tech/api/comms/unsubscribe" });
       emailProps = {
         subject: email.subject,
         openingSentence: paras[1] ?? paras[0] ?? email.subject,

@@ -16,7 +16,7 @@ import { getLead, getBusinessIntelligence, getSettings, contactsForLead, plansFo
 import { prepareAcquisitionPlanAction, approvePlanAction } from "../acquisition-actions";
 import { dispatchStep } from "../comms/dispatch";
 import { buildOutreachKit } from "./kit";
-import { renderEmailHtml, renderEmailText } from "./email-render";
+import { renderPersonalEmailHtml, renderPersonalEmailText } from "./email-render";
 import type { VeedVideo, IntroSendResult } from "./types";
 
 async function sendNext(leadId: string, mode: "intro" | "followup", veed?: VeedVideo | null): Promise<IntroSendResult> {
@@ -47,8 +47,8 @@ async function sendNext(leadId: string, mode: "intro" | "followup", veed?: VeedV
 
   // The {{unsubscribe}} token is replaced by dispatch, keeping compliance intact.
   const renderInput = { email, settings, veed: mode === "intro" ? veed ?? null : null, unsubscribeUrl: "{{unsubscribe}}" as string | null };
-  const html = renderEmailHtml(renderInput);
-  const text = renderEmailText(renderInput);
+  const html = renderPersonalEmailHtml(renderInput);
+  const text = renderPersonalEmailText(renderInput);
 
   // Reuse the real plan/step pipeline. prepareAcquisitionPlanAction is idempotent.
   await prepareAcquisitionPlanAction(leadId);

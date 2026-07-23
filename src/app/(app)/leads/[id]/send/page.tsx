@@ -4,7 +4,7 @@ import { ArrowLeft, ShieldAlert, User2, Mail, AlertTriangle } from "lucide-react
 import { getLead, getBusinessIntelligence, getSettings, contactsForLead, isSuppressed, emailSendsForLead, memoryForLead } from "@/lib/repo";
 import { buildOutreachKit } from "@/lib/outreach/kit";
 import { memoryReferences } from "@/lib/reasoning";
-import { renderEmailHtml, renderEmailText } from "@/lib/outreach/email-render";
+import { renderPersonalEmailHtml, renderPersonalEmailText } from "@/lib/outreach/email-render";
 import { scoreEmailQuality } from "@/lib/outreach/quality";
 import { SendIntroForm } from "@/components/lead/SendIntroForm";
 import { EmailQualityPanel } from "@/components/lead/EmailQualityPanel";
@@ -40,8 +40,8 @@ export default async function SendPage({ params }: { params: { id: string } }) {
   const mode: "intro" | "followup" = introSent ? "followup" : "intro";
   const email = mode === "followup" ? kit.followUp : kit.email;
 
-  const html = renderEmailHtml({ email, settings, unsubscribeUrl: "https://outreach.artifexlabs.tech/api/comms/unsubscribe" });
-  const text = renderEmailText({ email, settings });
+  const html = renderPersonalEmailHtml({ email, settings, unsubscribeUrl: "https://outreach.artifexlabs.tech/api/comms/unsubscribe" });
+  const text = renderPersonalEmailText({ email, settings });
 
   const warnings: string[] = [];
   if (!recipient) warnings.push("No email address on file — the send will be blocked until a route is found.");

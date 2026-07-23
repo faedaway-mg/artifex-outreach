@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { defaultSettings } from "../store";
-import { renderEmailHtml, renderEmailText, veedBlockHtml, ctaButton } from "./email-render";
+import { renderEmailHtml, renderEmailText, veedBlockHtml, ctaButton, renderPersonalEmailHtml, renderPersonalEmailText, personalSignatureHtml, SIGNATURE_MARKER } from "./email-render";
 import type { OutreachEmail, VeedVideo } from "./types";
 
 const settings = defaultSettings();
@@ -107,5 +107,37 @@ describe("email-render — premium, restrained, honest", () => {
     const withName = veedBlockHtml(veed, "Studio Smiles");
     expect(withName).toContain("Studio Smiles");
     expect(withName).toContain('href="https://veed.io/w/abc"');
+  });
+
+  // ── MODE 1: personal outreach (plain, one-to-one) ────────────────────────────
+  it("personal mode reads like an ordinary email — plain white, no branded card", () => {
+    const html = renderPersonalEmailHtml({ email, settings, unsubscribeUrl: "https://x/u" });
+    expect(html).toContain("background:#ffffff");           // plain white
+    expect(html).not.toContain("#FCFBF8");                  // no ivory branded card
+    expect(html).not.toContain("Business technology partner\n          <"); // no big header block
+    expect(html).toContain("ten minutes experiencing your practice"); // the message
+    expect(html).toContain("Jordan Jackson");               // signature
+  });
+
+  it("personal mode carries the compact signature + a detectable marker", () => {
+    const html = renderPersonalEmailHtml({ email, settings });
+    expect(html).toContain(SIGNATURE_MARKER);               // for Exchange de-duplication
+    expect(html).toContain("artifexlabs.tech");
+    expect(html).toContain('alt="Jordan Jackson"');         // headshot fallback works image-blocked
+    expect(html).not.toContain("Book a conversation");      // cold outreach wants a reply, not a CTA
+  });
+
+  it("personal signature is one link, name strongest, no social/logo wall", () => {
+    const sig = personalSignatureHtml(settings);
+    expect((sig.match(/<a /g) || []).length).toBe(1);       // exactly one link
+    expect(sig).not.toContain("Book a conversation");       // off by default
+    expect(sig).toContain("Jordan Jackson");
+  });
+
+  it("personal plaintext carries content + signature, no HTML", () => {
+    const text = renderPersonalEmailText({ email, settings, unsubscribeUrl: "https://x/u" });
+    expect(text).toContain("Jordan Jackson");
+    expect(text).toContain("ten minutes experiencing your practice");
+    expect(text).not.toContain("<");
   });
 });

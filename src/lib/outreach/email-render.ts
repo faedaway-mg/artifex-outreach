@@ -29,6 +29,11 @@ const FONT = "-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-s
 // The official constellation mark, rasterized (renders where SVG is blocked). This is
 // the PRIMARY mark; the CSS box below is only the graceful fallback if it's absent.
 const DEFAULT_MARK_URL = "https://outreach.artifexlabs.tech/api/brand/mark";
+// Jordan's signature headshot (placeholder until the real photo is hosted).
+const DEFAULT_HEADSHOT_URL = "https://outreach.artifexlabs.tech/api/brand/headshot";
+// A hidden token so an Exchange transport rule can detect our signature and NOT append
+// a duplicate. Kept identical in HTML and plain text.
+export const SIGNATURE_MARKER = "artifex-signature-v1";
 
 export function escapeHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -75,21 +80,35 @@ function header(logoUrl?: string | null): string {
   </table>`;
 }
 
-function signatureHtml(logoUrl?: string | null, bookingUrl?: string | null): string {
-  const booking = bookingUrl
-    ? `<div style="margin-top:6px;font-size:13px;line-height:1.5;"><a href="${escapeHtml(bookingUrl)}" style="color:${GOLD_LINK};text-decoration:none;">Book a conversation &rarr;</a></div>`
+// ── One compact signature, shared by personal + branded email (and Outlook) ──────
+// Personal first, branded second: name strongest, company + role secondary, one link,
+// a small circular headshot. No social row, no big logo, no legal wall, no CTA stack.
+// A blocked image degrades to alt text. `booking` is off by default (cold outreach
+// wants a reply, not a calendar link).
+export function personalSignatureHtml(settings: Settings, opts?: { headshotUrl?: string | null; booking?: boolean }): string {
+  const url = opts?.headshotUrl === undefined ? DEFAULT_HEADSHOT_URL : opts.headshotUrl;
+  const site = (settings.website || "https://artifexlabs.tech").replace(/^https?:\/\//, "").replace(/\/$/, "");
+  const img = url ? `<img src="${escapeHtml(url)}" width="52" height="52" alt="Jordan Jackson" style="display:block;border-radius:50%;">` : "";
+  const booking = opts?.booking && settings.calendarLink
+    ? `<div style="font-size:13px;line-height:1.5;margin-top:2px;"><a href="${escapeHtml(settings.calendarLink)}" style="color:${GOLD_LINK};text-decoration:none;">Book a conversation</a></div>`
     : "";
-  return `
-  <table role="presentation" cellpadding="0" cellspacing="0" style="margin-top:26px;">
+  return `<!--${SIGNATURE_MARKER}-->
+  <table role="presentation" cellpadding="0" cellspacing="0" style="margin-top:22px;">
     <tr>
-      <td valign="top" style="width:46px;">${markImg(logoUrl, 34)}</td>
-      <td valign="top" style="padding-left:12px;">
+      ${img ? `<td valign="top" style="width:64px;">${img}</td>` : ""}
+      <td valign="top" style="${img ? "padding-left:12px;" : ""}">
         <div style="font-weight:600;color:${INK};font-size:15px;line-height:1.4;">Jordan Jackson</div>
         <div style="color:${MUTE};font-size:13px;line-height:1.5;">Artifex Labs &middot; Business technology partner</div>
+        <div style="font-size:13px;line-height:1.5;"><a href="${escapeHtml(settings.website || "https://artifexlabs.tech")}" style="color:${GOLD_LINK};text-decoration:none;">${site}</a></div>
         ${booking}
       </td>
     </tr>
   </table>`;
+}
+
+export function personalSignatureText(settings: Settings): string {
+  const site = settings.website || "https://artifexlabs.tech";
+  return `Jordan Jackson\nArtifex Labs — Business technology partner\n${site}`;
 }
 
 /** A real-action CTA — constellation gold, dark text, tap-friendly. Use sparingly. */
@@ -131,6 +150,8 @@ export interface RenderInput {
   businessName?: string | null;
   /** A real CTA where one genuinely helps (e.g. Book a conversation). Optional. */
   cta?: { label: string; url: string } | null;
+  /** Signature headshot override; omit for the hosted default, null for text-only. */
+  headshotUrl?: string | null;
 }
 
 /** The final HTML the recipient sees — and the exact HTML previewed in the app. */
@@ -160,7 +181,7 @@ export function renderEmailHtml(input: RenderInput): string {
           ${paras}
           ${videoHtml}
           ${ctaHtml}
-          ${signatureHtml(logoUrl, settings.calendarLink)}
+          ${personalSignatureHtml(settings, { headshotUrl: input.headshotUrl, booking: true })}
         </td></tr>
         <tr><td style="padding:16px 34px 4px;color:${MUTE};font-size:11.5px;line-height:1.6;">
           ${footer}
@@ -180,7 +201,7 @@ export function renderEmailText(input: RenderInput): string {
     const dur = veed.durationSeconds ? `${veed.durationSeconds}-second ` : "";
     parts.push(`Watch the ${dur}video${veed.title ? ` (${veed.title})` : ""}: ${veed.url}`);
   }
-  parts.push(`Jordan Jackson\nArtifex Labs — Business technology partner${settings.calendarLink ? `\nBook a conversation: ${settings.calendarLink}` : ""}`);
+  parts.push(personalSignatureText(settings) + (settings.calendarLink ? `\nBook a conversation: ${settings.calendarLink}` : ""));
   const site = settings.website || "https://artifexlabs.tech";
   const footer = unsubscribeUrl
     ? `${settings.businessAddress ?? ""}\nPrefer not to hear from me? Unsubscribe: ${unsubscribeUrl} — and I won't follow up.\n${site}`.trim()
@@ -192,4 +213,41 @@ export function renderEmailText(input: RenderInput): string {
 /** Convenience: render an OutreachEmail to exactly what gets sent. */
 export function renderIntroEmail(input: RenderInput): { subject: string; html: string; text: string } {
   return { subject: input.email.subject, html: renderEmailHtml(input), text: renderEmailText(input) };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MODE 1 — Personal outreach. A normal one-to-one email: plain white background, no
+// branded header, no ivory card, no constellation divider, no big CTA. Clean type, the
+// message, and the compact signature. The brand shows through voice + sender + signature,
+// not layout. Cold outreach + follow-ups + conversational replies use this.
+// ─────────────────────────────────────────────────────────────────────────────
+export function renderPersonalEmailHtml(input: RenderInput): string {
+  const { email, settings, veed, unsubscribeUrl } = input;
+  const paras = email.paragraphs.map((p) => `<p style="margin:0 0 14px;">${linkify(p)}</p>`).join("\n");
+  // A video, if present, is a plain inline link — never a designed card in personal mode.
+  const video = veed?.url ? `<p style="margin:0 0 14px;">If it's easier than reading, I recorded a short video: <a href="${escapeHtml(veed.url)}" style="color:${GOLD_LINK};text-decoration:none;">watch it here</a>.</p>` : "";
+  // Commercial mail needs the postal address + opt-out in the body (CAN-SPAM). Kept tiny.
+  const addr = settings.businessAddress ? escapeHtml(settings.businessAddress) : "";
+  const footer = unsubscribeUrl
+    ? `<div style="margin-top:18px;color:#9aa0a6;font-size:11px;line-height:1.5;">${addr ? `${addr}<br>` : ""}Prefer not to hear from me? <a href="${escapeHtml(unsubscribeUrl)}" style="color:#9aa0a6;">Unsubscribe</a> and I won't follow up.</div>`
+    : "";
+  return `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light"><meta name="supported-color-schemes" content="light"><title>${escapeHtml(email.subject)}</title></head>
+<body style="margin:0;padding:0;background:#ffffff;color-scheme:light;">
+  <div style="max-width:600px;margin:0 auto;padding:18px 16px;font-family:${FONT};color:#222222;font-size:15.5px;line-height:1.6;">
+    ${paras}
+    ${video}
+    ${personalSignatureHtml(settings, { headshotUrl: input.headshotUrl, booking: false })}
+    ${footer}
+  </div>
+</body></html>`;
+}
+
+export function renderPersonalEmailText(input: RenderInput): string {
+  const { email, settings, veed, unsubscribeUrl } = input;
+  const parts = [...email.paragraphs];
+  if (veed?.url) parts.push(`If it's easier than reading, I recorded a short video: ${veed.url}`);
+  parts.push(personalSignatureText(settings));
+  if (unsubscribeUrl) parts.push(`${settings.businessAddress ? `${settings.businessAddress}\n` : ""}Prefer not to hear from me? Unsubscribe: ${unsubscribeUrl}`);
+  return parts.join("\n\n");
 }
