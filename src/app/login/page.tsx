@@ -1,5 +1,6 @@
 import { usingDevPassword } from "@/lib/auth";
 import { Atmosphere } from "@/components/Atmosphere";
+import { BrandMark } from "@/components/BrandMark";
 
 export const dynamic = "force-dynamic";
 
@@ -12,9 +13,7 @@ export default function LoginPage({ searchParams }: { searchParams: { error?: st
       <Atmosphere />
       <div className="w-full max-w-sm animate-scale-in">
         <div className="mb-8 flex flex-col items-center text-center">
-          <div className="mb-4 grid h-14 w-14 place-items-center rounded-2xl bg-gradient-to-br from-azure-400 to-indigo-500 text-xl font-bold text-white shadow-glow-azure">
-            A
-          </div>
+          <BrandMark size={56} rounded="rounded-2xl" className="mb-4 shadow-glow-azure ring-1 ring-white/[0.08]" />
           <h1 className="text-xl font-semibold tracking-tight text-chalk-50">Artifex Labs</h1>
           <p className="mt-1.5 text-sm text-chalk-400">A calm studio for thoughtful business conversations.</p>
         </div>

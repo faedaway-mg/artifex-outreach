@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CommandPalette } from "@/components/CommandPalette";
+import { BrandMark } from "@/components/BrandMark";
 
 const NAV = [
   { href: "/", label: "Today", icon: LayoutGrid },
@@ -84,9 +85,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
       {/* ── Desktop sidebar (Glass Level 1) ─────────────────────────────── */}
       <aside className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col glass-1 px-4 py-5 md:flex">
         <Link href="/" className="mb-8 flex items-center gap-3 px-2">
-          <span className="grid h-9 w-9 place-items-center rounded-xl bg-gradient-to-br from-azure-400 to-indigo-500 text-sm font-bold text-white shadow-glow-azure">
-            A
-          </span>
+          <BrandMark size={36} className="shadow-glass-1 ring-1 ring-white/[0.08]" />
           <span className="leading-tight">
             <span className="block text-sm font-semibold text-chalk-50">Artifex Labs</span>
             <span className="flex items-center gap-1.5 text-[10.5px] text-chalk-500">
@@ -163,7 +162,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
 
         {/* Mobile top bar */}
         <header className="sticky top-0 z-30 flex items-center gap-2 glass-1 px-4 py-2.5 md:hidden">
-          <Link href="/" className="grid h-8 w-8 place-items-center rounded-lg bg-gradient-to-br from-azure-400 to-indigo-500 text-xs font-bold text-white">A</Link>
+          <Link href="/" aria-label="Home"><BrandMark size={32} rounded="rounded-lg" /></Link>
           <span className="text-sm font-semibold text-chalk-100">{title}</span>
           <button onClick={() => setPaletteOpen(true)} className="ml-auto rounded-lg border border-white/10 p-2 text-chalk-400"><Search size={16} /></button>
         </header>
@@ -201,7 +200,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
           <button aria-label="Close menu" className="absolute inset-0 h-full w-full bg-ink-950/70 backdrop-blur-sm" onClick={() => setMenuOpen(false)} />
           <div className="absolute inset-y-0 left-0 flex w-[84%] max-w-xs flex-col glass-1 pb-[env(safe-area-inset-bottom)] shadow-glass-1">
             <div className="flex items-center gap-3 px-4 py-4">
-              <span className="grid h-9 w-9 place-items-center rounded-xl bg-gradient-to-br from-azure-400 to-indigo-500 text-sm font-bold text-white shadow-glow-azure">A</span>
+              <BrandMark size={36} className="ring-1 ring-white/[0.08]" />
               <span className="leading-tight">
                 <span className="block text-sm font-semibold text-chalk-50">Artifex Labs</span>
                 <span className="block text-[10.5px] text-chalk-500">Business technology partner</span>

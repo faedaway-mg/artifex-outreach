@@ -11,8 +11,8 @@ import { JourneyBadge } from "@/components/JourneyBadge";
 import { TaskActions } from "@/components/TaskActions";
 import { TodayControls } from "@/components/TodayControls";
 import { MorningWarming } from "@/components/MorningWarming";
-import { TodaysFocus } from "@/components/TodaysFocus";
-import { decideTodaysFocus } from "@/lib/today";
+import { WorkQueue } from "@/components/WorkQueue";
+import { buildWorkQueue } from "@/lib/work-queue";
 import { formatCurrency, relativeDate, timeOfDay, shortDate, joinMeta, formatLocation, deslug } from "@/lib/utils";
 import {
   Video, Mail, Phone, CalendarClock, FileText, ArrowRight, AlertTriangle, Clock, Brain,
@@ -101,22 +101,24 @@ export default async function TodayPage() {
     if (l && !seenQueue.has(l.id)) { seenQueue.add(l.id); todaysBusinesses.push({ id: l.id, name: l.businessName, warm: biByLead.has(l.id) }); }
   }
 
-  // ── The one decision — the system has already chosen what to do next ─────────
-  const focus = decideTodaysFocus({
+  // ── Today's work, grouped into batches, already prioritized ─────────────────
+  const workQueue = buildWorkQueue({
     tasks,
-    leads: leadMap,
     meetingsToday: meetingsToday.map((m) => ({ leadId: m.leadId, scheduledAt: m.scheduledAt })),
-    now,
+    leads: leadMap,
   });
 
   const revenueWon = proposals.filter((p) => p.status === "accepted").reduce((s, p) => s + (p.amount ?? 0), 0);
 
   return (
     <div className="space-y-6">
-      {/* THE single next action — nothing competes with it */}
-      <TodaysFocus focus={focus} dateLabel={dateLabel} />
+      {/* Today's work — grouped into focused batches, nothing to decide */}
+      <div>
+        <p className="eyebrow mb-3">{dateLabel} · Today's work</p>
+        <WorkQueue categories={workQueue} />
+      </div>
 
-      {/* Everything else — deferred, never competing. Open it only if you want it. */}
+      {/* Everything else — the detailed queue + context, only if you want it */}
       <details id="everything" className="group">
         <summary className="flex cursor-pointer list-none items-center justify-center gap-1.5 rounded-xl border border-white/[0.06] bg-white/[0.02] py-2.5 text-[12.5px] text-chalk-400 transition-colors hover:text-chalk-200">
           <ChevronRight size={13} className="transition-transform group-open:rotate-90" />
