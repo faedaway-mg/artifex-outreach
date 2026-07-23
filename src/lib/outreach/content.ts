@@ -63,17 +63,24 @@ export function buildOutreachEmail(lead: Lead, profile: BusinessProfile, dm: Dec
   const subjects = buildSubjectLines(lead, profile);
   const name = publicBusinessName(lead);
   const one = singular(audience);
-  const phrases = uniqueNoticed(topOpportunities(profile, 3).map((o) => trimNoticed(noticed(o, audience)))).slice(0, 1);
+  const hasWebsite = profile.presence?.hasWebsite ?? Boolean(lead.websiteDomain);
+  // Observations that aren't "you have no website" (that case is handled separately).
+  const phrases = uniqueNoticed(topOpportunities(profile, 3).map((o) => trimNoticed(noticed(o, audience))))
+    .filter((p) => !/\bno\b[^.]*\bwebsite\b|owned website/i.test(p));
 
   // Written like a real note: honest, one concrete thing, a question, a light offer.
-  const observation = phrases[0] ? lowerFirst(phrases[0]) : `how a new ${one} gets in touch after the first visit`;
-  const paragraphs = [
-    greeting(lead, dm),
-    `I was looking through ${name}'s website earlier and, honestly, most of it looked good.`,
-    `One thing I wasn't sure about: ${observation}.`,
-    `I'm Jordan, I run Artifex Labs, a small studio here in LA. I could be wrong from the outside, so mostly I wanted to ask if that lines up with what you see.`,
-    `Happy to send over the couple of things I noticed if it's useful. No pressure either way.`,
-  ];
+  // The opener has to be true — never claim to have browsed a site that doesn't exist.
+  const paragraphs = [greeting(lead, dm)];
+  if (hasWebsite) {
+    const observation = phrases[0] ? lowerFirst(phrases[0]) : `how a new ${one} gets in touch after the first visit`;
+    paragraphs.push(`I was looking through ${name}'s website earlier and, honestly, most of it looked good.`);
+    paragraphs.push(`One thing I wasn't sure about: ${observation}.`);
+  } else {
+    paragraphs.push(`I came across ${name} earlier and went looking for your website.`);
+    paragraphs.push(`I couldn't really find one, just a listing. Not sure if that's on purpose, but it's usually the first thing a new ${one} checks.`);
+  }
+  paragraphs.push(`I'm Jordan, I run Artifex Labs, a small studio here in LA. I could be wrong from the outside, so mostly I wanted to ask if that lines up with what you see.`);
+  paragraphs.push(`Happy to send over the couple of things I noticed if it's useful. No pressure either way.`);
   const body = [...paragraphs, complianceFooter(settings)].join("\n\n");
   return {
     subject: subjects[0],
