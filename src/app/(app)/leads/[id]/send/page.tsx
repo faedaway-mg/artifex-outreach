@@ -1,11 +1,13 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, ShieldAlert, User2, Mail, AlertTriangle } from "lucide-react";
+import { ArrowLeft, ShieldAlert, User2, Mail, AlertTriangle, Clock, ChevronDown } from "lucide-react";
 import { getLead, getBusinessIntelligence, getSettings, contactsForLead, isSuppressed, emailSendsForLead, memoryForLead } from "@/lib/repo";
 import { buildOutreachKit } from "@/lib/outreach/kit";
 import { memoryReferences } from "@/lib/reasoning";
 import { renderPersonalEmailHtml, renderPersonalEmailText } from "@/lib/outreach/email-render";
+import { readingSeconds } from "@/lib/outreach/voice-engine";
 import { scoreEmailQuality } from "@/lib/outreach/quality";
+import { deslug } from "@/lib/utils";
 import { SendIntroForm } from "@/components/lead/SendIntroForm";
 import { EmailQualityPanel } from "@/components/lead/EmailQualityPanel";
 
@@ -43,6 +45,15 @@ export default async function SendPage({ params }: { params: { id: string } }) {
   const html = renderPersonalEmailHtml({ email, settings, unsubscribeUrl: "https://outreach.artifexlabs.tech/api/comms/unsubscribe" });
   const text = renderPersonalEmailText({ email, settings });
 
+  // Decision-first summary — the same read the batch loop shows, so the operator answers
+  // "would I send this?" without reading a giant email. The exact rendered message is
+  // documentation, one tap away.
+  const why = lead.recommendationReason?.trim() || stored?.profile?.briefing?.whyItMatters || "Worth a thoughtful touch today.";
+  const observations = (stored?.profile?.briefing?.strongestOpportunities ?? []).slice(0, 2);
+  const openingSentence = email.paragraphs[1] ?? email.paragraphs[0] ?? email.subject;
+  const secs = Math.round(readingSeconds(email.body));
+  const readingLabel = secs < 60 ? `~${Math.max(5, secs)}s read` : `~${Math.round(secs / 60)} min read`;
+
   const warnings: string[] = [];
   if (!recipient) warnings.push("No email address on file — the send will be blocked until a route is found.");
   if (!dm.identified) warnings.push("Decision maker not confidently identified — this goes to the office address.");
@@ -67,16 +78,45 @@ export default async function SendPage({ params }: { params: { id: string } }) {
       <EmailQualityPanel quality={scoreEmailQuality(email, { lead, profile, observationCount: mode === "followup" ? 0 : undefined })} mode={mode} />
 
       <div className="grid gap-5 lg:grid-cols-[1.4fr_1fr]">
-        {/* Rendered email */}
-        <div className="card p-4">
-          <p className="mb-2 text-[12px] font-medium uppercase tracking-wide text-chalk-600">Rendered email (HTML)</p>
-          <div className="overflow-hidden rounded-xl border border-white/10 bg-white">
-            <iframe srcDoc={html} title="Email preview" className="h-[520px] w-full" />
+        {/* Decision-first: who, why, what stood out, and a one-line read of the message.
+            The exact rendered email lives behind "See the exact email" — documentation,
+            not the first thing you read. */}
+        <div className="card p-5">
+          <p className="text-[12px] text-chalk-500">{mode === "followup" ? "Follow up with" : "Approve the email to"}</p>
+          <h2 className="mt-0.5 text-[1.35rem] font-semibold leading-tight tracking-[-0.01em] text-chalk-50">{lead.businessName}</h2>
+          <p className="mt-0.5 text-[12.5px] text-chalk-500">{[deslug(lead.industry), dm.primary?.name].filter(Boolean).join(" · ")}</p>
+
+          <div className="mt-4">
+            <p className="text-[11px] font-medium uppercase tracking-wide text-chalk-500">Why we're reaching out</p>
+            <p className="mt-1 text-[13.5px] leading-relaxed text-chalk-300">{why}</p>
           </div>
-          <details className="mt-3 text-sm text-chalk-400">
-            <summary className="cursor-pointer text-chalk-300">Plaintext fallback (and images-blocked view)</summary>
-            <pre className="mt-2 whitespace-pre-wrap rounded-xl border border-white/[0.06] bg-white/[0.02] p-3 text-[12px] text-chalk-400">{text}</pre>
-          </details>
+
+          {observations.length > 0 && (
+            <div className="mt-3">
+              <p className="text-[11px] font-medium uppercase tracking-wide text-chalk-500">What stood out</p>
+              <ul className="mt-1 space-y-1">
+                {observations.map((o, i) => <li key={i} className="flex gap-2 text-[13px] text-chalk-300"><span className="mt-0.5 text-amber-300">→</span><span>{o}</span></li>)}
+              </ul>
+            </div>
+          )}
+
+          <div className="mt-4 rounded-lg border border-white/[0.06] bg-white/[0.02] p-3">
+            <p className="text-[13px] font-medium text-chalk-100">{email.subject}</p>
+            <p className="mt-1 text-[12.5px] leading-relaxed text-chalk-400">“{openingSentence}”</p>
+            <p className="mt-1.5 inline-flex items-center gap-1 text-[11px] text-chalk-600"><Clock size={11} /> {readingLabel} · founder voice, low-pressure</p>
+            <details className="group mt-2">
+              <summary className="flex cursor-pointer list-none items-center gap-1 text-[11.5px] text-amber-300/90 hover:text-amber-300">
+                <ChevronDown size={13} className="transition-transform group-open:rotate-180" /> See the exact email
+              </summary>
+              <div className="mt-2 overflow-hidden rounded-xl border border-white/10 bg-white">
+                <iframe srcDoc={html} title="Email preview" className="h-[520px] w-full" />
+              </div>
+              <details className="mt-3 text-sm text-chalk-400">
+                <summary className="cursor-pointer text-chalk-300">Plaintext fallback (and images-blocked view)</summary>
+                <pre className="mt-2 whitespace-pre-wrap rounded-xl border border-white/[0.06] bg-white/[0.02] p-3 text-[12px] text-chalk-400">{text}</pre>
+              </details>
+            </details>
+          </div>
         </div>
 
         {/* Recipient + warnings + send */}

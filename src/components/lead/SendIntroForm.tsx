@@ -1,15 +1,18 @@
 "use client";
 import { useState } from "react";
-import { Send, Loader2, CheckCircle2, AlertTriangle, Clock, Video } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Send, Loader2, CheckCircle2, AlertTriangle, Clock, Video, ArrowRight } from "lucide-react";
 import { sendIntroductionAction, sendFollowUpAction, fetchVeedMetadata } from "@/lib/outreach/send-actions";
 import type { IntroSendResult, VeedVideo } from "@/lib/outreach/types";
 
 /**
  * Explicit review → approve → real send. Reuses the production dispatch pipeline.
  * The button disables on click (client guard); the ledger's step-key idempotency
- * is the real duplicate protection.
+ * is the real duplicate protection. On a clean send/queue the loop keeps moving:
+ * we advance to `nextHref` (Today's work by default) instead of stranding the operator.
  */
-export function SendIntroForm({ leadId, mode = "intro", hasVideoRecommended }: { leadId: string; mode?: "intro" | "followup"; hasVideoRecommended: boolean }) {
+export function SendIntroForm({ leadId, mode = "intro", hasVideoRecommended, nextHref = "/" }: { leadId: string; mode?: "intro" | "followup"; hasVideoRecommended: boolean; nextHref?: string }) {
+  const router = useRouter();
   const [veedUrl, setVeedUrl] = useState("");
   const [meta, setMeta] = useState<{ title: string | null; thumbnailUrl: string | null } | null>(null);
   const [fetching, setFetching] = useState(false);
@@ -36,7 +39,11 @@ export function SendIntroForm({ leadId, mode = "intro", hasVideoRecommended }: {
     const url = veedUrl.trim();
     const veed: VeedVideo | null = url ? { url, thumbnailUrl: meta?.thumbnailUrl ?? null, title: meta?.title ?? null, durationSeconds: null } : null;
     try {
-      setResult(mode === "followup" ? await sendFollowUpAction(leadId) : await sendIntroductionAction(leadId, veed));
+      const res = mode === "followup" ? await sendFollowUpAction(leadId) : await sendIntroductionAction(leadId, veed);
+      setResult(res);
+      // Clean send or queued → keep momentum, advance to the next business. Blocked/failed
+      // stays put so the operator can see what to fix.
+      if (res.outcome === "sent" || res.outcome === "queued") { router.push(nextHref); return; }
     } catch {
       setResult({ outcome: "failed", reason: "Something went wrong reaching the send pipeline." });
     } finally {
@@ -73,14 +80,18 @@ export function SendIntroForm({ leadId, mode = "intro", hasVideoRecommended }: {
         </div>
       )}
 
-      <button
-        onClick={onSend}
-        disabled={sending || done}
-        className="btn-primary inline-flex items-center gap-2 !px-5 !py-2.5 text-sm disabled:opacity-60"
-      >
-        {sending ? <Loader2 size={15} className="animate-spin" /> : done ? <CheckCircle2 size={15} /> : <Send size={15} />}
-        {sending ? "Sending…" : done ? "Sent" : `Approve & send the ${mode === "followup" ? "follow-up" : "introduction"}`}
-      </button>
+      {/* Primary action — full width and sticky on mobile, so it's never a scroll away. */}
+      <div className="sticky bottom-[76px] z-10 md:static md:bottom-auto">
+        <button
+          onClick={onSend}
+          disabled={sending || done}
+          className="btn-primary w-full justify-center gap-2 !py-3 text-[15px] disabled:opacity-60"
+        >
+          {sending ? <Loader2 size={16} className="animate-spin" /> : done ? <CheckCircle2 size={16} /> : <Send size={16} />}
+          {sending ? "Sending…" : done ? "Sent" : `Approve & send the ${mode === "followup" ? "follow-up" : "introduction"}`}
+          {!sending && !done && <ArrowRight size={16} />}
+        </button>
+      </div>
 
       {result && (
         <div
