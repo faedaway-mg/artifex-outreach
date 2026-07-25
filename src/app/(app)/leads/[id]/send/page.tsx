@@ -10,7 +10,7 @@ import { scoreEmailQuality } from "@/lib/outreach/quality";
 import { deslug } from "@/lib/utils";
 import { SendIntroForm } from "@/components/lead/SendIntroForm";
 import { EmailQualityPanel } from "@/components/lead/EmailQualityPanel";
-import { determineContactStrategy, buildCallBrief } from "@/lib/outreach/contact-strategy";
+import { determineContactStrategy, buildCallBrief, findInstagram } from "@/lib/outreach/contact-strategy";
 import { ContactStrategyPanel } from "@/components/lead/ContactStrategyPanel";
 
 export const dynamic = "force-dynamic";
@@ -43,7 +43,8 @@ export default async function SendPage({ params }: { params: { id: string } }) {
   // contact strategy (usually call-first): how to open the relationship + capture.
   if (!recipient) {
     const strategy = determineContactStrategy(lead, { decisionMakerEmail: null });
-    const brief = strategy.kind === "call-first" ? buildCallBrief(lead, { strongestObservation: stored?.profile?.briefing?.strongestOpportunities?.[0] ?? null }) : null;
+    const wantsBrief = strategy.kind === "call-first" || strategy.kind === "instagram-dm-first";
+    const brief = wantsBrief ? buildCallBrief(lead, { strongestObservation: stored?.profile?.briefing?.strongestOpportunities?.[0] ?? null }) : null;
     return (
       <div className="space-y-5">
         <Link href={`/leads/${lead.id}`} className="inline-flex items-center gap-1.5 text-sm text-chalk-400 hover:text-chalk-100"><ArrowLeft size={15} /> Back to {lead.businessName}</Link>
@@ -51,7 +52,7 @@ export default async function SendPage({ params }: { params: { id: string } }) {
           <h1 className="text-xl font-semibold text-chalk-50">How to reach {lead.businessName}</h1>
           <p className="mt-1 text-sm text-chalk-500">No public email was found — so this doesn't start with one. Here's the right first touch.</p>
         </div>
-        <ContactStrategyPanel leadId={lead.id} strategy={strategy} callBrief={brief} phone={lead.phone} />
+        <ContactStrategyPanel leadId={lead.id} strategy={strategy} brief={brief} phone={lead.phone} contactFormUrl={lead.contactFormUrl} instagramUrl={findInstagram(lead.socialLinks)} />
       </div>
     );
   }

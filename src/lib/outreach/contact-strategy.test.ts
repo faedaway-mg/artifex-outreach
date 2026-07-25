@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { determineContactStrategy, buildCallBrief, type StrategyLead } from "./contact-strategy";
 import { computeNextAction, freshState } from "./next-action";
+import { workKindForTask } from "../work-queue";
+import type { Lead, Task } from "../types";
 
 const base: StrategyLead = {
   businessName: "Test Co",
@@ -112,5 +114,27 @@ describe("computeNextAction — contact strategy routing", () => {
   it("does not force a call when there is no phone either", () => {
     const a = computeNextAction({ ...freshState(now, false, true), hasEmailRoute: false, hasPhone: false });
     expect(a.kind).not.toBe("call");
+  });
+});
+
+describe("workKindForTask — the queue follows contact strategy", () => {
+  const lead = (over: Partial<StrategyLead>): Lead => ({ ...base, ...over } as unknown as Lead);
+  const task = (type: Task["type"]): Task => ({ type, leadId: "x" } as unknown as Task);
+
+  it("initial outreach on an email lead → email batch (backward compatible)", () => {
+    expect(workKindForTask(task("review_and_send"), lead({ publicEmail: "a@b.com" }))).toBe("email");
+  });
+  it("initial outreach on a no-email + phone lead → call batch (not email)", () => {
+    expect(workKindForTask(task("review_and_send"), lead({ publicEmail: null, phone: "555" }))).toBe("call");
+  });
+  it("initial outreach on a form-only lead → contact-form batch", () => {
+    expect(workKindForTask(task("review_and_send"), lead({ publicEmail: null, phone: null, contactFormUrl: "https://x/c" }))).toBe("contact-form");
+  });
+  it("initial outreach on an Instagram-only lead → instagram-dm batch", () => {
+    expect(workKindForTask(task("review_and_send"), lead({ publicEmail: null, phone: null, socialLinks: ["https://instagram.com/x"] }))).toBe("instagram-dm");
+  });
+  it("non-outreach task types keep their fixed kind", () => {
+    expect(workKindForTask(task("prepare_video"), lead({ publicEmail: null, phone: "555" }))).toBe("video");
+    expect(workKindForTask(task("follow_up"), lead({ publicEmail: "a@b.com" }))).toBe("follow-up");
   });
 });

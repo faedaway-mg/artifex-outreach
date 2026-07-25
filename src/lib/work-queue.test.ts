@@ -2,7 +2,8 @@ import { describe, it, expect } from "vitest";
 import type { Task, TaskType, Lead } from "./types";
 import { buildWorkQueue, batchLeadIds, minutesLabel, buildDailyMission } from "./work-queue";
 
-const lead = (id: string): Lead => ({ id, businessName: `Biz ${id}` } as unknown as Lead);
+// Email-first leads (they carry an email) so a review_and_send task buckets to "email".
+const lead = (id: string): Lead => ({ id, businessName: `Biz ${id}`, publicEmail: `hi@biz-${id}.com`, phone: null, socialLinks: [], contactFormUrl: null } as unknown as Lead);
 const task = (leadId: string, type: TaskType): Task => ({ id: `t_${leadId}_${type}`, leadId, type, title: "", dueAt: "2026-07-23T00:00:00Z", status: "open", priority: 1, snoozedUntil: null, createdAt: "", updatedAt: "" } as Task);
 const leadsMap = (...ids: string[]) => new Map(ids.map((id) => [id, lead(id)]));
 

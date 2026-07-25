@@ -6,12 +6,13 @@
 // Big tap targets, one-handed, nothing to decide — just pick a batch and go.
 // ─────────────────────────────────────────────────────────────────────────────
 import Link from "next/link";
-import { Video, Mail, RotateCcw, FileText, Phone, CalendarClock, Compass, ArrowRight, Coffee, Clock } from "lucide-react";
+import { Video, Mail, RotateCcw, FileText, Phone, CalendarClock, Compass, ArrowRight, Coffee, Clock, Instagram } from "lucide-react";
 import type { WorkCategory, WorkKind } from "@/lib/work-queue";
 import { minutesLabel } from "@/lib/work-queue";
 
 const ICON: Record<WorkKind, typeof Video> = {
-  discovery: CalendarClock, "follow-up": RotateCcw, email: Mail, report: FileText, call: Phone, video: Video, understand: Compass,
+  discovery: CalendarClock, "follow-up": RotateCcw, email: Mail, report: FileText, call: Phone,
+  "contact-form": FileText, "instagram-dm": Instagram, video: Video, understand: Compass,
 };
 
 export function WorkQueue({ categories }: { categories: WorkCategory[] }) {

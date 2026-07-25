@@ -8,7 +8,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { CheckCircle2, ArrowRight, ArrowLeft, X, Video, Mail, RotateCcw, FileText, Phone, CalendarClock, Compass, Clock } from "lucide-react";
+import { CheckCircle2, ArrowRight, ArrowLeft, X, Video, Mail, RotateCcw, FileText, Phone, CalendarClock, Compass, Clock, Instagram } from "lucide-react";
 import {
   todaysTasks, listLeads, allMeetings, getSettings, getBusinessIntelligence, contactsForLead, memoryForLead,
 } from "@/lib/repo";
@@ -17,15 +17,20 @@ import { buildOutreachKit } from "@/lib/outreach/kit";
 import { buildVideoScript } from "@/lib/outreach/content";
 import { renderPersonalEmailHtml } from "@/lib/outreach/email-render";
 import { readingSeconds } from "@/lib/outreach/voice-engine";
+import { determineContactStrategy, buildCallBrief, findInstagram } from "@/lib/outreach/contact-strategy";
 import { memoryReferences } from "@/lib/reasoning";
 import { deslug } from "@/lib/utils";
 import { BatchAdvance } from "@/components/BatchAdvance";
 import { EmailDecision } from "@/components/EmailDecision";
+import { ContactStrategyPanel } from "@/components/lead/ContactStrategyPanel";
 
 export const dynamic = "force-dynamic";
 
-const KINDS: WorkKind[] = ["discovery", "follow-up", "email", "report", "call", "video", "understand"];
-const ICON: Record<WorkKind, typeof Video> = { discovery: CalendarClock, "follow-up": RotateCcw, email: Mail, report: FileText, call: Phone, video: Video, understand: Compass };
+const KINDS: WorkKind[] = ["discovery", "follow-up", "email", "report", "call", "contact-form", "instagram-dm", "video", "understand"];
+const ICON: Record<WorkKind, typeof Video> = { discovery: CalendarClock, "follow-up": RotateCcw, email: Mail, report: FileText, call: Phone, "contact-form": FileText, "instagram-dm": Instagram, video: Video, understand: Compass };
+
+// Channel kinds render the Contact Strategy panel inline (below); the rest deep-link.
+const CHANNEL_KINDS: WorkKind[] = ["call", "contact-form", "instagram-dm"];
 
 // Per-kind primary action + how to frame the step.
 const ACTION: Record<WorkKind, { verb: string; label: string; href: (id: string) => string }> = {
@@ -34,6 +39,8 @@ const ACTION: Record<WorkKind, { verb: string; label: string; href: (id: string)
   email: { verb: "Approve the email to", label: "Review & approve", href: (id) => `/leads/${id}/send` },
   report: { verb: "Review the report for", label: "Open the review", href: (id) => `/leads/${id}/review` },
   call: { verb: "Call", label: "Open the call guide", href: (id) => `/leads/${id}` },
+  "contact-form": { verb: "Submit the form for", label: "Open the form", href: (id) => `/leads/${id}` },
+  "instagram-dm": { verb: "DM", label: "Open Instagram", href: (id) => `/leads/${id}` },
   video: { verb: "Record a video for", label: "Open the kit to record", href: (id) => `/leads/${id}/send` },
   understand: { verb: "Get to know", label: "Review the business", href: (id) => `/leads/${id}` },
 };
@@ -98,29 +105,23 @@ export default async function BatchPage({ params, searchParams }: { params: { ki
   const stepTask = tasks.find((t) => t.leadId === lead.id && kindOfTask(t.type) === kind) ?? null;
   const isEmail = kind === "email" || kind === "follow-up";
 
-  let contactName = "";
-  let firstQuestion: string | null = null;
   let emailProps: null | { subject: string; openingSentence: string; readingLabel: string; fullParagraphs: string[]; contact: string; html: string } = null;
 
-  if (profile && (kind === "call" || isEmail)) {
+  if (profile && isEmail) {
     const [contacts, memory] = await Promise.all([contactsForLead(lead.id), memoryForLead(lead.id)]);
     const kit = buildOutreachKit({ lead, profile, settings, contacts, memoryLines: memoryReferences(memory).map((r) => r.sentence) });
-    contactName = kit.decisionMaker.primary?.name ?? "";
-    firstQuestion = kit.discovery?.questions?.[0]?.question ?? null;
-    if (isEmail) {
-      const email = kind === "follow-up" ? kit.followUp : kit.email;
-      const paras = email.paragraphs;
-      const secs = Math.round(readingSeconds(email.body));
-      const html = renderPersonalEmailHtml({ email, settings, unsubscribeUrl: "https://outreach.artifexlabs.tech/api/comms/unsubscribe" });
-      emailProps = {
-        subject: email.subject,
-        openingSentence: paras[1] ?? paras[0] ?? email.subject,
-        readingLabel: secs < 60 ? `~${Math.max(5, secs)}s read` : `~${Math.round(secs / 60)} min read`,
-        fullParagraphs: paras,
-        contact: contactName,
-        html,
-      };
-    }
+    const email = kind === "follow-up" ? kit.followUp : kit.email;
+    const paras = email.paragraphs;
+    const secs = Math.round(readingSeconds(email.body));
+    const html = renderPersonalEmailHtml({ email, settings, unsubscribeUrl: "https://outreach.artifexlabs.tech/api/comms/unsubscribe" });
+    emailProps = {
+      subject: email.subject,
+      openingSentence: paras[1] ?? paras[0] ?? email.subject,
+      readingLabel: secs < 60 ? `~${Math.max(5, secs)}s read` : `~${Math.round(secs / 60)} min read`,
+      fullParagraphs: paras,
+      contact: kit.decisionMaker.primary?.name ?? "",
+      html,
+    };
   }
   const videoScript = kind === "video" && profile ? buildVideoScript(lead, profile) : null;
   const action = ACTION[kind];
@@ -182,31 +183,22 @@ export default async function BatchPage({ params, searchParams }: { params: { ki
         </div>
       </section>
     );
-  } else if (kind === "call") {
-    const opener = `Hi — is this ${contactName || "the owner"}? I'm Jordan, I run Artifex Labs. I looked at ${lead.businessName} recently and noticed a couple of small things — do you have a quick minute?`;
+  } else if (CHANNEL_KINDS.includes(kind)) {
+    // Call / contact-form / Instagram-DM: the Contact Strategy panel is the whole step —
+    // the recommended touch, the opener, the one channel action, and the capture form.
+    const strategy = determineContactStrategy(lead);
+    const wantsBrief = strategy.kind === "call-first" || strategy.kind === "instagram-dm-first";
+    const brief = wantsBrief ? buildCallBrief(lead, { strongestObservation: observations[0] ?? null }) : null;
     body = (
-      <section className="card p-5 sm:p-6">
-        <p className="text-[12px] text-chalk-500">Call</p>
-        <h1 className="mt-0.5 text-[1.4rem] font-semibold leading-tight tracking-[-0.01em] text-chalk-50">{lead.businessName}</h1>
-        <p className="mt-0.5 text-[12.5px] text-chalk-500">{[contactName, lead.phone].filter(Boolean).join(" · ") || "No direct contact on file"}</p>
-        <p className="mt-2 text-[14px] leading-relaxed text-chalk-300">{why}</p>
-        {Observations}
-        <div className="mt-4 rounded-lg border border-white/[0.06] bg-white/[0.02] p-3">
-          <p className="text-[11px] font-medium uppercase tracking-wide text-chalk-500">A natural way in</p>
-          <p className="mt-1 text-[13.5px] leading-relaxed text-chalk-200">“{opener}”</p>
-          {firstQuestion && <p className="mt-2 text-[13px] text-chalk-400">Then ask: “{firstQuestion}”</p>}
-        </div>
-        {lead.phone
-          ? <a href={`tel:${lead.phone.replace(/[^\d+]/g, "")}`} className="btn-primary mt-5 w-full justify-center !py-3 text-[15px]"><Phone size={16} /> Call now</a>
-          : <Link href={`/leads/${lead.id}`} className="btn-secondary mt-5 w-full justify-center !py-2.5 text-[14px]">Find a number →</Link>}
-      </section>
+      <>
+        <p className="text-[12px] text-chalk-500">{action.verb} <span className="text-chalk-300">{lead.businessName}</span></p>
+        <ContactStrategyPanel leadId={lead.id} strategy={strategy} brief={brief} phone={lead.phone} contactFormUrl={lead.contactFormUrl} instagramUrl={findInstagram(lead.socialLinks)} />
+      </>
     );
   } else {
-    // "understand" is a read, not a hand-off: the concise brief IS the work, so depth is
-    // an optional secondary and "Done — next" carries the loop forward. "report" opens the
-    // full review (a document that can't live in a card), but we carry the batch's next stop
-    // so the operator returns to the loop instead of the dashboard.
-    const staysInLoop = kind === "understand";
+    // The primary GOLD action is the WORK — open the business to understand it (or its
+    // review / conversation). "Done — next" (below) is navigation, and stays secondary:
+    // the interface must never make completion louder than understanding.
     const deepHref = kind === "report" ? `${action.href(lead.id)}?next=${encodeURIComponent(nextHref)}` : action.href(lead.id);
     body = (
       <section className="card p-5 sm:p-6">
@@ -214,9 +206,7 @@ export default async function BatchPage({ params, searchParams }: { params: { ki
         <h1 className="mt-0.5 text-[1.4rem] font-semibold leading-tight tracking-[-0.01em] text-chalk-50">{lead.businessName}</h1>
         <p className="mt-2 text-[14px] leading-relaxed text-chalk-300">{why}</p>
         {Observations}
-        {/* On a read step the deep-dive is optional and quiet; the gold action is
-            "Done — next" below (ES-010). On discovery/report it stays the one gold action. */}
-        <Link href={deepHref} className={staysInLoop ? "btn-ghost mt-4 !py-2 text-[13px]" : "btn-primary mt-5 w-full justify-center !py-3 text-[15px]"}>{action.label} <ArrowRight size={staysInLoop ? 14 : 17} /></Link>
+        <Link href={deepHref} className="btn-primary mt-5 w-full justify-center !py-3 text-[15px]">{action.label} <ArrowRight size={17} /></Link>
       </section>
     );
   }
@@ -225,7 +215,7 @@ export default async function BatchPage({ params, searchParams }: { params: { ki
     <div className="mx-auto max-w-lg space-y-5">
       {Header}
       {body}
-      <BatchAdvance taskId={stepTask?.id ?? null} nextHref={nextHref} isLast={i + 1 >= total} primaryDone={kind === "understand"} />
+      <BatchAdvance taskId={stepTask?.id ?? null} nextHref={nextHref} isLast={i + 1 >= total} />
       <p className="text-center text-[11px] text-chalk-600">{i + 1} of {total} · the batch stays put while you work</p>
     </div>
   );

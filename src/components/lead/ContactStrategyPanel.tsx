@@ -2,7 +2,7 @@
 // It recommends the first touch (with the signals behind the call), a short
 // sequence so the operator never wonders what's next, and — for a call — a
 // conversation starter and a one-tap dial. Understated; no marketing.
-import { Phone, Mail, FileText, Instagram, ArrowRight } from "lucide-react";
+import { Phone, Mail, FileText, Instagram, ArrowRight, ExternalLink } from "lucide-react";
 import type { ContactStrategy, CallBrief, StrategyIcon, SignalTone } from "@/lib/outreach/contact-strategy";
 import { CallOutcomeForm } from "@/components/lead/CallOutcomeForm";
 
@@ -13,16 +13,23 @@ const TEXT: Record<SignalTone, string> = { good: "text-chalk-100", warn: "text-c
 export function ContactStrategyPanel({
   leadId,
   strategy,
-  callBrief,
+  brief,
   phone,
+  contactFormUrl,
+  instagramUrl,
 }: {
   leadId: string;
   strategy: ContactStrategy;
-  callBrief: CallBrief | null;
+  brief: CallBrief | null;
   phone: string | null;
+  contactFormUrl?: string | null;
+  instagramUrl?: string | null;
 }) {
   const Icon = ICONS[strategy.icon];
   const isCall = strategy.kind === "call-first";
+  const isForm = strategy.kind === "contact-form-first";
+  const isDm = strategy.kind === "instagram-dm-first";
+  const nonEmail = isCall || isForm || isDm; // every non-email channel captures an email afterward
   const tel = phone ? phone.replace(/[^\d+]/g, "") : null;
 
   return (
@@ -59,27 +66,37 @@ export function ContactStrategyPanel({
         </ol>
       </div>
 
-      {/* Call brief — a conversation starter, not a script */}
-      {isCall && callBrief && (
+      {/* Conversation starter — for a call or a DM. Never a script. */}
+      {(isCall || isDm) && brief && (
         <div className="mt-4 rounded-lg border border-white/[0.06] bg-white/[0.02] p-3.5">
-          <p className="text-[11px] font-medium uppercase tracking-wide text-chalk-500">A natural way in</p>
+          <p className="text-[11px] font-medium uppercase tracking-wide text-chalk-500">{isDm ? "A natural opener" : "A natural way in"}</p>
           <div className="mt-1.5 space-y-1.5 text-[13.5px] leading-relaxed text-chalk-200">
-            <p>“{callBrief.opening}</p>
-            <p>{callBrief.observation}</p>
-            <p>{callBrief.transition} {callBrief.permissionQuestion}”</p>
+            <p>“{brief.opening}</p>
+            <p>{brief.observation}</p>
+            <p>{brief.transition} {brief.permissionQuestion}”</p>
           </div>
         </div>
       )}
 
-      {/* One-tap dial for a call-first lead */}
+      {/* The one channel-appropriate action for the first touch. */}
       {isCall && tel && (
         <a href={`tel:${tel}`} className="btn-primary mt-4 w-full justify-center !py-3 text-[15px]">
           <Phone size={16} /> Call {phone} <ArrowRight size={16} />
         </a>
       )}
+      {isForm && contactFormUrl && (
+        <a href={contactFormUrl} target="_blank" rel="noreferrer" className="btn-primary mt-4 w-full justify-center !py-3 text-[15px]">
+          <FileText size={16} /> Open the contact form <ExternalLink size={14} />
+        </a>
+      )}
+      {isDm && instagramUrl && (
+        <a href={instagramUrl} target="_blank" rel="noreferrer" className="btn-primary mt-4 w-full justify-center !py-3 text-[15px]">
+          <Instagram size={16} /> Open Instagram <ExternalLink size={14} />
+        </a>
+      )}
 
-      {/* Contact capture — where the verified email lands after the call. */}
-      {isCall && <CallOutcomeForm leadId={leadId} />}
+      {/* Contact capture — where the verified email lands after the first touch. */}
+      {nonEmail && <CallOutcomeForm leadId={leadId} />}
     </section>
   );
 }

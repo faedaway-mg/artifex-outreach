@@ -54,8 +54,12 @@ export interface StrategyLead {
   reviewCount: number | null;
 }
 
+/** The lead's Instagram profile URL, if any — exported for the DM channel UI. */
+export function findInstagram(socialLinks: string[]): string | null {
+  return (socialLinks ?? []).find((u) => /instagram\.com/i.test(u)) ?? null;
+}
 function instagramUrl(lead: StrategyLead): string | null {
-  return lead.socialLinks.find((u) => /instagram\.com/i.test(u)) ?? null;
+  return findInstagram(lead.socialLinks);
 }
 function looksLikeGoogleForm(lead: StrategyLead): boolean {
   const url = lead.contactFormUrl ?? "";
@@ -72,7 +76,7 @@ function activityLevel(lead: StrategyLead): SignalTone {
 }
 function socialLevel(lead: StrategyLead): SignalTone {
   if (instagramUrl(lead)) return "good";
-  if (lead.socialLinks.length > 0) return "warn";
+  if ((lead.socialLinks ?? []).length > 0) return "warn";
   return "muted";
 }
 
@@ -143,6 +147,16 @@ export function determineContactStrategy(
   }
   // Nothing usable yet: still recommend a call if a number turns up; otherwise research.
   return build("call-first", "No verified channel was found yet. Find a phone number or booking link before drafting outreach.");
+}
+
+/** The work-queue channel a strategy belongs to — so the queue groups by action. */
+export function strategyToWorkKind(kind: ContactStrategyKind): "email" | "call" | "contact-form" | "instagram-dm" {
+  switch (kind) {
+    case "email-first": return "email";
+    case "call-first": return "call";
+    case "contact-form-first": return "contact-form";
+    case "instagram-dm-first": return "instagram-dm";
+  }
 }
 
 const LABEL: Record<ContactStrategyKind, string> = {

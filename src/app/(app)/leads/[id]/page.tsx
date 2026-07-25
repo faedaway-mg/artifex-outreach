@@ -50,7 +50,7 @@ import { deriveOutreachState } from "@/lib/outreach/state";
 import type { OutreachKit } from "@/lib/outreach/types";
 import { NextBestActionCard } from "@/components/lead/NextBestActionCard";
 import { OutreachKitPanel } from "@/components/lead/OutreachKitPanel";
-import { determineContactStrategy, buildCallBrief } from "@/lib/outreach/contact-strategy";
+import { determineContactStrategy, buildCallBrief, findInstagram } from "@/lib/outreach/contact-strategy";
 import { ContactStrategyPanel } from "@/components/lead/ContactStrategyPanel";
 import { formatRange, joinMeta, formatLocation, deslug } from "@/lib/utils";
 import { ArrowLeft, Globe, Phone, Mail, MapPin, Star, ExternalLink, Compass, ChevronDown } from "lucide-react";
@@ -133,7 +133,8 @@ export default async function LeadPage({ params }: { params: { id: string } }) {
   // email-first, so the common case stays uncluttered.
   const dmEmail = outreachKit?.decisionMaker.primary?.directEmail ?? outreachKit?.decisionMaker.primary?.officeEmail ?? null;
   const contactStrategy = determineContactStrategy(lead, { decisionMakerEmail: dmEmail });
-  const callBrief = contactStrategy.kind === "call-first" ? buildCallBrief(lead, { strongestObservation: stoodOut[0] ?? null }) : null;
+  const wantsBrief = contactStrategy.kind === "call-first" || contactStrategy.kind === "instagram-dm-first";
+  const contactBrief = wantsBrief ? buildCallBrief(lead, { strongestObservation: stoodOut[0] ?? null }) : null;
 
   return (
     <div className="mx-auto max-w-3xl space-y-5">
@@ -193,7 +194,7 @@ export default async function LeadPage({ params }: { params: { id: string } }) {
 
       {/* Primary contact strategy — only when this business shouldn't begin with email. */}
       {contactStrategy.kind !== "email-first" && (
-        <ContactStrategyPanel leadId={lead.id} strategy={contactStrategy} callBrief={callBrief} phone={lead.phone} />
+        <ContactStrategyPanel leadId={lead.id} strategy={contactStrategy} brief={contactBrief} phone={lead.phone} contactFormUrl={lead.contactFormUrl} instagramUrl={findInstagram(lead.socialLinks)} />
       )}
 
       {/* ── Everything else, on demand. Reference never competes with the decision. ─────
