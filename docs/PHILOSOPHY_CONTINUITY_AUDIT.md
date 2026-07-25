@@ -63,11 +63,11 @@ Today ──▶ Batch runner ──▶ [per-kind action] ──▶ Decision ─�
    "claimed_philosophy":"reference is entered intentionally and exits to the loop",
    "observed_behavior":"7 separate pages, not yet classified; now tucked behind 'Manage & go deeper' so they no longer compete, but each page's own surface integrity is unverified",
    "operator_cost":"unknown","severity":"low",
-   "remediation":"classify each WORK/REFERENCE/MIXED; ensure each carries a return-to-work path","status":"open"},
+   "remediation":"classify each WORK/REFERENCE/MIXED; ensure each carries a return-to-work path","status":"fixed 2026-07-24 (runtime-verified)"},
 
   {"ts":"2026-07-24","product":"acquisition-os","transition":"Today → 'Everything else today' (expanded)","surface_class":"REFERENCE",
    "claimed_philosophy":"calm entry screen","observed_behavior":"expanded view re-renders the same task cards already shown as batch cards (20-50 elements)",
-   "operator_cost":"cognitive-load","severity":"low","remediation":"de-duplicate the task list; it is reference, keep it collapsed and lean","status":"open"}
+   "operator_cost":"cognitive-load","severity":"low","remediation":"de-duplicate the task list; it is reference, keep it collapsed and lean","status":"fixed 2026-07-24 (runtime-verified)"}
 ]
 ```
 
@@ -99,33 +99,51 @@ ES-009 confirmed the *workflow* preserves the philosophy. The operator review th
    "eye_lands_first":"global gold 'Add business' button (btn-primary in the header)",
    "should_be":"the screen's current action","emphasis_stolen_by":"chrome",
    "exhausted_misclick_risk":"high","severity":"P0",
-   "remediation":"reserve gold for the current action only; demote 'Add business' to a ghost/icon control; 'Warm today's queue' to secondary; never two golds on one Work Surface","status":"open"},
+   "remediation":"reserve gold for the current action only; demote 'Add business' to a ghost/icon control; 'Warm today's queue' to secondary; never two golds on one Work Surface","status":"fixed 2026-07-24 (runtime-verified)"},
 
   {"ts":"2026-07-24","product":"acquisition-os","surface":"batch runner → understand",
    "eye_lands_first":"a full-width but non-gold 'Review the business' (which ejects to reference)",
    "should_be":"'Done — next' (the real forward decision on a read step)","emphasis_stolen_by":"reference",
    "exhausted_misclick_risk":"high","severity":"P0",
-   "remediation":"make 'Done — next' the gold primary on read-only steps; keep 'Review the business' quiet secondary","status":"open"},
+   "remediation":"make 'Done — next' the gold primary on read-only steps; keep 'Review the business' quiet secondary","status":"fixed 2026-07-24 (runtime-verified)"},
 
   {"ts":"2026-07-24","product":"acquisition-os","surface":"batch runner · lead page (focus mode)",
    "eye_lands_first":"persistent search + 'Add business' + 9-item nav / bottom nav around a focused loop",
    "should_be":"only the current step","emphasis_stolen_by":"navigation",
    "exhausted_misclick_risk":"medium","severity":"P0",
-   "remediation":"in batch/work mode hide or dim global chrome; collapse nav to a single Exit","status":"open"},
+   "remediation":"in batch/work mode hide or dim global chrome; collapse nav to a single Exit","status":"fixed 2026-07-24 (runtime-verified)"},
 
   {"ts":"2026-07-24","product":"acquisition-os","surface":"send page",
    "eye_lands_first":"'Would I send this? 93/100' quality scorecard, above the decision summary",
    "should_be":"the who/why/what-stood-out/subject summary","emphasis_stolen_by":"metric",
    "exhausted_misclick_risk":"low","severity":"P0",
-   "remediation":"lead with the decision summary; move the quality panel below it or into a disclosure","status":"open"},
+   "remediation":"lead with the decision summary; move the quality panel below it or into a disclosure","status":"fixed 2026-07-24 (runtime-verified)"},
 
   {"ts":"2026-07-24","product":"acquisition-os","surface":"Today",
    "eye_lands_first":"mission counter '12 / 40 min left' (largest element)",
    "should_be":"the batch card's 'Start reviewing' action","emphasis_stolen_by":"metric",
    "exhausted_misclick_risk":"low","severity":"P0",
-   "remediation":"make the batch card the visual hero; demote the mission counter to a quiet strip","status":"open"}
+   "remediation":"make the batch card the visual hero; demote the mission counter to a quiet strip","status":"fixed 2026-07-24 (runtime-verified)"}
+]
+```
+
+## Residual attention drift (classified under existing taxonomy, not new standards)
+
+```json
+[
+  {"ts":"2026-07-24","product":"acquisition-os","surface":"Today · 'Everything else today' (expanded)",
+   "eye_lands_first":"8 gold 'Review/Understand/Call' buttons (TaskActions) once the reference section is opened",
+   "should_be":"no gold in a reference list; the collapsed batches above are the work","emphasis_stolen_by":"reference (many competing golds)",
+   "class":"Attention Drift","exhausted_misclick_risk":"low (hidden by default; only on expand)","severity":"P1",
+   "remediation":"demote TaskActions to secondary — same fix pattern as C1","status":"open (outside the sanctioned five; not on the core Monday path)"},
+
+  {"ts":"2026-07-24","product":"acquisition-os","surface":"lead page (disclosures opened)",
+   "eye_lands_first":"default view shows one gold (the hero); each panel keeps its own gold action inside its disclosure",
+   "should_be":"one gold per visible surface","emphasis_stolen_by":"none by default; potential multi-gold if several disclosures are opened at once",
+   "class":"Attention Drift (watch)","exhausted_misclick_risk":"low","severity":"P2",
+   "remediation":"acceptable/contextual (operator opened that panel); revisit only if multi-open becomes common","status":"accepted"}
 ]
 ```
 
 ## Attention Integrity verdict
-**Not yet clean.** Five P0 attention drifts are open — all the same shape (gold/metric/chrome/nav out-emphasizing the decision). None require new features; each is a re-weighting. The three that block the Monday "process 40 alone" test are entries 1, 2, and 4 (gold-on-chrome, heroless understand step, score-before-summary).
+**The five P0 drifts are fixed and runtime-verified** (default Today: work-first, no competing gold; understand step: gold 'Done — next' hero + ghost deep-dive; focus mode: chrome stripped from /work/*; send: summary before quality). All were pure re-weighting — no features, no workflow change; typecheck clean, 657 tests green. Two residuals remain, both classified as Attention Drift under the existing taxonomy (not new standards): 8 gold TaskActions buttons inside the collapsed "Everything else" (same C1 fix; off the core path) and the contextual per-panel golds inside lead-page disclosures (accepted). **The three drifts that caused the prior Monday NO — gold-on-chrome, heroless understand step, score-before-summary — are all resolved.**
