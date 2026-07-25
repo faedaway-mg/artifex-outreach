@@ -31,7 +31,9 @@ export async function GET() {
     environment: {
       database: { configured: dbConfigured, connected: dbConfigured ? await pingDb() : false },
       auth: { configured: authConfigOk() },
-      sendingEnabled: process.env.OUTREACH_SENDING_ENABLED === "true",
+      // MUST match the actual gate in send-actions.ts (=== "1"), or the readiness
+      // signal lies about whether live sending is on. The canonical value is "1".
+      sendingEnabled: process.env.OUTREACH_SENDING_ENABLED === "1",
     },
     counts: {
       leads: leads.length,
