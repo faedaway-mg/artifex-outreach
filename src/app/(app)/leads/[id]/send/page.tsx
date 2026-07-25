@@ -10,6 +10,8 @@ import { scoreEmailQuality } from "@/lib/outreach/quality";
 import { deslug } from "@/lib/utils";
 import { SendIntroForm } from "@/components/lead/SendIntroForm";
 import { EmailQualityPanel } from "@/components/lead/EmailQualityPanel";
+import { determineContactStrategy, buildCallBrief } from "@/lib/outreach/contact-strategy";
+import { ContactStrategyPanel } from "@/components/lead/ContactStrategyPanel";
 
 export const dynamic = "force-dynamic";
 
@@ -36,6 +38,23 @@ export default async function SendPage({ params }: { params: { id: string } }) {
   const dm = kit.decisionMaker;
   const recipient = dm.primary?.directEmail || dm.primary?.officeEmail || lead.publicEmail;
   const isDirect = !!dm.primary?.directEmail && recipient === dm.primary.directEmail;
+
+  // No email route → don't dead-end on a giant email nobody can receive. Show the
+  // contact strategy (usually call-first): how to open the relationship + capture.
+  if (!recipient) {
+    const strategy = determineContactStrategy(lead, { decisionMakerEmail: null });
+    const brief = strategy.kind === "call-first" ? buildCallBrief(lead, { strongestObservation: stored?.profile?.briefing?.strongestOpportunities?.[0] ?? null }) : null;
+    return (
+      <div className="space-y-5">
+        <Link href={`/leads/${lead.id}`} className="inline-flex items-center gap-1.5 text-sm text-chalk-400 hover:text-chalk-100"><ArrowLeft size={15} /> Back to {lead.businessName}</Link>
+        <div>
+          <h1 className="text-xl font-semibold text-chalk-50">How to reach {lead.businessName}</h1>
+          <p className="mt-1 text-sm text-chalk-500">No public email was found — so this doesn't start with one. Here's the right first touch.</p>
+        </div>
+        <ContactStrategyPanel leadId={lead.id} strategy={strategy} callBrief={brief} phone={lead.phone} />
+      </div>
+    );
+  }
 
   // Intro until the ledger shows one was accepted; then this becomes the follow-up.
   const introSent = (await emailSendsForLead(lead.id)).some((s) => !!s.sentAt);

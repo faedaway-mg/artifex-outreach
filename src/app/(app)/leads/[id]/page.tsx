@@ -50,6 +50,8 @@ import { deriveOutreachState } from "@/lib/outreach/state";
 import type { OutreachKit } from "@/lib/outreach/types";
 import { NextBestActionCard } from "@/components/lead/NextBestActionCard";
 import { OutreachKitPanel } from "@/components/lead/OutreachKitPanel";
+import { determineContactStrategy, buildCallBrief } from "@/lib/outreach/contact-strategy";
+import { ContactStrategyPanel } from "@/components/lead/ContactStrategyPanel";
 import { formatRange, joinMeta, formatLocation, deslug } from "@/lib/utils";
 import { ArrowLeft, Globe, Phone, Mail, MapPin, Star, ExternalLink, Compass, ChevronDown } from "lucide-react";
 
@@ -127,6 +129,12 @@ export default async function LeadPage({ params }: { params: { id: string } }) {
     : hotKind === "call" || hotKind === "schedule-discovery" ? "outreach-kit"
     : null;
 
+  // Contact strategy — the best first touch. Only surfaced when it isn't plain
+  // email-first, so the common case stays uncluttered.
+  const dmEmail = outreachKit?.decisionMaker.primary?.directEmail ?? outreachKit?.decisionMaker.primary?.officeEmail ?? null;
+  const contactStrategy = determineContactStrategy(lead, { decisionMakerEmail: dmEmail });
+  const callBrief = contactStrategy.kind === "call-first" ? buildCallBrief(lead, { strongestObservation: stoodOut[0] ?? null }) : null;
+
   return (
     <div className="mx-auto max-w-3xl space-y-5">
       <Link href="/" className="inline-flex items-center gap-1.5 text-sm text-chalk-400 hover:text-chalk-100">
@@ -182,6 +190,11 @@ export default async function LeadPage({ params }: { params: { id: string } }) {
           </div>
         )}
       </div>
+
+      {/* Primary contact strategy — only when this business shouldn't begin with email. */}
+      {contactStrategy.kind !== "email-first" && (
+        <ContactStrategyPanel leadId={lead.id} strategy={contactStrategy} callBrief={callBrief} phone={lead.phone} />
+      )}
 
       {/* ── Everything else, on demand. Reference never competes with the decision. ─────
           The section the current action needs opens itself; the rest stay collapsed. */}
