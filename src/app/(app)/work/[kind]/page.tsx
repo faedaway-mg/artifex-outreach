@@ -214,7 +214,9 @@ export default async function BatchPage({ params, searchParams }: { params: { ki
         <h1 className="mt-0.5 text-[1.4rem] font-semibold leading-tight tracking-[-0.01em] text-chalk-50">{lead.businessName}</h1>
         <p className="mt-2 text-[14px] leading-relaxed text-chalk-300">{why}</p>
         {Observations}
-        <Link href={deepHref} className={`${staysInLoop ? "btn-secondary" : "btn-primary"} mt-5 w-full justify-center !py-3 text-[15px]`}>{action.label} <ArrowRight size={17} /></Link>
+        {/* On a read step the deep-dive is optional and quiet; the gold action is
+            "Done — next" below (ES-010). On discovery/report it stays the one gold action. */}
+        <Link href={deepHref} className={staysInLoop ? "btn-ghost mt-4 !py-2 text-[13px]" : "btn-primary mt-5 w-full justify-center !py-3 text-[15px]"}>{action.label} <ArrowRight size={staysInLoop ? 14 : 17} /></Link>
       </section>
     );
   }
@@ -223,7 +225,7 @@ export default async function BatchPage({ params, searchParams }: { params: { ki
     <div className="mx-auto max-w-lg space-y-5">
       {Header}
       {body}
-      <BatchAdvance taskId={stepTask?.id ?? null} nextHref={nextHref} isLast={i + 1 >= total} />
+      <BatchAdvance taskId={stepTask?.id ?? null} nextHref={nextHref} isLast={i + 1 >= total} primaryDone={kind === "understand"} />
       <p className="text-center text-[11px] text-chalk-600">{i + 1} of {total} · the batch stays put while you work</p>
     </div>
   );

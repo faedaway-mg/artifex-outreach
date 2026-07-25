@@ -80,6 +80,19 @@ export function Shell({ children }: { children: React.ReactNode }) {
     (pathname.startsWith("/leads") ? "Lead" : pathname.startsWith("/meetings") ? "Meeting" : "Workspace");
   const today = new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
 
+  // Focus mode (ES-010 chrome discipline): the batch runner is a linear flow with its
+  // own ✕ exit and progress rail. Strip the dashboard chrome so nothing competes with
+  // the current business. ⌘K still works as the escape hatch.
+  const focus = pathname.startsWith("/work/");
+  if (focus) {
+    return (
+      <div className="min-h-screen">
+        <main className="mx-auto w-full max-w-container px-4 py-6 md:py-10">{children}</main>
+        <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
+      </div>
+    );
+  }
+
   return (
     <div className="flex min-h-screen">
       {/* ── Desktop sidebar (Glass Level 1) ─────────────────────────────── */}
@@ -154,7 +167,9 @@ export function Shell({ children }: { children: React.ReactNode }) {
             >
               <Search size={13} /> Search or jump to… <kbd className="rounded border border-white/10 px-1 font-mono text-[10px]">⌘K</kbd>
             </button>
-            <Link href="/discover" className="btn-primary !px-3 !py-1.5 text-xs">
+            {/* Admin/create action — chrome, never gold (ES-010). Gold is reserved for
+                the current screen's one decision. */}
+            <Link href="/discover" className="flex items-center gap-1.5 rounded-xl border border-white/[0.08] bg-ink-950/50 px-3 py-1.5 text-xs text-chalk-400 transition-colors hover:border-white/[0.14] hover:text-chalk-200">
               <Plus size={14} /> Add business
             </Link>
           </div>

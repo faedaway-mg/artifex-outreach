@@ -74,10 +74,9 @@ export default async function SendPage({ params }: { params: { id: string } }) {
         </div>
       )}
 
-      {/* Communication quality — decision support so Jordan can answer "would I send this?" */}
-      <EmailQualityPanel quality={scoreEmailQuality(email, { lead, profile, observationCount: mode === "followup" ? 0 : undefined })} mode={mode} />
-
       <div className="grid gap-5 lg:grid-cols-[1.4fr_1fr]">
+        {/* Left column: the decision first, then its supporting context (ES-010 order). */}
+        <div className="space-y-4">
         {/* Decision-first: who, why, what stood out, and a one-line read of the message.
             The exact rendered email lives behind "See the exact email" — documentation,
             not the first thing you read. */}
@@ -117,6 +116,11 @@ export default async function SendPage({ params }: { params: { id: string } }) {
               </details>
             </details>
           </div>
+        </div>
+
+        {/* Would I send this? — decision support BELOW the summary (ES-010: context
+            follows the decision, never precedes it). */}
+        <EmailQualityPanel quality={scoreEmailQuality(email, { lead, profile, observationCount: mode === "followup" ? 0 : undefined })} mode={mode} />
         </div>
 
         {/* Recipient + warnings + send */}

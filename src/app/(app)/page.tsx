@@ -117,14 +117,15 @@ export default async function TodayPage() {
 
   return (
     <div className="space-y-6">
-      {/* Today's mission — the single objective, above everything */}
-      <DailyMission mission={mission} />
-
-      {/* Today's work — grouped into focused batches, nothing to decide */}
+      {/* Today's work — the hero. The eye lands on what to do now, not on a counter
+          (ES-010: work outranks metrics). */}
       <div>
         <p className="eyebrow mb-3">{dateLabel} · Today's work</p>
         <WorkQueue categories={workQueue} />
       </div>
+
+      {/* Today's mission — quiet progress context, beneath the work it measures. */}
+      <DailyMission mission={mission} />
 
       {/* Everything else — the detailed queue + context, only if you want it */}
       <details id="everything" className="group">

@@ -49,7 +49,7 @@ export function MorningWarming({ businesses }: { businesses: Business[] }) {
           </p>
         </div>
         {!allReady && (
-          <button onClick={warmAll} disabled={pending} className="btn-primary text-xs disabled:opacity-60">
+          <button onClick={warmAll} disabled={pending} className="btn-secondary text-xs disabled:opacity-60">
             {pending ? <><Loader2 size={14} className="animate-spin" /> Warming…</> : <><Sparkles size={14} /> Warm today's queue</>}
           </button>
         )}
