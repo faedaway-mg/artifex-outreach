@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { determineContactStrategy, buildCallBrief, type StrategyLead } from "./contact-strategy";
+import { computeNextAction, freshState } from "./next-action";
 
 const base: StrategyLead = {
   businessName: "Test Co",
@@ -94,5 +95,22 @@ describe("buildCallBrief — a conversation starter, not a script", () => {
   it("prefers a real strongest observation when provided", () => {
     const b = buildCallBrief({ ...base, businessName: "X", phone: "5" }, { strongestObservation: "Your humidor selection is unusually deep." });
     expect(b.observation).toBe("Your humidor selection is unusually deep.");
+  });
+});
+
+describe("computeNextAction — contact strategy routing", () => {
+  const now = "2026-07-25T00:00:00.000Z";
+  it("routes a no-email, live-phone lead to a call, not a dead-end email", () => {
+    const a = computeNextAction({ ...freshState(now, false, true), hasEmailRoute: false, hasPhone: true });
+    expect(a.kind).toBe("call");
+    expect(a.ctaLabel).toMatch(/call brief/i);
+  });
+  it("keeps the normal email flow when an email route exists", () => {
+    const a = computeNextAction({ ...freshState(now, false, true), hasEmailRoute: true, hasPhone: true });
+    expect(a.kind).toBe("send-intro");
+  });
+  it("does not force a call when there is no phone either", () => {
+    const a = computeNextAction({ ...freshState(now, false, true), hasEmailRoute: false, hasPhone: false });
+    expect(a.kind).not.toBe("call");
   });
 });

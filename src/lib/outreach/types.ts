@@ -227,6 +227,9 @@ export interface OutreachState {
   /** Days to let a message breathe before the next nudge. Default 4. */
   waitDays?: number;
   suppressed?: boolean;
+  /** Contact strategy: whether a usable email route / phone exists. Unset ⇒ email-first. */
+  hasEmailRoute?: boolean;
+  hasPhone?: boolean;
 }
 
 // ── The complete kit ─────────────────────────────────────────────────────────

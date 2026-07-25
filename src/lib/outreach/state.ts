@@ -57,6 +57,9 @@ export function deriveOutreachState(input: {
     meetingScheduledAt,
     discoveryCompleteAt,
     confidenceHigh,
+    // Contact strategy: does a usable email route / phone exist right now?
+    hasEmailRoute: !!lead.publicEmail,
+    hasPhone: !!lead.phone,
     suppressed: terminal || lead.pipelineStage === "Disqualified" || lead.pipelineStage === "Lost",
   };
 }

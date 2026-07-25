@@ -85,6 +85,19 @@ export function computeNextAction(state: OutreachState): NextAction {
   }
 
   // ── The forward journey ──────────────────────────────────────────────────
+  // Contact strategy: a no-email, live-phone business begins with a CALL, not an
+  // email it can't receive. The call opens the relationship and gets the address;
+  // once an email is captured, hasEmailRoute flips and the normal flow resumes.
+  if (s.hasEmailRoute === false && s.hasPhone && !s.introSentAt && !s.callCompletedAt) {
+    return make("call", {
+      title: "Call to open the relationship",
+      why: "No public email was found, but there's a phone number and the business looks active. A short, friendly call is the right first touch — get the best email, then send the review.",
+      ctaLabel: "Open the call brief",
+      detail: "Introduce yourself, ask for the decision-maker, get the best email. Log the outcome and the review sends next.",
+      secondary: [{ label: "Send by email instead", hint: "Only if you find an address" }],
+    });
+  }
+
   if (!s.hasReview) {
     return make("prepare-review", {
       title: "Generate the Business Technology Review",
@@ -206,5 +219,7 @@ export function freshState(now: string, videoRecommended: boolean, confidenceHig
     meetingScheduledAt: null,
     discoveryCompleteAt: null,
     confidenceHigh,
+    hasEmailRoute: true,
+    hasPhone: false,
   };
 }
