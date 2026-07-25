@@ -8,7 +8,7 @@ async function main() {
   const open = sends.filter((s) => s.status === "queued" || s.status === "sending");
   console.log(`\nOpen (queued/sending) email sends: ${open.length}\n`);
   for (const s of open) {
-    const lead = await getLead(s.leadId);
+    const lead = s.leadId ? await getLead(s.leadId) : null;
     console.log(`- send ${s.id} · status=${s.status} · attempts=${s.attempts} · nextAttemptAt=${s.nextAttemptAt ?? "—"}`);
     console.log(`    lead ${s.leadId} · "${lead?.businessName ?? "??"}" · ${lead?.publicEmail ?? "no email"} · source=${lead?.source ?? "?"}`);
   }
