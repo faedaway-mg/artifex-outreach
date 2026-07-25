@@ -82,5 +82,50 @@ Today ──▶ Batch runner ──▶ [per-kind action] ──▶ Decision ─�
 - `pnpm test` — 75 files, **657/657 pass** after every change.
 - Runtime (mock mode): lead pages render 200 with the hero, the "what stood out" at-a-glance, and all 7 disclosures; send page renders summary-first with a collapsed exact email; no runtime errors in the dev log.
 
-## Verdict
+## Verdict (ES-009)
 The **core loop is philosophy-continuous end to end.** The three drift incidents that made the product "establish calm, then abandon it" are fixed. P1 is complete for the primary journey; the remaining open ledger entries (sub-pages, entry-screen dedup, touch targets) are the scoped next pass, not blockers.
+
+---
+
+# ES-010 — Attention Integrity (Operator Review, 2026-07-24)
+
+ES-009 confirmed the *workflow* preserves the philosophy. The operator review then found the philosophy could be right and the operator *still* hesitated — because **visual emphasis pointed at chrome, not the decision.** Standard: [ES-010](~/.claude/docs/engineering-standards/ES-010-attention-integrity.md). Attention competition must descend: decision → context → reference → admin → navigation → decoration. Gold is reserved for the one action.
+
+## Attention Drift ledger (all P0, observed on real rendered screens)
+
+```json
+[
+  {"ts":"2026-07-24","product":"acquisition-os","surface":"Today · understand step · send page",
+   "eye_lands_first":"global gold 'Add business' button (btn-primary in the header)",
+   "should_be":"the screen's current action","emphasis_stolen_by":"chrome",
+   "exhausted_misclick_risk":"high","severity":"P0",
+   "remediation":"reserve gold for the current action only; demote 'Add business' to a ghost/icon control; 'Warm today's queue' to secondary; never two golds on one Work Surface","status":"open"},
+
+  {"ts":"2026-07-24","product":"acquisition-os","surface":"batch runner → understand",
+   "eye_lands_first":"a full-width but non-gold 'Review the business' (which ejects to reference)",
+   "should_be":"'Done — next' (the real forward decision on a read step)","emphasis_stolen_by":"reference",
+   "exhausted_misclick_risk":"high","severity":"P0",
+   "remediation":"make 'Done — next' the gold primary on read-only steps; keep 'Review the business' quiet secondary","status":"open"},
+
+  {"ts":"2026-07-24","product":"acquisition-os","surface":"batch runner · lead page (focus mode)",
+   "eye_lands_first":"persistent search + 'Add business' + 9-item nav / bottom nav around a focused loop",
+   "should_be":"only the current step","emphasis_stolen_by":"navigation",
+   "exhausted_misclick_risk":"medium","severity":"P0",
+   "remediation":"in batch/work mode hide or dim global chrome; collapse nav to a single Exit","status":"open"},
+
+  {"ts":"2026-07-24","product":"acquisition-os","surface":"send page",
+   "eye_lands_first":"'Would I send this? 93/100' quality scorecard, above the decision summary",
+   "should_be":"the who/why/what-stood-out/subject summary","emphasis_stolen_by":"metric",
+   "exhausted_misclick_risk":"low","severity":"P0",
+   "remediation":"lead with the decision summary; move the quality panel below it or into a disclosure","status":"open"},
+
+  {"ts":"2026-07-24","product":"acquisition-os","surface":"Today",
+   "eye_lands_first":"mission counter '12 / 40 min left' (largest element)",
+   "should_be":"the batch card's 'Start reviewing' action","emphasis_stolen_by":"metric",
+   "exhausted_misclick_risk":"low","severity":"P0",
+   "remediation":"make the batch card the visual hero; demote the mission counter to a quiet strip","status":"open"}
+]
+```
+
+## Attention Integrity verdict
+**Not yet clean.** Five P0 attention drifts are open — all the same shape (gold/metric/chrome/nav out-emphasizing the decision). None require new features; each is a re-weighting. The three that block the Monday "process 40 alone" test are entries 1, 2, and 4 (gold-on-chrome, heroless understand step, score-before-summary).
