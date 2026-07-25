@@ -202,13 +202,19 @@ export default async function BatchPage({ params, searchParams }: { params: { ki
       </section>
     );
   } else {
+    // "understand" is a read, not a hand-off: the concise brief IS the work, so depth is
+    // an optional secondary and "Done — next" carries the loop forward. "report" opens the
+    // full review (a document that can't live in a card), but we carry the batch's next stop
+    // so the operator returns to the loop instead of the dashboard.
+    const staysInLoop = kind === "understand";
+    const deepHref = kind === "report" ? `${action.href(lead.id)}?next=${encodeURIComponent(nextHref)}` : action.href(lead.id);
     body = (
       <section className="card p-5 sm:p-6">
         <p className="text-[12px] text-chalk-500">{action.verb}</p>
         <h1 className="mt-0.5 text-[1.4rem] font-semibold leading-tight tracking-[-0.01em] text-chalk-50">{lead.businessName}</h1>
         <p className="mt-2 text-[14px] leading-relaxed text-chalk-300">{why}</p>
         {Observations}
-        <Link href={action.href(lead.id)} className="btn-primary mt-5 w-full justify-center !py-3 text-[15px]">{action.label} <ArrowRight size={17} /></Link>
+        <Link href={deepHref} className={`${staysInLoop ? "btn-secondary" : "btn-primary"} mt-5 w-full justify-center !py-3 text-[15px]`}>{action.label} <ArrowRight size={17} /></Link>
       </section>
     );
   }

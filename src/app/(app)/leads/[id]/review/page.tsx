@@ -3,7 +3,8 @@
 // recommendation carries traceable evidence; completed work drops out of the proposal.
 // Read-only and print-to-PDF here; the underlying data is owned by each subsystem.
 import { notFound } from "next/navigation";
-import { FileText } from "lucide-react";
+import Link from "next/link";
+import { FileText, ArrowRight } from "lucide-react";
 import {
   getLead, memoryForLead, meetingsForLead, proposalsForLead, plansForLead,
   roadmapProgressForLead, outcomeReviewsForLead, outreachForLead, inboundForLead, snapshotsForLead, allOutcomeReviews,
@@ -17,9 +18,14 @@ import { estimateRelationshipValue } from "@/lib/pricing";
 
 export const dynamic = "force-dynamic";
 
-export default async function ReviewPage({ params }: { params: { id: string } }) {
+export default async function ReviewPage({ params, searchParams }: { params: { id: string }; searchParams: { next?: string } }) {
   const lead = await getLead(params.id);
   if (!lead) notFound();
+
+  // Opened from a batch? Carry the loop forward so review never dead-ends on the dashboard.
+  // Only trust an internal batch path — never an arbitrary redirect target.
+  const decodedNext = searchParams.next ? decodeURIComponent(searchParams.next) : "";
+  const nextHref = decodedNext.startsWith("/work/") ? decodedNext : null;
 
   const [memory, meetings, proposals, plans, progress, reviews, outreach, inbound, snapshots, allReviews] = await Promise.all([
     memoryForLead(lead.id), meetingsForLead(lead.id), proposalsForLead(lead.id), plansForLead(lead.id),
@@ -41,6 +47,13 @@ export default async function ReviewPage({ params }: { params: { id: string } })
         <span className="ml-auto"><PrintButton /></span>
       </div>
       <ReviewDocument dossier={dossier} proposal={proposal} />
+
+      {nextHref && (
+        <div className="sticky bottom-[76px] z-10 flex items-center justify-between rounded-xl border border-white/[0.08] bg-ink-900/80 px-4 py-2.5 backdrop-blur-md md:static md:bottom-auto">
+          <Link href="/" className="text-[13px] text-chalk-500 hover:text-chalk-300">Exit batch</Link>
+          <Link href={nextHref} className="btn-primary !py-2 text-[13.5px]">Next business <ArrowRight size={15} /></Link>
+        </div>
+      )}
     </div>
   );
 }
