@@ -2,11 +2,11 @@
 // It recommends the first touch (with the signals behind the call), a short
 // sequence so the operator never wonders what's next, and — for a call — a
 // conversation starter and a one-tap dial. Understated; no marketing.
-import { Phone, Mail, FileText, Instagram, ArrowRight, ExternalLink } from "lucide-react";
+import { Phone, Mail, FileText, Instagram, Search, ArrowRight, ExternalLink } from "lucide-react";
 import type { ContactStrategy, CallBrief, StrategyIcon, SignalTone } from "@/lib/outreach/contact-strategy";
 import { CallOutcomeConsole } from "@/components/lead/CallOutcomeConsole";
 
-const ICONS: Record<StrategyIcon, typeof Phone> = { phone: Phone, mail: Mail, form: FileText, instagram: Instagram };
+const ICONS: Record<StrategyIcon, typeof Phone> = { phone: Phone, mail: Mail, form: FileText, instagram: Instagram, search: Search };
 const DOT: Record<SignalTone, string> = { good: "bg-teal-400", warn: "bg-amber-400", muted: "bg-chalk-600" };
 const TEXT: Record<SignalTone, string> = { good: "text-chalk-100", warn: "text-chalk-200", muted: "text-chalk-500" };
 

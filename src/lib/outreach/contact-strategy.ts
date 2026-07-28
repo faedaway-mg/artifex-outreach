@@ -12,7 +12,12 @@ export type ContactStrategyKind =
   | "email-first"
   | "call-first"
   | "contact-form-first"
-  | "instagram-dm-first";
+  | "instagram-dm-first"
+  // No verified, actionable contact channel exists yet. The one action a lead in
+  // this state supports is finding a real contact route — NOT a call, email, or DM
+  // that can't currently be performed. A preferred strategy (e.g. "phone would suit
+  // this business") must never render an action the evidence can't support.
+  | "no-channel";
 
 export type SignalTone = "good" | "warn" | "muted";
 export interface ContactSignal {
@@ -21,7 +26,43 @@ export interface ContactSignal {
   tone: SignalTone;
 }
 
-export type StrategyIcon = "phone" | "mail" | "form" | "instagram";
+export type StrategyIcon = "phone" | "mail" | "form" | "instagram" | "search";
+
+// ── Channel eligibility ───────────────────────────────────────────────────────
+// A channel is actionable only when the evidence for it is real and well-formed.
+// Presence of a field is NOT enough — an empty string, a stray fragment, or a
+// malformed URL must never be treated as a usable contact route.
+
+/** A phone is callable only if it carries a plausible number of real digits. */
+export function isCallablePhone(phone: string | null | undefined): boolean {
+  if (!phone) return false;
+  const digits = phone.replace(/\D/g, "");
+  // 10 (US local) to 15 (E.164 max). Fewer digits isn't a dialable number.
+  return digits.length >= 10 && digits.length <= 15;
+}
+
+/** A structurally valid email address. */
+export function isValidEmail(email: string | null | undefined): boolean {
+  if (!email) return false;
+  return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.trim());
+}
+
+/** A usable http(s) URL — for a website, contact form, or booking link. */
+export function isUsableUrl(url: string | null | undefined): boolean {
+  if (!url) return false;
+  try {
+    const u = new URL(url.trim());
+    return (u.protocol === "http:" || u.protocol === "https:") && !!u.hostname && u.hostname.includes(".");
+  } catch {
+    return false;
+  }
+}
+
+/** A usable Instagram profile URL associated with the business. */
+export function hasUsableInstagram(socialLinks: string[]): boolean {
+  const ig = findInstagram(socialLinks);
+  return !!ig && isUsableUrl(ig);
+}
 
 export interface ContactStrategy {
   kind: ContactStrategyKind;
@@ -116,11 +157,15 @@ export function determineContactStrategy(
   lead: StrategyLead,
   opts: { decisionMakerEmail?: string | null } = {},
 ): ContactStrategy {
-  const hasEmailRoute = !!(lead.publicEmail || opts.decisionMakerEmail);
-  const hasPhone = !!lead.phone;
-  const ig = instagramUrl(lead);
-  const hasForm = !!lead.contactFormUrl;
-  const hasWebsite = !!lead.website;
+  // A channel counts only if its evidence is real and actionable — a stray value or
+  // malformed URL is NOT a contact route. A preferred strategy must never render an
+  // action the evidence can't support (there is no "call" without a callable number).
+  const hasEmailRoute = isValidEmail(lead.publicEmail) || isValidEmail(opts.decisionMakerEmail);
+  const hasPhone = isCallablePhone(lead.phone);
+  const igUrl = instagramUrl(lead);
+  const ig = hasUsableInstagram(lead.socialLinks) ? igUrl : null;
+  const hasForm = isUsableUrl(lead.contactFormUrl);
+  const hasWebsite = isUsableUrl(lead.website);
   const activity = activityLevel(lead);
   const social = socialLevel(lead);
 
@@ -172,17 +217,25 @@ export function determineContactStrategy(
   if (ig) {
     return build("instagram-dm-first", "No email, phone, or form was found. Instagram is the live channel — open with a brief, human DM.");
   }
-  // Nothing usable yet: still recommend a call if a number turns up; otherwise research.
-  return build("call-first", "No verified channel was found yet. Find a phone number or booking link before drafting outreach.");
+  // Nothing actionable exists. This is NOT a call-first lead — there is no number to
+  // dial. The only performable action is finding a real contact route first.
+  return build(
+    "no-channel",
+    "No verified phone, email, website, contact form, or social account has been found for this business yet — find a reliable contact route before preparing outreach.",
+  );
 }
 
 /** The work-queue channel a strategy belongs to — so the queue groups by action. */
-export function strategyToWorkKind(kind: ContactStrategyKind): "email" | "call" | "contact-form" | "instagram-dm" {
+export function strategyToWorkKind(
+  kind: ContactStrategyKind,
+): "email" | "call" | "contact-form" | "instagram-dm" | "understand" {
   switch (kind) {
     case "email-first": return "email";
     case "call-first": return "call";
     case "contact-form-first": return "contact-form";
     case "instagram-dm-first": return "instagram-dm";
+    // No channel yet → the lead needs research, not an outreach batch.
+    case "no-channel": return "understand";
   }
 }
 
@@ -191,12 +244,14 @@ const LABEL: Record<ContactStrategyKind, string> = {
   "call-first": "Phone Call",
   "contact-form-first": "Contact Form",
   "instagram-dm-first": "Instagram DM",
+  "no-channel": "Find Contact Route",
 };
 const ICON: Record<ContactStrategyKind, StrategyIcon> = {
   "email-first": "mail",
   "call-first": "phone",
   "contact-form-first": "form",
   "instagram-dm-first": "instagram",
+  "no-channel": "search",
 };
 const SEQUENCE: Record<ContactStrategyKind, string[]> = {
   "email-first": ["Review the drafted introduction", "Send it", "Give it a few days to breathe", "Send one brief follow-up if needed"],
@@ -209,6 +264,7 @@ const SEQUENCE: Record<ContactStrategyKind, string[]> = {
   ],
   "contact-form-first": ["Open their contact form", "Paste the short introduction", "Submit it", "Watch for a reply, then send the review"],
   "instagram-dm-first": ["Open their Instagram", "Send a short, warm DM", "Ask for the best email address", "Send the review afterward"],
+  "no-channel": ["Search public sources for a contact route", "Verify what's found against its source", "Save the channel", "Then begin outreach on the channel that fits"],
 };
 
 /**

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { determineContactStrategy, buildCallBrief, buildCallScript, type StrategyLead } from "./contact-strategy";
+import { determineContactStrategy, buildCallBrief, buildCallScript, strategyToWorkKind, isCallablePhone, isValidEmail, isUsableUrl, type StrategyLead } from "./contact-strategy";
 import { computeNextAction, freshState } from "./next-action";
 import { workKindForTask } from "../work-queue";
 import type { Lead, Task } from "../types";
@@ -24,7 +24,7 @@ describe("determineContactStrategy — archetypes", () => {
   });
 
   it("email-first when only a decision-maker email is known", () => {
-    const s = determineContactStrategy({ ...base, phone: "555" }, { decisionMakerEmail: "owner@x.com" });
+    const s = determineContactStrategy({ ...base, phone: "(213) 555-0100" }, { decisionMakerEmail: "owner@x.com" });
     expect(s.kind).toBe("email-first");
   });
 
@@ -57,7 +57,7 @@ describe("determineContactStrategy — archetypes", () => {
   it("phone outranks form and Instagram for the first touch", () => {
     const s = determineContactStrategy({
       ...base,
-      phone: "555",
+      phone: "(213) 555-0100",
       contactFormUrl: "https://x.com/contact",
       socialLinks: ["https://instagram.com/x"],
     });
@@ -67,8 +67,8 @@ describe("determineContactStrategy — archetypes", () => {
   it("always names exactly one recommended first contact", () => {
     for (const lead of [
       { ...base, publicEmail: "a@b.com" },
-      { ...base, phone: "555" },
-      { ...base, contactFormUrl: "https://x/c" },
+      { ...base, phone: "(213) 555-0100" },
+      { ...base, contactFormUrl: "https://example.com/contact" },
       { ...base, socialLinks: ["https://instagram.com/x"] },
     ]) {
       const s = determineContactStrategy(lead);
@@ -78,12 +78,60 @@ describe("determineContactStrategy — archetypes", () => {
   });
 });
 
+describe("no-channel — never recommend an action that can't be performed", () => {
+  it("no phone, no email, no website, no form, no social → no-channel (NOT call-first)", () => {
+    const s = determineContactStrategy({ ...base, phone: null, publicEmail: null, website: null, contactFormUrl: null, socialLinks: [] });
+    expect(s.kind).toBe("no-channel");
+    expect(s.primaryLabel).toBe("Find Contact Route");
+    expect(s.reason).toMatch(/no verified/i);
+  });
+
+  it("a malformed phone number does NOT make a lead call-first", () => {
+    // "555" is 3 digits — not a dialable number. It must not enable a call.
+    const s = determineContactStrategy({ ...base, phone: "555", publicEmail: null, website: null, contactFormUrl: null, socialLinks: [] });
+    expect(s.kind).toBe("no-channel");
+  });
+
+  it("a valid phone IS call-first", () => {
+    expect(determineContactStrategy({ ...base, phone: "(213) 329-7576", publicEmail: null }).kind).toBe("call-first");
+  });
+
+  it("an empty-string email / malformed URL are not channels", () => {
+    const s = determineContactStrategy({ ...base, phone: null, publicEmail: "  ", website: "notaurl", contactFormUrl: "also-bad", socialLinks: ["nope"] });
+    expect(s.kind).toBe("no-channel");
+  });
+
+  it("no-channel routes to the research bucket, not an outreach batch", () => {
+    expect(strategyToWorkKind("no-channel")).toBe("understand");
+  });
+});
+
+describe("channel eligibility validators", () => {
+  it("isCallablePhone accepts 10–15 digits, rejects short/empty/garbage", () => {
+    expect(isCallablePhone("(213) 329-7576")).toBe(true);
+    expect(isCallablePhone("+1 213 329 7576")).toBe(true);
+    expect(isCallablePhone("555")).toBe(false);
+    expect(isCallablePhone("")).toBe(false);
+    expect(isCallablePhone(null)).toBe(false);
+    expect(isCallablePhone("call us!")).toBe(false);
+  });
+  it("isValidEmail / isUsableUrl reject malformed values", () => {
+    expect(isValidEmail("a@b.com")).toBe(true);
+    expect(isValidEmail("nope")).toBe(false);
+    expect(isValidEmail(null)).toBe(false);
+    expect(isUsableUrl("https://x.com")).toBe(true);
+    expect(isUsableUrl("ftp://x")).toBe(false);
+    expect(isUsableUrl("x.com")).toBe(false);
+    expect(isUsableUrl("")).toBe(false);
+  });
+});
+
 describe("buildCallBrief — a conversation starter, not a script", () => {
   it("uses Instagram + no-website framing when that's the reality", () => {
     const b = buildCallBrief({
       ...base,
       businessName: "The Secret House of Ivy",
-      phone: "555",
+      phone: "(213) 555-0100",
       contactFormUrl: "https://forms.gle/abc",
       socialLinks: ["https://instagram.com/secrethouseofivy"],
     });
@@ -95,7 +143,7 @@ describe("buildCallBrief — a conversation starter, not a script", () => {
   });
 
   it("prefers a real strongest observation when provided", () => {
-    const b = buildCallBrief({ ...base, businessName: "X", phone: "5" }, { strongestObservation: "Your humidor selection is unusually deep." });
+    const b = buildCallBrief({ ...base, businessName: "X", phone: "(213) 555-0100" }, { strongestObservation: "Your humidor selection is unusually deep." });
     expect(b.observation).toBe("Your humidor selection is unusually deep.");
   });
 });
@@ -166,16 +214,16 @@ describe("workKindForTask — the queue follows contact strategy", () => {
     expect(workKindForTask(task("review_and_send"), lead({ publicEmail: "a@b.com" }))).toBe("email");
   });
   it("initial outreach on a no-email + phone lead → call batch (not email)", () => {
-    expect(workKindForTask(task("review_and_send"), lead({ publicEmail: null, phone: "555" }))).toBe("call");
+    expect(workKindForTask(task("review_and_send"), lead({ publicEmail: null, phone: "(213) 555-0100" }))).toBe("call");
   });
   it("initial outreach on a form-only lead → contact-form batch", () => {
-    expect(workKindForTask(task("review_and_send"), lead({ publicEmail: null, phone: null, contactFormUrl: "https://x/c" }))).toBe("contact-form");
+    expect(workKindForTask(task("review_and_send"), lead({ publicEmail: null, phone: null, contactFormUrl: "https://example.com/contact" }))).toBe("contact-form");
   });
   it("initial outreach on an Instagram-only lead → instagram-dm batch", () => {
     expect(workKindForTask(task("review_and_send"), lead({ publicEmail: null, phone: null, socialLinks: ["https://instagram.com/x"] }))).toBe("instagram-dm");
   });
   it("non-outreach task types keep their fixed kind", () => {
-    expect(workKindForTask(task("prepare_video"), lead({ publicEmail: null, phone: "555" }))).toBe("video");
+    expect(workKindForTask(task("prepare_video"), lead({ publicEmail: null, phone: "(213) 555-0100" }))).toBe("video");
     expect(workKindForTask(task("follow_up"), lead({ publicEmail: "a@b.com" }))).toBe("follow-up");
   });
 });

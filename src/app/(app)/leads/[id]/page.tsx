@@ -53,6 +53,7 @@ import { OutreachKitPanel } from "@/components/lead/OutreachKitPanel";
 import { determineContactStrategy, buildCallBrief, buildCallScript, findInstagram } from "@/lib/outreach/contact-strategy";
 import { ContactStrategyPanel } from "@/components/lead/ContactStrategyPanel";
 import { CallWorkspace } from "@/components/lead/CallWorkspace";
+import { ContactRouteMissingWorkspace } from "@/components/lead/ContactRouteMissingWorkspace";
 import { deriveCallLeadState } from "@/lib/outreach/call-state";
 import { formatRange, joinMeta, formatLocation, deslug } from "@/lib/utils";
 import { ArrowLeft, Globe, Phone, Mail, MapPin, Star, ExternalLink, Compass, ChevronDown } from "lucide-react";
@@ -135,6 +136,10 @@ export default async function LeadPage({ params }: { params: { id: string } }) {
   // public inbox or by an explicit asked-to-send outcome) leaves the call workflow.
   const callStrategy = determineContactStrategy(lead);
   const isCallFirst = !lead.publicEmail && callStrategy.kind === "call-first";
+  // A lead with no verified, actionable channel is not ready for ANY outreach — the
+  // only performable action is finding a contact route. This is checked before the
+  // call workspace so we never render a call for a business we have no number for.
+  const isNoChannel = callStrategy.kind === "no-channel";
 
   // Work expands, reference collapses: the section the *current* next action needs is
   // open; everything else waits behind a summary. This is what keeps the page a Work
@@ -142,7 +147,7 @@ export default async function LeadPage({ params }: { params: { id: string } }) {
   // A call-first lead is different: the call IS the whole surface, so nothing in the
   // reference stack auto-opens (it all lives under "More about this lead", collapsed).
   const hotKind = outreachKit?.nextAction.kind;
-  const hot = isCallFirst
+  const hot = isCallFirst || isNoChannel
     ? null
     : hotKind === "prepare-review" ? "deliverable"
     : hotKind === "record-video" ? "video"
@@ -274,6 +279,31 @@ export default async function LeadPage({ params }: { params: { id: string } }) {
   // A dedicated, calm operator console: identity, the call, the script, the outcome.
   // No NextBestActionCard (the call is the one action), no email material up front
   // (there's no verified email yet). The whole lifecycle waits, collapsed, below.
+  // ── Contact Route Missing workspace ───────────────────────────────────────────
+  // No verified channel exists. One action only: find a real way to contact them.
+  // No call button, no script, no call outcomes, no email — none of those are
+  // performable. The lifecycle waits, collapsed, below.
+  if (isNoChannel) {
+    return (
+      <div className="mx-auto max-w-4xl space-y-5">
+        <Link href="/" className="inline-flex items-center gap-1.5 text-sm text-chalk-400 hover:text-chalk-100">
+          <ArrowLeft size={15} /> Back to Today
+        </Link>
+
+        <ContactRouteMissingWorkspace lead={lead} reason={callStrategy.reason} />
+
+        <details className="group scroll-mt-4">
+          <summary className="flex cursor-pointer list-none items-center gap-3 rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3 hover:border-white/[0.12]">
+            <ChevronDown size={16} className="shrink-0 text-chalk-500 transition-transform group-open:rotate-180" />
+            <span className="text-sm font-semibold text-chalk-100">More about this business</span>
+            <span className="ml-auto truncate text-xs text-chalk-500">research · findings · scores · pipeline</span>
+          </summary>
+          <div className="mt-4 space-y-5">{referenceSections}</div>
+        </details>
+      </div>
+    );
+  }
+
   if (isCallFirst) {
     const script = buildCallScript(lead, { strongestObservation: stoodOut[0] ?? null });
     const callState = deriveCallLeadState(lead);
