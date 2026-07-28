@@ -105,11 +105,9 @@ export async function saveCallOutcomeAction(
   let stage: PipelineStage | undefined;
   let scheduledFor: string | undefined;
 
-  // The verified email is the thing that unblocks everything downstream — save it
-  // onto the business the moment we have it, regardless of which outcome carried it.
-  if (validEmail) patch.publicEmail = email;
-
   // Record who we spoke with (or the route we learned), verified by the conversation.
+  // A collected email lands on the CONTACT — knowing an address is not the same as
+  // being allowed to use it, so it does not by itself become the lead's send route.
   const personLike = o.outcome === "reached-dm" || o.outcome === "contact-collected" || o.outcome === "asked-to-send";
   if (personLike && (o.contactName?.trim() || validEmail)) {
     await insertContact({
@@ -127,13 +125,33 @@ export async function saveCallOutcomeAction(
   }
 
   switch (o.outcome) {
-    case "reached-dm":
-    case "contact-collected":
     case "asked-to-send":
-      // A live conversation — the relationship is open. Move to Contacted so the
-      // pipeline reflects it. If an email came with it, the review can send next.
+      // PERMISSION. This — not merely having an address — is what unblocks the send.
+      // A verified email now becomes the lead's send route (flips it to the review
+      // flow). If we earned permission but didn't capture an address, follow up to get it.
       stage = "Contacted";
+      if (validEmail) {
+        patch.publicEmail = email;
+      } else {
+        const when = daysFromNow(2);
+        patch.nextFollowUpAt = when;
+        scheduledFor = when;
+        await insertTask({ leadId, type: "call", title: `Get email to send review — ${lead.businessName}`, dueAt: when, status: "open", priority: 65, snoozedUntil: null });
+      }
       break;
+
+    case "reached-dm":
+    case "contact-collected": {
+      // A live conversation, but NO permission yet — an address alone doesn't mean
+      // "send." Preserve what we learned (on the contact), open the relationship, and
+      // make the single next action a follow-up rather than an assumed email.
+      stage = "Contacted";
+      const when = o.followUpAt || daysFromNow(2);
+      patch.nextFollowUpAt = when;
+      scheduledFor = when;
+      await insertTask({ leadId, type: "call", title: `Follow up — ${o.contactName?.trim() || lead.businessName}`, dueAt: when, status: "open", priority: 55, snoozedUntil: null });
+      break;
+    }
 
     case "follow-up": {
       // Schedule a real next call so it never falls out of the loop.
@@ -192,8 +210,10 @@ export async function saveCallOutcomeAction(
   revalidatePath(`/leads/${leadId}`);
   revalidatePath("/");
 
-  // Ready to send once an email route exists AND the door is open (spoke to someone
-  // or were explicitly asked to send). No email → still a call-first lead.
-  const readyToSend = !!patch.publicEmail && (o.outcome === "asked-to-send" || o.outcome === "contact-collected" || o.outcome === "reached-dm");
+  // Ready to send ONLY when we have permission (asked-to-send) AND an email to send
+  // to. Collecting an address without permission never auto-advances to sending —
+  // channel availability and permission to send are different states.
+  const permittedEmail = patch.publicEmail ?? lead.publicEmail;
+  const readyToSend = o.outcome === "asked-to-send" && !!permittedEmail;
   return { ok: true, savedEmail: validEmail, readyToSend, stage, scheduledFor };
 }

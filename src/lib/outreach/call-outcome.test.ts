@@ -32,7 +32,7 @@ const tasksForLead = async (leadId: string) => (await allTasks()).filter((t) => 
 describe("saveCallOutcomeAction — the outcome IS the state change", () => {
   beforeEach(() => __resetStoreForTests());
 
-  it("contact collected: saves the verified email, creates a verified contact, unblocks send", async () => {
+  it("contact collected WITHOUT permission: preserves the email on the contact but does NOT auto-send", async () => {
     const lead = await seedCallFirstLead();
     const res = await saveCallOutcomeAction(lead.id, {
       outcome: "contact-collected",
@@ -42,12 +42,14 @@ describe("saveCallOutcomeAction — the outcome IS the state change", () => {
 
     expect(res.ok).toBe(true);
     expect(res.savedEmail).toBe(true);
-    expect(res.readyToSend).toBe(true); // an email route now exists → review can send
+    expect(res.readyToSend).toBe(false); // an address is not permission → no auto-send
     expect(res.stage).toBe("Contacted");
 
     const after = await getLead(lead.id);
-    expect(after?.publicEmail).toBe("maria@secrethouseofivy.com");
+    // The email is preserved on the CONTACT, not promoted to the lead's send route.
+    expect(after?.publicEmail).toBeNull();
     expect(after?.pipelineStage).toBe("Contacted");
+    expect(after?.nextFollowUpAt).toBeTruthy(); // next action is a follow-up, not a send
     expect(after?.lastContactAt).toBeTruthy();
 
     const contacts = await contactsForLead(lead.id);
@@ -58,7 +60,7 @@ describe("saveCallOutcomeAction — the outcome IS the state change", () => {
     expect(contacts[0].source).toBe("conversation");
   });
 
-  it("reached decision-maker without an email: opens the relationship but does not claim send-ready", async () => {
+  it("reached decision-maker without permission: opens the relationship, schedules a follow-up, no send", async () => {
     const lead = await seedCallFirstLead();
     const res = await saveCallOutcomeAction(lead.id, {
       outcome: "reached-dm",
@@ -67,15 +69,16 @@ describe("saveCallOutcomeAction — the outcome IS the state change", () => {
     });
 
     expect(res.ok).toBe(true);
-    expect(res.readyToSend).toBe(false); // no email captured yet
+    expect(res.readyToSend).toBe(false);
     expect(res.stage).toBe("Contacted");
     const after = await getLead(lead.id);
     expect(after?.publicEmail).toBeNull();
+    expect(after?.nextFollowUpAt).toBeTruthy();
     const contacts = await contactsForLead(lead.id);
     expect(contacts[0].title).toBe("Owner");
   });
 
-  it("asked to send + email: is the transition into the review/email send flow", async () => {
+  it("asked to send + email: PERMISSION — sets the send route and is the only path that unblocks sending", async () => {
     const lead = await seedCallFirstLead();
     const res = await saveCallOutcomeAction(lead.id, {
       outcome: "asked-to-send",
@@ -84,6 +87,15 @@ describe("saveCallOutcomeAction — the outcome IS the state change", () => {
     });
     expect(res.readyToSend).toBe(true);
     expect((await getLead(lead.id))?.publicEmail).toBe("owner@secrethouseofivy.com");
+  });
+
+  it("asked to send WITHOUT an email yet: keeps the lead in the call flow and schedules getting the email", async () => {
+    const lead = await seedCallFirstLead();
+    const res = await saveCallOutcomeAction(lead.id, { outcome: "asked-to-send", contactName: "Owner" });
+    expect(res.readyToSend).toBe(false); // permission but no address — can't send yet
+    const after = await getLead(lead.id);
+    expect(after?.publicEmail).toBeNull();
+    expect(after?.nextFollowUpAt).toBeTruthy();
   });
 
   it("follow up later: sets nextFollowUpAt, schedules a call task, moves to Follow-Up", async () => {
@@ -202,17 +214,26 @@ describe("outcome → next single action (state machine end to end)", () => {
     expect((await stateAfter(lead.id))).toMatchObject({ kind: "closed", reason: "invalid" });
   });
 
-  it("email collected → the lead leaves call-first for the email/send workspace", async () => {
+  it("generic email collected WITHOUT permission → stays call-first (address ≠ send route)", async () => {
     const lead = await seedCallFirstLead();
     await saveCallOutcomeAction(lead.id, { outcome: "contact-collected", contactName: "Dana", verifiedEmail: "dana@ivy.com" });
-    // A verified email route now exists → strategy flips; the page renders the send flow.
-    expect(determineContactStrategy((await getLead(lead.id))!).kind).toBe("email-first");
+    // The address is on the contact, not the lead's send route → the lead is still call-first.
+    expect(determineContactStrategy((await getLead(lead.id))!).kind).toBe("call-first");
+    // and its state is a scheduled follow-up, not a send.
+    expect((await stateAfter(lead.id)).kind).toBe("attempt-scheduled");
   });
 
-  it("permission to send + email → email-first (send the review)", async () => {
+  it("PERMISSION to send + email → email-first (send the review) — the only auto-send path", async () => {
     const lead = await seedCallFirstLead();
     await saveCallOutcomeAction(lead.id, { outcome: "asked-to-send", verifiedEmail: "owner@ivy.com" });
     expect(determineContactStrategy((await getLead(lead.id))!).kind).toBe("email-first");
+  });
+
+  it("receptionist provides an inbox but NOT permission → still call-first, not a send", async () => {
+    const lead = await seedCallFirstLead();
+    await saveCallOutcomeAction(lead.id, { outcome: "contact-collected", reachedRole: "assistant", contactName: "Front desk", verifiedEmail: "info@ivy.com" });
+    expect(determineContactStrategy((await getLead(lead.id))!).kind).toBe("call-first");
+    expect((await getLead(lead.id))?.publicEmail).toBeNull();
   });
 
   it("receptionist reached without an email → still call-first (needs the email next)", async () => {

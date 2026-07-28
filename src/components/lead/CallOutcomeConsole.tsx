@@ -87,14 +87,17 @@ export function CallOutcomeConsole({ leadId, collapsedLabel }: { leadId: string;
       <div className="rounded-xl border border-teal-400/25 bg-teal-400/[0.06] p-5">
         <p className="inline-flex items-center gap-2 text-sm font-semibold text-teal-200"><Check size={16} /> Call outcome recorded</p>
         <ul className="mt-2 space-y-1 text-[13px] text-chalk-300">
-          {result.savedEmail && <li>Verified email saved to the business.</li>}
+          {result.savedEmail && !result.readyToSend && <li>Email saved to the contact — you still need permission before sending.</li>}
+          {result.readyToSend && <li>Permission received — the personalized review can go out.</li>}
           {result.stage && <li>Moved to <span className="text-chalk-100">{result.stage}</span>.</li>}
-          {result.scheduledFor && <li>Next attempt scheduled for {new Date(result.scheduledFor).toLocaleDateString()}.</li>}
+          {result.scheduledFor && <li>Next step scheduled for {new Date(result.scheduledFor).toLocaleDateString()}.</li>}
         </ul>
-        {result.readyToSend && (
+        {result.readyToSend ? (
           <Link href={`/leads/${leadId}/send`} className="btn-primary mt-4 inline-flex !py-2.5 text-sm">
             Send the personalized review <ArrowRight size={15} />
           </Link>
+        ) : (
+          <p className="mt-3 text-[12.5px] text-chalk-500">The lead stays in the call workflow — sending is not offered until you have permission.</p>
         )}
         <button onClick={() => { setResult(null); setOutcome(null); }} className="mt-3 block text-[12px] text-chalk-500 hover:text-chalk-300">
           Log another outcome

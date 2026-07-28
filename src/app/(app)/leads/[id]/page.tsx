@@ -125,9 +125,16 @@ export default async function LeadPage({ params }: { params: { id: string } }) {
   // email-first, so the common case stays uncluttered.
   const dmEmail = outreachKit?.decisionMaker.primary?.directEmail ?? outreachKit?.decisionMaker.primary?.officeEmail ?? null;
   const contactStrategy = determineContactStrategy(lead, { decisionMakerEmail: dmEmail });
-  const isCallFirst = contactStrategy.kind === "call-first";
   const wantsBrief = contactStrategy.kind === "call-first" || contactStrategy.kind === "instagram-dm-first";
   const contactBrief = wantsBrief ? buildCallBrief(lead, { strongestObservation: stoodOut[0] ?? null }) : null;
+
+  // The Call First workspace is chosen by PERMISSION, not by whether some email
+  // address exists. An address inferred from a collected contact is channel
+  // availability, not permission to send — so it must not flip the lead into the
+  // send flow. Only a permitted send route (lead.publicEmail — set by a pre-existing
+  // public inbox or by an explicit asked-to-send outcome) leaves the call workflow.
+  const callStrategy = determineContactStrategy(lead);
+  const isCallFirst = !lead.publicEmail && callStrategy.kind === "call-first";
 
   // Work expands, reference collapses: the section the *current* next action needs is
   // open; everything else waits behind a summary. This is what keeps the page a Work
@@ -278,7 +285,7 @@ export default async function LeadPage({ params }: { params: { id: string } }) {
         </Link>
 
         {/* The one workspace responsible for the current action. */}
-        <CallWorkspace lead={lead} script={script} reason={contactStrategy.reason} state={callState} />
+        <CallWorkspace lead={lead} script={script} reason={callStrategy.reason} state={callState} />
 
         {/* More about this business — the full lifecycle & intelligence, collapsed. */}
         <details className="group scroll-mt-4">
