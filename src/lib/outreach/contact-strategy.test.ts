@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { determineContactStrategy, buildCallBrief, type StrategyLead } from "./contact-strategy";
+import { determineContactStrategy, buildCallBrief, buildCallScript, type StrategyLead } from "./contact-strategy";
 import { computeNextAction, freshState } from "./next-action";
 import { workKindForTask } from "../work-queue";
 import type { Lead, Task } from "../types";
@@ -97,6 +97,47 @@ describe("buildCallBrief — a conversation starter, not a script", () => {
   it("prefers a real strongest observation when provided", () => {
     const b = buildCallBrief({ ...base, businessName: "X", phone: "5" }, { strongestObservation: "Your humidor selection is unusually deep." });
     expect(b.observation).toBe("Your humidor selection is unusually deep.");
+  });
+});
+
+describe("buildCallScript — the full readable call guide", () => {
+  const ivy: StrategyLead = {
+    ...base,
+    businessName: "The Secret House of Ivy",
+    publicEmail: null,
+    website: null,
+    phone: "(562) 966-0379",
+    socialLinks: ["https://instagram.com/secrethouseofivy"],
+  };
+
+  it("answers who/why/what-to-say: objective, opening, purpose, questions, branches", () => {
+    const s = buildCallScript(ivy);
+    expect(s.objective.length).toBeGreaterThan(0);
+    expect(s.opening).toContain("The Secret House of Ivy");
+    expect(s.opening).toMatch(/best person/i); // opens by asking for the decision-maker
+    expect(s.purpose).toMatch(/decision-maker|owner/i);
+    expect(s.questions.length).toBeGreaterThanOrEqual(3);
+    expect(s.questions.some((q) => /email/i.test(q))).toBe(true);
+    expect(s.questions.some((q) => /review/i.test(q))).toBe(true);
+  });
+
+  it("covers the common turns of a real call, each as a spoken line", () => {
+    const s = buildCallScript(ivy);
+    const situations = s.branches.map((b) => b.situation.toLowerCase());
+    expect(situations.some((x) => x.includes("decision-maker answers"))).toBe(true);
+    expect(situations.some((x) => x.includes("receptionist") || x.includes("employee"))).toBe(true);
+    expect(situations.some((x) => x.includes("unavailable"))).toBe(true);
+    expect(situations.some((x) => x.includes("not interested"))).toBe(true);
+    expect(situations.some((x) => x.includes("voicemail"))).toBe(true);
+    // every branch carries an actual line to say
+    expect(s.branches.every((b) => b.line.trim().length > 0)).toBe(true);
+    // the voicemail line names the business so it's usable as-is
+    expect(s.branches.find((b) => /voicemail/i.test(b.situation))?.line).toContain("The Secret House of Ivy");
+  });
+
+  it("tailors the opening to Instagram when that's the live channel", () => {
+    const s = buildCallScript(ivy);
+    expect(s.opening).toMatch(/Instagram/);
   });
 });
 

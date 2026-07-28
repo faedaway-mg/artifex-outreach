@@ -4,7 +4,7 @@
 // conversation starter and a one-tap dial. Understated; no marketing.
 import { Phone, Mail, FileText, Instagram, ArrowRight, ExternalLink } from "lucide-react";
 import type { ContactStrategy, CallBrief, StrategyIcon, SignalTone } from "@/lib/outreach/contact-strategy";
-import { CallOutcomeForm } from "@/components/lead/CallOutcomeForm";
+import { CallOutcomeConsole } from "@/components/lead/CallOutcomeConsole";
 
 const ICONS: Record<StrategyIcon, typeof Phone> = { phone: Phone, mail: Mail, form: FileText, instagram: Instagram };
 const DOT: Record<SignalTone, string> = { good: "bg-teal-400", warn: "bg-amber-400", muted: "bg-chalk-600" };
@@ -96,7 +96,7 @@ export function ContactStrategyPanel({
       )}
 
       {/* Contact capture — where the verified email lands after the first touch. */}
-      {nonEmail && <CallOutcomeForm leadId={leadId} />}
+      {nonEmail && <div className="mt-4"><CallOutcomeConsole leadId={leadId} /></div>}
     </section>
   );
 }

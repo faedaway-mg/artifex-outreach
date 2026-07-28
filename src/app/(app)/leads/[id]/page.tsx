@@ -50,8 +50,10 @@ import { deriveOutreachState } from "@/lib/outreach/state";
 import type { OutreachKit } from "@/lib/outreach/types";
 import { NextBestActionCard } from "@/components/lead/NextBestActionCard";
 import { OutreachKitPanel } from "@/components/lead/OutreachKitPanel";
-import { determineContactStrategy, buildCallBrief, findInstagram } from "@/lib/outreach/contact-strategy";
+import { determineContactStrategy, buildCallBrief, buildCallScript, findInstagram } from "@/lib/outreach/contact-strategy";
 import { ContactStrategyPanel } from "@/components/lead/ContactStrategyPanel";
+import { CallWorkspace } from "@/components/lead/CallWorkspace";
+import { deriveCallLeadState } from "@/lib/outreach/call-state";
 import { formatRange, joinMeta, formatLocation, deslug } from "@/lib/utils";
 import { ArrowLeft, Globe, Phone, Mail, MapPin, Star, ExternalLink, Compass, ChevronDown } from "lucide-react";
 
@@ -119,87 +121,33 @@ export default async function LeadPage({ params }: { params: { id: string } }) {
   const stoodOut = (briefing?.strongestOpportunities ?? []).slice(0, 3);
   const approvedFindings = findings.filter((f) => f.approved).length;
 
-  // Work expands, reference collapses: the section the *current* next action needs is
-  // open; everything else waits behind a summary. This is what keeps the page a Work
-  // Surface instead of a document — the operator never hunts for the next action.
-  const hotKind = outreachKit?.nextAction.kind;
-  const hot =
-    hotKind === "prepare-review" ? "deliverable"
-    : hotKind === "record-video" ? "video"
-    : hotKind === "call" || hotKind === "schedule-discovery" ? "outreach-kit"
-    : null;
-
   // Contact strategy — the best first touch. Only surfaced when it isn't plain
   // email-first, so the common case stays uncluttered.
   const dmEmail = outreachKit?.decisionMaker.primary?.directEmail ?? outreachKit?.decisionMaker.primary?.officeEmail ?? null;
   const contactStrategy = determineContactStrategy(lead, { decisionMakerEmail: dmEmail });
+  const isCallFirst = contactStrategy.kind === "call-first";
   const wantsBrief = contactStrategy.kind === "call-first" || contactStrategy.kind === "instagram-dm-first";
   const contactBrief = wantsBrief ? buildCallBrief(lead, { strongestObservation: stoodOut[0] ?? null }) : null;
 
-  return (
-    <div className="mx-auto max-w-3xl space-y-5">
-      <Link href="/" className="inline-flex items-center gap-1.5 text-sm text-chalk-400 hover:text-chalk-100">
-        <ArrowLeft size={15} /> Back to Today
-      </Link>
+  // Work expands, reference collapses: the section the *current* next action needs is
+  // open; everything else waits behind a summary. This is what keeps the page a Work
+  // Surface instead of a document — the operator never hunts for the next action.
+  // A call-first lead is different: the call IS the whole surface, so nothing in the
+  // reference stack auto-opens (it all lives under "More about this lead", collapsed).
+  const hotKind = outreachKit?.nextAction.kind;
+  const hot = isCallFirst
+    ? null
+    : hotKind === "prepare-review" ? "deliverable"
+    : hotKind === "record-video" ? "video"
+    : hotKind === "call" || hotKind === "schedule-discovery" ? "outreach-kit"
+    : null;
 
-      {/* The one decision — always the loudest thing on the page. */}
-      {outreachKit && <NextBestActionCard action={outreachKit.nextAction} leadId={lead.id} />}
-
-      {/* At a glance — who · why · what stood out. Everything needed to trust the action
-          above, and nothing that competes with it. */}
-      <div className="card p-5">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-2xl font-semibold text-chalk-50">{lead.businessName}</h1>
-              <TierBadge tier={lead.tier} />
-              <JourneyBadge phase={journeyPhaseOf(lead)} showMotion />
-            </div>
-            <p className="mt-1 text-sm text-chalk-400">
-              {joinMeta(deslug(lead.industry), formatLocation(lead.city, lead.state))}
-            </p>
-          </div>
-          <div className="shrink-0 sm:text-right">
-            <ScorePill score={lead.leadScore} />
-            <p className="mt-1 text-xs text-chalk-500">{daysInStage(lead)}d in stage</p>
-          </div>
-        </div>
-
-        <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-sm text-chalk-400">
-          {lead.website && (
-            <a href={lead.website} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 hover:text-azure-300">
-              <Globe size={14} /> {lead.websiteDomain} <ExternalLink size={11} />
-            </a>
-          )}
-          {lead.phone && <span className="inline-flex items-center gap-1"><Phone size={14} /> {lead.phone}</span>}
-          {lead.publicEmail && <span className="inline-flex items-center gap-1"><Mail size={14} /> {lead.publicEmail}</span>}
-          {lead.rating != null && <span className="inline-flex items-center gap-1"><Star size={14} className="text-amber-400" /> {lead.rating} ({lead.reviewCount})</span>}
-          <span className="inline-flex items-center gap-1"><MapPin size={14} /> {lead.address}</span>
-        </div>
-
-        <div className="mt-4 border-t border-white/[0.06] pt-4">
-          <p className="text-[11px] font-medium uppercase tracking-wide text-chalk-500">Why we're reaching out</p>
-          <p className="mt-1 text-[13.5px] leading-relaxed text-chalk-300">{why}</p>
-        </div>
-
-        {stoodOut.length > 0 && (
-          <div className="mt-3">
-            <p className="text-[11px] font-medium uppercase tracking-wide text-chalk-500">What stood out</p>
-            <ul className="mt-1 space-y-1">
-              {stoodOut.map((o, i) => <li key={i} className="flex gap-2 text-[13px] text-chalk-300"><span className="mt-0.5 text-amber-300">→</span><span>{o}</span></li>)}
-            </ul>
-          </div>
-        )}
-      </div>
-
-      {/* Primary contact strategy — only when this business shouldn't begin with email. */}
-      {contactStrategy.kind !== "email-first" && (
-        <ContactStrategyPanel leadId={lead.id} strategy={contactStrategy} brief={contactBrief} phone={lead.phone} contactFormUrl={lead.contactFormUrl} instagramUrl={findInstagram(lead.socialLinks)} />
-      )}
-
-      {/* ── Everything else, on demand. Reference never competes with the decision. ─────
-          The section the current action needs opens itself; the rest stay collapsed. */}
-
+  // The full lifecycle — Business Technology Review, video, outreach kit, intelligence,
+  // pipeline, contacts, management. It's the same set of sections in every layout; for
+  // a call-first lead it's folded behind one "More about this lead" disclosure so it
+  // never competes with the call.
+  const referenceSections = (
+    <>
       {/* Business Technology Review — hero target for "prepare-review" */}
       <Disclosure id="deliverable" title="Business Technology Review" hint={deliverables.length ? `${deliverables.length} version${deliverables.length > 1 ? "s" : ""}` : "not generated"} defaultOpen={hot === "deliverable"}>
         <DeliverablePanel lead={lead} deliverables={deliverables} findingsCount={approvedFindings} />
@@ -312,6 +260,121 @@ export default async function LeadPage({ params }: { params: { id: string } }) {
         </div>
         <LeadSubNav id={lead.id} />
       </Disclosure>
+    </>
+  );
+
+  // ── Call First workspace ──────────────────────────────────────────────────────
+  // A dedicated, calm operator console: identity, the call, the script, the outcome.
+  // No NextBestActionCard (the call is the one action), no email material up front
+  // (there's no verified email yet). The whole lifecycle waits, collapsed, below.
+  if (isCallFirst) {
+    const script = buildCallScript(lead, { strongestObservation: stoodOut[0] ?? null });
+    const callState = deriveCallLeadState(lead);
+    const history = (lead.note ?? "").split("\n").map((l) => l.trim()).filter(Boolean);
+    return (
+      <div className="mx-auto max-w-4xl space-y-5">
+        <Link href="/" className="inline-flex items-center gap-1.5 text-sm text-chalk-400 hover:text-chalk-100">
+          <ArrowLeft size={15} /> Back to Today
+        </Link>
+
+        {/* The one workspace responsible for the current action. */}
+        <CallWorkspace lead={lead} script={script} reason={contactStrategy.reason} state={callState} />
+
+        {/* More about this business — the full lifecycle & intelligence, collapsed. */}
+        <details className="group scroll-mt-4">
+          <summary className="flex cursor-pointer list-none items-center gap-3 rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3 hover:border-white/[0.12]">
+            <ChevronDown size={16} className="shrink-0 text-chalk-500 transition-transform group-open:rotate-180" />
+            <span className="text-sm font-semibold text-chalk-100">More about this business</span>
+            <span className="ml-auto truncate text-xs text-chalk-500">review · findings · video · pipeline · contacts</span>
+          </summary>
+          <div className="mt-4 space-y-5">{referenceSections}</div>
+        </details>
+
+        {/* Lead history — the running call log, collapsed. */}
+        {history.length > 0 && (
+          <details className="group scroll-mt-4">
+            <summary className="flex cursor-pointer list-none items-center gap-3 rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3 hover:border-white/[0.12]">
+              <ChevronDown size={16} className="shrink-0 text-chalk-500 transition-transform group-open:rotate-180" />
+              <span className="text-sm font-semibold text-chalk-100">Lead history</span>
+              <span className="ml-auto truncate text-xs text-chalk-500">{history.length} entr{history.length > 1 ? "ies" : "y"}</span>
+            </summary>
+            <div className="mt-4 card p-5">
+              <ul className="space-y-2">
+                {history.map((line, i) => (
+                  <li key={i} className="text-[13px] leading-relaxed text-chalk-300">{line}</li>
+                ))}
+              </ul>
+            </div>
+          </details>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="mx-auto max-w-3xl space-y-5">
+      <Link href="/" className="inline-flex items-center gap-1.5 text-sm text-chalk-400 hover:text-chalk-100">
+        <ArrowLeft size={15} /> Back to Today
+      </Link>
+
+      {/* The one decision — always the loudest thing on the page. */}
+      {outreachKit && <NextBestActionCard action={outreachKit.nextAction} leadId={lead.id} />}
+
+      {/* At a glance — who · why · what stood out. Everything needed to trust the action
+          above, and nothing that competes with it. */}
+      <div className="card p-5">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="text-2xl font-semibold text-chalk-50">{lead.businessName}</h1>
+              <TierBadge tier={lead.tier} />
+              <JourneyBadge phase={journeyPhaseOf(lead)} showMotion />
+            </div>
+            <p className="mt-1 text-sm text-chalk-400">
+              {joinMeta(deslug(lead.industry), formatLocation(lead.city, lead.state))}
+            </p>
+          </div>
+          <div className="shrink-0 sm:text-right">
+            <ScorePill score={lead.leadScore} />
+            <p className="mt-1 text-xs text-chalk-500">{daysInStage(lead)}d in stage</p>
+          </div>
+        </div>
+
+        <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-sm text-chalk-400">
+          {lead.website && (
+            <a href={lead.website} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 hover:text-azure-300">
+              <Globe size={14} /> {lead.websiteDomain} <ExternalLink size={11} />
+            </a>
+          )}
+          {lead.phone && <span className="inline-flex items-center gap-1"><Phone size={14} /> {lead.phone}</span>}
+          {lead.publicEmail && <span className="inline-flex items-center gap-1"><Mail size={14} /> {lead.publicEmail}</span>}
+          {lead.rating != null && <span className="inline-flex items-center gap-1"><Star size={14} className="text-amber-400" /> {lead.rating} ({lead.reviewCount})</span>}
+          <span className="inline-flex items-center gap-1"><MapPin size={14} /> {lead.address}</span>
+        </div>
+
+        <div className="mt-4 border-t border-white/[0.06] pt-4">
+          <p className="text-[11px] font-medium uppercase tracking-wide text-chalk-500">Why we're reaching out</p>
+          <p className="mt-1 text-[13.5px] leading-relaxed text-chalk-300">{why}</p>
+        </div>
+
+        {stoodOut.length > 0 && (
+          <div className="mt-3">
+            <p className="text-[11px] font-medium uppercase tracking-wide text-chalk-500">What stood out</p>
+            <ul className="mt-1 space-y-1">
+              {stoodOut.map((o, i) => <li key={i} className="flex gap-2 text-[13px] text-chalk-300"><span className="mt-0.5 text-amber-300">→</span><span>{o}</span></li>)}
+            </ul>
+          </div>
+        )}
+      </div>
+
+      {/* Primary contact strategy — only when this business shouldn't begin with email. */}
+      {contactStrategy.kind !== "email-first" && (
+        <ContactStrategyPanel leadId={lead.id} strategy={contactStrategy} brief={contactBrief} phone={lead.phone} contactFormUrl={lead.contactFormUrl} instagramUrl={findInstagram(lead.socialLinks)} />
+      )}
+
+      {/* ── Everything else, on demand. Reference never competes with the decision. ─────
+          The section the current action needs opens itself; the rest stay collapsed. */}
+      {referenceSections}
     </div>
   );
 }

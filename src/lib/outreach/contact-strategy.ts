@@ -41,6 +41,33 @@ export interface CallBrief {
   permissionQuestion: string;
 }
 
+/** One skimmable, spoken response for a situation that comes up on the call. */
+export interface CallBranch {
+  /** The situation, e.g. "A receptionist or employee answers". */
+  situation: string;
+  /** A practical spoken line — read aloud, not sales copy. */
+  line: string;
+}
+
+/**
+ * The full call guide for a call-first lead — everything the operator needs
+ * visible while holding the phone: the objective, the opening line, a private
+ * purpose note, the few questions to ask, and short branches for common turns.
+ * Deterministic templates tailored to what we actually know — never a pitch.
+ */
+export interface CallScript {
+  /** One short objective for the call. */
+  objective: string;
+  /** The natural opening line, tailored to the business. */
+  opening: string;
+  /** A one-sentence private operator note — the goal of the call. */
+  purpose: string;
+  /** Only the few questions this call needs to resolve. */
+  questions: string[];
+  /** Short spoken responses for the common situations. */
+  branches: CallBranch[];
+}
+
 /** The minimal lead shape this engine reads — structurally satisfied by Lead. */
 export interface StrategyLead {
   businessName: string;
@@ -213,5 +240,70 @@ export function buildCallBrief(
     permissionQuestion: noWebsite
       ? "but has that ever become a limitation when people are trying to book with you?"
       : "but has that ever come up as a friction point for the people trying to reach you?",
+  };
+}
+
+/**
+ * The complete, readable call guide for a call-first lead. Unlike buildCallBrief
+ * (a single conversation-starter paragraph), this is the whole workspace script:
+ * objective, opening, purpose, the few questions, and the common branches — all
+ * shaped to be read aloud while on the phone. Pure + deterministic so it's testable.
+ */
+export function buildCallScript(
+  lead: StrategyLead,
+  opts: { strongestObservation?: string | null } = {},
+): CallScript {
+  const name = lead.businessName;
+  const ig = instagramUrl(lead);
+  const brief = buildCallBrief(lead, opts);
+
+  // The opening resolves the real uncertainty: who owns the experience, and can
+  // we reach them. It names the business and asks for the right person — warm,
+  // curious, not a pitch. Tailored when Instagram is clearly the live channel.
+  const opening = ig
+    ? `Hi — I was looking through ${name}'s Instagram and had a quick question. Who would be the best person to speak with about the customer experience or the way the business is presented online?`
+    : `Hi — I came across ${name} and had a quick question. Who would be the best person to speak with about the customer experience or the way the business is presented online?`;
+
+  return {
+    objective: `Reach the owner or decision-maker, confirm the best email, and earn a yes to send the personalized review.`,
+    opening,
+    purpose:
+      "Identify the owner or decision-maker, confirm the best contact method, and earn permission to send the personalized review.",
+    questions: [
+      "Who handles the customer experience or business technology decisions?",
+      "Is that person available right now?",
+      "What's the best email address for them?",
+      "May I send over a short personalized review I prepared?",
+    ],
+    branches: [
+      {
+        situation: "The decision-maker answers",
+        line: `Great — I'll keep this quick. ${brief.observation} ${brief.transition.replace(/,$/, "")}, ${brief.permissionQuestion} If it's useful, I'd love to send you a short personalized review — what's the best email for you?`,
+      },
+      {
+        situation: "A receptionist or employee answers",
+        line: `No problem at all — who would be the best person to talk to about how the business is presented online, and is there a good email to reach them?`,
+      },
+      {
+        situation: "The decision-maker is unavailable",
+        line: `Totally understand. When's usually a good time to catch them? And is there a direct email I could send a short review to in the meantime?`,
+      },
+      {
+        situation: "They ask what the call is about",
+        line: `Of course — I put together a short, no-strings review of how ${name} shows up online, with a couple of specific ideas. I just wanted to find the right person to send it to.`,
+      },
+      {
+        situation: "They're interested",
+        line: `Perfect — what's the best email? I'll send it over today, and if anything in it resonates we can find a few minutes to talk it through.`,
+      },
+      {
+        situation: "They're not interested",
+        line: `Completely fair — I appreciate you taking the call. If it's alright, I'll leave it here. Have a great rest of your day.`,
+      },
+      {
+        situation: "Voicemail",
+        line: `Hi, this is a quick message for the owner of ${name}. I put together a short review of how the business shows up online with a couple of specific ideas — no strings. I'll try again, or you can reach me back at this number.`,
+      },
+    ],
   };
 }
