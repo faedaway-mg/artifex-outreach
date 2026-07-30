@@ -4,18 +4,25 @@
 // way to), so the ONE action is to find a real contact route. The page routes here
 // instead of a call/email workspace precisely so we never show an action that can't
 // be performed. Finding a channel refreshes the page, which recomputes the next action.
-import { useState } from "react";
+import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Search, MapPin, Globe, Loader2, Check, ArrowRight, Plus, AlertCircle } from "lucide-react";
-import { findContactRouteAction, saveManualContactAction, type FindContactResult } from "@/lib/outreach/find-contact";
+import { Search, MapPin, Globe, Loader2, Check, ArrowRight, Plus, AlertCircle, Clock, Ban } from "lucide-react";
+import { findContactRouteAction, saveManualContactAction, recordNoContactRouteAction, deferContactDiscoveryAction, disqualifyLeadAction, type FindContactResult, type ResolutionResult } from "@/lib/outreach/find-contact";
+import { resolveNextLead } from "@/lib/outreach/next-lead";
+import { type Continuation } from "@/components/lead/CallOutcomeConsole";
 import { deslug } from "@/lib/utils";
 import type { Lead } from "@/lib/types";
 
-export function ContactRouteMissingWorkspace({ lead, reason }: { lead: Lead; reason: string }) {
+const DISQUALIFY_REASONS = ["Not a suitable business", "Outside target market", "Duplicate", "Permanently closed", "Invalid listing", "Other"];
+
+export function ContactRouteMissingWorkspace({ lead, reason, continuation }: { lead: Lead; reason: string; continuation?: Continuation }) {
   const router = useRouter();
   const [searching, setSearching] = useState(false);
   const [result, setResult] = useState<FindContactResult | null>(null);
   const [showManual, setShowManual] = useState(false);
+  const [advancing, startAdvance] = useTransition();
+  const [showDisqualify, setShowDisqualify] = useState(false);
+  const [dqReason, setDqReason] = useState<string | null>(null);
 
   async function onFind() {
     if (searching) return;
@@ -28,6 +35,25 @@ export function ContactRouteMissingWorkspace({ lead, reason }: { lead: Lead; rea
     } finally {
       setSearching(false);
     }
+  }
+
+  // Record a terminal resolution, then continue the operator loop to the next
+  // actionable business — the SERVER decides the next lead (skipping this one, which
+  // just left Today's queue). Guarded by the transition so a double-click can't run
+  // the write or the navigation twice.
+  function finishAndAdvance(prep: () => Promise<ResolutionResult>) {
+    if (advancing) return;
+    startAdvance(async () => {
+      const r = await prep();
+      if (!r.ok) return;
+      const next = await resolveNextLead(lead.id, continuation ?? {});
+      const carry = continuation?.ids?.length
+        ? `?ids=${encodeURIComponent(continuation.ids.join(","))}${continuation.kind ? `&kind=${continuation.kind}` : ""}`
+        : "";
+      if (next.nextLeadId) router.push(`/leads/${next.nextLeadId}${carry}`);
+      else if (continuation?.ids?.length && continuation.kind) router.push(`/work/${continuation.kind}?ids=${encodeURIComponent(continuation.ids.join(","))}&i=${continuation.ids.length}`);
+      else router.push("/");
+    });
   }
 
   return (
@@ -81,16 +107,76 @@ export function ContactRouteMissingWorkspace({ lead, reason }: { lead: Lead; rea
               </>
             ) : (
               <>
-                <p className="mt-1.5 text-[13px] text-chalk-300">No verified channel found. {result.message}</p>
-                <p className="mt-2 text-[12.5px] text-chalk-500">Checked: {result.sourcesChecked.join(", ")}.</p>
-                <button onClick={() => setShowManual(true)} className="btn-secondary mt-3 inline-flex !py-2 text-sm"><Plus size={14} /> Add contact manually</button>
+                {/* Calm, operational — a completed result, not an error. */}
+                <p className="mt-1.5 text-[13px] leading-relaxed text-chalk-300">
+                  No verified phone, email, website, contact form, booking link, or social account was found.
+                </p>
+                <div className="mt-2">
+                  <p className="text-[11px] font-medium uppercase tracking-wide text-chalk-500">Checked</p>
+                  <ul className="mt-1 space-y-0.5">
+                    {result.sourcesChecked.map((s) => <li key={s} className="text-[12.5px] text-chalk-400">• {s}</li>)}
+                  </ul>
+                </div>
+
+                {/* PRIMARY — record the honest result and continue the loop. */}
+                <button
+                  onClick={() => finishAndAdvance(() => recordNoContactRouteAction(lead.id, result.sourcesChecked))}
+                  disabled={advancing}
+                  aria-label="Record no contact found and open the next actionable business"
+                  className="btn-primary mt-4 flex w-full items-center justify-center !py-3.5 text-[15.5px] disabled:opacity-70"
+                >
+                  {advancing ? <><Loader2 size={17} className="animate-spin" /> Working…</> : <>No contact found — next lead <ArrowRight size={17} /></>}
+                </button>
+
+                {/* SECONDARY — manual entry stays available. */}
+                <button onClick={() => setShowManual((v) => !v)} disabled={advancing} className="btn-secondary mt-2 flex w-full items-center justify-center !py-2.5 text-sm disabled:opacity-60">
+                  <Plus size={15} /> Add contact manually
+                </button>
+
+                {/* TERTIARY — defer, and (visually separated) the deliberate disqualify. */}
+                <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-white/[0.06] pt-3 text-[12.5px]">
+                  <button onClick={() => finishAndAdvance(() => deferContactDiscoveryAction(lead.id, 30))} disabled={advancing} className="inline-flex items-center gap-1.5 text-chalk-500 hover:text-chalk-300 disabled:opacity-50">
+                    <Clock size={13} /> Try again later
+                  </button>
+                  {!showDisqualify ? (
+                    <button onClick={() => setShowDisqualify(true)} disabled={advancing} className="ml-auto inline-flex items-center gap-1.5 text-coral-300/80 hover:text-coral-300 disabled:opacity-50">
+                      <Ban size={13} /> Disqualify business
+                    </button>
+                  ) : null}
+                </div>
+
+                {/* Disqualify — deliberate: requires a reason + explicit confirm. */}
+                {showDisqualify && (
+                  <div className="mt-3 rounded-lg border border-coral-400/25 bg-coral-400/[0.05] p-3.5">
+                    <p className="text-[12px] font-medium text-coral-200">Disqualify — why isn&apos;t this a fit?</p>
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {DISQUALIFY_REASONS.map((r) => (
+                        <button key={r} type="button" onClick={() => setDqReason(r)}
+                          className={`rounded-lg border px-2.5 py-1.5 text-[12.5px] ${dqReason === r ? "border-coral-400/50 bg-coral-400/15 text-coral-100" : "border-white/10 text-chalk-400 hover:text-chalk-200"}`}>
+                          {r}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="mt-3 flex items-center gap-3">
+                      <button
+                        onClick={() => finishAndAdvance(() => disqualifyLeadAction(lead.id, dqReason ?? "Other"))}
+                        disabled={advancing || !dqReason}
+                        aria-label="Confirm disqualification and move on"
+                        className="btn-danger inline-flex !py-2 text-[13px] disabled:opacity-50"
+                      >
+                        {advancing ? <><Loader2 size={14} className="animate-spin" /> …</> : <>Confirm disqualify</>}
+                      </button>
+                      <button onClick={() => { setShowDisqualify(false); setDqReason(null); }} disabled={advancing} className="text-[12px] text-chalk-500 hover:text-chalk-300 disabled:opacity-50">Cancel</button>
+                    </div>
+                  </div>
+                )}
               </>
             )}
           </div>
         )}
 
-        {/* Secondary, quieter fallback — never a competing primary action. */}
-        {!showManual && !result?.found && (
+        {/* Secondary, quieter fallback before a search has run — never competes. */}
+        {!showManual && !result && (
           <button onClick={() => setShowManual(true)} className="mt-3 inline-flex items-center gap-1.5 text-[12.5px] text-chalk-500 hover:text-chalk-300">
             <Plus size={13} /> Add contact information manually
           </button>

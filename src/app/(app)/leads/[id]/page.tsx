@@ -295,7 +295,7 @@ export default async function LeadPage({ params, searchParams }: { params: { id:
           <ArrowLeft size={15} /> Back to Today
         </Link>
 
-        <ContactRouteMissingWorkspace lead={lead} reason={callStrategy.reason} />
+        <ContactRouteMissingWorkspace lead={lead} reason={callStrategy.reason} continuation={continuation} />
 
         <details className="group scroll-mt-4">
           <summary className="flex cursor-pointer list-none items-center gap-3 rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3 hover:border-white/[0.12]">

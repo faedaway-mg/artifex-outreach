@@ -5,12 +5,31 @@
 // telling the operator to go search by hand. Nothing is fabricated: a channel is
 // saved only when a real source reports it, and only when it's well-formed.
 import { revalidatePath } from "next/cache";
-import { getLead, updateLead, appendAudit } from "@/lib/repo";
+import { getLead, updateLead, appendAudit, allTasks, updateTask, insertTask } from "@/lib/repo";
 import { searchPlaces } from "@/lib/providers/places";
 import type { PlaceResult } from "@/lib/providers/places";
 import { normalizeName, domainFromUrl } from "@/lib/store";
 import { isCallablePhone, isValidEmail, isUsableUrl, findInstagram } from "@/lib/outreach/contact-strategy";
 import type { Lead } from "@/lib/types";
+
+/**
+ * Cache revalidation is a best-effort step AFTER the source-of-truth write has
+ * committed. Per bb835f6, a revalidation throw must never turn a committed write into
+ * a user-facing failure — so it is always isolated.
+ */
+function safeRevalidate(leadId: string) {
+  try {
+    revalidatePath(`/leads/${leadId}`);
+    revalidatePath("/");
+  } catch {
+    /* the write already committed; revalidation is advisory */
+  }
+}
+
+/** The lead's still-open tasks — the work that keeps it in Today's queue. */
+async function openTasksForLead(leadId: string) {
+  return (await allTasks()).filter((t) => t.leadId === leadId && t.status === "open");
+}
 
 /** The channels a search or a manual entry can supply. */
 export interface FoundChannels {
@@ -129,8 +148,7 @@ export async function findContactRouteAction(leadId: string): Promise<FindContac
     await audit("lead.contact.searched", leadId, { found: "nothing new", mode });
   }
 
-  revalidatePath(`/leads/${leadId}`);
-  revalidatePath("/");
+  safeRevalidate(leadId);
   return { ok: true, found, channels, source, matchName: match.businessName, sourcesChecked, mode };
 }
 
@@ -198,7 +216,102 @@ export async function saveManualContactAction(leadId: string, input: ManualConta
   await updateLead(leadId, patch);
   await audit("lead.contact.manual", leadId, { saved: saved.join(", "), verified });
 
-  revalidatePath(`/leads/${leadId}`);
-  revalidatePath("/");
+  safeRevalidate(leadId);
   return { ok: true, saved };
+}
+
+// ── Contact-discovery resolutions ─────────────────────────────────────────────
+// When discovery comes up empty, the operator must be able to record an HONEST
+// structured result and keep moving — without falsely disqualifying a business that
+// may simply be unreachable right now. These are distinct terminal states:
+//   • no-contact-found  → valid business, no route today → out of Today, lead retained
+//   • deferred          → revisit discovery later → snoozed out of Today, resurfaces
+//   • disqualified      → not a suitable prospect → Disqualified stage (a real decision)
+// None fabricate a channel; none set lastContactAt (no conversation happened).
+
+export interface ResolutionResult {
+  ok: boolean;
+  /** How many open tasks were resolved (removed from Today). */
+  resolvedTasks?: number;
+  /** For defer: when the lead will resurface. */
+  until?: string;
+  reason?: string;
+}
+
+/**
+ * Contact discovery exhausted: no verified route found. Resolves the lead's open work
+ * for today (it can't be worked without a channel), records a structured audit event
+ * for analytics, and appends a note. It does NOT disqualify/close the business and does
+ * NOT set lastContactAt — the business is retained for future enrichment.
+ */
+export async function recordNoContactRouteAction(leadId: string, sourcesChecked: string[] = []): Promise<ResolutionResult> {
+  const lead = await getLead(leadId);
+  if (!lead) return { ok: false, reason: "Lead not found." };
+
+  const open = await openTasksForLead(leadId);
+  // Idempotent: once the lead's open work is resolved, a repeat press (double-click,
+  // refresh, back-then-forward) is a no-op — no duplicate audit event or note.
+  if (open.length === 0) return { ok: true, resolvedTasks: 0 };
+  for (const t of open) await updateTask(t.id, { status: "skipped" }); // out of Today's queue
+
+  // Structured record (not only a note) → answers "how many leads have no reachable
+  // channel", "which sources were checked", over time.
+  await audit("lead.contact.exhausted", leadId, {
+    result: "no-verified-channel",
+    sourcesChecked,
+    tasksResolved: open.length,
+  });
+  await updateLead(leadId, {
+    note: appendNote(lead.note, `Contact discovery exhausted — no verified channel${sourcesChecked.length ? ` (checked: ${sourcesChecked.join(", ")})` : ""}.`),
+  });
+
+  safeRevalidate(leadId);
+  return { ok: true, resolvedTasks: open.length };
+}
+
+/**
+ * Defer contact discovery: revisit later. Snoozes the lead's open task out of Today so
+ * it resurfaces after the interval (exactly one future task), or creates one if none
+ * exists. Never touches qualification or lastContactAt.
+ */
+export async function deferContactDiscoveryAction(leadId: string, days = 30): Promise<ResolutionResult> {
+  const lead = await getLead(leadId);
+  if (!lead) return { ok: false, reason: "Lead not found." };
+
+  const until = new Date(Date.now() + Math.max(1, days) * 86_400_000).toISOString();
+  const open = await openTasksForLead(leadId);
+  if (open.length > 0) {
+    for (const t of open) await updateTask(t.id, { snoozedUntil: until }); // resurfaces after `until`
+  } else {
+    await insertTask({ leadId, type: "review", title: `Retry contact research — ${lead.businessName}`, dueAt: until, status: "open", priority: 15, snoozedUntil: null });
+  }
+  await audit("lead.contact.deferred", leadId, { days });
+  await updateLead(leadId, { note: appendNote(lead.note, `Contact research deferred ~${days} days.`) });
+
+  safeRevalidate(leadId);
+  return { ok: true, until };
+}
+
+/**
+ * Disqualify: a deliberate decision that this is not a suitable prospect (distinct from
+ * "unreachable"). Sets the Disqualified stage with a reason (audited + noted), resolves
+ * open tasks, and stops future outreach. Reversible via the stage control in LeadActions.
+ */
+export async function disqualifyLeadAction(leadId: string, reason: string): Promise<ResolutionResult> {
+  const lead = await getLead(leadId);
+  if (!lead) return { ok: false, reason: "Lead not found." };
+  const clean = (reason ?? "").trim() || "No reason given";
+
+  const open = await openTasksForLead(leadId);
+  for (const t of open) await updateTask(t.id, { status: "skipped" });
+
+  await updateLead(leadId, {
+    pipelineStage: "Disqualified",
+    recommendedAction: "Skip",
+    note: appendNote(lead.note, `Disqualified — ${clean}.`),
+  });
+  await audit("lead.disqualify", leadId, { reason: clean });
+
+  safeRevalidate(leadId);
+  return { ok: true };
 }
