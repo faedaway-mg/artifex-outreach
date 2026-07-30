@@ -5,6 +5,8 @@
 import { Phone, Mail, FileText, Instagram, Search, ArrowRight, ExternalLink } from "lucide-react";
 import type { ContactStrategy, CallBrief, StrategyIcon, SignalTone } from "@/lib/outreach/contact-strategy";
 import { CallOutcomeConsole, type Continuation } from "@/components/lead/CallOutcomeConsole";
+import { PhoneCopyButton } from "@/components/PhoneCopyButton";
+import { normalizeExternalUrl } from "@/lib/utils";
 
 const ICONS: Record<StrategyIcon, typeof Phone> = { phone: Phone, mail: Mail, form: FileText, instagram: Instagram, search: Search };
 const DOT: Record<SignalTone, string> = { good: "bg-teal-400", warn: "bg-amber-400", muted: "bg-chalk-600" };
@@ -83,18 +85,21 @@ export function ContactStrategyPanel({
 
       {/* The one channel-appropriate action for the first touch. */}
       {isCall && tel && (
-        <a href={`tel:${tel}`} className="btn-primary mt-4 w-full justify-center !py-3 text-[15px]">
-          <Phone size={16} /> Call {phone} <ArrowRight size={16} />
-        </a>
+        <>
+          <a href={`tel:${tel}`} className="btn-primary mt-4 w-full justify-center !py-3 text-[15px]">
+            <Phone size={16} aria-hidden /> Call {phone} <ArrowRight size={16} aria-hidden />
+          </a>
+          <div className="mt-2"><PhoneCopyButton phone={phone} variant="button" /></div>
+        </>
       )}
       {isForm && contactFormUrl && (
-        <a href={contactFormUrl} target="_blank" rel="noreferrer" className="btn-primary mt-4 w-full justify-center !py-3 text-[15px]">
-          <FileText size={16} /> Open the contact form <ExternalLink size={14} />
+        <a href={normalizeExternalUrl(contactFormUrl) ?? "#"} target="_blank" rel="noopener noreferrer" className="btn-primary mt-4 w-full justify-center !py-3 text-[15px]">
+          <FileText size={16} aria-hidden /> Open the contact form <ExternalLink size={14} aria-hidden />
         </a>
       )}
       {isDm && instagramUrl && (
-        <a href={instagramUrl} target="_blank" rel="noreferrer" className="btn-primary mt-4 w-full justify-center !py-3 text-[15px]">
-          <Instagram size={16} /> Open Instagram <ExternalLink size={14} />
+        <a href={normalizeExternalUrl(instagramUrl) ?? "#"} target="_blank" rel="noopener noreferrer" className="btn-primary mt-4 w-full justify-center !py-3 text-[15px]">
+          <Instagram size={16} aria-hidden /> Open Instagram <ExternalLink size={14} aria-hidden />
         </a>
       )}
 

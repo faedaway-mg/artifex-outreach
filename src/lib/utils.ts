@@ -91,3 +91,58 @@ export function titleizeSlug(s: string | null | undefined): string {
   const d = deslug(s);
   return d ? d.charAt(0).toUpperCase() + d.slice(1) : "";
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Contact-detail formatting — the source of truth for turning a stored business
+// website / phone into a safe, clickable/copyable value. Centralized so every
+// screen renders links and dialable numbers identically.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Schemes we must never turn into an active link. */
+const UNSAFE_URL_SCHEME = /^\s*(javascript|data|file|vbscript|blob|about|mailto|tel):/i;
+
+/**
+ * Normalize a stored business website into a SAFE, absolute external URL, or null
+ * when it can't be trusted as a web link. A bare domain gets an https:// scheme (so
+ * it never resolves as an internal relative route); existing http/https, paths,
+ * query strings, fragments, and subdomains are preserved; unsafe schemes and values
+ * that aren't a real host are rejected.
+ *
+ *   villabrasilmotel.com        → https://villabrasilmotel.com
+ *   www.villabrasilmotel.com    → https://www.villabrasilmotel.com
+ *   http://x.com                → http://x.com   (protocol preserved)
+ *   "  x.com/a?b=1#c "          → https://x.com/a?b=1#c
+ *   javascript:alert(1)         → null
+ *   "not a url"                 → null
+ */
+export function normalizeExternalUrl(raw: string | null | undefined): string | null {
+  const s = (raw ?? "").trim();
+  if (!s || UNSAFE_URL_SCHEME.test(s)) return null;
+  // Prepend https:// only when there's no explicit http/https — never for other schemes.
+  const candidate = /^https?:\/\//i.test(s) ? s : `https://${s}`;
+  try {
+    const u = new URL(candidate);
+    if (u.protocol !== "http:" && u.protocol !== "https:") return null;
+    if (!u.hostname || !u.hostname.includes(".")) return null; // real host required
+    return candidate; // preserve the operator's value (no forced trailing slash, etc.)
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The dialable form of a phone number — decorative formatting stripped, a leading
+ * "+" (country code) preserved, and NO fabricated country code. This is the single
+ * value used for both `tel:` links and clipboard copy, so what you dial is what you
+ * copy. Returns "" when there's nothing dialable.
+ *
+ *   (310) 876-7789        → 3108767789
+ *   +1 (310) 876-7789     → +13108767789
+ *   +52 55 1234 5678      → +525512345678
+ */
+export function toDialable(raw: string | null | undefined): string {
+  const s = (raw ?? "").trim();
+  if (!s) return "";
+  const plus = s.startsWith("+") ? "+" : "";
+  return plus + s.replace(/\D/g, "");
+}

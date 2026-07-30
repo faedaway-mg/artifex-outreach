@@ -53,6 +53,8 @@ import { OutreachKitPanel } from "@/components/lead/OutreachKitPanel";
 import { determineContactStrategy, buildCallBrief, buildCallScript, findInstagram } from "@/lib/outreach/contact-strategy";
 import { ContactStrategyPanel } from "@/components/lead/ContactStrategyPanel";
 import { CallWorkspace } from "@/components/lead/CallWorkspace";
+import { WebsiteLink } from "@/components/WebsiteLink";
+import { PhoneCopyButton } from "@/components/PhoneCopyButton";
 import { ContactRouteMissingWorkspace } from "@/components/lead/ContactRouteMissingWorkspace";
 import { deriveCallLeadState } from "@/lib/outreach/call-state";
 import { formatRange, joinMeta, formatLocation, deslug } from "@/lib/utils";
@@ -383,12 +385,13 @@ export default async function LeadPage({ params, searchParams }: { params: { id:
         </div>
 
         <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-sm text-chalk-400">
-          {lead.website && (
-            <a href={lead.website} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 hover:text-azure-300">
-              <Globe size={14} /> {lead.websiteDomain} <ExternalLink size={11} />
-            </a>
+          {lead.website && <WebsiteLink url={lead.website} domain={lead.websiteDomain} businessName={lead.businessName} />}
+          {lead.phone && (
+            <span className="inline-flex items-center gap-0.5">
+              <Phone size={14} aria-hidden /> {lead.phone}
+              <PhoneCopyButton phone={lead.phone} businessName={lead.businessName} className="ml-0.5" />
+            </span>
           )}
-          {lead.phone && <span className="inline-flex items-center gap-1"><Phone size={14} /> {lead.phone}</span>}
           {lead.publicEmail && <span className="inline-flex items-center gap-1"><Mail size={14} /> {lead.publicEmail}</span>}
           {lead.rating != null && <span className="inline-flex items-center gap-1"><Star size={14} className="text-amber-400" /> {lead.rating} ({lead.reviewCount})</span>}
           <span className="inline-flex items-center gap-1"><MapPin size={14} /> {lead.address}</span>

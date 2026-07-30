@@ -7,6 +7,8 @@
 import { Phone, MapPin, Globe, Target, CheckCircle2, CalendarClock, XCircle } from "lucide-react";
 import { CallScriptCard } from "@/components/lead/CallScriptCard";
 import { CallOutcomeConsole, type Continuation } from "@/components/lead/CallOutcomeConsole";
+import { WebsiteLink } from "@/components/WebsiteLink";
+import { PhoneCopyButton } from "@/components/PhoneCopyButton";
 import type { CallScript } from "@/lib/outreach/contact-strategy";
 import type { CallLeadState } from "@/lib/outreach/call-state";
 import { deslug } from "@/lib/utils";
@@ -17,15 +19,23 @@ import type { Lead } from "@/lib/types";
 const COLLECT = ["Decision-maker name", "Their role", "Best email address", "Permission to send the review"];
 
 function Identity({ lead, reason }: { lead: Lead; reason: string }) {
-  const websiteStatus = lead.website ? lead.websiteDomain ?? "Has website" : "No website";
   return (
     <div className="card p-5">
       <h1 className="text-2xl font-semibold text-chalk-50">{lead.businessName}</h1>
       <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-sm text-chalk-400">
         <span>{deslug(lead.industry)}</span>
         <span className="inline-flex items-center gap-1"><MapPin size={14} /> {lead.city}</span>
-        {lead.phone && <span className="inline-flex items-center gap-1 text-chalk-200"><Phone size={14} /> {lead.phone}</span>}
-        <span className={`inline-flex items-center gap-1 ${lead.website ? "" : "text-amber-300/90"}`}><Globe size={14} /> {websiteStatus}</span>
+        {lead.phone && (
+          <span className="inline-flex items-center gap-0.5 text-chalk-200">
+            <Phone size={14} aria-hidden /> {lead.phone}
+            <PhoneCopyButton phone={lead.phone} businessName={lead.businessName} className="ml-0.5" />
+          </span>
+        )}
+        {lead.website ? (
+          <WebsiteLink url={lead.website} domain={lead.websiteDomain} businessName={lead.businessName} />
+        ) : (
+          <span className="inline-flex items-center gap-1 text-amber-300/90"><Globe size={14} aria-hidden /> No website</span>
+        )}
       </div>
       <p className="mt-3 border-t border-white/[0.06] pt-3 text-[13.5px] leading-relaxed text-chalk-300">{reason}</p>
     </div>
@@ -97,9 +107,15 @@ export function CallWorkspace({
               <span>{script.objective}</span>
             </p>
             {lead.phone ? (
-              <a href={`tel:${lead.phone.replace(/[^\d+]/g, "")}`} className="btn-primary mt-4 w-full justify-center !py-3.5 text-[16px]">
-                <Phone size={18} /> Call {lead.phone}
-              </a>
+              <>
+                <a href={`tel:${lead.phone.replace(/[^\d+]/g, "")}`} aria-label={`Call ${lead.businessName} at ${lead.phone}`} className="btn-primary mt-4 w-full justify-center !py-3.5 text-[16px]">
+                  <Phone size={18} aria-hidden /> Call {lead.phone}
+                </a>
+                {/* Secondary path — copy the number to paste into Google Voice. */}
+                <div className="mt-2">
+                  <PhoneCopyButton phone={lead.phone} businessName={lead.businessName} variant="button" />
+                </div>
+              </>
             ) : (
               <p className="mt-4 rounded-lg border border-white/10 bg-white/[0.02] p-3 text-[13px] text-chalk-500">
                 No phone number on file yet — find a number or booking link before the call.

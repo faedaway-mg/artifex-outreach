@@ -2,9 +2,10 @@
 // Conversation). Understanding-first: business name + where it sits in the journey,
 // not a deal size. Includes the lead sub-nav.
 import Link from "next/link";
-import { ArrowLeft, Globe, MapPin, Star } from "lucide-react";
+import { ArrowLeft, MapPin, Star } from "lucide-react";
 import type { Lead } from "@/lib/types";
 import { TierBadge } from "@/components/ui";
+import { WebsiteLink } from "@/components/WebsiteLink";
 import { JourneyBadge } from "@/components/JourneyBadge";
 import { LeadSubNav } from "@/components/lead/LeadSubNav";
 import { journeyPhaseOf } from "@/lib/journey";
@@ -24,9 +25,7 @@ export function LeadHeader({ lead }: { lead: Lead }) {
         </div>
         <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-chalk-500">
           <span>{joinMeta(deslug(lead.industry), formatLocation(lead.city, lead.state))}</span>
-          {lead.websiteDomain && (
-            <a href={lead.website ?? "#"} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 hover:text-azure-300"><Globe size={12} /> {lead.websiteDomain}</a>
-          )}
+          {lead.website && <WebsiteLink url={lead.website} domain={lead.websiteDomain} businessName={lead.businessName} size={12} />}
           {lead.rating != null && <span className="inline-flex items-center gap-1"><Star size={12} className="text-amber-400" /> {lead.rating} ({lead.reviewCount})</span>}
           <span className="inline-flex items-center gap-1"><MapPin size={12} /> {lead.address}</span>
         </div>

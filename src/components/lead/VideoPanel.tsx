@@ -10,6 +10,7 @@ import {
   markVideoReadyAction,
 } from "@/lib/actions";
 import type { Lead, Video as VideoT, Screenshot } from "@/lib/types";
+import { normalizeExternalUrl } from "@/lib/utils";
 
 export function VideoPanel({ lead, videos, screenshots }: { lead: Lead; videos: VideoT[]; screenshots: Screenshot[] }) {
   const router = useRouter();
@@ -42,6 +43,7 @@ export function VideoPanel({ lead, videos, screenshots }: { lead: Lead; videos: 
 
 function VideoEditor({ lead, video, screenshots, onRefresh }: { lead: Lead; video: VideoT; screenshots: Screenshot[]; onRefresh: () => void }) {
   const router = useRouter();
+  const websiteHref = normalizeExternalUrl(lead.website);
   return (
     <div className="space-y-4">
       <div className="grid gap-2 rounded-lg border border-white/[0.06] p-3 text-xs sm:grid-cols-2">
@@ -79,10 +81,10 @@ function VideoEditor({ lead, video, screenshots, onRefresh }: { lead: Lead; vide
 
       {/* Record + link */}
       <div className="flex flex-wrap items-center gap-2">
-        {lead.website && (
-          <a href={lead.website} target="_blank" rel="noreferrer" className="btn-secondary"><ExternalLink size={14} /> Open website</a>
+        {websiteHref && (
+          <a href={websiteHref} target="_blank" rel="noopener noreferrer" aria-label={`Open ${lead.businessName} website in a new tab`} className="btn-secondary"><ExternalLink size={14} aria-hidden /> Open website</a>
         )}
-        <a href="https://www.loom.com/record" target="_blank" rel="noreferrer" className="btn-secondary"><Video size={14} /> Record (Loom)</a>
+        <a href="https://www.loom.com/record" target="_blank" rel="noopener noreferrer" className="btn-secondary"><Video size={14} aria-hidden /> Record (Loom)</a>
       </div>
 
       <form action={setVideoUrlAction.bind(null, video.id, lead.id)} onSubmit={() => setTimeout(() => router.refresh(), 300)} className="flex gap-2">

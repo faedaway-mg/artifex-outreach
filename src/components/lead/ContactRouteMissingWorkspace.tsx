@@ -10,6 +10,7 @@ import { Search, MapPin, Globe, Loader2, Check, ArrowRight, Plus, AlertCircle, C
 import { findContactRouteAction, saveManualContactAction, recordNoContactRouteAction, deferContactDiscoveryAction, disqualifyLeadAction, type FindContactResult, type ResolutionResult } from "@/lib/outreach/find-contact";
 import { resolveNextLead } from "@/lib/outreach/next-lead";
 import { type Continuation } from "@/components/lead/CallOutcomeConsole";
+import { WebsiteLink } from "@/components/WebsiteLink";
 import { deslug } from "@/lib/utils";
 import type { Lead } from "@/lib/types";
 
@@ -64,9 +65,11 @@ export function ContactRouteMissingWorkspace({ lead, reason, continuation }: { l
         <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-sm text-chalk-400">
           <span>{deslug(lead.industry)}</span>
           {lead.city && <span className="inline-flex items-center gap-1"><MapPin size={14} /> {lead.city}</span>}
-          <span className={`inline-flex items-center gap-1 ${lead.website ? "" : "text-amber-300/90"}`}>
-            <Globe size={14} /> {lead.website ? lead.websiteDomain ?? "Has website" : "No website"}
-          </span>
+          {lead.website ? (
+            <WebsiteLink url={lead.website} domain={lead.websiteDomain} businessName={lead.businessName} />
+          ) : (
+            <span className="inline-flex items-center gap-1 text-amber-300/90"><Globe size={14} aria-hidden /> No website</span>
+          )}
         </div>
         <p className="mt-3 border-t border-white/[0.06] pt-3 text-[13.5px] leading-relaxed text-chalk-300">{reason}</p>
       </div>
