@@ -3,11 +3,18 @@
 // that outcome needs appear. Saving records real state (see saveCallOutcomeAction):
 // an email unblocks the review send, a follow-up becomes a task, a decline closes
 // the lead. This is the "what do I record when the call ends" half of the workspace.
-import { useState } from "react";
+import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Check, Loader2, ArrowRight, PhoneOff, Voicemail, CalendarClock, UserCheck, Mail, Ban, ChevronDown } from "lucide-react";
 import { saveCallOutcomeAction, type CallOutcome, type CallOutcomeResult, type VoicemailStatus } from "@/lib/outreach/call-outcome";
+import { resolveNextLead } from "@/lib/outreach/next-lead";
+
+/** Batch/queue context carried from the lead page so "Next lead" can continue the loop. */
+export interface Continuation {
+  ids?: string[];
+  kind?: string;
+}
 
 type Field = "role" | "name" | "email" | "method" | "bestTime" | "followUp" | "voicemail" | "notes";
 
@@ -48,8 +55,9 @@ const TONE_BTN: Record<OutcomeDef["tone"], string> = {
   bad: "border-coral-400/40 bg-coral-400/10 text-coral-200",
 };
 
-export function CallOutcomeConsole({ leadId, collapsedLabel }: { leadId: string; collapsedLabel?: string }) {
+export function CallOutcomeConsole({ leadId, collapsedLabel, continuation }: { leadId: string; collapsedLabel?: string; continuation?: Continuation }) {
   const router = useRouter();
+  const [advancing, startAdvance] = useTransition();
   const [outcome, setOutcome] = useState<CallOutcome | null>(null);
   const [role, setRole] = useState<"owner" | "manager" | "assistant">("owner");
   const [name, setName] = useState("");
@@ -92,8 +100,33 @@ export function CallOutcomeConsole({ leadId, collapsedLabel }: { leadId: string;
 
   const input = "w-full rounded-lg border border-white/10 bg-ink-950/40 px-3 py-2.5 text-sm text-chalk-200 placeholder:text-chalk-600 focus:border-azure-400/40 focus:outline-none";
 
-  // After a successful save: confirm what changed, and offer the single next step.
+  // Continue the operator loop. The SERVER decides the next actionable business
+  // (skipping completed-today and closed leads) — resolving is read-only, so this
+  // never records another outcome. Guarded by the transition's pending flag so a
+  // double-click can't navigate (or resolve) twice.
+  function goNext() {
+    if (advancing) return;
+    startAdvance(async () => {
+      const res = await resolveNextLead(leadId, continuation ?? {});
+      const carry = continuation?.ids?.length
+        ? `?ids=${encodeURIComponent(continuation.ids.join(","))}${continuation.kind ? `&kind=${continuation.kind}` : ""}`
+        : "";
+      if (res.nextLeadId) {
+        router.push(`/leads/${res.nextLeadId}${carry}`);
+      } else if (continuation?.ids?.length && continuation.kind) {
+        // Batch complete — reuse the batch runner's completion screen.
+        router.push(`/work/${continuation.kind}?ids=${encodeURIComponent(continuation.ids.join(","))}&i=${continuation.ids.length}`);
+      } else {
+        router.push("/"); // no batch context → back to Today's board
+      }
+    });
+  }
+
+  // After a successful save: confirm what changed, then the ONE clear continuation —
+  // on to the next business. (When permission was earned, sending the review is the
+  // immediate work on THIS lead, so it stays primary and "Next lead" is secondary.)
   if (result?.ok) {
+    const showNext = !!continuation;
     return (
       <div className="rounded-xl border border-teal-400/25 bg-teal-400/[0.06] p-5">
         <p className="inline-flex items-center gap-2 text-sm font-semibold text-teal-200"><Check size={16} /> Call outcome recorded</p>
@@ -101,18 +134,36 @@ export function CallOutcomeConsole({ leadId, collapsedLabel }: { leadId: string;
           {result.savedEmail && !result.readyToSend && <li>Email saved to the contact — you still need permission before sending.</li>}
           {result.readyToSend && <li>Permission received — the personalized review can go out.</li>}
           {result.stage && <li>Moved to <span className="text-chalk-100">{result.stage}</span>.</li>}
-          {result.scheduledFor && <li>Next step scheduled for {new Date(result.scheduledFor).toLocaleDateString()}.</li>}
+          {result.scheduledFor && <li>Next attempt: {new Date(result.scheduledFor).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })}.</li>}
         </ul>
-        {result.readyToSend ? (
-          <Link href={`/leads/${leadId}/send`} className="btn-primary mt-4 inline-flex !py-2.5 text-sm">
-            Send the personalized review <ArrowRight size={15} />
-          </Link>
-        ) : (
-          <p className="mt-3 text-[12.5px] text-chalk-500">The lead stays in the call workflow — sending is not offered until you have permission.</p>
-        )}
-        <button onClick={() => { setResult(null); setOutcome(null); }} className="mt-3 block text-[12px] text-chalk-500 hover:text-chalk-300">
-          Log another outcome
-        </button>
+
+        {/* Primary continuation. readyToSend keeps "Send the review" primary (immediate
+            work on this lead); otherwise the loop's one action is the next business. */}
+        <div className="mt-4 space-y-2">
+          {result.readyToSend ? (
+            <>
+              <Link href={`/leads/${leadId}/send`} className="btn-primary flex w-full items-center justify-center !py-3 text-[15px]">
+                Send the personalized review <ArrowRight size={16} />
+              </Link>
+              {showNext && (
+                <button onClick={goNext} disabled={advancing} aria-label="Skip to the next actionable business" className="btn-secondary flex w-full items-center justify-center !py-2.5 text-sm disabled:opacity-60">
+                  {advancing ? <><Loader2 size={15} className="animate-spin" /> Finding next…</> : <>Next lead <ArrowRight size={15} /></>}
+                </button>
+              )}
+            </>
+          ) : showNext ? (
+            <button onClick={goNext} disabled={advancing} aria-label="Open the next actionable business" className="btn-primary flex w-full items-center justify-center !py-3.5 text-[16px] disabled:opacity-70">
+              {advancing ? <><Loader2 size={18} className="animate-spin" /> Finding next…</> : <>Next lead <ArrowRight size={18} /></>}
+            </button>
+          ) : (
+            <p className="text-[12.5px] text-chalk-500">The lead stays in the call workflow.</p>
+          )}
+        </div>
+
+        <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px]">
+          <button onClick={() => { setResult(null); setOutcome(null); }} disabled={advancing} className="text-chalk-500 hover:text-chalk-300 disabled:opacity-50">Log another outcome</button>
+          {showNext && <button onClick={() => { setResult(null); router.refresh(); }} disabled={advancing} className="text-chalk-500 hover:text-chalk-300 disabled:opacity-50">Stay on this lead</button>}
+        </div>
       </div>
     );
   }

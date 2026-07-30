@@ -60,9 +60,14 @@ import { ArrowLeft, Globe, Phone, Mail, MapPin, Star, ExternalLink, Compass, Che
 
 export const dynamic = "force-dynamic";
 
-export default async function LeadPage({ params }: { params: { id: string } }) {
+export default async function LeadPage({ params, searchParams }: { params: { id: string }; searchParams: { ids?: string; kind?: string } }) {
   const lead = await getLead(params.id);
   if (!lead) notFound();
+
+  // Batch/queue context (optional) — carried in the URL when the operator arrived via
+  // a batch so the outcome card can continue the loop. Absent for direct/Businesses entry.
+  const batchIds = (searchParams.ids ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+  const continuation = { ids: batchIds.length ? batchIds : undefined, kind: searchParams.kind || undefined };
 
   const [contacts, findings, screenshots, deliverables, videos, outreach, meetings, proposals, settings, agreements, payments] = await Promise.all([
     contactsForLead(lead.id),
@@ -315,7 +320,7 @@ export default async function LeadPage({ params }: { params: { id: string } }) {
         </Link>
 
         {/* The one workspace responsible for the current action. */}
-        <CallWorkspace lead={lead} script={script} reason={callStrategy.reason} state={callState} />
+        <CallWorkspace lead={lead} script={script} reason={callStrategy.reason} state={callState} continuation={continuation} />
 
         {/* More about this business — the full lifecycle & intelligence, collapsed. */}
         <details className="group scroll-mt-4">
@@ -406,7 +411,7 @@ export default async function LeadPage({ params }: { params: { id: string } }) {
 
       {/* Primary contact strategy — only when this business shouldn't begin with email. */}
       {contactStrategy.kind !== "email-first" && (
-        <ContactStrategyPanel leadId={lead.id} strategy={contactStrategy} brief={contactBrief} phone={lead.phone} contactFormUrl={lead.contactFormUrl} instagramUrl={findInstagram(lead.socialLinks)} />
+        <ContactStrategyPanel leadId={lead.id} strategy={contactStrategy} brief={contactBrief} phone={lead.phone} contactFormUrl={lead.contactFormUrl} instagramUrl={findInstagram(lead.socialLinks)} continuation={continuation} />
       )}
 
       {/* ── Everything else, on demand. Reference never competes with the decision. ─────

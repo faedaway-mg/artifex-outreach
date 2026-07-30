@@ -4,7 +4,7 @@
 // conversation starter and a one-tap dial. Understated; no marketing.
 import { Phone, Mail, FileText, Instagram, Search, ArrowRight, ExternalLink } from "lucide-react";
 import type { ContactStrategy, CallBrief, StrategyIcon, SignalTone } from "@/lib/outreach/contact-strategy";
-import { CallOutcomeConsole } from "@/components/lead/CallOutcomeConsole";
+import { CallOutcomeConsole, type Continuation } from "@/components/lead/CallOutcomeConsole";
 
 const ICONS: Record<StrategyIcon, typeof Phone> = { phone: Phone, mail: Mail, form: FileText, instagram: Instagram, search: Search };
 const DOT: Record<SignalTone, string> = { good: "bg-teal-400", warn: "bg-amber-400", muted: "bg-chalk-600" };
@@ -17,6 +17,7 @@ export function ContactStrategyPanel({
   phone,
   contactFormUrl,
   instagramUrl,
+  continuation,
 }: {
   leadId: string;
   strategy: ContactStrategy;
@@ -24,6 +25,8 @@ export function ContactStrategyPanel({
   phone: string | null;
   contactFormUrl?: string | null;
   instagramUrl?: string | null;
+  /** Passed on the lead page so the outcome card can offer "Next lead"; omitted in the batch runner. */
+  continuation?: Continuation;
 }) {
   const Icon = ICONS[strategy.icon];
   const isCall = strategy.kind === "call-first";
@@ -96,7 +99,7 @@ export function ContactStrategyPanel({
       )}
 
       {/* Contact capture — where the verified email lands after the first touch. */}
-      {nonEmail && <div className="mt-4"><CallOutcomeConsole leadId={leadId} /></div>}
+      {nonEmail && <div className="mt-4"><CallOutcomeConsole leadId={leadId} continuation={continuation} /></div>}
     </section>
   );
 }

@@ -6,7 +6,7 @@
 // attempt-scheduled, or closed.
 import { Phone, MapPin, Globe, Target, CheckCircle2, CalendarClock, XCircle } from "lucide-react";
 import { CallScriptCard } from "@/components/lead/CallScriptCard";
-import { CallOutcomeConsole } from "@/components/lead/CallOutcomeConsole";
+import { CallOutcomeConsole, type Continuation } from "@/components/lead/CallOutcomeConsole";
 import type { CallScript } from "@/lib/outreach/contact-strategy";
 import type { CallLeadState } from "@/lib/outreach/call-state";
 import { deslug } from "@/lib/utils";
@@ -37,11 +37,14 @@ export function CallWorkspace({
   script,
   reason,
   state,
+  continuation,
 }: {
   lead: Lead;
   script: CallScript;
   reason: string;
   state: CallLeadState;
+  /** Batch/queue context so the outcome card can offer "Next lead". */
+  continuation?: Continuation;
 }) {
   // CLOSED — the lead is done. No call button, no script: one calm status card and
   // the ability to reopen if it was a mistake. Deeper info still lives below.
@@ -120,8 +123,9 @@ export function CallWorkspace({
         <CallScriptCard script={script} />
       </div>
 
-      {/* 4 · LOG THE RESULT — the outcome drives the lead's next state. */}
-      <CallOutcomeConsole leadId={lead.id} />
+      {/* 4 · LOG THE RESULT — the outcome drives the lead's next state, and the
+          success card continues the loop to the next actionable business. */}
+      <CallOutcomeConsole leadId={lead.id} continuation={continuation} />
     </div>
   );
 }
