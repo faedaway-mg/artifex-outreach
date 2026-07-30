@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
-vi.mock("next/cache", () => ({ revalidatePath: () => {}, revalidateTag: () => {} }));
+vi.mock("next/cache", () => ({ revalidatePath: vi.fn(), revalidateTag: vi.fn() }));
 
+import { revalidatePath } from "next/cache";
 import { __resetStoreForTests } from "../store";
 import { insertLead, getLead, contactsForLead, allTasks } from "../repo";
 import { saveCallOutcomeAction } from "./call-outcome";
@@ -128,6 +129,46 @@ describe("saveCallOutcomeAction — the outcome IS the state change", () => {
     const lead = await seedCallFirstLead();
     await saveCallOutcomeAction(lead.id, { outcome: "no-answer" });
     expect(await contactsForLead(lead.id)).toHaveLength(0);
+    expect((await tasksForLead(lead.id)).some((t) => t.type === "call")).toBe(true);
+  });
+
+  // The reported production case: no answer + a business with no voicemail. Voicemail
+  // is independent of the outcome — every voicemail state must save successfully.
+  it("no answer + each voicemail status saves, and records it for analytics", async () => {
+    for (const vm of ["left", "none-available", "mailbox-full", "not-left"] as const) {
+      __resetStoreForTests();
+      const lead = await seedCallFirstLead();
+      const res = await saveCallOutcomeAction(lead.id, { outcome: "no-answer", voicemail: vm, notes: "No voicemail" });
+      expect(res.ok).toBe(true);
+      expect(res.scheduledFor).toBeTruthy();
+      const note = (await getLead(lead.id))?.note ?? "";
+      if (vm === "none-available") expect(note).toContain("no voicemail available");
+      if (vm === "mailbox-full") expect(note).toContain("mailbox full");
+    }
+  });
+
+  it("no answer with NO voicemail info still saves (voicemail is never required)", async () => {
+    const lead = await seedCallFirstLead();
+    const res = await saveCallOutcomeAction(lead.id, { outcome: "no-answer", voicemail: null, notes: "No voicemail" });
+    expect(res.ok).toBe(true);
+    expect((await getLead(lead.id))?.note).toContain("no answer");
+  });
+
+  it("voicemail outcome records the voicemail state when given", async () => {
+    const lead = await seedCallFirstLead();
+    const res = await saveCallOutcomeAction(lead.id, { outcome: "voicemail", voicemail: "left" });
+    expect(res.ok).toBe(true);
+    expect((await getLead(lead.id))?.note).toContain("left a voicemail");
+  });
+
+  it("a revalidation failure never turns a committed save into a user-facing error", async () => {
+    const lead = await seedCallFirstLead();
+    // Simulate the post-commit revalidate throwing (the latent production defect).
+    vi.mocked(revalidatePath).mockImplementationOnce(() => { throw new Error("Invariant: static generation store missing"); });
+    const res = await saveCallOutcomeAction(lead.id, { outcome: "no-answer", voicemail: "none-available" });
+    expect(res.ok).toBe(true); // save succeeds despite revalidate throwing
+    // and the write actually persisted (not lost)
+    expect((await getLead(lead.id))?.note).toContain("no answer");
     expect((await tasksForLead(lead.id)).some((t) => t.type === "call")).toBe(true);
   });
 

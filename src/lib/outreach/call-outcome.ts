@@ -24,6 +24,13 @@ export type CallOutcome =
 /** Legacy "who did you reach" values — still accepted so older callers keep working. */
 export type ReachedWho = "owner" | "manager" | "assistant" | "voicemail" | "no-answer";
 
+/**
+ * Whether a voicemail was left — INDEPENDENT of the outcome. A "no answer" call may
+ * legitimately have no voicemail to leave (many businesses don't have one), so this
+ * is separate, optional information, never a requirement for saving.
+ */
+export type VoicemailStatus = "left" | "none-available" | "mailbox-full" | "not-left";
+
 export interface CallOutcomeInput {
   outcome: CallOutcome;
   /** Who we spoke with (their role), when a person answered. */
@@ -34,8 +41,17 @@ export interface CallOutcomeInput {
   bestTime?: string;
   /** ISO datetime for a follow-up / next attempt. */
   followUpAt?: string;
+  /** Optional voicemail state for no-answer / voicemail calls (analytics + note). */
+  voicemail?: VoicemailStatus | null;
   notes?: string;
 }
+
+const VOICEMAIL_LABEL: Record<VoicemailStatus, string> = {
+  left: "left a voicemail",
+  "none-available": "no voicemail available",
+  "mailbox-full": "mailbox full",
+  "not-left": "didn't leave a voicemail",
+};
 
 export interface CallOutcomeResult {
   ok: boolean;
@@ -68,13 +84,15 @@ function appendNote(existing: string | null, line: string): string {
 
 /** A short, human summary of the outcome for the note log. */
 function outcomeSummary(o: CallOutcomeInput): string {
+  // Voicemail state, when recorded, annotates the no-answer / voicemail outcomes.
+  const vm = o.voicemail ? ` (${VOICEMAIL_LABEL[o.voicemail]})` : "";
   switch (o.outcome) {
     case "reached-dm": return `Call: reached the ${o.reachedRole ?? "decision-maker"}${o.contactName ? ` (${o.contactName})` : ""}.`;
     case "contact-collected": return `Call: collected contact${o.contactName ? ` — ${o.contactName}` : ""}${o.verifiedEmail ? ` <${o.verifiedEmail}>` : ""}.`;
     case "asked-to-send": return `Call: earned permission to send the personalized review.`;
     case "follow-up": return `Call: follow up${o.followUpAt ? ` on ${o.followUpAt.slice(0, 10)}` : " later"}.`;
-    case "voicemail": return `Call: left a voicemail.`;
-    case "no-answer": return `Call: no answer.`;
+    case "voicemail": return `Call: ${o.voicemail ? VOICEMAIL_LABEL[o.voicemail] : "left a voicemail"}.`;
+    case "no-answer": return `Call: no answer${vm}.`;
     case "wrong-number": return `Call: wrong number — this line isn't the business.`;
     case "not-interested": return `Call: not interested.`;
     case "business-closed": return `Call: business appears closed or invalid.`;
@@ -207,8 +225,16 @@ export async function saveCallOutcomeAction(
   if (stage) patch.pipelineStage = stage;
   await updateLead(leadId, patch);
 
-  revalidatePath(`/leads/${leadId}`);
-  revalidatePath("/");
+  // Cache revalidation is a BEST-EFFORT side effect that runs AFTER the write has
+  // already committed. It must never turn a successful save into a user-facing
+  // failure (a thrown revalidate would surface as "Something went wrong" even though
+  // the outcome was recorded — and the retry would double-write). Isolate it.
+  try {
+    revalidatePath(`/leads/${leadId}`);
+    revalidatePath("/");
+  } catch {
+    /* revalidation failed, but the outcome is saved — report success. */
+  }
 
   // Ready to send ONLY when we have permission (asked-to-send) AND an email to send
   // to. Collecting an address without permission never auto-advances to sending —

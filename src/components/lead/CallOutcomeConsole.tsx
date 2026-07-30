@@ -7,9 +7,18 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Check, Loader2, ArrowRight, PhoneOff, Voicemail, CalendarClock, UserCheck, Mail, Ban, ChevronDown } from "lucide-react";
-import { saveCallOutcomeAction, type CallOutcome, type CallOutcomeResult } from "@/lib/outreach/call-outcome";
+import { saveCallOutcomeAction, type CallOutcome, type CallOutcomeResult, type VoicemailStatus } from "@/lib/outreach/call-outcome";
 
-type Field = "role" | "name" | "email" | "method" | "bestTime" | "followUp" | "notes";
+type Field = "role" | "name" | "email" | "method" | "bestTime" | "followUp" | "voicemail" | "notes";
+
+// Voicemail is independent of the outcome — a "no answer" call may simply have no
+// voicemail to leave. Optional; never blocks a save.
+const VOICEMAIL_OPTS: { value: VoicemailStatus; label: string }[] = [
+  { value: "left", label: "Left voicemail" },
+  { value: "none-available", label: "No voicemail available" },
+  { value: "mailbox-full", label: "Mailbox full" },
+  { value: "not-left", label: "Didn't leave one" },
+];
 
 interface OutcomeDef {
   value: CallOutcome;
@@ -26,8 +35,8 @@ const OUTCOMES: OutcomeDef[] = [
   { value: "contact-collected", label: "Contact info collected", tone: "good", Icon: Mail, fields: ["name", "email", "method", "notes"] },
   { value: "asked-to-send", label: "Asked to send the review", tone: "good", Icon: ArrowRight, fields: ["name", "email", "notes"] },
   { value: "follow-up", label: "Follow up later", tone: "neutral", Icon: CalendarClock, fields: ["followUp", "notes"] },
-  { value: "voicemail", label: "Left voicemail", tone: "neutral", Icon: Voicemail, fields: ["notes"] },
-  { value: "no-answer", label: "No answer", tone: "neutral", Icon: PhoneOff, fields: ["notes"] },
+  { value: "voicemail", label: "Left voicemail", tone: "neutral", Icon: Voicemail, fields: ["voicemail", "notes"] },
+  { value: "no-answer", label: "No answer", tone: "neutral", Icon: PhoneOff, fields: ["voicemail", "notes"] },
   { value: "wrong-number", label: "Wrong number", tone: "bad", Icon: Ban, fields: ["notes"] },
   { value: "not-interested", label: "Not interested", tone: "bad", Icon: Ban, fields: ["notes"] },
   { value: "business-closed", label: "Closed / invalid", tone: "bad", Icon: Ban, fields: ["notes"] },
@@ -48,6 +57,7 @@ export function CallOutcomeConsole({ leadId, collapsedLabel }: { leadId: string;
   const [method, setMethod] = useState<"email" | "phone" | "text">("email");
   const [bestTime, setBestTime] = useState("");
   const [followUp, setFollowUp] = useState("");
+  const [voicemail, setVoicemail] = useState<VoicemailStatus | null>(null);
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
   const [result, setResult] = useState<CallOutcomeResult | null>(null);
@@ -68,6 +78,7 @@ export function CallOutcomeConsole({ leadId, collapsedLabel }: { leadId: string;
         preferredMethod: has("method") ? method : undefined,
         bestTime: has("bestTime") ? bestTime : undefined,
         followUpAt: has("followUp") && followUp ? new Date(followUp).toISOString() : undefined,
+        voicemail: has("voicemail") ? voicemail : undefined,
         notes: notes || undefined,
       });
       if (res.ok) { setResult(res); router.refresh(); }
@@ -161,6 +172,20 @@ export function CallOutcomeConsole({ leadId, collapsedLabel }: { leadId: string;
                 </select>
               )}
               {has("bestTime") && <input value={bestTime} onChange={(e) => setBestTime(e.target.value)} placeholder="Best time to reach" className={input} />}
+            </div>
+          )}
+
+          {has("voicemail") && (
+            <div>
+              <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-chalk-500">Voicemail <span className="text-chalk-600">(optional)</span></p>
+              <div className="flex flex-wrap gap-1.5">
+                {VOICEMAIL_OPTS.map((v) => (
+                  <button key={v.value} type="button" onClick={() => setVoicemail(voicemail === v.value ? null : v.value)}
+                    className={`rounded-lg border px-2.5 py-1.5 text-[12.5px] ${voicemail === v.value ? "border-amber-400/40 bg-amber-400/10 text-amber-200" : "border-white/10 text-chalk-400 hover:text-chalk-200"}`}>
+                    {v.label}
+                  </button>
+                ))}
+              </div>
             </div>
           )}
 
