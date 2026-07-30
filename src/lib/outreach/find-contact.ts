@@ -6,6 +6,7 @@
 // saved only when a real source reports it, and only when it's well-formed.
 import { revalidatePath } from "next/cache";
 import { getLead, updateLead, appendAudit, allTasks, updateTask, insertTask } from "@/lib/repo";
+import { resolveCallWorkForEmail } from "@/lib/outreach/contact-route";
 import { searchPlaces } from "@/lib/providers/places";
 import type { PlaceResult } from "@/lib/providers/places";
 import { normalizeName, domainFromUrl } from "@/lib/store";
@@ -189,7 +190,7 @@ export async function saveManualContactAction(leadId: string, input: ManualConta
   const email = (input.publicEmail ?? "").trim();
   if (email) {
     if (!isValidEmail(email)) return { ok: false, saved: [], reason: "That email doesn't look valid." };
-    patch.publicEmail = email; saved.push("email");
+    patch.publicEmail = email; patch.nextFollowUpAt = null; saved.push("email"); // email route → call-back obsolete
   }
   const website = (input.website ?? "").trim();
   if (website) {
@@ -215,6 +216,10 @@ export async function saveManualContactAction(leadId: string, input: ManualConta
   patch.note = appendNote(lead.note, `Contact added manually (${verified}${src ? `, ${src}` : ""}): ${saved.join(", ")}.`);
   await updateLead(leadId, patch);
   await audit("lead.contact.manual", leadId, { saved: saved.join(", "), verified });
+
+  // Manually adding an email makes it the outreach route → supersede obsolete call work
+  // and queue the review, so the lead re-classifies to email-first automatically.
+  if (patch.publicEmail) await resolveCallWorkForEmail(leadId, lead.businessName);
 
   safeRevalidate(leadId);
   return { ok: true, saved };

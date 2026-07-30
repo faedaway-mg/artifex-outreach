@@ -7,6 +7,7 @@
 // turns "I made the call" into recorded, resumable state.
 import { revalidatePath } from "next/cache";
 import { getLead, updateLead, insertContact, insertTask } from "@/lib/repo";
+import { resolveCallWorkForEmail } from "@/lib/outreach/contact-route";
 import type { Lead, PipelineStage } from "@/lib/types";
 
 /** The nine outcomes an operator can log at the end of a call-first call. */
@@ -150,6 +151,7 @@ export async function saveCallOutcomeAction(
       stage = "Contacted";
       if (validEmail) {
         patch.publicEmail = email;
+        patch.nextFollowUpAt = null; // a scheduled call-back is obsolete once we can email
       } else {
         const when = daysFromNow(2);
         patch.nextFollowUpAt = when;
@@ -224,6 +226,11 @@ export async function saveCallOutcomeAction(
 
   if (stage) patch.pipelineStage = stage;
   await updateLead(leadId, patch);
+
+  // An email route was just gained (permission + a real address) → the lead is now
+  // email-first. Supersede obsolete call work and queue the review so the operator's
+  // next action becomes "Send the personalized review", with no manual queue management.
+  if (patch.publicEmail) await resolveCallWorkForEmail(leadId, lead.businessName);
 
   // Cache revalidation is a BEST-EFFORT side effect that runs AFTER the write has
   // already committed. It must never turn a successful save into a user-facing
