@@ -286,6 +286,16 @@ export const tasks = pgTable(
     status: text("status").notNull().default("open"),
     priority: integer("priority").notNull().default(0),
     snoozedUntil: ts("snoozed_until"),
+    // ── Projection identity ──────────────────────────────────────────────────
+    // A task may be the operator-visible PROJECTION of an authoritative
+    // acquisition step. The step owns sequence position, schedule, and send
+    // state; the task is only how that work becomes visible in Today.
+    //
+    // The unique index is the real idempotency guarantee: one step can never
+    // produce two tasks, even under concurrent cron runs or retries. Postgres
+    // treats NULLs as distinct, so ordinary (non-projected) tasks are unaffected.
+    sourcePlanId: text("source_plan_id"),
+    sourceStepId: text("source_step_id"),
     createdAt: ts("created_at").notNull(),
     updatedAt: ts("updated_at").notNull(),
   },
@@ -293,6 +303,7 @@ export const tasks = pgTable(
     leadIdx: index("tasks_lead_idx").on(t.leadId),
     dueIdx: index("tasks_due_idx").on(t.dueAt),
     statusIdx: index("tasks_status_idx").on(t.status),
+    sourceStepIdx: uniqueIndex("tasks_source_step_idx").on(t.sourceStepId),
   }),
 );
 

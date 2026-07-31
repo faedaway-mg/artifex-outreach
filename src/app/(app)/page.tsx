@@ -1,6 +1,6 @@
 import Link from "next/link";
 import {
-  todaysTasks, listLeads, allMeetings, allProposals, getSettings, allPlans, allBusinessIntelligence, allFindings, allTasks,
+  todaysTasks, listLeads, allMeetings, allProposals, getSettings, allPlans, allBusinessIntelligence, allFindings, allTasks, allSteps,
 } from "@/lib/repo";
 import { placesMode } from "@/lib/providers/places";
 import { nextScheduledRun } from "@/lib/schedule";
@@ -15,6 +15,7 @@ import { WorkQueue } from "@/components/WorkQueue";
 import { DailyMission } from "@/components/DailyMission";
 import { buildWorkQueue, buildDailyMission } from "@/lib/work-queue";
 import { accountQueue } from "@/lib/queue-accounting";
+import { accountSequences } from "@/lib/comms/task-projection";
 import { formatCurrency, relativeDate, timeOfDay, shortDate, joinMeta, formatLocation, deslug } from "@/lib/utils";
 import {
   Video, Mail, Phone, CalendarClock, FileText, ArrowRight, AlertTriangle, Clock, Brain,
@@ -44,8 +45,8 @@ const isSameDay = (iso: string | null | undefined, ref: Date) => {
 export default async function TodayPage() {
   const settings = await getSettings();
   const queueSize = settings.prospecting.dailyQueueSize;
-  const [tasks, leads, meetings, proposals, plans, bi, findings, everyTask] = await Promise.all([
-    todaysTasks(queueSize), listLeads(), allMeetings(), allProposals(), allPlans(), allBusinessIntelligence(), allFindings(), allTasks(),
+  const [tasks, leads, meetings, proposals, plans, bi, findings, everyTask, allAcquisitionSteps] = await Promise.all([
+    todaysTasks(queueSize), listLeads(), allMeetings(), allProposals(), allPlans(), allBusinessIntelligence(), allFindings(), allTasks(), allSteps(),
   ]);
 
   const now = new Date();
@@ -115,6 +116,10 @@ export default async function TodayPage() {
   const mission = buildDailyMission(workQueue, doneToday);
   // The honest ledger of everything NOT on screen (beyond cap, future, snoozed, unqueued).
   const ledger = accountQueue({ leads, tasks: everyTask, cap: queueSize, now });
+  // Sequence state that Today cannot show directly: future touches are real work
+  // that simply isn't due yet, and a plan stalled before approval is invisible
+  // work. Neither is actionable now, so neither is counted as today's work.
+  const sequences = accountSequences({ plans, steps: allAcquisitionSteps, tasks: everyTask, now });
 
   const revenueWon = proposals.filter((p) => p.status === "accepted").reduce((s, p) => s + (p.amount ?? 0), 0);
 
@@ -127,13 +132,17 @@ export default async function TodayPage() {
         <WorkQueue categories={workQueue} />
         {/* Queue ledger — where everything else is, so "where did my leads go?" is
             never a mystery. One quiet line; shown only when something is out of view. */}
-        {(ledger.beyondCap > 0 || ledger.waitingFuture > 0 || ledger.snoozed > 0 || ledger.noWorkActive > 0) && (
+        {(ledger.beyondCap > 0 || ledger.waitingFuture > 0 || ledger.snoozed > 0 || ledger.noWorkActive > 0
+          || sequences.futureScheduledSteps > 0 || sequences.plansAwaitingApproval > 0 || sequences.dueStepsMissingTask > 0) && (
           <p className="mt-2.5 text-[12px] text-chalk-500">
             {[
               ledger.beyondCap > 0 ? `${ledger.beyondCap} more due today (beyond the daily ${queueSize})` : null,
               ledger.waitingFuture > 0 ? `${ledger.waitingFuture} scheduled for later dates` : null,
               ledger.snoozed > 0 ? `${ledger.snoozed} snoozed` : null,
               ledger.noWorkActive > 0 ? `${ledger.noWorkActive} businesses with nothing queued` : null,
+              sequences.futureScheduledSteps > 0 ? `${sequences.futureScheduledSteps} follow-ups scheduled ahead` : null,
+              sequences.plansAwaitingApproval > 0 ? `${sequences.plansAwaitingApproval} sequences waiting on approval` : null,
+              sequences.dueStepsMissingTask > 0 ? `${sequences.dueStepsMissingTask} due follow-ups not yet queued` : null,
             ].filter(Boolean).join(" · ")}
           </p>
         )}

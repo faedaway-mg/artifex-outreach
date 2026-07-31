@@ -6,15 +6,31 @@ import { appendAudit } from "@/lib/repo";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// Triggered by the Railway cron on a short interval (e.g. every 5-15 min). Guarded
-// by CRON_SECRET. Executes all due, approved communication steps through the
-// idempotent dispatcher. Safe to call repeatedly — sends never duplicate. `force=1`
-// bypasses the business-hours window (for manual/testing runs).
+// UNATTENDED DELIVERY. This route dispatches real email with no operator in the
+// loop. Guarded by CRON_SECRET. Safe to call repeatedly — the ledger makes sends
+// idempotent — but "cannot duplicate" is not the same as "authorized to send".
+//
+// It is therefore behind a SECOND, explicit policy gate: COMMS_AUTOSEND_ENABLED.
+// Making follow-up work visible does not require this route, and turning the
+// queue on must never silently turn autonomous sending on with it. To make due
+// work visible without sending, use /api/cron/materialize.
+//
+// `force=1` bypasses the business-hours window (for manual/testing runs); it does
+// NOT bypass the policy gate.
 export async function POST(req: NextRequest) {
   const secret = process.env.CRON_SECRET;
   const auth = req.headers.get("authorization") ?? "";
   if (!secret || auth !== `Bearer ${secret}`) {
     return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
+  }
+
+  if (process.env.COMMS_AUTOSEND_ENABLED !== "1") {
+    return NextResponse.json({
+      ok: true,
+      dispatched: false,
+      sent: 0,
+      reason: "Unattended sending is disabled by policy (COMMS_AUTOSEND_ENABLED is not \"1\"). Due work is made visible by /api/cron/materialize and sent by the operator.",
+    });
   }
 
   const force = req.nextUrl.searchParams.get("force") === "1";

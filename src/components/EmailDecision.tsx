@@ -30,7 +30,17 @@ export interface EmailDecisionProps {
   taskId: string | null;
   nextHref: string;
   isLast: boolean;
+  /** Present on projected follow-ups — read from the authoritative acquisition step. */
+  sequence?: {
+    followUpNumber: number;
+    totalFollowUps: number;
+    priorSentAt: string | null;
+    daysSincePriorTouch: number | null;
+    nextScheduledAt: string | null;
+  } | null;
 }
+
+const shortDate = (iso: string) => new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 
 export function EmailDecision(p: EmailDecisionProps) {
   const router = useRouter();
@@ -60,6 +70,20 @@ export function EmailDecision(p: EmailDecisionProps) {
         <p className="text-[12px] text-chalk-500">{p.mode === "followup" ? "Follow up with" : "Approve the email to"}</p>
         <h1 className="mt-0.5 text-[1.35rem] font-semibold leading-tight tracking-[-0.01em] text-chalk-50">{p.business}</h1>
         <p className="mt-0.5 text-[12.5px] text-chalk-500">{[p.industry, p.contact].filter(Boolean).join(" · ")}</p>
+
+        {/* Where this touch sits in the real sequence — so the operator never has
+            to remember dates or count touches. Read from the authoritative step. */}
+        {p.sequence && (
+          <p className="mt-2 text-[12px] text-chalk-500">
+            {[
+              `Follow-up ${p.sequence.followUpNumber} of ${p.sequence.totalFollowUps}`,
+              p.sequence.daysSincePriorTouch !== null && p.sequence.priorSentAt
+                ? `last touch ${shortDate(p.sequence.priorSentAt)} · ${p.sequence.daysSincePriorTouch}d ago`
+                : null,
+              p.sequence.nextScheduledAt ? `next scheduled ${shortDate(p.sequence.nextScheduledAt)}` : "last in the sequence",
+            ].filter(Boolean).join(" · ")}
+          </p>
+        )}
 
         <div className="mt-4">
           <p className="text-[11px] font-medium uppercase tracking-wide text-chalk-500">Why we're reaching out</p>

@@ -321,10 +321,45 @@ export async function todaysTasks(limit?: number): Promise<Task[]> {
 export async function activeTodayCount(): Promise<number> {
   return (await todaysTasks()).filter((t) => t.type !== "review").length;
 }
-export async function insertTask(task: Omit<Task, "id" | "createdAt" | "updatedAt">): Promise<Task> {
-  return Tasks.insert({ ...task, id: newId("task"), createdAt: nowIso(), updatedAt: nowIso() } as Task);
+type NewTask = Omit<Task, "id" | "createdAt" | "updatedAt" | "sourcePlanId" | "sourceStepId"> &
+  Partial<Pick<Task, "sourcePlanId" | "sourceStepId">>;
+
+export async function insertTask(task: NewTask): Promise<Task> {
+  return Tasks.insert({ sourcePlanId: null, sourceStepId: null, ...task, id: newId("task"), createdAt: nowIso(), updatedAt: nowIso() } as Task);
 }
 export const updateTask = (id: string, patch: Partial<Task>) => Tasks.update(id, patch);
+
+/** Every task projected from an acquisition step, in any status. */
+export async function tasksForSteps(stepIds: string[]): Promise<Task[]> {
+  if (!stepIds.length) return [];
+  if (hasDb()) return (await getDb().select().from(t.tasks).where(inArray(t.tasks.sourceStepId, stepIds))) as any as Task[];
+  const set = new Set(stepIds);
+  return mem().tasks.filter((r) => r.sourceStepId != null && set.has(r.sourceStepId));
+}
+
+/**
+ * Create the projected task for an acquisition step, or return the existing one.
+ *
+ * This is the idempotency boundary for the whole projection layer. The unique
+ * index on tasks.source_step_id makes "exactly one task per step" a DATABASE
+ * guarantee, not a race-prone read-then-write: two concurrent cron runs both
+ * attempt the insert, one wins, the loser is told the row already exists.
+ */
+export async function insertTaskForStepIfAbsent(
+  task: NewTask & { sourceStepId: string },
+): Promise<{ task: Task; created: boolean }> {
+  const row = { sourcePlanId: null, ...task, id: newId("task"), createdAt: nowIso(), updatedAt: nowIso() } as Task;
+  if (hasDb()) {
+    const inserted = await getDb().insert(t.tasks).values(row as any).onConflictDoNothing({ target: t.tasks.sourceStepId }).returning();
+    if (inserted.length > 0) return { task: inserted[0] as any as Task, created: true };
+    const existing = (await getDb().select().from(t.tasks).where(eq(t.tasks.sourceStepId, task.sourceStepId)))[0] as any as Task;
+    return { task: existing, created: false };
+  }
+  const existing = mem().tasks.find((r) => r.sourceStepId === task.sourceStepId);
+  if (existing) return { task: existing, created: false };
+  mem().tasks.push(row);
+  return { task: row, created: true };
+}
 
 // ── Meetings ─────────────────────────────────────────────────────────────────
 export const meetingsForLead = (leadId: string) => Meetings.byLead(leadId);

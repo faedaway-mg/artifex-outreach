@@ -1,16 +1,35 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// Artifex daily prospecting cron (Railway cron service).
+// Artifex daily queue cron (Railway cron service).
 //
 // Runs on cron "30 12,13 * * *" — both UTC equivalents of 5:30 AM
-// America/Los_Angeles across PDT/PST. It checks LA local time and calls the
-// protected prospecting endpoint ONLY when LA hour = 5 and minute 20–45 (a safe
-// late-start window). The other firing sees LA hour 4 or 6 and exits cleanly.
+// America/Los_Angeles across PDT/PST. It checks LA local time and acts ONLY when
+// LA hour = 5 and minute 20–45 (a safe late-start window). The other firing sees
+// LA hour 4 or 6 and exits cleanly.
 //
-// The app endpoint enforces weekdays, the once-per-LA-day duplicate guard, the
-// queue-cap, and the no-mock rule, so this never uses force=1. The secret is read
-// from the environment and never logged. The process exits after running/skipping.
+// It makes TWO distinct calls, in this order, and reports both:
+//
+//   1. MATERIALIZE — /api/cron/materialize projects acquisition steps that come
+//      due today into operator-visible Tasks. It sends NO email; it only makes
+//      already-scheduled follow-up work visible in Today. Without this, a step
+//      the sequence scheduled would never reach the operator's queue.
+//
+//   2. PROSPECT — /api/cron/prospect adds new leads, exactly as before.
+//
+// Order matters: warm follow-ups are materialized first so they take the
+// queue-cap ahead of new cold prospects. A materialize failure is reported but
+// never blocks prospecting.
+//
+// (The file keeps its original name because the deployed service's start command
+// references it; the job it performs is the wider one described above.)
+//
+// The app endpoints enforce weekdays, the once-per-LA-day duplicate guard, the
+// queue-cap, and the no-mock rule, so this never uses force=1. Neither endpoint
+// authorizes unattended email delivery. The secret is read from the environment
+// and never logged. The process exits after running/skipping.
 // ─────────────────────────────────────────────────────────────────────────────
-const ENDPOINT = "https://outreach.artifexlabs.tech/api/cron/prospect";
+const BASE = "https://outreach.artifexlabs.tech";
+const ENDPOINT = `${BASE}/api/cron/prospect`;
+const MATERIALIZE_ENDPOINT = `${BASE}/api/cron/materialize`;
 
 function laParts() {
   const fmt = new Intl.DateTimeFormat("en-US", {
@@ -45,6 +64,39 @@ async function main() {
     return;
   }
 
+  // ── 1. Materialize due sequence work (never sends email) ───────────────────
+  // Isolated in its own try/finally so a failure here is reported but still
+  // lets prospecting run. Logged separately from the prospecting result.
+  const mController = new AbortController();
+  const mTimer = setTimeout(() => mController.abort(), 30_000);
+  try {
+    const res = await fetch(MATERIALIZE_ENDPOINT, {
+      method: "POST", headers: { Authorization: `Bearer ${secret}` }, signal: mController.signal,
+    });
+    let summary = null;
+    try {
+      const body = await res.json();
+      // `sent` is asserted, not assumed: this endpoint must never dispatch email.
+      summary = { created: body?.created ?? null, reconciledStale: body?.reconciledStale ?? null, sent: body?.sent ?? null };
+    } catch {
+      summary = { note: "non-JSON response" };
+    }
+    console.log(JSON.stringify({
+      utc, la: la.stamp, action: "materialize", testMode,
+      status: res.status, result: res.ok ? "ok" : "failure", summary,
+    }));
+    if (!res.ok) process.exitCode = 1;
+  } catch (err) {
+    console.log(JSON.stringify({
+      utc, la: la.stamp, action: "materialize", result: "error",
+      reason: err?.name === "AbortError" ? "timeout" : "network error",
+    }));
+    process.exitCode = 1;
+  } finally {
+    clearTimeout(mTimer);
+  }
+
+  // ── 2. Prospect for new leads ──────────────────────────────────────────────
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 30_000);
   try {
@@ -60,10 +112,10 @@ async function main() {
       summary = { note: "non-JSON response" };
     }
     const result = res.ok ? "ok" : "failure";
-    console.log(JSON.stringify({ utc, la: la.stamp, action: "called", testMode, status: res.status, result, summary }));
+    console.log(JSON.stringify({ utc, la: la.stamp, action: "prospect", testMode, status: res.status, result, summary }));
     if (!res.ok) process.exitCode = 1;
   } catch (err) {
-    console.log(JSON.stringify({ utc, la: la.stamp, action: "called", result: "error", reason: err?.name === "AbortError" ? "timeout" : "network error" }));
+    console.log(JSON.stringify({ utc, la: la.stamp, action: "prospect", result: "error", reason: err?.name === "AbortError" ? "timeout" : "network error" }));
     process.exitCode = 1;
   } finally {
     clearTimeout(timer);

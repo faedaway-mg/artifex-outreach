@@ -7,7 +7,7 @@
 // snippets). This file holds no independent copy — it inherits the guide's voice.
 // ─────────────────────────────────────────────────────────────────────────────
 import type { FollowUpStep, Lead } from "./types";
-import { insertTask, updateLead, allTasks, updateTask } from "./repo";
+import { insertTask, updateLead, allTasks, updateTask, plansForLead } from "./repo";
 import { SNIPPETS, OFFERINGS } from "./communication-guide";
 
 export const DEFAULT_SEQUENCE: FollowUpStep[] = [
@@ -40,8 +40,18 @@ function addDays(base: Date, days: number, hour = 9): string {
  * Schedule the follow-up sequence for a lead from a given start date. Creates
  * `follow_up` tasks for each future step. Day-0 is treated as the initial
  * outreach (already handled) so we schedule steps after it.
+ *
+ * DEPRECATED — legacy Gmail-draft path only (see `markOutreachSentAction`).
+ *
+ * The authoritative sequence now lives in acquisition plans/steps, and due steps
+ * become Today work via `comms/task-projection`. Two systems must never schedule
+ * follow-ups for the same lead, so this NO-OPS for any lead that has a real plan.
+ * The guard lives here rather than at the call site so every caller inherits it.
  */
 export async function scheduleFollowUps(lead: Lead, startFrom = new Date(), timing = DEFAULT_SEQUENCE): Promise<void> {
+  const plans = await plansForLead(lead.id);
+  if (plans.some((p) => p.approvalStatus !== "rejected")) return;
+
   const future = timing.filter((s) => s.dayOffset > 0);
   const first = future[0];
   for (const step of future) {

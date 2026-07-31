@@ -427,6 +427,14 @@ export interface Task {
   status: TaskStatus;
   priority: number; // higher = more urgent
   snoozedUntil: string | null;
+  /**
+   * When set, this task is the operator-visible PROJECTION of an authoritative
+   * acquisition step. The step remains the source of truth for sequence
+   * position, schedule, approval, and send state — the task only makes it
+   * visible in Today. Null for ordinary, directly-created tasks.
+   */
+  sourcePlanId: string | null;
+  sourceStepId: string | null;
   createdAt: string;
   updatedAt: string;
 }

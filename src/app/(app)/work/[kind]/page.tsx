@@ -11,7 +11,9 @@ import { notFound } from "next/navigation";
 import { CheckCircle2, ArrowRight, ArrowLeft, X, Video, Mail, RotateCcw, FileText, Phone, CalendarClock, Compass, Clock, Instagram } from "lucide-react";
 import {
   todaysTasks, listLeads, allMeetings, getSettings, getBusinessIntelligence, contactsForLead, memoryForLead,
+  getStep, stepsForPlan,
 } from "@/lib/repo";
+import { describeSequenceContext, type SequenceContext } from "@/lib/comms/task-projection";
 import { buildWorkQueue, batchLeadIds, categoryTitle, kindOfTask, type WorkKind } from "@/lib/work-queue";
 import { buildOutreachKit } from "@/lib/outreach/kit";
 import { buildVideoScript } from "@/lib/outreach/content";
@@ -123,6 +125,15 @@ export default async function BatchPage({ params, searchParams }: { params: { ki
       html,
     };
   }
+  // A projected follow-up carries its authoritative step. Read the real sequence
+  // state from it, so the operator sees where this touch sits — never a guess
+  // reconstructed from the task alone.
+  let sequence: SequenceContext | null = null;
+  if (kind === "follow-up" && stepTask?.sourceStepId) {
+    const step = await getStep(stepTask.sourceStepId);
+    if (step) sequence = describeSequenceContext(step, await stepsForPlan(step.planId), now);
+  }
+
   const videoScript = kind === "video" && profile ? buildVideoScript(lead, profile) : null;
   const action = ACTION[kind];
 
@@ -162,6 +173,7 @@ export default async function BatchPage({ params, searchParams }: { params: { ki
           why={why} observations={observations} subject={emailProps.subject} openingSentence={emailProps.openingSentence}
           readingLabel={emailProps.readingLabel} fullParagraphs={emailProps.fullParagraphs} html={emailProps.html}
           taskId={stepTask?.id ?? null} nextHref={nextHref} isLast={i + 1 >= total}
+          sequence={sequence}
         />
       </div>
     );
