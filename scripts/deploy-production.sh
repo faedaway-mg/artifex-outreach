@@ -64,6 +64,11 @@ elif [ "$PENDING" -gt 0 ]; then
     echo "  $PENDING pending — applying now (pnpm db:migrate)"
     pnpm -s db:migrate || fail "migration apply failed."
     node "$ROOT/scripts/migration-status.mjs" --count | grep -qx 0 || fail "migrations still pending after apply."
+    # Refresh the count the preflight consumes. Without this the stale pre-apply
+    # value reaches PREFLIGHT_MIGRATIONS_RESULT and the preflight blocks a deploy
+    # whose migrations we just verified as applied — --apply-migrations could
+    # never succeed. The re-check above is what proves 0 is honest here.
+    PENDING=0
     echo "  ✓ migrations applied."
   else
     fail "$PENDING migration(s) pending. Re-run with --apply-migrations (or run 'pnpm db:migrate') before deploying."
