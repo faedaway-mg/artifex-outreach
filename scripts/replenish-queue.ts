@@ -21,10 +21,12 @@ async function main() {
   const [leads, tasks] = await Promise.all([listLeads(), allTasks()]);
   const openByLead = new Set(tasks.filter((t) => t.status === "open").map((t) => t.leadId));
 
-  let queued = 0, skippedTerminal = 0, skippedEmailed = 0;
+  let queued = 0, skippedTerminal = 0, skippedEmailed = 0, skippedInternal = 0;
   for (const lead of leads) {
     if (openByLead.has(lead.id)) continue;
     if (TERMINAL.has(lead.pipelineStage) || lead.businessStatus === "CLOSED_PERMANENTLY") { skippedTerminal++; continue; }
+    // Internal validation leads are delivery vehicles, never operator work.
+    if (/internal|test send/i.test(`${lead.source} ${lead.industry} ${lead.businessName}`)) { skippedInternal++; continue; }
     const sent = (await emailSendsForLead(lead.id)).some((s) => !!s.sentAt);
     if (sent) { skippedEmailed++; continue; }
 
@@ -49,10 +51,10 @@ async function main() {
       actor: "jordan",
       targetType: null,
       targetId: null,
-      meta: { queued, skippedTerminal, skippedEmailed },
+      meta: { queued, skippedTerminal, skippedEmailed, skippedInternal },
       ip: null,
     });
   }
-  console.log(`\n${APPLY ? "Queued" : "Would queue"} ${queued} · skipped ${skippedTerminal} terminal · ${skippedEmailed} already-emailed.${APPLY ? "" : "  (re-run with --apply to write)"}`);
+  console.log(`\n${APPLY ? "Queued" : "Would queue"} ${queued} · skipped ${skippedTerminal} terminal · ${skippedEmailed} already-emailed · ${skippedInternal} internal.${APPLY ? "" : "  (re-run with --apply to write)"}`);
 }
 main().then(() => process.exit(0)).catch((e) => { console.error(e); process.exit(1); });
