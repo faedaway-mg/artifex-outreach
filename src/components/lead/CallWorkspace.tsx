@@ -7,6 +7,7 @@
 import { Phone, MapPin, Globe, Target, CheckCircle2, CalendarClock, XCircle } from "lucide-react";
 import { CallScriptCard } from "@/components/lead/CallScriptCard";
 import { CallOutcomeConsole, type Continuation } from "@/components/lead/CallOutcomeConsole";
+import { ConvertToSendButton } from "@/components/lead/ConvertToSendButton";
 import { WebsiteLink } from "@/components/WebsiteLink";
 import { PhoneCopyButton } from "@/components/PhoneCopyButton";
 import type { CallScript } from "@/lib/outreach/contact-strategy";
@@ -48,6 +49,7 @@ export function CallWorkspace({
   reason,
   state,
   continuation,
+  collectedEmail,
 }: {
   lead: Lead;
   script: CallScript;
@@ -55,6 +57,9 @@ export function CallWorkspace({
   state: CallLeadState;
   /** Batch/queue context so the outcome card can offer "Next lead". */
   continuation?: Continuation;
+  /** An email collected on a call (on a contact) while the lead still has no send
+   *  route — enables the one-tap "they asked us to send it" correction. */
+  collectedEmail?: string | null;
 }) {
   // CLOSED — the lead is done. No call button, no script: one calm status card and
   // the ability to reopen if it was a mistake. Deeper info still lives below.
@@ -92,6 +97,10 @@ export function CallWorkspace({
           <span className="font-medium text-chalk-100">Attempt recorded.</span>
           <span className="text-chalk-400">Next attempt {new Date(scheduled.at).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })}.</span>
           {scheduled.lastResult && <span className="w-full text-[12px] text-chalk-500">Last result: {scheduled.lastResult}</span>}
+          {/* Correction path: an email was collected but the logged outcome scheduled
+              another call. If they actually asked us to send the review, one tap
+              converts it — the review is queued, the call-back superseded, history kept. */}
+          {collectedEmail && <ConvertToSendButton leadId={lead.id} email={collectedEmail} />}
         </div>
       )}
 

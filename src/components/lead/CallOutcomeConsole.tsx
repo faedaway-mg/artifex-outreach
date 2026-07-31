@@ -33,20 +33,23 @@ interface OutcomeDef {
   tone: "good" | "neutral" | "bad";
   fields: Field[];
   Icon: typeof UserCheck;
+  /** What the system will DO with this outcome — shown before saving, so two
+   *  similar-sounding outcomes can never be confused (collected ≠ permission). */
+  consequence: string;
 }
 
 // Grouped by how the call went — good (a door opened), neutral (try again), bad
 // (close it out). Each outcome names exactly the fields it needs afterward.
 const OUTCOMES: OutcomeDef[] = [
-  { value: "reached-dm", label: "Decision-maker reached", tone: "good", Icon: UserCheck, fields: ["role", "name", "email", "method", "bestTime", "notes"] },
-  { value: "contact-collected", label: "Contact info collected", tone: "good", Icon: Mail, fields: ["name", "email", "method", "notes"] },
-  { value: "asked-to-send", label: "Asked to send the review", tone: "good", Icon: ArrowRight, fields: ["name", "email", "notes"] },
-  { value: "follow-up", label: "Follow up later", tone: "neutral", Icon: CalendarClock, fields: ["followUp", "notes"] },
-  { value: "voicemail", label: "Left voicemail", tone: "neutral", Icon: Voicemail, fields: ["voicemail", "notes"] },
-  { value: "no-answer", label: "No answer", tone: "neutral", Icon: PhoneOff, fields: ["voicemail", "notes"] },
-  { value: "wrong-number", label: "Wrong number", tone: "bad", Icon: Ban, fields: ["notes"] },
-  { value: "not-interested", label: "Not interested", tone: "bad", Icon: Ban, fields: ["notes"] },
-  { value: "business-closed", label: "Closed / invalid", tone: "bad", Icon: Ban, fields: ["notes"] },
+  { value: "reached-dm", label: "Decision-maker reached", tone: "good", Icon: UserCheck, fields: ["role", "name", "email", "method", "bestTime", "notes"], consequence: "→ opens the relationship and schedules a follow-up call" },
+  { value: "contact-collected", label: "Contact info collected", tone: "good", Icon: Mail, fields: ["name", "email", "method", "notes"], consequence: "→ saves the contact and schedules ANOTHER CALL (no email goes out)" },
+  { value: "asked-to-send", label: "Asked to send the review", tone: "good", Icon: ArrowRight, fields: ["name", "email", "notes"], consequence: "→ queues the personalized review to SEND to this address" },
+  { value: "follow-up", label: "Follow up later", tone: "neutral", Icon: CalendarClock, fields: ["followUp", "notes"], consequence: "→ schedules the next call at the time you pick" },
+  { value: "voicemail", label: "Left voicemail", tone: "neutral", Icon: Voicemail, fields: ["voicemail", "notes"], consequence: "→ schedules a call-back in ~2 days" },
+  { value: "no-answer", label: "No answer", tone: "neutral", Icon: PhoneOff, fields: ["voicemail", "notes"], consequence: "→ schedules a retry call tomorrow" },
+  { value: "wrong-number", label: "Wrong number", tone: "bad", Icon: Ban, fields: ["notes"], consequence: "→ stops dialing this number; research keeps the lead" },
+  { value: "not-interested", label: "Not interested", tone: "bad", Icon: Ban, fields: ["notes"], consequence: "→ closes the lead as Lost" },
+  { value: "business-closed", label: "Closed / invalid", tone: "bad", Icon: Ban, fields: ["notes"], consequence: "→ disqualifies the lead" },
 ];
 
 const TONE_BTN: Record<OutcomeDef["tone"], string> = {
@@ -192,6 +195,8 @@ export function CallOutcomeConsole({ leadId, collapsedLabel, continuation }: { l
 
       {def && (
         <div className="mt-4 space-y-3 border-t border-white/[0.06] pt-4">
+          {/* What saving THIS outcome will do — no hidden state-machine semantics. */}
+          <p className="text-[12px] text-chalk-500">{def.consequence}</p>
           {has("role") && (
             <div>
               <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-chalk-500">Who you reached</p>

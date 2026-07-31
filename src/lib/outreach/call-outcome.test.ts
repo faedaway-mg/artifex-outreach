@@ -5,7 +5,7 @@ vi.mock("next/cache", () => ({ revalidatePath: vi.fn(), revalidateTag: vi.fn() }
 import { revalidatePath } from "next/cache";
 import { __resetStoreForTests } from "../store";
 import { insertLead, getLead, contactsForLead, allTasks } from "../repo";
-import { saveCallOutcomeAction } from "./call-outcome";
+import { saveCallOutcomeAction, correctToAskedToSendAction } from "./call-outcome";
 import { deriveCallLeadState } from "./call-state";
 import { determineContactStrategy } from "./contact-strategy";
 import { makeLead } from "../test-lead";
@@ -281,5 +281,79 @@ describe("outcome → next single action (state machine end to end)", () => {
     const lead = await seedCallFirstLead();
     await saveCallOutcomeAction(lead.id, { outcome: "reached-dm", reachedRole: "assistant", contactName: "Front desk" });
     expect(determineContactStrategy((await getLead(lead.id))!).kind).toBe("call-first");
+  });
+});
+
+describe("correctToAskedToSendAction — the Wilshire correction (collected → permission)", () => {
+  beforeEach(() => __resetStoreForTests());
+
+  it("upgrades collected→asked-to-send: route set, review queued, call-back superseded", async () => {
+    const lead = await seedCallFirstLead({ businessName: "Wilshire Law Firm" });
+    // The real production sequence: reception gave the address, operator logged collected.
+    await saveCallOutcomeAction(lead.id, { outcome: "contact-collected", verifiedEmail: "info@wilshirelawfirm.com" });
+    const before = await getLead(lead.id);
+    expect(before?.publicEmail).toBeNull();
+    expect((await tasksForLead(lead.id)).filter((t) => t.status === "open" && t.type === "call")).toHaveLength(1);
+
+    const res = await correctToAskedToSendAction(lead.id);
+    expect(res.ok).toBe(true);
+    expect(res.readyToSend).toBe(true);
+
+    const after = (await getLead(lead.id))!;
+    // Email-first now — the collected address became the permitted send route.
+    expect(after.publicEmail).toBe("info@wilshirelawfirm.com");
+    expect(determineContactStrategy(after).kind).toBe("email-first");
+    // The stale call-back is gone; the review work is queued; no duplicates.
+    expect(after.nextFollowUpAt).toBeNull();
+    const open = (await tasksForLead(lead.id)).filter((t) => t.status === "open");
+    expect(open.filter((t) => t.type === "call")).toHaveLength(0);
+    expect(open.filter((t) => t.type === "review_and_send")).toHaveLength(1);
+    // History preserved: original outcome line still present, correction APPENDED.
+    expect(after.note).toMatch(/collected contact <info@wilshirelawfirm\.com>/);
+    expect(after.note).toMatch(/Correction: they asked us to send the review/);
+  });
+
+  it("is idempotent: a second correction adds no duplicate tasks, notes, or contacts", async () => {
+    const lead = await seedCallFirstLead();
+    await saveCallOutcomeAction(lead.id, { outcome: "contact-collected", contactName: "Front desk", verifiedEmail: "info@ivy.com" });
+    await correctToAskedToSendAction(lead.id);
+    const contactsBefore = (await contactsForLead(lead.id)).length;
+    const noteBefore = (await getLead(lead.id))!.note;
+
+    const res2 = await correctToAskedToSendAction(lead.id);
+    expect(res2.ok).toBe(true);
+    const open = (await tasksForLead(lead.id)).filter((t) => t.status === "open");
+    expect(open.filter((t) => t.type === "review_and_send")).toHaveLength(1); // still one
+    expect((await contactsForLead(lead.id)).length).toBe(contactsBefore); // no new contact
+    expect((await getLead(lead.id))!.note).toBe(noteBefore); // no re-appended correction
+  });
+
+  it("refuses cleanly when no collected email exists to convert", async () => {
+    const lead = await seedCallFirstLead();
+    await saveCallOutcomeAction(lead.id, { outcome: "no-answer" });
+    const res = await correctToAskedToSendAction(lead.id);
+    expect(res.ok).toBe(false);
+    expect(res.reason).toMatch(/no collected email/i);
+  });
+});
+
+describe("call-task dedupe — a lead has exactly ONE next call", () => {
+  beforeEach(() => __resetStoreForTests());
+
+  it("repeated no-answer outcomes never accumulate duplicate open call tasks", async () => {
+    const lead = await seedCallFirstLead({ businessName: "L.A Center Jewelry Inc" });
+    await saveCallOutcomeAction(lead.id, { outcome: "no-answer" });
+    await saveCallOutcomeAction(lead.id, { outcome: "no-answer" });
+    await saveCallOutcomeAction(lead.id, { outcome: "voicemail" });
+    const open = (await tasksForLead(lead.id)).filter((t) => t.status === "open" && t.type === "call");
+    expect(open).toHaveLength(1); // the production duplicate can never re-form
+  });
+
+  it("collected-then-follow-up keeps a single scheduled call", async () => {
+    const lead = await seedCallFirstLead();
+    await saveCallOutcomeAction(lead.id, { outcome: "contact-collected", verifiedEmail: "a@b.com" });
+    await saveCallOutcomeAction(lead.id, { outcome: "follow-up", followUpAt: new Date(Date.now() + 3 * 86_400_000).toISOString() });
+    const open = (await tasksForLead(lead.id)).filter((t) => t.status === "open" && t.type === "call");
+    expect(open).toHaveLength(1);
   });
 });

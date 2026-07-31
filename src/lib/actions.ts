@@ -33,6 +33,8 @@ import {
   updateOutreach,
   getTask,
   updateTask,
+  allTasks,
+  insertTask,
   insertMeeting,
   updateMeeting,
   insertProposal,
@@ -604,10 +606,34 @@ export async function optOutAction(leadId: string): Promise<void> {
 }
 
 // ── Tasks (Today queue) ──────────────────────────────────────────────────────
+const TERMINAL_STAGES = new Set(["Lost", "Disqualified", "Closed Won", "Closed Lost"]);
+
 export async function completeTaskAction(taskId: string): Promise<void> {
   const task = await getTask(taskId);
   await updateTask(taskId, { status: "done" });
-  if (task) touch(task.leadId);
+  if (!task) return;
+
+  // QUEUE CONTINUITY: completing the "understand" step must hand the lead to its
+  // outreach work, never strand it. (Proven in production: 25 of 32 active leads had
+  // zero open tasks — invisible to Today forever — because review completion created
+  // no successor.) Only the review→outreach hand-off is automatic; call and send
+  // successors are owned by their own flows.
+  if (task.type === "review") {
+    const lead = await getLead(task.leadId);
+    const openForLead = (await allTasks()).some((t) => t.leadId === task.leadId && t.status === "open");
+    if (lead && !openForLead && !TERMINAL_STAGES.has(lead.pipelineStage)) {
+      await insertTask({
+        leadId: lead.id,
+        type: "review_and_send",
+        title: `Send personalized review — ${lead.businessName}`,
+        dueAt: new Date().toISOString(),
+        status: "open",
+        priority: 40,
+        snoozedUntil: null,
+      });
+    }
+  }
+  touch(task.leadId);
 }
 export async function snoozeTaskAction(taskId: string, days = 1): Promise<void> {
   const task = await getTask(taskId);

@@ -14,6 +14,7 @@ import { MorningWarming } from "@/components/MorningWarming";
 import { WorkQueue } from "@/components/WorkQueue";
 import { DailyMission } from "@/components/DailyMission";
 import { buildWorkQueue, buildDailyMission } from "@/lib/work-queue";
+import { accountQueue } from "@/lib/queue-accounting";
 import { formatCurrency, relativeDate, timeOfDay, shortDate, joinMeta, formatLocation, deslug } from "@/lib/utils";
 import {
   Video, Mail, Phone, CalendarClock, FileText, ArrowRight, AlertTriangle, Clock, Brain,
@@ -112,6 +113,8 @@ export default async function TodayPage() {
   // Businesses moved today (tasks completed today) → the mission's progress.
   const doneToday = everyTask.filter((t) => t.status === "done" && isSameDay(t.updatedAt, now)).length;
   const mission = buildDailyMission(workQueue, doneToday);
+  // The honest ledger of everything NOT on screen (beyond cap, future, snoozed, unqueued).
+  const ledger = accountQueue({ leads, tasks: everyTask, cap: queueSize, now });
 
   const revenueWon = proposals.filter((p) => p.status === "accepted").reduce((s, p) => s + (p.amount ?? 0), 0);
 
@@ -122,6 +125,18 @@ export default async function TodayPage() {
       <div>
         <p className="eyebrow mb-3">{dateLabel} · Today's work</p>
         <WorkQueue categories={workQueue} />
+        {/* Queue ledger — where everything else is, so "where did my leads go?" is
+            never a mystery. One quiet line; shown only when something is out of view. */}
+        {(ledger.beyondCap > 0 || ledger.waitingFuture > 0 || ledger.snoozed > 0 || ledger.noWorkActive > 0) && (
+          <p className="mt-2.5 text-[12px] text-chalk-500">
+            {[
+              ledger.beyondCap > 0 ? `${ledger.beyondCap} more due today (beyond the daily ${queueSize})` : null,
+              ledger.waitingFuture > 0 ? `${ledger.waitingFuture} scheduled for later dates` : null,
+              ledger.snoozed > 0 ? `${ledger.snoozed} snoozed` : null,
+              ledger.noWorkActive > 0 ? `${ledger.noWorkActive} businesses with nothing queued` : null,
+            ].filter(Boolean).join(" · ")}
+          </p>
+        )}
       </div>
 
       {/* Today's mission — quiet progress context, beneath the work it measures. */}

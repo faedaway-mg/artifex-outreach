@@ -315,6 +315,11 @@ export default async function LeadPage({ params, searchParams }: { params: { id:
     const script = buildCallScript(lead, { strongestObservation: stoodOut[0] ?? null });
     const callState = deriveCallLeadState(lead);
     const history = (lead.note ?? "").split("\n").map((l) => l.trim()).filter(Boolean);
+    // An email already collected on a call (lives on a conversation contact) while the
+    // lead still has no send route — enables the one-tap outcome correction.
+    const collectedEmail = contacts
+      .filter((c) => c.source === "conversation" && c.verified && !!c.email)
+      .sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt))[0]?.email ?? null;
     return (
       <div className="mx-auto max-w-4xl space-y-5">
         <Link href="/" className="inline-flex items-center gap-1.5 text-sm text-chalk-400 hover:text-chalk-100">
@@ -322,7 +327,7 @@ export default async function LeadPage({ params, searchParams }: { params: { id:
         </Link>
 
         {/* The one workspace responsible for the current action. */}
-        <CallWorkspace lead={lead} script={script} reason={callStrategy.reason} state={callState} continuation={continuation} />
+        <CallWorkspace lead={lead} script={script} reason={callStrategy.reason} state={callState} continuation={continuation} collectedEmail={collectedEmail} />
 
         {/* More about this business — the full lifecycle & intelligence, collapsed. */}
         <details className="group scroll-mt-4">

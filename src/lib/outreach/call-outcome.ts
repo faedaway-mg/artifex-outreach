@@ -6,9 +6,20 @@
 // become real tasks, and every call appends a dated note. This is the machine that
 // turns "I made the call" into recorded, resumable state.
 import { revalidatePath } from "next/cache";
-import { getLead, updateLead, insertContact, insertTask } from "@/lib/repo";
+import { getLead, updateLead, insertContact, insertTask, allTasks, updateTask, contactsForLead, appendAudit } from "@/lib/repo";
 import { resolveCallWorkForEmail } from "@/lib/outreach/contact-route";
 import type { Lead, PipelineStage } from "@/lib/types";
+
+/**
+ * A lead has exactly ONE next call. Before scheduling a new attempt, supersede any
+ * open call tasks so retries never accumulate as duplicates in the call queue
+ * (observed in production: two identical "call" tasks for one business).
+ */
+async function supersedeOpenCallTasks(leadId: string): Promise<number> {
+  const open = (await allTasks()).filter((t) => t.leadId === leadId && t.status === "open" && t.type === "call");
+  for (const t of open) await updateTask(t.id, { status: "done" });
+  return open.length;
+}
 
 /** The nine outcomes an operator can log at the end of a call-first call. */
 export type CallOutcome =
@@ -156,6 +167,7 @@ export async function saveCallOutcomeAction(
         const when = daysFromNow(2);
         patch.nextFollowUpAt = when;
         scheduledFor = when;
+        await supersedeOpenCallTasks(leadId);
         await insertTask({ leadId, type: "call", title: `Get email to send review — ${lead.businessName}`, dueAt: when, status: "open", priority: 65, snoozedUntil: null });
       }
       break;
@@ -169,6 +181,7 @@ export async function saveCallOutcomeAction(
       const when = o.followUpAt || daysFromNow(2);
       patch.nextFollowUpAt = when;
       scheduledFor = when;
+      await supersedeOpenCallTasks(leadId);
       await insertTask({ leadId, type: "call", title: `Follow up — ${o.contactName?.trim() || lead.businessName}`, dueAt: when, status: "open", priority: 55, snoozedUntil: null });
       break;
     }
@@ -179,6 +192,7 @@ export async function saveCallOutcomeAction(
       patch.nextFollowUpAt = when;
       stage = "Follow-Up";
       scheduledFor = when;
+      await supersedeOpenCallTasks(leadId);
       await insertTask({
         leadId,
         type: "call",
@@ -197,6 +211,7 @@ export async function saveCallOutcomeAction(
       const when = o.followUpAt || daysFromNow(o.outcome === "voicemail" ? 2 : 1);
       patch.nextFollowUpAt = when;
       scheduledFor = when;
+      await supersedeOpenCallTasks(leadId);
       await insertTask({
         leadId,
         type: "call",
@@ -249,4 +264,60 @@ export async function saveCallOutcomeAction(
   const permittedEmail = patch.publicEmail ?? lead.publicEmail;
   const readyToSend = o.outcome === "asked-to-send" && !!permittedEmail;
   return { ok: true, savedEmail: validEmail, readyToSend, stage, scheduledFor };
+}
+
+/**
+ * Correct an honest field observation: the operator logged "contact collected", then
+ * realized the person gave the address SPECIFICALLY so we'd send the review — i.e.
+ * the outcome should have been "asked to send". This upgrades collected → permission
+ * without deleting anything:
+ *   • the collected email (already on a conversation contact) becomes the send route
+ *   • the now-obsolete follow-up call is superseded and the review work is queued
+ *     (via the same resolveCallWorkForEmail transition a real asked-to-send uses)
+ *   • history is preserved — a dated correction line is APPENDED, nothing rewritten
+ *   • no duplicate contact, task, or note is created (idempotent if already applied)
+ */
+export async function correctToAskedToSendAction(leadId: string): Promise<CallOutcomeResult> {
+  const lead = await getLead(leadId);
+  if (!lead) return { ok: false, savedEmail: false, readyToSend: false, reason: "Lead not found." };
+
+  // The route we already learned on the call — newest verified conversation contact.
+  const collected = (await contactsForLead(leadId))
+    .filter((c) => c.source === "conversation" && c.verified && !!c.email)
+    .sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt))[0];
+  if (!collected?.email) {
+    return { ok: false, savedEmail: false, readyToSend: false, reason: "No collected email on file to convert — log the call outcome with the address first." };
+  }
+
+  // Idempotent: if the route is already this email, don't re-append or re-transition.
+  if (lead.publicEmail === collected.email) {
+    return { ok: true, savedEmail: true, readyToSend: true, stage: lead.pipelineStage };
+  }
+
+  await updateLead(leadId, {
+    publicEmail: collected.email,
+    nextFollowUpAt: null, // the scheduled call-back is obsolete once we can email
+    pipelineStage: "Contacted",
+    note: appendNote(lead.note, `Correction: they asked us to send the review — route confirmed <${collected.email}>.`),
+  });
+
+  // Same transition a real asked-to-send performs: supersede open call work, queue the review.
+  const routed = await resolveCallWorkForEmail(leadId, lead.businessName);
+
+  await appendAudit({
+    action: "lead.call-outcome.corrected",
+    actor: "jordan",
+    targetType: "lead",
+    targetId: leadId,
+    meta: { from: "contact-collected", to: "asked-to-send", email: collected.email, ...routed },
+    ip: null,
+  });
+
+  try {
+    revalidatePath(`/leads/${leadId}`);
+    revalidatePath("/");
+  } catch {
+    /* best-effort */
+  }
+  return { ok: true, savedEmail: true, readyToSend: true, stage: "Contacted" };
 }
