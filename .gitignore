@@ -12,3 +12,4 @@ next-env.d.ts
 /.vercel
 /drizzle/*.sql.meta
 /.pdf-preview
+artifacts/

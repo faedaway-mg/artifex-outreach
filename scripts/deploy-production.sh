@@ -72,6 +72,15 @@ else
   echo "  ✓ No pending migrations."
 fi
 
+# 4.5 ── Read-only Railway preflight ──────────────────────────────────────────
+# Last stop before the first mutating command. Collects read-only signals
+# (deployment visibility, official public status, current app health) and writes a
+# redacted evidence artifact under artifacts/deploy-preflight/. Fails closed ONLY on
+# a confirmed official deploy-blocking incident; UNKNOWN states warn loudly but are
+# never converted to PASS. Full policy: scripts/deploy-preflight.sh.
+step "Read-only Railway preflight"
+PREFLIGHT_MIGRATIONS_RESULT="$PENDING" bash "$ROOT/scripts/deploy-preflight.sh" || fail "Preflight blocked the deployment."
+
 # 5 ── Deploy ─────────────────────────────────────────────────────────────────
 step "Deploying to outreach-web (railway up)"
 railway up --service outreach-web --ci

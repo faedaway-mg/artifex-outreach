@@ -128,3 +128,47 @@ the app uses deterministic placeholder captures.
 
 `GET /api/health` (public) returns app status, DB connectivity, storage/AI mode,
 auth-config status, and version — no secrets. Used by the Docker/Railway healthcheck.
+
+## Read-only Railway preflight (step 4.5 of `pnpm deploy:production`)
+
+Runs automatically after the target guard, quality gates, and the fail-closed
+migration check — and **before** the first mutating command (`railway up`). It is
+strictly read-only and answers one question: *is there any known, trustworthy
+evidence that should block or caution this deployment attempt?*
+
+Checks → states (PASS · CAUTION · UNKNOWN · BLOCK, precedence BLOCK > UNKNOWN >
+CAUTION > PASS):
+1. **Target identity** — consumed from `railway-guard.sh` (fail-closed; RAILWAY_TOKEN
+   rejected). Not re-derived, not overridable.
+2. **Deployment visibility** — `railway deployment list` (documented informational).
+   In-progress deployment → CAUTION; unreadable → UNKNOWN.
+3. **Public platform status** — status.railway.com, 10s timeout, no credentials. The
+   page's visible current state is authoritative ("Fully Operational" → PASS); an
+   active incident explicitly pausing deployments → **BLOCK (not overridable)**;
+   other incidents → CAUTION; unreachable → UNKNOWN. The page covers only
+   significant, widespread incidents — it is **not exhaustive** for account/plan/
+   workspace restrictions.
+4. **Current application health** — GET /api/health, 10s timeout. `status:"ok"` →
+   PASS; degraded → CAUTION (shipping a fix over broken production remains allowed —
+   existing policy preserved); unreachable → UNKNOWN.
+5. **Migration readiness** — result consumed from the earlier fail-closed check;
+   pending migrations reaching the preflight → BLOCK (belt-and-suspenders).
+
+**Policy:** UNKNOWN warns loudly and continues — it is *recorded as UNKNOWN*, never
+rewritten as PASS (a status-page outage doesn't prove Railway is down, and a broken
+CLI will fail `railway up` safely by itself). There are **no override flags**: the
+only preflight BLOCK (a confirmed official deploy-pause incident) must never be
+overridable, and everything else warns rather than blocks.
+
+**What a PASS means:** only that nothing observed by these read-only checks blocks
+*attempting* the deploy. It does **not** prove Railway availability, deployment
+success, account restrictions, database safety, or new-build health. An Active
+Railway deployment still requires the post-deploy authenticated smoke test, and
+rollback remains migration-sensitive (a rollback restores image+variables — never
+assume it reverses migrations).
+
+**Evidence:** each run writes a redacted JSON artifact (atomic write) to
+`artifacts/deploy-preflight/<timestamp>-railway-production-preflight.json`
+(gitignored). No secrets, tokens, variable values, or connection strings are ever
+recorded. No automatic retry or recovery exists — recovery actions are separate,
+operator-authorized decisions.
