@@ -22,6 +22,17 @@
 // (The file keeps its original name because the deployed service's start command
 // references it; the job it performs is the wider one described above.)
 //
+// DEPLOYING THIS SERVICE — the directory itself is the build context:
+//
+//     railway up <abs-path-to>/railway-functions --service daily-prospecting-cron --ci
+//
+// railway.json MUST sit next to this file. Railway reads the config from
+// "/railway.json" at the root of the uploaded context, and that file is what
+// carries cronSchedule and startCommand. This config was once named
+// cron-service.railway.json, which Railway never reads: deploying then produced
+// a service with no schedule and no start command, which ran once, exited, and
+// was marked FAILED. Do not rename it back.
+//
 // The app endpoints enforce weekdays, the once-per-LA-day duplicate guard, the
 // queue-cap, and the no-mock rule, so this never uses force=1. Neither endpoint
 // authorizes unattended email delivery. The secret is read from the environment
