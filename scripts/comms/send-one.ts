@@ -48,7 +48,7 @@ async function main() {
     scoreBreakdown: {} as any, pipelineStage: "Qualified", estimatedValueLow: null, estimatedValueHigh: null,
     recommendedService: null, recommendedAction: null, recommendationReason: null, opportunitySummary: "Internal deliverability test.", strengths: [],
     acquisitionStrategy: "Light", acquisitionScore: 50, acquisitionReason: "Internal test", acquisitionScoreBreakdown: null, acquisitionOverride: true,
-    assignedTo: "jordan", note: "Internal test send — safe to delete.", lastContactAt: null, nextFollowUpAt: null,
+    assignedTo: "jordan", assignedAt: null, assignmentReason: null, lastOperatorActivityAt: null, note: "Internal test send — safe to delete.", lastContactAt: null, nextFollowUpAt: null,
   } as any);
 
   const plan = await insertPlan({

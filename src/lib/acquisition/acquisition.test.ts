@@ -17,7 +17,7 @@ function lead(p: Partial<Lead>): Lead {
     pipelineStage: "Qualified", estimatedValueLow: 8000, estimatedValueHigh: 18000, recommendedService: "Business Website System",
     recommendedAction: "Prepare video", recommendationReason: null, opportunitySummary: "great fit", strengths: [],
     acquisitionStrategy: null, acquisitionScore: null, acquisitionReason: null, acquisitionScoreBreakdown: null, acquisitionOverride: false,
-    assignedTo: "jordan", note: null, lastContactAt: null, nextFollowUpAt: null, createdAt: "", updatedAt: "", ...p,
+    assignedTo: "jordan", assignedAt: null, assignmentReason: null, lastOperatorActivityAt: null, note: null, lastContactAt: null, nextFollowUpAt: null, createdAt: "", updatedAt: "", ...p,
   };
 }
 const settings = () => defaultSettings();

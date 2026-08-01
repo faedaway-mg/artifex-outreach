@@ -1,13 +1,18 @@
 import { usingDevPassword } from "@/lib/auth";
+import { listOperators } from "@/lib/repo";
 import { Atmosphere } from "@/components/Atmosphere";
 import { BrandMark } from "@/components/BrandMark";
 
 export const dynamic = "force-dynamic";
 
-export default function LoginPage({ searchParams }: { searchParams: { error?: string; from?: string } }) {
+export default async function LoginPage({ searchParams }: { searchParams: { error?: string; from?: string } }) {
   const error = searchParams.error === "1";
   const rateLimited = searchParams.error === "rate";
   const from = searchParams.from ?? "/";
+  // Who is signing in. The workspace is a shared internal tool behind one
+  // password, so this establishes ACCOUNTABILITY, not authentication — every
+  // action from this session is attributed to the operator chosen here.
+  const operators = (await listOperators()).filter((o) => o.active);
   return (
     <div className="relative grid min-h-screen place-items-center px-4">
       <Atmosphere />
@@ -19,6 +24,16 @@ export default function LoginPage({ searchParams }: { searchParams: { error?: st
         </div>
         <form action="/api/auth/login" method="post" className="glass-3 p-6">
           <input type="hidden" name="from" value={from} />
+          {operators.length > 1 && (
+            <div className="mb-4">
+              <label className="field-label" htmlFor="operator">Who is working</label>
+              <select id="operator" name="operator" className="input" defaultValue={operators[0]?.id}>
+                {operators.map((o) => (
+                  <option key={o.id} value={o.id}>{o.name}</option>
+                ))}
+              </select>
+            </div>
+          )}
           <label className="field-label" htmlFor="password">Operator password</label>
           <input id="password" name="password" type="password" autoFocus className="input" placeholder="••••••••" />
           {error && <p className="mt-2 text-xs text-coral-300">Incorrect password. Try again.</p>}

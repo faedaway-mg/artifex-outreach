@@ -127,6 +127,13 @@
       "when": 1785536084421,
       "tag": "0017_melted_magus",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1785615886679,
+      "tag": "0018_faithful_dracula",
+      "breakpoints": true
     }
   ]
 }

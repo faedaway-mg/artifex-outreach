@@ -25,7 +25,7 @@ async function main() {
     reviewCount: 214, businessStatus: "OPERATIONAL", googleMapsUrl: null, hours: null, source: "Internal demo", retrievedAt: new Date().toISOString(),
     tier: "A", leadScore: 82, scoreBreakdown: null, pipelineStage: "Qualified", estimatedValueLow: 8000, estimatedValueHigh: 18000,
     recommendedService: "Business Website System", recommendedAction: "Prepare video", recommendationReason: "demo", opportunitySummary: null,
-    strengths: [], acquisitionStrategy: null, acquisitionScore: null, acquisitionReason: null, acquisitionScoreBreakdown: null, acquisitionOverride: false, assignedTo: "jordan", note: "INTERNAL DEMO", lastContactAt: null, nextFollowUpAt: null,
+    strengths: [], acquisitionStrategy: null, acquisitionScore: null, acquisitionReason: null, acquisitionScoreBreakdown: null, acquisitionOverride: false, assignedTo: "jordan", assignedAt: null, assignmentReason: null, lastOperatorActivityAt: null, note: "INTERNAL DEMO", lastContactAt: null, nextFollowUpAt: null,
   });
   console.log("demo lead:", lead.id);
 

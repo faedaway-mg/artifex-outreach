@@ -13,6 +13,24 @@ export function signToken(subject: string): string {
   return `${Buffer.from(payload).toString("base64url")}.${sig}`;
 }
 
+/**
+ * The operator this token was issued to. Returns null when the token is missing,
+ * tampered with, or expired — identity and validity are never separated.
+ *
+ * The payload is `${subject}.${issuedAt}`, so the subject must not contain a dot.
+ * Operator ids are slugs, which is enforced where operators are created.
+ */
+export function tokenSubject(token: string | undefined): string | null {
+  if (!verifyToken(token)) return null;
+  try {
+    const payload = Buffer.from(token!.split(".")[0], "base64url").toString();
+    const subject = payload.slice(0, payload.lastIndexOf("."));
+    return subject || null;
+  } catch {
+    return null;
+  }
+}
+
 export function verifyToken(token: string | undefined): boolean {
   if (!token) return false;
   const [b64, sig] = token.split(".");

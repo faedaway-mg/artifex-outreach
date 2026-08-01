@@ -16,6 +16,7 @@ import {
 import type { RoadmapStatus } from "./types";
 import { ROADMAP_STATUSES } from "./types";
 import { assembleEngagementContext, composeSnapshot } from "./engagement";
+import { currentActor } from "@/lib/auth";
 
 const asStatus = (v: unknown): RoadmapStatus | null =>
   (ROADMAP_STATUSES as readonly string[]).includes(String(v)) ? (v as RoadmapStatus) : null;
@@ -44,7 +45,7 @@ async function captureBaseline(leadId: string, recommendationId: string, trigger
   const ctx = assembleEngagementContext({ lead, memory, meetings, proposals, plans, progress, reviews, outreach, inbound, snapshots, now: Date.now() });
   const payload = composeSnapshot(ctx, recommendationId, trigger);
   const snap = await insertEngagementSnapshot({ leadId, recommendationId, trigger, payload: JSON.stringify(payload) });
-  await appendAudit({ action: "snapshot.capture", actor: "jordan", targetType: "snapshot", targetId: snap.id, meta: { recommendationId, trigger }, ip: null });
+  await appendAudit({ action: "snapshot.capture", actor: currentActor(), targetType: "snapshot", targetId: snap.id, meta: { recommendationId, trigger }, ip: null });
 }
 
 /** Move one recommendation to a new lifecycle status — the operator's approval. */
@@ -52,7 +53,7 @@ export async function advanceRoadmapAction(leadId: string, recommendationId: str
   const status = asStatus(statusRaw);
   if (!status || !leadId || !recommendationId) return;
   const item = await setRoadmapStatus(leadId, recommendationId, title || recommendationId, status);
-  await appendAudit({ action: "roadmap.status", actor: "jordan", targetType: "roadmap", targetId: item.id, meta: { recommendationId, status }, ip: null });
+  await appendAudit({ action: "roadmap.status", actor: currentActor(), targetType: "roadmap", targetId: item.id, meta: { recommendationId, status }, ip: null });
   if (CAPTURE_TRIGGERS.has(status)) await captureBaseline(leadId, recommendationId, status);
   touch(leadId);
 }

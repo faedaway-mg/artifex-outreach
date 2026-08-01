@@ -20,7 +20,7 @@ async function seedQualifiedLead(): Promise<Lead> {
     scoreBreakdown: {} as any, pipelineStage: "Qualified", estimatedValueLow: 8000, estimatedValueHigh: 18000,
     recommendedService: "Business Website System", recommendedAction: "x", recommendationReason: null, opportunitySummary: "x", strengths: [],
     acquisitionStrategy: "Assisted", acquisitionScore: 62, acquisitionReason: "x", acquisitionScoreBreakdown: null, acquisitionOverride: false,
-    assignedTo: "jordan", note: null, lastContactAt: null, nextFollowUpAt: null,
+    assignedTo: "jordan", assignedAt: null, assignmentReason: null, lastOperatorActivityAt: null, note: null, lastContactAt: null, nextFollowUpAt: null,
   } as any);
 }
 

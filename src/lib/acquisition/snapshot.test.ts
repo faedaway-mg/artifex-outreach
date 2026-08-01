@@ -13,7 +13,7 @@ function lead(p: Partial<Lead>): Lead {
     pipelineStage: "Qualified", estimatedValueLow: 8000, estimatedValueHigh: 18000, recommendedService: "Business Website System",
     recommendedAction: "Prepare video", recommendationReason: null, opportunitySummary: "great fit", strengths: [],
     acquisitionStrategy: null, acquisitionScore: null, acquisitionReason: null, acquisitionScoreBreakdown: null, acquisitionOverride: false,
-    assignedTo: "jordan", note: null, lastContactAt: null, nextFollowUpAt: null, createdAt: "", updatedAt: "", ...p,
+    assignedTo: "jordan", assignedAt: null, assignmentReason: null, lastOperatorActivityAt: null, note: null, lastContactAt: null, nextFollowUpAt: null, createdAt: "", updatedAt: "", ...p,
   };
 }
 const finding = (p: Partial<Finding>): Finding => ({ id: "f1", leadId: "l1", category: "Design", title: "Outdated homepage", observation: "", evidence: "", businessImpact: "", modernizationDirection: "", findingType: "AI inference", confidence: "Likely", sourceUrl: null, analyzedAt: null, deterministic: true, approved: true, createdAt: "", updatedAt: "", ...p });

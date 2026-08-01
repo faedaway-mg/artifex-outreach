@@ -10,7 +10,7 @@
 import { nanoid } from "nanoid";
 import { ARTIFEX_IDENTITY, ARTIFEX_ADDRESS } from "./identity";
 import type {
-  User,
+  Operator,
   Lead,
   Contact,
   Finding,
@@ -36,7 +36,7 @@ import { buildSeed } from "./seed";
 import { defaultCategories } from "./categories";
 
 export interface Collections {
-  users: User[];
+  operators: Operator[];
   leads: Lead[];
   contacts: Contact[];
   findings: Finding[];
@@ -64,7 +64,7 @@ const GLOBAL_KEY = "__artifex_outreach_store__";
 
 function createEmpty(): Collections {
   return {
-    users: [],
+    operators: [],
     leads: [],
     contacts: [],
     findings: [],

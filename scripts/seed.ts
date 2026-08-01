@@ -14,7 +14,7 @@ import { db as buildStore } from "../src/lib/store";
 async function main() {
   const store = buildStore(); // triggers in-memory seed
   const summary = {
-    users: store.users.length,
+    operators: store.operators.length,
     leads: store.leads.length,
     contacts: store.contacts.length,
     findings: store.findings.length,
@@ -57,7 +57,7 @@ async function main() {
   const insert = async (table: any, rows: any[]) => {
     if (rows.length) await dbi.insert(table).values(rows);
   };
-  await insert(schema.users, store.users);
+  await insert(schema.operators, store.operators);
   await insert(schema.leads, store.leads);
   await insert(schema.contacts, store.contacts);
   await insert(schema.findings, store.findings);

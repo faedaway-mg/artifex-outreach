@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { materializeDueSteps } from "@/lib/comms/task-projection";
 import { appendAudit } from "@/lib/repo";
+import { runDistribution, ensureSeedOperators } from "@/lib/operators/distribute";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -15,6 +16,20 @@ export const dynamic = "force-dynamic";
 //
 // Guarded by CRON_SECRET. Safe to call repeatedly and concurrently — the unique
 // index on tasks.source_step_id makes duplicate creation impossible.
+//
+// PHASE 2 — ownership maintenance. Once the day's work is visible, the same tick
+// makes sure every piece of it has an accountable operator: unassigned businesses
+// get one, and work whose owner cannot move it right now (away, inactive, or
+// silent past the staleness horizon) is handed to someone who can. This runs in
+// "maintain" mode only — it never reshuffles a healthy pipeline and never moves a
+// live conversation. A deliberate rebalance is operator-triggered, not nightly.
+//
+// Phase 2 is behind its own policy gate, OPERATOR_DISTRIBUTION_ENABLED, for the
+// same reason unattended sending is: the first time a scheduler is allowed to
+// move real ownership must be a decision, not a side effect of a deploy. While
+// the gate is off the distribution still RUNS — it simply stops before the
+// writes, so the response reports exactly what it would have done. Preview and
+// apply are the same computation; only `apply` differs.
 // ─────────────────────────────────────────────────────────────────────────────
 export async function POST(req: NextRequest) {
   const secret = process.env.CRON_SECRET;
@@ -30,8 +45,19 @@ export async function POST(req: NextRequest) {
   try {
     const summary = await materializeDueSteps({ apply: !dryRun, horizon });
 
+    // Phase 2 runs after projection so it sees today's real workload, not
+    // yesterday's. Ordering matters: distributing first would balance against a
+    // backlog that is about to change.
+    const distributionEnabled = process.env.OPERATOR_DISTRIBUTION_ENABLED === "1";
+    if (!dryRun) await ensureSeedOperators();
+    const distribution = await runDistribution({
+      mode: "maintain",
+      apply: !dryRun && distributionEnabled,
+      actor: "system",
+    });
+
     // Audit only when something actually changed, so idle ticks don't flood the log.
-    if (summary.created || summary.reconciledStale) {
+    if (summary.created || summary.reconciledStale || distribution.written.length) {
       await appendAudit({
         action: "comms.tasks_materialized",
         actor: "cron",
@@ -41,6 +67,7 @@ export async function POST(req: NextRequest) {
           dryRun, considered: summary.considered, created: summary.created,
           alreadyPresent: summary.alreadyPresent, reconciledStale: summary.reconciledStale,
           skipped: summary.skipped,
+          reassigned: distribution.written.length,
         },
         ip: null,
       });
@@ -57,6 +84,13 @@ export async function POST(req: NextRequest) {
       alreadyPresent: summary.alreadyPresent,
       reconciledStale: summary.reconciledStale,
       skipped: summary.skipped,
+      distribution: {
+        enabled: distributionEnabled,
+        considered: distribution.consideredLeads,
+        planned: distribution.reassignments.length,
+        reassigned: distribution.written.length,
+        held: distribution.held.length,
+      },
     });
   } catch (err) {
     return NextResponse.json({ ok: false, error: err instanceof Error ? err.message : "materialize failed" }, { status: 500 });

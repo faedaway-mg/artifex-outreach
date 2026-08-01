@@ -15,6 +15,7 @@ import * as t from "@/db/schema";
 import { db as mem, newId, nowIso, normalizeName, domainFromUrl, normalizePhone, defaultSettings, defaultProspecting } from "./store";
 import { ARTIFEX_IDENTITY } from "./identity";
 import type {
+  Operator,
   Lead,
   Contact,
   Finding,
@@ -92,6 +93,7 @@ function collection<T extends { id: string }>(table: any, memArr: () => T[]) {
   };
 }
 
+const Operators = collection<Operator>(t.operators, () => mem().operators);
 const Leads = collection<Lead>(t.leads, () => mem().leads);
 const Contacts = collection<Contact>(t.contacts, () => mem().contacts);
 const Findings = collection<Finding>(t.findings, () => mem().findings);
@@ -301,6 +303,7 @@ export const updateOutreach = (id: string, patch: Partial<Outreach>) => Outreach
 
 // ── Tasks ────────────────────────────────────────────────────────────────────
 export const allTasks = () => Tasks.all();
+export const tasksForLead = (leadId: string) => Tasks.byLead(leadId);
 export const getTask = (id: string) => Tasks.byId(id);
 export async function todaysTasks(limit?: number): Promise<Task[]> {
   const endOfToday = new Date();
@@ -608,6 +611,35 @@ export async function listProspectingRuns(limit = 10): Promise<ProspectingRun[]>
   if (hasDb()) rows = (await getDb().select().from(t.prospectingRuns)) as any as ProspectingRun[];
   else rows = ((mem() as any).runs as ProspectingRun[]) ?? [];
   return [...rows].sort((a, b) => +new Date(b.startedAt) - +new Date(a.startedAt)).slice(0, limit);
+}
+
+// ── Operators ────────────────────────────────────────────────────────────────
+// The physical table is `users` (present since 0000). See db/schema.ts.
+export async function listOperators(): Promise<Operator[]> {
+  const rows = await Operators.all();
+  return [...rows].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+}
+export const getOperator = (id: string) => Operators.byId(id);
+export const updateOperator = (id: string, patch: Partial<Operator>) => Operators.update(id, patch);
+/** Insert only if absent — safe to call on every boot. Never overwrites a row. */
+export async function insertOperatorIfAbsent(op: Operator): Promise<{ operator: Operator; created: boolean }> {
+  const existing = await Operators.byId(op.id);
+  if (existing) return { operator: existing, created: false };
+  return { operator: await Operators.insert(op), created: true };
+}
+
+/** Every audit entry recorded against one target, newest first. */
+export async function auditForTarget(targetType: string, targetId: string): Promise<AuditEntry[]> {
+  let rows: AuditEntry[];
+  if (hasDb()) {
+    rows = (await getDb()
+      .select()
+      .from(t.auditLog)
+      .where(and(eq(t.auditLog.targetType, targetType), eq(t.auditLog.targetId, targetId)))) as any as AuditEntry[];
+  } else {
+    rows = (((mem() as any).audit as AuditEntry[]) ?? []).filter((r) => r.targetType === targetType && r.targetId === targetId);
+  }
+  return rows.sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt));
 }
 
 // ── Audit log ────────────────────────────────────────────────────────────────

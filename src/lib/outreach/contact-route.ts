@@ -10,6 +10,7 @@
 // task every render), so this only has to (1) supersede obsolete call tasks and
 // (2) guarantee the send/review work is queued.
 import { allTasks, updateTask, insertTask, appendAudit } from "@/lib/repo";
+import { currentActor } from "@/lib/auth";
 
 const nowIso = () => new Date().toISOString();
 
@@ -59,7 +60,7 @@ export async function resolveCallWorkForEmail(leadId: string, businessName: stri
 
   await appendAudit({
     action: "lead.route.email-gained",
-    actor: "jordan",
+    actor: currentActor(),
     targetType: "lead",
     targetId: leadId,
     meta: { supersededCallTasks: superseded, createdReviewTask },

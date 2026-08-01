@@ -18,11 +18,12 @@ import { checkPlanCompliance } from "./acquisition/compliance";
 import { buildApprovalSnapshot } from "./acquisition/snapshot";
 import { stopPlansForLead } from "./acquisition/stop";
 import type { AcquisitionStrategy } from "./types";
+import { currentActor } from "@/lib/auth";
 
 async function audit(action: string, targetId: string, meta?: Record<string, unknown>) {
   let ip: string | null = null;
   try { ip = headers().get("x-forwarded-for")?.split(",")[0]?.trim() ?? null; } catch {}
-  await appendAudit({ action, actor: "jordan", targetType: "acquisition", targetId, meta: meta ?? null, ip });
+  await appendAudit({ action, actor: currentActor(), targetType: "acquisition", targetId, meta: meta ?? null, ip });
 }
 const touch = (leadId: string) => { revalidatePath(`/leads/${leadId}`); revalidatePath("/approvals"); revalidatePath("/"); };
 

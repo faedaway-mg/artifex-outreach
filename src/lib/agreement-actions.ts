@@ -42,6 +42,7 @@ import { renderAgreementPdf } from "./pdf/render-agreement";
 import { getEmailProvider } from "./comms/provider";
 import { createDepositCheckoutSession, stripeConfigured } from "./payments/stripe";
 import { agreementReadyEmail, depositRequestEmail } from "./agreement/emails";
+import { currentActor } from "@/lib/auth";
 
 // ── local helpers ────────────────────────────────────────────────────────────
 function touch(leadId: string) {
@@ -59,7 +60,7 @@ async function audit(action: string, targetType: string, targetId: string, meta?
   } catch {
     /* outside a request context (rehearsal script) */
   }
-  await appendAudit({ action, actor: "jordan", targetType, targetId, meta: meta ?? null, ip });
+  await appendAudit({ action, actor: currentActor(), targetType, targetId, meta: meta ?? null, ip });
 }
 
 function fromAddress(contactEmail: string): string {

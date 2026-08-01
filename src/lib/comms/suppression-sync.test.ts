@@ -24,7 +24,7 @@ async function seedLead(email = "owner@sup.example"): Promise<Lead> {
     scoreBreakdown: {} as any, pipelineStage: "Qualified", estimatedValueLow: 5000, estimatedValueHigh: 9000,
     recommendedService: "x", recommendedAction: "x", recommendationReason: null, opportunitySummary: "x", strengths: [],
     acquisitionStrategy: "Assisted", acquisitionScore: 60, acquisitionReason: "x", acquisitionScoreBreakdown: null, acquisitionOverride: false,
-    assignedTo: "jordan", note: null, lastContactAt: null, nextFollowUpAt: null,
+    assignedTo: "jordan", assignedAt: null, assignmentReason: null, lastOperatorActivityAt: null, note: null, lastContactAt: null, nextFollowUpAt: null,
   } as any);
 }
 async function seedSentPlusPending(leadId: string, pmid: string) {

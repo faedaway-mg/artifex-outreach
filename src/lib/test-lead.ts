@@ -46,7 +46,7 @@ export function makeLead(overrides: Partial<Lead> = {}): Lead {
     acquisitionReason: null,
     acquisitionScoreBreakdown: null,
     acquisitionOverride: false,
-    assignedTo: "jordan",
+    assignedTo: "jordan", assignedAt: null, assignmentReason: null, lastOperatorActivityAt: null,
     note: null,
     lastContactAt: null,
     nextFollowUpAt: null,

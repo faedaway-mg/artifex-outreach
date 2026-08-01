@@ -58,11 +58,34 @@ export const agreementStatusEnum = pgEnum("agreement_status", [
 export const paymentTypeEnum = pgEnum("payment_type", ["deposit", "balance", "monthly"]);
 export const paymentStatusEnum = pgEnum("payment_status", ["pending", "link_sent", "paid", "failed", "void"]);
 
-export const users = pgTable("users", {
+// ── Operators ────────────────────────────────────────────────────────────────
+// The people who work the acquisition database. The PHYSICAL TABLE IS STILL
+// `users` — it has existed since migration 0000 and already holds a production
+// row — so activating it costs no data migration and breaks no existing row.
+// Only the columns the scheduler needs were added (0018).
+//
+// An operator is not a login. It is an accountable party: work is distributed to
+// operators by capacity, ownership is recorded against them, and every
+// reassignment is explained in their name.
+export const operators = pgTable("users", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
   email: text("email").notNull().unique(),
   role: text("role").notNull().default("operator"),
+  /** Two-letter monogram for the avatar chip. Derived from name when blank. */
+  initials: text("initials").notNull().default(""),
+  avatarUrl: text("avatar_url"),
+  /** Inactive operators keep their history but receive no new work. */
+  active: boolean("active").notNull().default(true),
+  /** available | engineering | away — see lib/operators/model.ts */
+  availabilityMode: text("availability_mode").notNull().default("available"),
+  /** WorkKind[] this operator should be preferred for. Empty = no preference. */
+  preferredWorkKinds: jsonb("preferred_work_kinds").$type<string[]>().notNull().default([]),
+  /** Businesses this operator can carry in a day. Drives the daily split. */
+  dailyCapacity: integer("daily_capacity").notNull().default(8),
+  timezone: text("timezone").notNull().default("America/Los_Angeles"),
+  /** Last time this operator did anything in the app. Not the same as a login. */
+  lastActiveAt: ts("last_active_at"),
   createdAt: ts("created_at").notNull(),
   updatedAt: ts("updated_at").notNull(),
 });
@@ -113,7 +136,25 @@ export const leads = pgTable(
     acquisitionReason: text("acquisition_reason"),
     acquisitionScoreBreakdown: jsonb("acquisition_score_breakdown"),
     acquisitionOverride: boolean("acquisition_override").notNull().default(false),
-    assignedTo: text("assigned_to").notNull().default("jordan"),
+    // ── Ownership ────────────────────────────────────────────────────────────
+    // `assigned_to` has existed since 0000 but was written as a constant and
+    // never read. It is now the single source of truth for who is accountable
+    // for this business. NULL means unassigned — a real state the queue can
+    // show and the distributor can fill — so 0018 relaxed NOT NULL/DEFAULT.
+    // Existing rows were untouched and still read "jordan".
+    //
+    // Ownership is responsibility, not possession: the HISTORY lives in
+    // audit_log (append-only), so a transfer never erases who held it before.
+    assignedTo: text("assigned_to"),
+    assignedAt: ts("assigned_at"),
+    /** Structured, human-readable justification for the current assignment. */
+    assignmentReason: text("assignment_reason"),
+    /**
+     * Last time an OPERATOR touched this business (logged a call, sent, noted,
+     * completed a task) — distinct from lastContactAt, which is the last time
+     * the BUSINESS was contacted. Staleness is measured from this.
+     */
+    lastOperatorActivityAt: ts("last_operator_activity_at"),
     note: text("note"),
     lastContactAt: ts("last_contact_at"),
     nextFollowUpAt: ts("next_follow_up_at"),
@@ -127,6 +168,7 @@ export const leads = pgTable(
     nameIdx: index("leads_normalized_name_idx").on(t.normalizedName),
     stageIdx: index("leads_stage_idx").on(t.pipelineStage),
     followUpIdx: index("leads_follow_up_idx").on(t.nextFollowUpAt),
+    assignedIdx: index("leads_assigned_idx").on(t.assignedTo),
   }),
 );
 

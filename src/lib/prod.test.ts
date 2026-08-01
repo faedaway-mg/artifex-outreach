@@ -17,7 +17,7 @@ function bareLead(p: Partial<Lead>): Lead {
     pipelineStage: "Discovered", estimatedValueLow: null, estimatedValueHigh: null, recommendedService: null,
     recommendedAction: null, recommendationReason: null, opportunitySummary: null, strengths: [],
     acquisitionStrategy: null, acquisitionScore: null, acquisitionReason: null, acquisitionScoreBreakdown: null, acquisitionOverride: false,
-    assignedTo: "jordan", note: null, lastContactAt: null, nextFollowUpAt: null, createdAt: "", updatedAt: "", ...p,
+    assignedTo: "jordan", assignedAt: null, assignmentReason: null, lastOperatorActivityAt: null, note: null, lastContactAt: null, nextFollowUpAt: null, createdAt: "", updatedAt: "", ...p,
   };
 }
 

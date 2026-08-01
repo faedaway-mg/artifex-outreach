@@ -27,6 +27,9 @@ import { collectTimeline } from "@/lib/acquisition/timeline";
 import { ConceptPreviewPanel } from "@/components/lead/ConceptPreviewPanel";
 import { AcquisitionPanel } from "@/components/lead/AcquisitionPanel";
 import { AcquisitionTimeline } from "@/components/lead/AcquisitionTimeline";
+import { OwnershipPanel } from "@/components/lead/OwnershipPanel";
+import { buildLeadTimeline } from "@/lib/operators/timeline";
+import { listOperators, tasksForLead, auditForTarget } from "@/lib/repo";
 import { TierBadge, ScorePill, SourceTag, ConfidenceBadge } from "@/components/ui";
 import { LeadActions } from "@/components/lead/LeadActions";
 import { ScorePanel } from "@/components/lead/ScorePanel";
@@ -95,6 +98,14 @@ export default async function LeadPage({ params, searchParams }: { params: { id:
   const inbound = await inboundForLead(lead.id);
   const businessIntelligence = await getBusinessIntelligence(lead.id);
   const timeline = collectTimeline({ lead, findings, deliverables, videos, shares: previewShares, meetings, proposals, plans: acquisitionPlans, outreach, inbound });
+
+  // Ownership + the complete operational history. Read from records that already
+  // exist, so a reassignment never truncates the story.
+  const [operators, leadAudit, leadTasks, leadSends] = await Promise.all([
+    listOperators(), auditForTarget("lead", lead.id), tasksForLead(lead.id), emailSendsForLead(lead.id),
+  ]);
+  const owner = operators.find((o) => o.id === lead.assignedTo) ?? null;
+  const teamTimeline = buildLeadTimeline({ audit: leadAudit, tasks: leadTasks, emailSends: leadSends, inbound, meetings, operators });
 
   // Outreach Experience v2 — the momentum kit. Defensive: never break the page.
   let outreachKit: OutreachKit | null = null;
@@ -216,6 +227,15 @@ export default async function LeadPage({ params, searchParams }: { params: { id:
 
       {/* Pipeline & delivery */}
       <Disclosure id="pipeline" title="Pipeline & delivery" hint="strategy · concept · meeting · agreement">
+        <OwnershipPanel
+          owner={owner}
+          operators={operators}
+          leadId={lead.id}
+          assignedAt={lead.assignedAt}
+          assignmentReason={lead.assignmentReason}
+          lastOperatorActivityAt={lead.lastOperatorActivityAt}
+          events={teamTimeline}
+        />
         <AcquisitionPanel lead={lead} plans={acquisitionPlans} />
         <AcquisitionTimeline events={timeline} />
         <ConceptPreviewPanel leadId={lead.id} tier={lead.tier} preview={activePreview} version={previewVersion} shares={previewShares} findings={findings} appUrl={appUrl} />

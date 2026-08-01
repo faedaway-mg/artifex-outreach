@@ -1,7 +1,10 @@
 import Link from "next/link";
 import {
-  todaysTasks, listLeads, allMeetings, allProposals, getSettings, allPlans, allBusinessIntelligence, allFindings, allTasks, allSteps,
+  todaysTasks, listLeads, allMeetings, allProposals, getSettings, allPlans, allBusinessIntelligence, allFindings, allTasks, allSteps, listOperators,
 } from "@/lib/repo";
+import { currentOperatorId } from "@/lib/auth";
+import { parseScope, leadIdsInScope, tasksInScope, scopeOptions, scopeLabel, scopeMeaning, scopeToParam } from "@/lib/operators/scope";
+import { QueueScopeSwitcher } from "@/components/QueueScopeSwitcher";
 import { placesMode } from "@/lib/providers/places";
 import { nextScheduledRun } from "@/lib/schedule";
 import { concentrationAdvisories } from "@/lib/analytics";
@@ -42,15 +45,24 @@ const isSameDay = (iso: string | null | undefined, ref: Date) => {
   return d.getFullYear() === ref.getFullYear() && d.getMonth() === ref.getMonth() && d.getDate() === ref.getDate();
 };
 
-export default async function TodayPage() {
+export default async function TodayPage({ searchParams }: { searchParams?: { view?: string } }) {
   const settings = await getSettings();
   const queueSize = settings.prospecting.dailyQueueSize;
-  const [tasks, leads, meetings, proposals, plans, bi, findings, everyTask, allAcquisitionSteps] = await Promise.all([
-    todaysTasks(queueSize), listLeads(), allMeetings(), allProposals(), allPlans(), allBusinessIntelligence(), allFindings(), allTasks(), allSteps(),
+  // The queue is fetched UNCAPPED and scoped to the operator before slicing —
+  // capping first would hide an operator's work behind someone else's.
+  const [dueTasks, leads, meetings, proposals, plans, bi, findings, everyTask, allAcquisitionSteps, operators] = await Promise.all([
+    todaysTasks(), listLeads(), allMeetings(), allProposals(), allPlans(), allBusinessIntelligence(), allFindings(), allTasks(), allSteps(), listOperators(),
   ]);
 
   const now = new Date();
-  const leadMap = new Map<string, Lead>(leads.map((l) => [l.id, l]));
+  const viewerId = currentOperatorId();
+  const scopeCtx = { plans, meetings };
+  const scope = parseScope(searchParams?.view, viewerId, operators.map((o) => o.id));
+  const scopedLeadIds = leadIdsInScope({ scope, viewerId, leads, operators, ctx: scopeCtx, now });
+  const views = scopeOptions({ viewerId, leads, operators, ctx: scopeCtx, now });
+  const tasks = tasksInScope(dueTasks, scopedLeadIds).slice(0, queueSize);
+
+  const leadMap = new Map<string, Lead>(leads.filter((l) => scopedLeadIds.has(l.id)).map((l) => [l.id, l]));
   const biByLead = new Map<string, StoredBusinessIntelligence>(bi.map((b) => [b.leadId, b]));
   const oppScoreOf = (l: Lead) => biByLead.get(l.id)?.improvementScore ?? l.leadScore ?? 0;
   const om = opportunityMetrics(leads, bi);
@@ -115,7 +127,14 @@ export default async function TodayPage() {
   const doneToday = everyTask.filter((t) => t.status === "done" && isSameDay(t.updatedAt, now)).length;
   const mission = buildDailyMission(workQueue, doneToday);
   // The honest ledger of everything NOT on screen (beyond cap, future, snoozed, unqueued).
-  const ledger = accountQueue({ leads, tasks: everyTask, cap: queueSize, now });
+  // Scoped to the same businesses as the queue above, so the ledger's totals
+  // reconcile with what is actually on screen rather than with the whole company.
+  const ledger = accountQueue({
+    leads: leads.filter((l) => scopedLeadIds.has(l.id)),
+    tasks: everyTask.filter((t) => scopedLeadIds.has(t.leadId)),
+    cap: queueSize,
+    now,
+  });
   // Sequence state that Today cannot show directly: future touches are real work
   // that simply isn't due yet, and a plan stalled before approval is invisible
   // work. Neither is actionable now, so neither is counted as today's work.
@@ -176,13 +195,18 @@ export default async function TodayPage() {
           <section>
             <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
               <div>
-                <h2 className="flex items-center gap-2 text-sm font-semibold text-chalk-200"><Compass size={15} className="text-azure-300" /> Businesses to work with today</h2>
+                <h2 className="flex items-center gap-2 text-sm font-semibold text-chalk-200"><Compass size={15} className="text-azure-300" /> {scopeLabel(scope, operators)} to work with today</h2>
                 <p className="mt-0.5 flex items-center gap-1.5 text-[11px] text-chalk-500">
                   <Clock size={11} /> {tasks.length} of {queueSize} · next auto-discovery {nextRun.relative}
                 </p>
               </div>
               <TodayControls atCapacity={atCapacity} />
             </div>
+            {operators.length > 1 && (
+              <div className="mb-4">
+                <QueueScopeSwitcher options={views} active={scopeToParam(scope)} meaning={scopeMeaning(scope)} />
+              </div>
+            )}
             {tasks.length === 0 ? (
               <EmptyState icon={Sparkles} title="You're all caught up." hint="Ask Artifex to research and understand a few new businesses, or open Discover to search manually." />
             ) : (

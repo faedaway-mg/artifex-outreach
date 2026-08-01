@@ -65,7 +65,7 @@ async function main() {
       acquisitionReason: null,
       acquisitionScoreBreakdown: null,
       acquisitionOverride: false,
-      assignedTo: "jordan",
+      assignedTo: "jordan", assignedAt: null, assignmentReason: null, lastOperatorActivityAt: null,
       note: null,
       lastContactAt: null,
       nextFollowUpAt: null,

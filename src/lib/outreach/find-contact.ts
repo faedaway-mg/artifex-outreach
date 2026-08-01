@@ -12,6 +12,7 @@ import type { PlaceResult } from "@/lib/providers/places";
 import { normalizeName, domainFromUrl } from "@/lib/store";
 import { isCallablePhone, isValidEmail, isUsableUrl, findInstagram } from "@/lib/outreach/contact-strategy";
 import type { Lead } from "@/lib/types";
+import { currentActor } from "@/lib/auth";
 
 /**
  * Cache revalidation is a best-effort step AFTER the source-of-truth write has
@@ -65,7 +66,7 @@ function appendNote(existing: string | null, line: string): string {
 }
 
 async function audit(action: string, targetId: string, meta?: Record<string, unknown>) {
-  await appendAudit({ action, actor: "jordan", targetType: "lead", targetId, meta: meta ?? null, ip: null });
+  await appendAudit({ action, actor: currentActor(), targetType: "lead", targetId, meta: meta ?? null, ip: null });
 }
 
 /** The listing that actually corresponds to this lead — never a loose guess. */

@@ -26,6 +26,7 @@ import { computeScore } from "./scoring";
 import type { ProspectingRun, Lead, Settings, Tier, ProspectCategoryTarget, ArtifexService, CategoryGroup } from "./types";
 import { discoverInputSchema } from "./schemas";
 import { categoryGroupOf } from "./categories";
+import { assignNewLead } from "./operators/distribute";
 
 const PLACES_COST_PER_REQUEST = 0.032;
 
@@ -402,7 +403,10 @@ function placeToLead(place: PlaceResult, cat: ProspectCategoryTarget, territory:
     acquisitionReason: null,
     acquisitionScoreBreakdown: null,
     acquisitionOverride: false,
-    assignedTo: "jordan",
+    assignedTo: null,
+    assignedAt: null,
+    assignmentReason: null,
+    lastOperatorActivityAt: null,
     note: null,
     lastContactAt: null,
     nextFollowUpAt: null,
@@ -444,6 +448,9 @@ async function createQualifiedLead(place: PlaceResult, cat: ProspectCategoryTarg
     priority: 15 + tierBonus + Math.round(score.total / 8),
     snoozedUntil: null,
   });
+  // Prospecting runs unattended, so a newly discovered business is given an
+  // accountable operator immediately rather than waiting in an unassigned pile.
+  await assignNewLead(lead.id, { actor: "system" });
   return lead;
 }
 

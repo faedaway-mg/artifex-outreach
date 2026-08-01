@@ -16,7 +16,7 @@ function lead(p: Partial<Lead>): Lead {
     hours: null, source: "test", retrievedAt: null, tier: "A", leadScore: 70, scoreBreakdown: null, pipelineStage: "Qualified",
     estimatedValueLow: 8000, estimatedValueHigh: 18000, recommendedService: "Business Website System", recommendedAction: null, recommendationReason: null,
     opportunitySummary: null, strengths: [], acquisitionStrategy: null, acquisitionScore: null, acquisitionReason: null, acquisitionScoreBreakdown: null,
-    acquisitionOverride: false, assignedTo: "jordan", note: null, lastContactAt: null, nextFollowUpAt: null, createdAt: "2026-07-01T10:00:00Z", updatedAt: "2026-07-10T10:00:00Z", ...p,
+    acquisitionOverride: false, assignedTo: "jordan", assignedAt: null, assignmentReason: null, lastOperatorActivityAt: null, note: null, lastContactAt: null, nextFollowUpAt: null, createdAt: "2026-07-01T10:00:00Z", updatedAt: "2026-07-10T10:00:00Z", ...p,
   };
 }
 

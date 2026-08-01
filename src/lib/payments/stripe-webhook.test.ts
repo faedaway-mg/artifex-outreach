@@ -21,7 +21,7 @@ function leadSeed(): any {
     source: "test", retrievedAt: null, tier: null, leadScore: null, scoreBreakdown: null, pipelineStage: "Agreement Signed",
     estimatedValueLow: null, estimatedValueHigh: null, recommendedService: null, recommendedAction: null, recommendationReason: null,
     opportunitySummary: null, strengths: [], acquisitionStrategy: null, acquisitionScore: null, acquisitionReason: null,
-    acquisitionScoreBreakdown: null, acquisitionOverride: false, assignedTo: "jordan", note: null, lastContactAt: null, nextFollowUpAt: null,
+    acquisitionScoreBreakdown: null, acquisitionOverride: false, assignedTo: "jordan", assignedAt: null, assignmentReason: null, lastOperatorActivityAt: null, note: null, lastContactAt: null, nextFollowUpAt: null,
   };
 }
 

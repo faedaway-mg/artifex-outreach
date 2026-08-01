@@ -16,7 +16,7 @@ export function makeLead(p: Partial<Lead> = {}): Lead {
     recommendedService: "Business Website System", recommendedAction: "Prepare video", recommendationReason: null,
     opportunitySummary: "Modernize the ordering flow and reservation system to reduce phone load.", strengths: [],
     acquisitionStrategy: null, acquisitionScore: null, acquisitionReason: null, acquisitionScoreBreakdown: null, acquisitionOverride: false,
-    assignedTo: "jordan", note: null, lastContactAt: null, nextFollowUpAt: null, createdAt: "2026-07-01T00:00:00.000Z", updatedAt: "2026-07-01T00:00:00.000Z", ...p,
+    assignedTo: "jordan", assignedAt: null, assignmentReason: null, lastOperatorActivityAt: null, note: null, lastContactAt: null, nextFollowUpAt: null, createdAt: "2026-07-01T00:00:00.000Z", updatedAt: "2026-07-01T00:00:00.000Z", ...p,
   };
 }
 

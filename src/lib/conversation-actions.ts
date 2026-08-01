@@ -9,6 +9,7 @@ import { headers } from "next/headers";
 import { getLead, updateLead, getMeeting, updateMeeting, appendAudit } from "./repo";
 import { generateAndStoreBI } from "./intelligence-actions";
 import { nowIso } from "./store";
+import { currentActor } from "@/lib/auth";
 
 export interface WrapUpResult {
   saved: boolean;
@@ -52,7 +53,7 @@ export async function saveConversationAction(input: {
   try {
     ip = headers().get("x-forwarded-for")?.split(",")[0]?.trim() ?? null;
   } catch {}
-  await appendAudit({ action: "conversation.captured", actor: "jordan", targetType: "lead", targetId: input.leadId, meta: { meetingId: input.meetingId }, ip });
+  await appendAudit({ action: "conversation.captured", actor: currentActor(), targetType: "lead", targetId: input.leadId, meta: { meetingId: input.meetingId }, ip });
 
   revalidatePath(`/leads/${input.leadId}`);
   revalidatePath(`/leads/${input.leadId}/relationship`);

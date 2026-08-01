@@ -23,7 +23,7 @@ const base = (over: Partial<Lead>): Omit<Lead, "id" | "createdAt" | "updatedAt">
   scoreBreakdown: { businessFit: 18, websiteOpportunity: 18, automationOpportunity: 16, abilityToPay: 13, publicReputation: 9, contactability: 9, triggerUrgency: 3 } as ScoreBreakdown,
   pipelineStage: "Qualified", estimatedValueLow: 8000, estimatedValueHigh: 18000, recommendedService: "Business Website System", recommendedAction: "Prepare video",
   recommendationReason: null, opportunitySummary: "clear opportunity.", strengths: [], acquisitionStrategy: null, acquisitionScore: null,
-  acquisitionReason: null, acquisitionScoreBreakdown: null, acquisitionOverride: false, assignedTo: "jordan", note: "DEMO", lastContactAt: null, nextFollowUpAt: null,
+  acquisitionReason: null, acquisitionScoreBreakdown: null, acquisitionOverride: false, assignedTo: "jordan", assignedAt: null, assignmentReason: null, lastOperatorActivityAt: null, note: "DEMO", lastContactAt: null, nextFollowUpAt: null,
   ...over,
 });
 

@@ -16,6 +16,7 @@ import {
   Rocket,
   Layers,
   Menu as MenuIcon,
+  Users,
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -29,6 +30,7 @@ const NAV = [
   { href: "/pipeline", label: "Journey", icon: KanbanSquare },
   { href: "/approvals", label: "Recommendations", icon: ShieldCheck },
   { href: "/meetings", label: "Conversations", icon: CalendarClock },
+  { href: "/team", label: "Team", icon: Users },
   { href: "/performance", label: "Insights", icon: BarChart3 },
   { href: "/launch", label: "Launch", icon: Rocket },
   { href: "/settings", label: "Settings", icon: SettingsIcon },
@@ -49,6 +51,7 @@ const TITLES: Record<string, string> = {
   "/pipeline": "Business Journey",
   "/approvals": "Recommendations",
   "/meetings": "Discovery Conversations",
+  "/team": "Team",
   "/performance": "Insights",
   "/launch": "Launch Readiness",
   "/settings": "Settings",

@@ -14,7 +14,7 @@ function lead(partial: Partial<Lead>): Lead {
     googleMapsUrl: null, hours: null, source: "Google Places", retrievedAt: null, tier: null, leadScore: null,
     scoreBreakdown: null, pipelineStage: "Discovered", estimatedValueLow: null, estimatedValueHigh: null,
     recommendedService: null, recommendedAction: null, recommendationReason: null, opportunitySummary: null,
-    strengths: [], acquisitionStrategy: null, acquisitionScore: null, acquisitionReason: null, acquisitionScoreBreakdown: null, acquisitionOverride: false, assignedTo: "jordan", note: null, lastContactAt: null, nextFollowUpAt: null,
+    strengths: [], acquisitionStrategy: null, acquisitionScore: null, acquisitionReason: null, acquisitionScoreBreakdown: null, acquisitionOverride: false, assignedTo: "jordan", assignedAt: null, assignmentReason: null, lastOperatorActivityAt: null, note: null, lastContactAt: null, nextFollowUpAt: null,
     createdAt: "", updatedAt: "", ...partial,
   };
 }

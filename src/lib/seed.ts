@@ -6,6 +6,7 @@ import type { Collections } from "./store";
 import type { Lead, ScoreBreakdown, DeliverableContent } from "./types";
 import { defaultSettings } from "./store";
 import { categoryMetaForIndustry } from "./categories";
+import { SEED_OPERATORS, normalizeOperator } from "./operators/model";
 
 const dayMs = 86_400_000;
 function isoOffset(days: number, hour = 9): string {
@@ -88,7 +89,10 @@ function mkLead(s: LeadSeed): Lead {
     acquisitionReason: s.acquisitionReason ?? null,
     acquisitionScoreBreakdown: s.acquisitionScoreBreakdown ?? null,
     acquisitionOverride: s.acquisitionOverride ?? false,
-    assignedTo: "jordan",
+    assignedTo: s.assignedTo ?? "jordan",
+    assignedAt: s.assignedAt ?? (s.createdAt ?? NOW()),
+    assignmentReason: s.assignmentReason ?? "Seeded workspace data.",
+    lastOperatorActivityAt: s.lastOperatorActivityAt ?? null,
     note: s.note ?? null,
     lastContactAt: s.lastContactAt ?? null,
     nextFollowUpAt: s.nextFollowUpAt ?? null,
@@ -100,14 +104,9 @@ function mkLead(s: LeadSeed): Lead {
 export function buildSeed(store: Collections): void {
   store.settings = defaultSettings();
 
-  store.users.push({
-    id: "jordan",
-    name: "Jordan Jackson",
-    email: "jordan@artifexlabs.tech",
-    role: "Founder / Operator",
-    createdAt: NOW(),
-    updatedAt: NOW(),
-  });
+  for (const seed of SEED_OPERATORS) {
+    store.operators.push(normalizeOperator({ ...seed, createdAt: NOW(), updatedAt: NOW() }));
+  }
 
   // ── 1. Taylor Dental — flagship Tier A, deliverable + video + outreach in flight
   const taylorScore: ScoreBreakdown = {

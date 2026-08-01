@@ -11,8 +11,10 @@ import { notFound } from "next/navigation";
 import { CheckCircle2, ArrowRight, ArrowLeft, X, Video, Mail, RotateCcw, FileText, Phone, CalendarClock, Compass, Clock, Instagram } from "lucide-react";
 import {
   todaysTasks, listLeads, allMeetings, getSettings, getBusinessIntelligence, contactsForLead, memoryForLead,
-  getStep, stepsForPlan,
+  getStep, stepsForPlan, allPlans, listOperators,
 } from "@/lib/repo";
+import { currentOperatorId } from "@/lib/auth";
+import { parseScope, leadIdsInScope, tasksInScope } from "@/lib/operators/scope";
 import { describeSequenceContext, type SequenceContext } from "@/lib/comms/task-projection";
 import { buildWorkQueue, batchLeadIds, categoryTitle, kindOfTask, type WorkKind } from "@/lib/work-queue";
 import { buildOutreachKit } from "@/lib/outreach/kit";
@@ -47,15 +49,24 @@ const ACTION: Record<WorkKind, { verb: string; label: string; href: (id: string)
   understand: { verb: "Get to know", label: "Review the business", href: (id) => `/leads/${id}` },
 };
 
-export default async function BatchPage({ params, searchParams }: { params: { kind: string }; searchParams: { i?: string; ids?: string } }) {
+export default async function BatchPage({ params, searchParams }: { params: { kind: string }; searchParams: { i?: string; ids?: string; view?: string } }) {
   const kind = params.kind as WorkKind;
   if (!KINDS.includes(kind)) notFound();
 
   const settings = await getSettings();
-  const [tasks, leads, meetings] = await Promise.all([todaysTasks(settings.prospecting.dailyQueueSize), listLeads(), allMeetings()]);
-  const leadMap = new Map(leads.map((l) => [l.id, l]));
+  // Same rule as Today: scope to the operator BEFORE the daily cap, so a batch
+  // can never be emptied by someone else's work sorting higher.
+  const [dueTasks, leads, meetings, plans, operators] = await Promise.all([
+    todaysTasks(), listLeads(), allMeetings(), allPlans(), listOperators(),
+  ]);
 
   const now = new Date();
+  const viewerId = currentOperatorId();
+  const scope = parseScope(searchParams.view, viewerId, operators.map((o) => o.id));
+  const scopedLeadIds = leadIdsInScope({ scope, viewerId, leads, operators, ctx: { plans, meetings }, now });
+  const tasks = tasksInScope(dueTasks, scopedLeadIds).slice(0, settings.prospecting.dailyQueueSize);
+  const leadMap = new Map(leads.filter((l) => scopedLeadIds.has(l.id)).map((l) => [l.id, l]));
+
   const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
   const meetingsToday = meetings

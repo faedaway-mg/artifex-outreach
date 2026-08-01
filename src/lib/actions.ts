@@ -46,6 +46,8 @@ import {
   appendAudit,
 } from "./repo";
 import { normalizeName, domainFromUrl, reseed } from "./store";
+import { assignNewLead, touchOperatorActivity } from "./operators/distribute";
+import { currentOperatorId, currentActor } from "./auth";
 import { hasDb } from "@/db/client";
 import {
   qualifyLead,
@@ -79,12 +81,22 @@ import { searchPlaces, placesMode, type PlaceResult, type PlacesSearchResult } f
 import { discoverInputSchema } from "./schemas";
 import { categoryMetaForIndustry } from "./categories";
 
-function touch(leadId: string) {
+/**
+ * Something happened to this business — refresh the surfaces that show it, and
+ * record that an operator worked it.
+ *
+ * The activity stamp rides on the existing revalidation seam deliberately: every
+ * mutation in this file already calls touch(), so ownership staleness is measured
+ * from REAL work rather than from a second bookkeeping call that would inevitably
+ * be forgotten at one of forty call sites.
+ */
+async function touch(leadId: string) {
   revalidatePath("/");
   revalidatePath("/pipeline");
   revalidatePath("/discover");
   revalidatePath("/performance");
   revalidatePath(`/leads/${leadId}`);
+  await touchOperatorActivity(leadId, currentOperatorId());
 }
 
 async function audit(action: string, targetType: string | null, targetId: string | null, meta?: Record<string, unknown>) {
@@ -95,7 +107,7 @@ async function audit(action: string, targetType: string | null, targetId: string
   } catch {
     /* headers() unavailable outside request scope */
   }
-  await appendAudit({ action, actor: "jordan", targetType, targetId, meta: meta ?? null, ip });
+  await appendAudit({ action, actor: currentActor(), targetType, targetId, meta: meta ?? null, ip });
 }
 
 // ── Discover: search ─────────────────────────────────────────────────────────
@@ -179,13 +191,17 @@ export async function saveLeadFromPlace(place: PlaceResult): Promise<{ id: strin
     acquisitionReason: null,
     acquisitionScoreBreakdown: null,
     acquisitionOverride: false,
-    assignedTo: "jordan",
+    assignedTo: null,
+    assignedAt: null,
+    assignmentReason: null,
+    lastOperatorActivityAt: null,
     note: null,
     lastContactAt: null,
     nextFollowUpAt: null,
   });
   await audit("lead.create", "lead", lead.id, { businessName: lead.businessName, source: lead.source });
-  touch(lead.id);
+  await assignNewLead(lead.id, { actor: currentOperatorId() });
+  await touch(lead.id);
   return { id: lead.id, duplicate: false };
 }
 
@@ -237,12 +253,16 @@ export async function createManualLeadAction(formData: FormData): Promise<void> 
     acquisitionReason: null,
     acquisitionScoreBreakdown: null,
     acquisitionOverride: false,
-    assignedTo: "jordan",
+    assignedTo: null,
+    assignedAt: null,
+    assignmentReason: null,
+    lastOperatorActivityAt: null,
     note: null,
     lastContactAt: null,
     nextFollowUpAt: null,
   });
   await audit("lead.create", "lead", lead.id, { businessName, manual: true });
+  await assignNewLead(lead.id, { actor: currentOperatorId() });
   redirect(`/leads/${lead.id}`);
 }
 
@@ -265,7 +285,7 @@ export async function qualifyLeadAction(leadId: string): Promise<void> {
     recommendationReason: act.reason,
     pipelineStage: lead.pipelineStage === "Discovered" ? "Qualified" : lead.pipelineStage,
   });
-  touch(leadId);
+  await touch(leadId);
 }
 
 export async function overrideScoreAction(leadId: string, formData: FormData): Promise<void> {
@@ -273,19 +293,19 @@ export async function overrideScoreAction(leadId: string, formData: FormData): P
   const tier = String(formData.get("tier")) as Tier;
   if (!Number.isNaN(score)) await updateLead(leadId, { leadScore: score, tier });
   await audit("lead.score_override", "lead", leadId, { score, tier });
-  touch(leadId);
+  await touch(leadId);
 }
 
 export async function overrideActionAction(leadId: string, action: NextAction): Promise<void> {
   await updateLead(leadId, { recommendedAction: action, recommendationReason: `Manually set to "${action}" by Jordan.` });
-  touch(leadId);
+  await touch(leadId);
 }
 
 export async function overrideServiceAction(leadId: string, service: ArtifexService): Promise<void> {
   const settings = await getSettings();
   const p = settings.defaultPricing[service];
   await updateLead(leadId, { recommendedService: service, estimatedValueLow: p.low, estimatedValueHigh: p.high });
-  touch(leadId);
+  await touch(leadId);
 }
 
 // ── Website analysis ─────────────────────────────────────────────────────────
@@ -345,7 +365,7 @@ export async function runWebsiteAnalysisAction(leadId: string): Promise<void> {
   }
 
   await audit("lead.analyze", "lead", leadId, { performedWith: analysis.performedWith, findings: analysis.findings.length });
-  touch(leadId);
+  await touch(leadId);
 }
 
 // ── Regenerate Business Intelligence on demand (dashboard "Refresh") ───────────
@@ -355,18 +375,18 @@ export async function regenerateBusinessIntelligenceAction(leadId: string): Prom
   // No fresh crawl here; regenerates from stored findings + any available content.
   await generateAndStoreBI(lead);
   await audit("lead.bi_regenerate", "lead", leadId, {});
-  touch(leadId);
+  await touch(leadId);
 }
 
 // ── Findings editor ──────────────────────────────────────────────────────────
 export async function toggleFindingApproval(findingId: string, leadId: string): Promise<void> {
   const f = await getFinding(findingId);
   if (f) await updateFinding(findingId, { approved: !f.approved });
-  touch(leadId);
+  await touch(leadId);
 }
 export async function removeFindingAction(findingId: string, leadId: string): Promise<void> {
   await deleteFinding(findingId);
-  touch(leadId);
+  await touch(leadId);
 }
 export async function updateFindingAction(findingId: string, leadId: string, formData: FormData): Promise<void> {
   await updateFinding(findingId, {
@@ -379,11 +399,11 @@ export async function updateFindingAction(findingId: string, leadId: string, for
     confidence: String(formData.get("confidence") ?? "Likely") as Confidence,
     approved: true,
   });
-  touch(leadId);
+  await touch(leadId);
 }
 export async function removeScreenshotAction(screenshotId: string, leadId: string): Promise<void> {
   await deleteScreenshot(screenshotId);
-  touch(leadId);
+  await touch(leadId);
 }
 
 // ── Deliverable (Modernization Brief) ────────────────────────────────────────
@@ -408,7 +428,7 @@ export async function generateBriefAction(leadId: string, type: DeliverableType)
     pipelineStage: ["Discovered", "Qualified", "Analysis Ready"].includes(lead.pipelineStage) ? "Deliverable Ready" : lead.pipelineStage,
   });
   await audit("deliverable.generate", "deliverable", deliv.id, { type, qcPassed: report.passed, qcScore: report.score, qcAttempts: report.attempts });
-  touch(leadId);
+  await touch(leadId);
 }
 
 export async function updateDeliverableAction(deliverableId: string, leadId: string, content: DeliverableContent): Promise<void> {
@@ -427,7 +447,7 @@ export async function updateDeliverableAction(deliverableId: string, leadId: str
     qc = { ...res.report, ranAt: new Date().toISOString() };
   }
   await updateDeliverable(deliverableId, { content: next, qc });
-  touch(leadId);
+  await touch(leadId);
 }
 
 export async function setDeliverableRangeAction(deliverableId: string, leadId: string, share: boolean): Promise<void> {
@@ -450,7 +470,7 @@ export async function setDeliverableRangeAction(deliverableId: string, leadId: s
     modernizationPath: { ...path, investmentModel: model, investmentRange: share ? range : null },
   };
   await updateDeliverable(deliverableId, { content });
-  touch(leadId);
+  await touch(leadId);
 }
 
 export async function approveDeliverableAction(deliverableId: string, leadId: string): Promise<void> {
@@ -473,7 +493,7 @@ export async function approveDeliverableAction(deliverableId: string, leadId: st
     if (!report.passed) {
       await updateDeliverable(deliverableId, { content, qc });
       await audit("deliverable.approve.blocked", "deliverable", deliverableId, { blockers: report.blockerCount });
-      touch(leadId);
+      await touch(leadId);
       return;
     }
     await updateDeliverable(deliverableId, { content, qc, status: "approved", approvedAt: new Date().toISOString() });
@@ -481,12 +501,12 @@ export async function approveDeliverableAction(deliverableId: string, leadId: st
     await updateDeliverable(deliverableId, { status: "approved", approvedAt: new Date().toISOString() });
   }
   await audit("deliverable.approve", "deliverable", deliverableId);
-  touch(leadId);
+  await touch(leadId);
 }
 export async function markDeliverableSentAction(deliverableId: string, leadId: string): Promise<void> {
   await updateDeliverable(deliverableId, { status: "sent", sentAt: new Date().toISOString() });
   await audit("deliverable.sent", "deliverable", deliverableId);
-  touch(leadId);
+  await touch(leadId);
 }
 
 // ── Video preparation ────────────────────────────────────────────────────────
@@ -517,7 +537,7 @@ export async function generateVideoAction(leadId: string): Promise<void> {
     sentAt: null,
     aiMeta: meta,
   });
-  touch(leadId);
+  await touch(leadId);
 }
 
 export async function updateVideoScriptAction(videoId: string, leadId: string, formData: FormData): Promise<void> {
@@ -527,16 +547,16 @@ export async function updateVideoScriptAction(videoId: string, leadId: string, f
     cta: String(formData.get("cta") ?? ""),
     accompanyingEmail: String(formData.get("accompanyingEmail") ?? ""),
   });
-  touch(leadId);
+  await touch(leadId);
 }
 export async function setVideoUrlAction(videoId: string, leadId: string, formData: FormData): Promise<void> {
   const url = String(formData.get("videoUrl") ?? "").trim();
   await updateVideo(videoId, { videoUrl: url || null, status: url ? "recorded" : "script_ready" });
-  touch(leadId);
+  await touch(leadId);
 }
 export async function markVideoReadyAction(videoId: string, leadId: string): Promise<void> {
   await updateVideo(videoId, { status: "ready" });
-  touch(leadId);
+  await touch(leadId);
 }
 
 // ── Outreach ─────────────────────────────────────────────────────────────────
@@ -559,16 +579,16 @@ export async function generateOutreachAction(leadId: string): Promise<void> {
     responseStatus: "none",
     aiMeta: meta,
   });
-  touch(leadId);
+  await touch(leadId);
 }
 export async function updateOutreachAction(outreachId: string, leadId: string, formData: FormData): Promise<void> {
   await updateOutreach(outreachId, { subject: String(formData.get("subject") ?? ""), body: String(formData.get("body") ?? "") });
-  touch(leadId);
+  await touch(leadId);
 }
 export async function approveOutreachAction(outreachId: string, leadId: string): Promise<void> {
   await updateOutreach(outreachId, { status: "approved" });
   await audit("outreach.approve", "outreach", outreachId);
-  touch(leadId);
+  await touch(leadId);
 }
 export async function markOutreachSentAction(outreachId: string, leadId: string, channel: OutreachChannel): Promise<void> {
   const lead = await getLead(leadId);
@@ -579,7 +599,7 @@ export async function markOutreachSentAction(outreachId: string, leadId: string,
   });
   if (lead) await scheduleFollowUps(lead);
   await audit("outreach.sent", "outreach", outreachId, { channel });
-  touch(leadId);
+  await touch(leadId);
 }
 
 export async function markRepliedAction(leadId: string): Promise<void> {
@@ -589,7 +609,7 @@ export async function markRepliedAction(leadId: string): Promise<void> {
   const latest = (await outreachForLead(leadId)).at(-1);
   if (latest) await updateOutreach(latest.id, { responseStatus: "replied" });
   await updateLead(leadId, { pipelineStage: lead?.pipelineStage === "Contacted" || lead?.pipelineStage === "Follow-Up" ? "Follow-Up" : lead?.pipelineStage });
-  touch(leadId);
+  await touch(leadId);
 }
 
 export async function optOutAction(leadId: string): Promise<void> {
@@ -602,7 +622,7 @@ export async function optOutAction(leadId: string): Promise<void> {
   const latest = (await outreachForLead(leadId)).at(-1);
   if (latest) await updateOutreach(latest.id, { responseStatus: "opted_out" });
   await audit("contact.opt_out", "lead", leadId);
-  touch(leadId);
+  await touch(leadId);
 }
 
 // ── Tasks (Today queue) ──────────────────────────────────────────────────────
@@ -633,25 +653,25 @@ export async function completeTaskAction(taskId: string): Promise<void> {
       });
     }
   }
-  touch(task.leadId);
+  await touch(task.leadId);
 }
 export async function snoozeTaskAction(taskId: string, days = 1): Promise<void> {
   const task = await getTask(taskId);
   const until = new Date();
   until.setDate(until.getDate() + days);
   await updateTask(taskId, { snoozedUntil: until.toISOString() });
-  if (task) touch(task.leadId);
+  if (task) await touch(task.leadId);
 }
 export async function skipTaskAction(taskId: string): Promise<void> {
   const task = await getTask(taskId);
   await updateTask(taskId, { status: "skipped" });
-  if (task) touch(task.leadId);
+  if (task) await touch(task.leadId);
 }
 export async function markUnqualifiedAction(leadId: string, taskId?: string): Promise<void> {
   await updateLead(leadId, { pipelineStage: "Disqualified", recommendedAction: "Skip" });
   if (taskId) await updateTask(taskId, { status: "skipped" });
   await audit("lead.disqualify", "lead", leadId);
-  touch(leadId);
+  await touch(leadId);
 }
 
 // ── Pipeline ─────────────────────────────────────────────────────────────────
@@ -659,12 +679,12 @@ export async function changeStageAction(leadId: string, stage: PipelineStage): P
   const lead = await getLead(leadId);
   await updateLead(leadId, { pipelineStage: stage });
   await audit("lead.stage_change", "lead", leadId, { from: lead?.pipelineStage, to: stage });
-  touch(leadId);
+  await touch(leadId);
 }
 
 export async function addNoteAction(leadId: string, formData: FormData): Promise<void> {
   await updateLead(leadId, { note: String(formData.get("note") ?? "") });
-  touch(leadId);
+  await touch(leadId);
 }
 
 // ── Meetings ─────────────────────────────────────────────────────────────────
@@ -689,11 +709,11 @@ export async function bookMeetingAction(leadId: string, formData: FormData): Pro
   await updateLead(leadId, { pipelineStage: "Meeting Booked" });
   await stopPlansForLead(leadId, "meeting booked");
   await audit("meeting.book", "meeting", meeting.id);
-  touch(leadId);
+  await touch(leadId);
 }
 export async function updateMeetingNotesAction(meetingId: string, leadId: string, formData: FormData): Promise<void> {
   await updateMeeting(meetingId, { notes: String(formData.get("notes") ?? ""), nextStep: String(formData.get("nextStep") ?? "") });
-  touch(leadId);
+  await touch(leadId);
 }
 export async function setMeetingOutcomeAction(meetingId: string, leadId: string, outcome: MeetingOutcome): Promise<void> {
   await updateMeeting(meetingId, { outcome });
@@ -706,7 +726,7 @@ export async function setMeetingOutcomeAction(meetingId: string, leadId: string,
   };
   const stage = stageMap[outcome];
   if (stage) await updateLead(leadId, { pipelineStage: stage });
-  touch(leadId);
+  await touch(leadId);
 }
 
 // ── Proposals ────────────────────────────────────────────────────────────────
@@ -727,7 +747,7 @@ export async function createProposalAction(leadId: string, formData: FormData): 
     acceptedAt: null,
   });
   await updateLead(leadId, { pipelineStage: "Proposal Sent" });
-  touch(leadId);
+  await touch(leadId);
 }
 export async function markWonAction(leadId: string): Promise<void> {
   const latest = (await proposalsForLead(leadId)).at(-1);
@@ -735,12 +755,12 @@ export async function markWonAction(leadId: string): Promise<void> {
   await updateLead(leadId, { pipelineStage: "Won" });
   await stopPlansForLead(leadId, "won");
   await audit("lead.won", "lead", leadId);
-  touch(leadId);
+  await touch(leadId);
 }
 export async function markLostAction(leadId: string): Promise<void> {
   await updateLead(leadId, { pipelineStage: "Lost" });
   await stopPlansForLead(leadId, "lost");
-  touch(leadId);
+  await touch(leadId);
 }
 
 // ── Settings ─────────────────────────────────────────────────────────────────

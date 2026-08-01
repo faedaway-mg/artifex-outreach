@@ -12,6 +12,7 @@ import { insertOutcomeReview, updateOutcomeReview, outcomeReviewsForLead, snapsh
 import type { MemoryConfidence, OutcomeStatus } from "./types";
 import { OUTCOME_STATUSES, MEMORY_CONFIDENCES } from "./types";
 import { parseSnapshot, beforeStateFromSnapshot } from "./engagement";
+import { currentActor } from "@/lib/auth";
 
 function touch(leadId: string) {
   revalidatePath(`/leads/${leadId}`);
@@ -37,7 +38,7 @@ export async function startOutcomeReviewAction(leadId: string, recommendationId:
     beforeState, observedOutcome: "", evidence: "", unexpectedConsequences: "", lessonsLearned: "",
     confidence: "Low", reviewedAt: null, operatorNotes: null,
   });
-  await appendAudit({ action: "outcome.start", actor: "jordan", targetType: "outcome", targetId: item.id, meta: { recommendationId }, ip: null });
+  await appendAudit({ action: "outcome.start", actor: currentActor(), targetType: "outcome", targetId: item.id, meta: { recommendationId }, ip: null });
   touch(leadId);
 }
 
@@ -61,6 +62,6 @@ export async function setOutcomeStatusAction(id: string, leadId: string, statusR
   const status = asStatus(statusRaw);
   if (!status) return;
   await updateOutcomeReview(id, { status, reviewedAt: status === "Awaiting Review" ? null : new Date().toISOString() });
-  await appendAudit({ action: "outcome.status", actor: "jordan", targetType: "outcome", targetId: id, meta: { status }, ip: null });
+  await appendAudit({ action: "outcome.status", actor: currentActor(), targetType: "outcome", targetId: id, meta: { status }, ip: null });
   touch(leadId);
 }

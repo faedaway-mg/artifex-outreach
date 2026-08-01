@@ -22,7 +22,7 @@ async function main() {
     pipelineStage: "Qualified", estimatedValueLow: 8000, estimatedValueHigh: 18000, recommendedService: "Business Website System", recommendedAction: "Prepare video",
     recommendationReason: null, opportunitySummary: "Strong reputation but a dated mobile booking flow.", strengths: [],
     acquisitionStrategy: null, acquisitionScore: null, acquisitionReason: null, acquisitionScoreBreakdown: null, acquisitionOverride: false,
-    assignedTo: "jordan", note: "DEMO", lastContactAt: null, nextFollowUpAt: null,
+    assignedTo: "jordan", assignedAt: null, assignmentReason: null, lastOperatorActivityAt: null, note: "DEMO", lastContactAt: null, nextFollowUpAt: null,
   });
   await insertFinding({ leadId: lead.id, category: "Mobile usability", title: "Booking hard to find on mobile", observation: "o", evidence: "e", businessImpact: "i", modernizationDirection: "Persistent booking button", findingType: "Automated technical finding", confidence: "Verified", sourceUrl: "https://d.example", analyzedAt: new Date().toISOString(), deterministic: true, approved: true });
 

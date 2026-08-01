@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { timingSafeEqual } from "crypto";
 import { expectedPassword, setSession } from "@/lib/auth";
+import { LEGACY_OPERATOR_ID } from "@/lib/operators/model";
 import { rateLimit, resetRateLimit } from "@/lib/ratelimit";
-import { appendAudit } from "@/lib/repo";
+import { appendAudit, listOperators, updateOperator } from "@/lib/repo";
 import { externalOrigin } from "@/lib/http";
 
 export const runtime = "nodejs";
@@ -25,6 +26,7 @@ export async function POST(req: NextRequest) {
   const form = await req.formData();
   const password = String(form.get("password") ?? "");
   const from = String(form.get("from") ?? "/") || "/";
+  const requested = String(form.get("operator") ?? "").trim();
 
   if (!rl.allowed) {
     await appendAudit({ action: "auth.login_blocked", actor: "anonymous", targetType: null, targetId: null, meta: { ip }, ip });
@@ -40,7 +42,13 @@ export async function POST(req: NextRequest) {
   }
 
   resetRateLimit(`login:${ip}`);
-  setSession();
-  await appendAudit({ action: "auth.login_success", actor: "jordan", targetType: null, targetId: null, meta: { ip }, ip });
+  // The chosen operator must exist and be active; anything else falls back to the
+  // legacy operator so a stale form can never mint an identity that isn't real.
+  const operators = await listOperators();
+  const chosen = operators.find((o) => o.id === requested && o.active);
+  const operatorId = chosen?.id ?? LEGACY_OPERATOR_ID;
+  setSession(operatorId);
+  if (chosen) await updateOperator(chosen.id, { lastActiveAt: new Date().toISOString() });
+  await appendAudit({ action: "auth.login_success", actor: operatorId, targetType: null, targetId: null, meta: { ip }, ip });
   return NextResponse.redirect(new URL(from.startsWith("/") ? from : "/", origin), { status: 303 });
 }

@@ -45,7 +45,7 @@ async function main() {
     pipelineStage: "Proposal Sent", estimatedValueLow: 8000, estimatedValueHigh: 16000, recommendedService: "Business Website System",
     recommendedAction: "Prepare video", recommendationReason: null, opportunitySummary: "Modernize online ordering and loyalty.",
     strengths: [], acquisitionStrategy: null, acquisitionScore: null, acquisitionReason: null, acquisitionScoreBreakdown: null,
-    acquisitionOverride: false, assignedTo: "jordan", note: null, lastContactAt: null, nextFollowUpAt: null,
+    acquisitionOverride: false, assignedTo: "jordan", assignedAt: null, assignmentReason: null, lastOperatorActivityAt: null, note: null, lastContactAt: null, nextFollowUpAt: null,
   } as any);
   await insertContact({ leadId: lead.id, name: "Sam Rivera", title: "Owner", email: "sam@rehearsal.example", phone: null, linkedinUrl: null, source: "rehearsal", confidence: "Verified", verified: true, optedOut: false });
   const proposal = await insertProposal({ leadId: lead.id, number: "AL-P-2026-777", version: 1, status: "sent", amount: 12000, proposalUrl: null, sentAt: new Date().toISOString(), acceptedAt: null });

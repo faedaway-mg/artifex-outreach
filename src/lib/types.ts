@@ -152,14 +152,42 @@ export const SCORE_LABELS: Record<keyof ScoreBreakdown, string> = {
 };
 
 // ── Entities ─────────────────────────────────────────────────────────────────
-export interface User {
+/**
+ * How much of the workspace an operator may be given right now.
+ *
+ *   available   — normal. Receives new work.
+ *   engineering — heads-down building. Receives NO new work; keeps active
+ *                 conversations; inactive work is redistributed automatically.
+ *   away        — out. Receives no new work and even active conversations
+ *                 become transferable (vacation cover).
+ */
+export const AVAILABILITY_MODES = ["available", "engineering", "away"] as const;
+export type AvailabilityMode = (typeof AVAILABILITY_MODES)[number];
+
+/**
+ * A person who works the acquisition database. Persisted in the `users` table,
+ * which has existed since migration 0000 (see db/schema.ts operators).
+ */
+export interface Operator {
   id: string;
   name: string;
   email: string;
   role: string;
+  initials: string;
+  avatarUrl: string | null;
+  active: boolean;
+  availabilityMode: AvailabilityMode;
+  /** WorkKind values this operator is preferred for. Empty = no preference. */
+  preferredWorkKinds: string[];
+  dailyCapacity: number;
+  timezone: string;
+  lastActiveAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
+
+/** @deprecated Kept as an alias while callers migrate. Use Operator. */
+export type User = Operator;
 
 export interface Lead {
   id: string;
@@ -205,7 +233,12 @@ export interface Lead {
   acquisitionReason: string | null;
   acquisitionScoreBreakdown: AcquisitionScoreBreakdown | null;
   acquisitionOverride: boolean;
-  assignedTo: string;
+  /** Operator id accountable for this business. null = unassigned. */
+  assignedTo: string | null;
+  assignedAt: string | null;
+  assignmentReason: string | null;
+  /** Last operator action ON this business — drives ownership staleness. */
+  lastOperatorActivityAt: string | null;
   note: string | null;
   lastContactAt: string | null;
   nextFollowUpAt: string | null;

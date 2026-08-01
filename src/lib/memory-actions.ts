@@ -10,6 +10,7 @@ import { revalidatePath } from "next/cache";
 import { insertMemoryItem, updateMemoryItem, deleteMemoryItem, appendAudit } from "./repo";
 import type { MemoryCategory, MemoryConfidence, MemorySource, MemoryStatus } from "./types";
 import { MEMORY_CATEGORIES, MEMORY_CONFIDENCES, MEMORY_SOURCES, MEMORY_STATUSES } from "./types";
+import { currentActor } from "@/lib/auth";
 
 function touch(leadId: string) {
   revalidatePath(`/leads/${leadId}`);
@@ -42,7 +43,7 @@ export async function addMemoryAction(leadId: string, formData: FormData): Promi
     supportingContext: String(formData.get("supportingContext") ?? "").trim() || null,
     operatorNotes: null,
   });
-  await appendAudit({ action: "memory.add", actor: "jordan", targetType: "memory", targetId: item.id, meta: { category: item.category, source, status }, ip: null });
+  await appendAudit({ action: "memory.add", actor: currentActor(), targetType: "memory", targetId: item.id, meta: { category: item.category, source, status }, ip: null });
   touch(leadId);
 }
 
@@ -67,7 +68,7 @@ export async function saveDetectedMemoryAction(
     supportingContext: input.quote.trim() || null,
     operatorNotes: null,
   });
-  await appendAudit({ action: "memory.detect", actor: "jordan", targetType: "memory", targetId: item.id, meta: { category: item.category, source: "Discovery Meeting", status: "Proposed" }, ip: null });
+  await appendAudit({ action: "memory.detect", actor: currentActor(), targetType: "memory", targetId: item.id, meta: { category: item.category, source: "Discovery Meeting", status: "Proposed" }, ip: null });
   touch(leadId);
 }
 
@@ -76,7 +77,7 @@ export async function setMemoryStatusAction(id: string, leadId: string, statusRa
   const status = asStatus(statusRaw);
   if (!status) return;
   await updateMemoryItem(id, { status });
-  await appendAudit({ action: "memory.status", actor: "jordan", targetType: "memory", targetId: id, meta: { status }, ip: null });
+  await appendAudit({ action: "memory.status", actor: currentActor(), targetType: "memory", targetId: id, meta: { status }, ip: null });
   touch(leadId);
 }
 
@@ -89,6 +90,6 @@ export async function updateMemoryAction(id: string, leadId: string, formData: F
 
 export async function deleteMemoryAction(id: string, leadId: string): Promise<void> {
   await deleteMemoryItem(id);
-  await appendAudit({ action: "memory.delete", actor: "jordan", targetType: "memory", targetId: id, meta: {}, ip: null });
+  await appendAudit({ action: "memory.delete", actor: currentActor(), targetType: "memory", targetId: id, meta: {}, ip: null });
   touch(leadId);
 }

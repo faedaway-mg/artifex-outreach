@@ -9,6 +9,7 @@ import { revalidatePath } from "next/cache";
 import { getLead, updateLead, insertContact, insertTask, allTasks, updateTask, contactsForLead, appendAudit } from "@/lib/repo";
 import { resolveCallWorkForEmail } from "@/lib/outreach/contact-route";
 import type { Lead, PipelineStage } from "@/lib/types";
+import { currentActor } from "@/lib/auth";
 
 /**
  * A lead has exactly ONE next call. Before scheduling a new attempt, supersede any
@@ -306,7 +307,7 @@ export async function correctToAskedToSendAction(leadId: string): Promise<CallOu
 
   await appendAudit({
     action: "lead.call-outcome.corrected",
-    actor: "jordan",
+    actor: currentActor(),
     targetType: "lead",
     targetId: leadId,
     meta: { from: "contact-collected", to: "asked-to-send", email: collected.email, ...routed },

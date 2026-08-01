@@ -9,6 +9,7 @@ import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
 import { getSettings, updateSettings, appendAudit } from "./repo";
 import { nowIso } from "./store";
+import { currentActor } from "@/lib/auth";
 
 export async function setLaunchReviewConfirmed(confirmed: boolean): Promise<void> {
   const settings = await getSettings();
@@ -21,7 +22,7 @@ export async function setLaunchReviewConfirmed(confirmed: boolean): Promise<void
   } catch {}
   await appendAudit({
     action: confirmed ? "launch.review.confirmed" : "launch.review.revoked",
-    actor: "jordan",
+    actor: currentActor(),
     targetType: "launch",
     targetId: "manual-review",
     meta: null,
