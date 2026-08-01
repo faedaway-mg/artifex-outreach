@@ -14,6 +14,7 @@ import {
   computeWorkloads,
   businessDaysBetween,
   isActiveConversation,
+  isInternalLead,
   DEFAULT_POLICY,
 } from "./assignment";
 
@@ -192,8 +193,10 @@ describe("promise 4 — capacity decides, nobody divides a spreadsheet", () => {
     expect(plan.reassignments).toHaveLength(0);
   });
 
-  it("level mode evens the split without touching live conversations", () => {
-    const operators = [op("jordan"), op("alex")];
+  it("level mode relieves an overloaded day without touching live conversations", () => {
+    // Jordan's DAY is over capacity — six businesses need work and he has three
+    // slots. That is the only thing levelling is allowed to care about.
+    const operators = [op("jordan", { dailyCapacity: 3 }), op("alex", { dailyCapacity: 3 })];
     const today = NOW.toISOString();
     const leads = [
       ...Array.from({ length: 5 }, (_, i) =>
@@ -201,15 +204,28 @@ describe("promise 4 — capacity decides, nobody divides a spreadsheet", () => {
       ),
       lead("live", { assignedTo: "jordan", assignedAt: today, lastContactAt: today }),
     ];
-    const plan = planDistribution({ operators, leads, tasks: [], ctx: emptyCtx, now: NOW, mode: "level" });
+    const tasks = leads.map((l) => task(l.id));
+    const plan = planDistribution({ operators, leads, tasks, ctx: emptyCtx, now: NOW, mode: "level" });
+
     expect(plan.reassignments.length).toBeGreaterThan(0);
     expect(plan.reassignments.every((r) => r.to === "alex")).toBe(true);
     expect(plan.reassignments.some((r) => r.leadId === "live")).toBe(false);
 
-    const owners = new Map(leads.map((l) => [l.id, l.assignedTo]));
-    for (const r of plan.reassignments) owners.set(r.leadId, r.to);
-    const counts = [...owners.values()].reduce<Record<string, number>>((a, o) => ({ ...a, [o!]: (a[o!] ?? 0) + 1 }), {});
-    expect(Math.abs(counts.jordan - counts.alex)).toBeLessThanOrEqual(1);
+    // The success condition is a workable day for both, not an even lead count.
+    for (const w of plan.projected) expect(w.dueToday).toBeLessThanOrEqual(w.capacity);
+  });
+
+  it("level mode leaves a heavy but workable day alone — an even split is not the goal", () => {
+    // Jordan owns everything, but only two businesses need work today and he has
+    // eight slots. Nothing is wrong, so nothing moves.
+    const operators = [op("jordan"), op("alex")];
+    const today = NOW.toISOString();
+    const leads = Array.from({ length: 12 }, (_, i) =>
+      lead(`l${i}`, { assignedTo: "jordan", assignedAt: today, lastOperatorActivityAt: today }),
+    );
+    const tasks = [task("l0"), task("l1")];
+    const plan = planDistribution({ operators, leads, tasks, ctx: emptyCtx, now: NOW, mode: "level" });
+    expect(plan.reassignments).toHaveLength(0);
   });
 
   it("respects capacity when choosing an owner for a new business", () => {
@@ -273,5 +289,187 @@ describe("the plan is trustworthy", () => {
   it("uses the documented default policy", () => {
     expect(DEFAULT_POLICY.staleAfterBusinessDays).toBe(4);
     expect(DEFAULT_POLICY.activeConversationDays).toBe(14);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Expiry is ELIGIBILITY, not a verdict.
+//
+// The first version of this engine removed the current owner from the ranking
+// before choosing, so "you are still the right owner" was an outcome it could
+// never reach. On real data that turned every quiet week into a mass migration:
+// one pass proposed moving 81% of the book. These tests hold the line — the
+// scheduler optimises work, it does not maximise ownership transfers.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("stale ownership is eligibility, not a forced move", () => {
+  const SILENT = "2026-07-20T00:00:00Z"; // well past the 4-business-day horizon
+
+  /** Give an operator a believable day: n quiet businesses, each needing work. */
+  function busy(operatorId: string, n: number) {
+    const today = NOW.toISOString();
+    const leads = Array.from({ length: n }, (_, i) =>
+      lead(`${operatorId}_busy${i}`, { assignedTo: operatorId, assignedAt: today, lastOperatorActivityAt: today }),
+    );
+    return { leads, tasks: leads.map((l) => task(l.id)) };
+  }
+
+  it("does NOT move a stale business when its owner is still the best owner", () => {
+    // Jordan's day is empty; Alex is carrying five. Expiry alone must not hand
+    // Jordan's quiet business to the busier person.
+    const operators = [op("jordan"), op("alex")];
+    const alexDay = busy("alex", 5);
+    const stale = lead("stale", { assignedTo: "jordan", assignedAt: SILENT, lastOperatorActivityAt: SILENT });
+    const plan = planDistribution({
+      operators, leads: [stale, ...alexDay.leads], tasks: alexDay.tasks, ctx: emptyCtx, now: NOW,
+    });
+    expect(plan.reassignments).toHaveLength(0);
+  });
+
+  it("records WHY it held — the current owner won the ranking on the merits", () => {
+    const operators = [op("jordan"), op("alex")];
+    const alexDay = busy("alex", 5);
+    const stale = lead("stale", { assignedTo: "jordan", assignedAt: SILENT, lastOperatorActivityAt: SILENT });
+    const plan = planDistribution({
+      operators, leads: [stale, ...alexDay.leads], tasks: alexDay.tasks, ctx: emptyCtx, now: NOW,
+    });
+    const holdRow = plan.held.find((h) => h.leadId === "stale")!;
+    expect(holdRow.code).toBe("already-best");
+    expect(holdRow.reason).toMatch(/still the best owner/i);
+  });
+
+  it("DOES move a stale business when someone else is genuinely better", () => {
+    // Same rule, opposite facts: now Jordan is the loaded one, so the business
+    // moves — and the reason says exactly what made Alex the better owner.
+    const operators = [op("jordan"), op("alex")];
+    const jordanDay = busy("jordan", 8);
+    const stale = lead("stale", { assignedTo: "jordan", assignedAt: SILENT, lastOperatorActivityAt: SILENT });
+    const plan = planDistribution({
+      operators, leads: [stale, ...jordanDay.leads], tasks: jordanDay.tasks, ctx: emptyCtx, now: NOW,
+    });
+    const move = plan.reassignments.find((r) => r.leadId === "stale")!;
+    expect(move.to).toBe("alex");
+    expect(move.code).toBe("ownership-stale");
+    expect(move.because[0]).toMatch(/slots used today/);
+  });
+
+  it("balances gradually — one pass never hands over more than a day's work", () => {
+    // Twenty stale businesses, all needing work, all on Jordan. The old engine
+    // moved all twenty. The correct pass moves at most one working day's worth
+    // and holds the rest for tomorrow.
+    const operators = [op("jordan"), op("alex")];
+    const leads = Array.from({ length: 20 }, (_, i) =>
+      lead(`s${String(i).padStart(2, "0")}`, { assignedTo: "jordan", assignedAt: SILENT, lastOperatorActivityAt: SILENT }),
+    );
+    const tasks = leads.map((l) => task(l.id));
+    const plan = planDistribution({ operators, leads, tasks, ctx: emptyCtx, now: NOW });
+
+    expect(plan.reassignments.length).toBeLessThanOrEqual(8); // Alex's daily capacity
+    expect(plan.reassignments.length).toBeLessThan(leads.length / 2);
+    expect(plan.held.filter((h) => h.code === "already-best").length).toBeGreaterThan(0);
+
+    // The receiver is never handed a day he cannot work. Jordan is still over
+    // capacity afterwards — twenty businesses need work and the team has sixteen
+    // slots — and that is the honest answer, not a reason to overload Alex.
+    const alexAfter = plan.projected.find((w) => w.operatorId === "alex")!;
+    const jordanAfter = plan.projected.find((w) => w.operatorId === "jordan")!;
+    expect(alexAfter.dueToday).toBeLessThanOrEqual(alexAfter.capacity);
+    expect(jordanAfter.dueToday).toBeLessThan(20); // his day genuinely improved
+  });
+
+  it("engineering focus still transfers quiet work, even from an idle owner", () => {
+    // Jordan has the emptiest day of anyone, so on merit he would keep this. He
+    // cannot: engineering focus means he is not working the pipeline at all.
+    const operators = [op("jordan", { availabilityMode: "engineering" }), op("alex")];
+    const alexDay = busy("alex", 6);
+    const quiet = lead("quiet", { assignedTo: "jordan", assignedAt: NOW.toISOString(), lastOperatorActivityAt: NOW.toISOString() });
+    const plan = planDistribution({
+      operators, leads: [quiet, ...alexDay.leads], tasks: alexDay.tasks, ctx: emptyCtx, now: NOW,
+    });
+    const move = plan.reassignments.find((r) => r.leadId === "quiet")!;
+    expect(move.code).toBe("owner-engineering");
+    expect(move.to).toBe("alex");
+  });
+
+  it("away and inactive still force movement — ownership there is impossible, not expired", () => {
+    for (const [over, code] of [
+      [{ availabilityMode: "away" as const }, "owner-away"],
+      [{ active: false }, "owner-inactive"],
+    ] as const) {
+      const operators = [op("jordan", over), op("alex")];
+      const alexDay = busy("alex", 6);
+      // Freshly touched: nothing has expired. The owner simply cannot work it.
+      const l = lead("covered", { assignedTo: "jordan", assignedAt: NOW.toISOString(), lastOperatorActivityAt: NOW.toISOString() });
+      const plan = planDistribution({
+        operators, leads: [l, ...alexDay.leads], tasks: alexDay.tasks, ctx: emptyCtx, now: NOW,
+      });
+      const move = plan.reassignments.find((r) => r.leadId === "covered")!;
+      expect(move.code).toBe(code);
+      expect(move.to).toBe("alex");
+    }
+  });
+
+  it("an unassigned business is assigned immediately, even when everyone is full", () => {
+    // Nobody is accountable — that is promise 1, and it outranks capacity.
+    const operators = [op("jordan", { dailyCapacity: 1 }), op("alex", { dailyCapacity: 1 })];
+    const day = [...busy("jordan", 2).leads, ...busy("alex", 2).leads];
+    const tasks = day.map((l) => task(l.id));
+    const orphan = lead("orphan", { assignedTo: null });
+    const plan = planDistribution({ operators, leads: [orphan, ...day], tasks, ctx: emptyCtx, now: NOW });
+    const move = plan.reassignments.find((r) => r.leadId === "orphan")!;
+    expect(move.code).toBe("unassigned");
+    expect(move.to).toBeTruthy();
+  });
+
+  it("an active conversation is protected and the plan says so", () => {
+    const operators = [op("jordan"), op("alex")];
+    const jordanDay = busy("jordan", 8); // Jordan is overloaded — pressure to move it
+    const live = lead("live", {
+      assignedTo: "jordan",
+      assignedAt: SILENT,
+      lastOperatorActivityAt: SILENT, // ownership expired…
+      lastContactAt: new Date(NOW.getTime() - 86_400_000).toISOString(), // …but they heard from us yesterday
+    });
+    const plan = planDistribution({
+      operators, leads: [live, ...jordanDay.leads], tasks: [...jordanDay.tasks, task("live")],
+      ctx: emptyCtx, now: NOW, mode: "level",
+    });
+    expect(plan.reassignments.some((r) => r.leadId === "live")).toBe(false);
+    expect(plan.held.find((h) => h.leadId === "live")?.code).toBe("active-conversation");
+  });
+
+  it("never reports the same business as both moving and held", () => {
+    // The levelling pass runs after the daily one and can move something the
+    // daily pass decided to hold. A preview that lists a business twice, saying
+    // opposite things, is not one an operator can approve.
+    const operators = [op("jordan", { dailyCapacity: 4 }), op("alex", { dailyCapacity: 4 })];
+    const leads = Array.from({ length: 10 }, (_, i) =>
+      lead(`s${i}`, { assignedTo: "jordan", assignedAt: SILENT, lastOperatorActivityAt: SILENT }),
+    );
+    const tasks = leads.map((l) => task(l.id));
+    const plan = planDistribution({ operators, leads, tasks, ctx: emptyCtx, now: NOW, mode: "level" });
+    const movingIds = new Set(plan.reassignments.map((r) => r.leadId));
+    expect(plan.held.some((h) => movingIds.has(h.leadId))).toBe(false);
+    expect(plan.excluded.some((e) => movingIds.has(e.leadId))).toBe(false);
+  });
+
+  it("internal test records never influence a real person's workload", () => {
+    const operators = [op("jordan"), op("alex")];
+    const internals = [
+      lead("t1", { businessName: "Internal Test Send", source: "internal-delivery-test", assignedTo: "jordan", assignedAt: SILENT, lastOperatorActivityAt: SILENT }),
+      lead("t2", { businessName: "Branded Test Send", source: "Internal test", industry: "Internal", assignedTo: "jordan", assignedAt: SILENT, lastOperatorActivityAt: SILENT }),
+    ];
+    const tasks = internals.map((l) => task(l.id));
+
+    expect(internals.every(isInternalLead)).toBe(true);
+
+    const w = computeWorkloads(operators, internals, tasks, NOW).get("jordan")!;
+    expect(w.leadsOwned).toBe(0);
+    expect(w.dueToday).toBe(0);
+
+    const plan = planDistribution({ operators, leads: internals, tasks, ctx: emptyCtx, now: NOW, mode: "level" });
+    expect(plan.consideredLeads).toBe(0);
+    expect(plan.reassignments).toHaveLength(0);
+    expect(plan.excluded.map((e) => e.leadId).sort()).toEqual(["t1", "t2"]);
+    expect(plan.excluded[0].reason).toMatch(/Internal test record/);
   });
 });

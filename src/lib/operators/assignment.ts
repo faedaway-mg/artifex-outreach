@@ -25,6 +25,19 @@ import { workKindForTask } from "../work-queue";
 export const TERMINAL_STAGES = new Set(["Won", "Lost", "Disqualified", "Closed Won", "Closed Lost", "Client"]);
 
 /**
+ * Internal test rows — real leads in the database that are not real businesses.
+ * They were created to exercise sending and delivery, and they carry no outreach
+ * obligation. Counting them would let test data set a real person's workload, so
+ * distribution ignores them entirely and reports them separately.
+ *
+ * Identified from the fields the creating code already set (source / industry).
+ * No new column, and no matching on business names, which operators can edit.
+ */
+export function isInternalLead(lead: Lead): boolean {
+  return /internal/i.test(lead.source ?? "") || /^internal$/i.test(lead.industry ?? "");
+}
+
+/**
  * Stages that mean a real conversation is under way. Reaching one of these is an
  * event the operator caused; moving the business afterwards would hand a stranger
  * a relationship mid-sentence.
@@ -120,14 +133,16 @@ export function computeWorkloads(operators: Operator[], leads: Lead[], tasks: Ta
   for (const op of operators) {
     out.set(op.id, { operatorId: op.id, leadsOwned: 0, openTasks: 0, dueToday: 0, capacity: op.dailyCapacity, headroom: op.dailyCapacity });
   }
+  const internal = new Set(leads.filter(isInternalLead).map((l) => l.id));
   for (const lead of leads) {
-    if (!lead.assignedTo || TERMINAL_STAGES.has(lead.pipelineStage)) continue;
+    if (!lead.assignedTo || TERMINAL_STAGES.has(lead.pipelineStage) || internal.has(lead.id)) continue;
     const w = out.get(lead.assignedTo);
     if (w) w.leadsOwned += 1;
   }
   const dueLeads = new Map<string, Set<string>>();
   for (const task of tasks) {
     if (task.status !== "open") continue;
+    if (internal.has(task.leadId)) continue;
     const owner = ownerOf.get(task.leadId);
     if (!owner) continue;
     const w = out.get(owner);
@@ -159,6 +174,23 @@ export type ReassignCode =
   | "ownership-stale"
   | "workload-levelling";
 
+/**
+ * Codes where the current owner CANNOT keep the business, so the move is not a
+ * judgement call — there is nobody accountable, or the accountable person cannot
+ * act. These are the only reasons automation removes an owner outright.
+ *
+ * "ownership-stale" is deliberately absent. Expiry makes a business ELIGIBLE for
+ * reassignment; it does not make the current owner the wrong owner. If they are
+ * still the best fit they keep it, and the pass records why.
+ */
+export const FORCED_CODES = new Set<ReassignCode>([
+  "unassigned",
+  "owner-unknown",
+  "owner-inactive",
+  "owner-away",
+  "owner-engineering",
+]);
+
 export interface Reassignment {
   leadId: string;
   businessName: string;
@@ -173,7 +205,8 @@ export interface Reassignment {
 
 export interface HeldLead {
   leadId: string;
-  code: ReassignCode | "no-available-operator" | "already-best";
+  businessName: string;
+  code: ReassignCode | "no-available-operator" | "already-best" | "no-capacity" | "active-conversation";
   reason: string;
 }
 
@@ -181,6 +214,8 @@ export interface DistributionPlan {
   reassignments: Reassignment[];
   /** Businesses that were eligible to move but deliberately did not. */
   held: HeldLead[];
+  /** Businesses never considered at all: finished, closed, or internal test rows. */
+  excluded: Array<{ leadId: string; businessName: string; reason: string }>;
   /** Workloads AFTER the plan is applied — what the report shows. */
   projected: Workload[];
   consideredLeads: number;
@@ -310,37 +345,95 @@ export function planDistribution(input: {
 
   const reassignments: Reassignment[] = [];
   const held: HeldLead[] = [];
+  const excluded: Array<{ leadId: string; businessName: string; reason: string }> = [];
   let consideredLeads = 0;
+
+  // Does this business carry work due today? Moving one that does actually shifts
+  // load; moving one that doesn't only shifts accountability. The difference is
+  // what keeps the capacity arithmetic honest on both sides of a move.
+  const eod = endOfDay(now).getTime();
+  const dueLeadIds = new Set(
+    tasks
+      .filter((t) => t.status === "open"
+        && !(t.snoozedUntil && new Date(t.snoozedUntil).getTime() > now.getTime())
+        && new Date(t.dueAt).getTime() <= eod)
+      .map((t) => t.leadId),
+  );
+
+  // How many businesses each operator has already been handed in THIS pass.
+  // Nobody is given more in one automatic pass than they could work in a day —
+  // this is what makes balancing gradual instead of a single mass migration.
+  const receivedThisPass = new Map<string, number>(operators.map((o) => [o.id, 0]));
 
   // Stable order so two runs on the same data produce the same plan.
   const ordered = [...leads].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 
   for (const lead of ordered) {
-    if (TERMINAL_STAGES.has(lead.pipelineStage) || lead.businessStatus === "CLOSED_PERMANENTLY") continue;
+    if (TERMINAL_STAGES.has(lead.pipelineStage)) {
+      excluded.push({ leadId: lead.id, businessName: lead.businessName, reason: `Finished — ${lead.pipelineStage}.` });
+      continue;
+    }
+    if (lead.businessStatus === "CLOSED_PERMANENTLY") {
+      excluded.push({ leadId: lead.id, businessName: lead.businessName, reason: "Business is permanently closed." });
+      continue;
+    }
+    if (isInternalLead(lead)) {
+      excluded.push({ leadId: lead.id, businessName: lead.businessName, reason: "Internal test record — not a real business." });
+      continue;
+    }
     consideredLeads += 1;
 
     const owner = lead.assignedTo ? opById.get(lead.assignedTo) : undefined;
     const elig = eligibility(lead, owner, ctx, now);
-    if (!elig) continue;
+    const live = isActiveConversation(lead, ctx, now);
+    if (!elig) {
+      // Say so rather than staying silent: a preview that cannot explain why a
+      // business stayed put is not a preview, it's a list.
+      if (live) {
+        held.push({ leadId: lead.id, businessName: lead.businessName, code: "active-conversation", reason: "Active conversation — continuity preserved." });
+      }
+      continue;
+    }
 
     // An away/inactive owner's live conversation may move; anyone else's may not.
-    const live = isActiveConversation(lead, ctx, now);
     if (live && owner && !activeConversationsTransferable(owner)) {
-      held.push({ leadId: lead.id, code: elig.code, reason: "Active conversation — continuity preserved." });
+      held.push({ leadId: lead.id, businessName: lead.businessName, code: "active-conversation", reason: "Active conversation — continuity preserved." });
       continue;
     }
 
-    if (!receivers.length) {
+    // The correction. When the owner CANNOT keep the business they are removed
+    // from the pool and something must take it. When ownership has merely expired
+    // they compete for it like anyone else — expiry is eligibility, not a verdict.
+    const forced = FORCED_CODES.has(elig.code);
+    const capacityBound = (op: Operator) =>
+      (loads.get(op.id)!.headroom > 0) && (receivedThisPass.get(op.id)! < op.dailyCapacity);
+    const pool = forced
+      ? receivers.filter((o) => o.id !== lead.assignedTo)
+      : receivers.filter((o) => o.id === lead.assignedTo || capacityBound(o));
+
+    if (!pool.length) {
       // Promise 1 inverted: never orphan a business to satisfy a rule. It keeps
       // its current owner and the reason is recorded so the gap is visible.
-      held.push({ leadId: lead.id, code: "no-available-operator", reason: "No operator is available to receive work." });
+      held.push({
+        leadId: lead.id,
+        businessName: lead.businessName,
+        code: forced ? "no-available-operator" : "no-capacity",
+        reason: forced
+          ? "No operator is available to receive work."
+          : "Ownership has expired, but no operator has capacity today — holding rather than overloading someone.",
+      });
       continue;
     }
 
-    const ranked = rank(lead, nextKindByLead.get(lead.id) ?? null, receivers, loads, localityByOperator);
-    const winner = ranked.find((r) => r.op.id !== lead.assignedTo) ?? ranked[0];
+    const ranked = rank(lead, nextKindByLead.get(lead.id) ?? null, pool, loads, localityByOperator);
+    const winner = ranked[0];
     if (winner.op.id === lead.assignedTo) {
-      held.push({ leadId: lead.id, code: "already-best", reason: "Current owner is still the best fit." });
+      held.push({
+        leadId: lead.id,
+        businessName: lead.businessName,
+        code: "already-best",
+        reason: `Ownership expired, but ${shortName(winner.op)} is still the best owner — ${winner.because[0]}.`,
+      });
       continue;
     }
 
@@ -356,21 +449,35 @@ export function planDistribution(input: {
 
     // Reflect the move immediately so the next business sees the new balance —
     // this is what stops every lead in a batch landing on the same operator.
+    // Load moves in whole units of real work: a business with nothing due today
+    // changes who is accountable without changing anyone's day.
+    const dueUnits = dueLeadIds.has(lead.id) ? 1 : 0;
     const fromLoad = lead.assignedTo ? loads.get(lead.assignedTo) : undefined;
-    if (fromLoad) { fromLoad.leadsOwned -= 1; fromLoad.headroom += 1; }
+    if (fromLoad) {
+      fromLoad.leadsOwned -= 1;
+      fromLoad.dueToday -= dueUnits;
+      fromLoad.headroom = fromLoad.capacity - fromLoad.dueToday;
+    }
     const toLoad = loads.get(winner.op.id)!;
     toLoad.leadsOwned += 1;
-    toLoad.dueToday += 1;
+    toLoad.dueToday += dueUnits;
     toLoad.headroom = toLoad.capacity - toLoad.dueToday;
+    receivedThisPass.set(winner.op.id, receivedThisPass.get(winner.op.id)! + 1);
     const set = localityByOperator.get(winner.op.id) ?? new Set<string>();
     set.add(`${lead.city}|${lead.state}`);
     localityByOperator.set(winner.op.id, set);
   }
 
   // ── Levelling pass (explicit rebalance only) ───────────────────────────────
-  // Repeatedly take the QUIETEST business off the operator carrying the most and
-  // give it to the one carrying the least, until the gap closes. Quiet means: no
-  // live conversation, not finished, not already moved above.
+  // Take the QUIETEST business carrying work due today off whoever is over
+  // capacity and give it to whoever has room, until nobody is over capacity or
+  // the day is as even as it can be.
+  //
+  // It levels DAILY WORKLOAD, not lead counts. An even split of businesses is not
+  // the goal and never was: one operator can hold thirty quiet businesses and
+  // still have a light day. What matters is how much is due, today, per person.
+  // Moving a business with nothing due would change a name on a record without
+  // changing anyone's day, so it isn't a candidate.
   if (mode === "level" && receivers.length > 1) {
     const moved = new Set(reassignments.map((r) => r.leadId));
     const ownerNow = new Map(leads.map((l) => [l.id, l.assignedTo]));
@@ -381,6 +488,8 @@ export function planDistribution(input: {
         !moved.has(l.id) &&
         !TERMINAL_STAGES.has(l.pipelineStage) &&
         l.businessStatus !== "CLOSED_PERMANENTLY" &&
+        !isInternalLead(l) &&
+        dueLeadIds.has(l.id) &&
         !isActiveConversation(l, ctx, now),
     );
 
@@ -393,10 +502,16 @@ export function planDistribution(input: {
 
     // Bounded by the number of movable businesses — it always terminates.
     for (let guard = 0; guard < quietestFirst.length; guard += 1) {
-      const byLoad = [...receivers].sort((a, b) => loads.get(a.id)!.leadsOwned - loads.get(b.id)!.leadsOwned);
-      const lightest = byLoad[0];
-      const heaviest = byLoad[byLoad.length - 1];
-      if (loads.get(heaviest.id)!.leadsOwned - loads.get(lightest.id)!.leadsOwned <= 1) break;
+      const byRoom = [...receivers].sort((a, b) => loads.get(b.id)!.headroom - loads.get(a.id)!.headroom);
+      const lightest = byRoom[0];
+      const heaviest = byRoom[byRoom.length - 1];
+      const heavy = loads.get(heaviest.id)!;
+      const light = loads.get(lightest.id)!;
+
+      // Healthy: nobody is over capacity. Stop — an even lead count is not the aim.
+      if (heavy.headroom >= 0) break;
+      // As even as it gets: moving one more would just swap who is behind.
+      if (light.headroom - heavy.headroom <= 1) break;
 
       const candidate = quietestFirst.find((l) => !moved.has(l.id) && ownerNow.get(l.id) === heaviest.id);
       if (!candidate) break;
@@ -409,18 +524,28 @@ export function planDistribution(input: {
         from: heaviest.id,
         to: lightest.id,
         code: "workload-levelling",
-        reason: `Balancing the workspace — ${shortName(heaviest)} carried ${loads.get(heaviest.id)!.leadsOwned}, ${shortName(lightest)} carried ${loads.get(lightest.id)!.leadsOwned}.`,
+        reason: `Balancing today's work — ${shortName(heaviest)} had ${heavy.dueToday} of ${heavy.capacity} slots used, ${shortName(lightest)} had ${light.dueToday} of ${light.capacity}.`,
         because: [
           `no live conversation to interrupt`,
           `quiet for ${idleBusinessDays(candidate, now) ?? "an unknown number of"} business days`,
         ],
       });
-      loads.get(heaviest.id)!.leadsOwned -= 1;
-      loads.get(lightest.id)!.leadsOwned += 1;
+      heavy.leadsOwned -= 1; heavy.dueToday -= 1; heavy.headroom = heavy.capacity - heavy.dueToday;
+      light.leadsOwned += 1; light.dueToday += 1; light.headroom = light.capacity - light.dueToday;
     }
   }
 
-  return { reassignments, held, projected: [...loads.values()], consideredLeads };
+  // A business the levelling pass went on to move is no longer "held". Reporting
+  // it in both lists would make the preview contradict itself, and a preview an
+  // operator has to reconcile against itself is not one they can approve.
+  const finallyMoved = new Set(reassignments.map((r) => r.leadId));
+  return {
+    reassignments,
+    held: held.filter((h) => !finallyMoved.has(h.leadId)),
+    excluded,
+    projected: [...loads.values()],
+    consideredLeads,
+  };
 }
 
 /**
