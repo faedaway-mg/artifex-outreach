@@ -60,25 +60,35 @@ const STATE_ZONE: Record<string, string> = {
 /**
  * States a single abbreviation cannot answer for.
  *
- * `dominant` is where most of the population is; `west` is what to use when the
- * longitude says the business sits past the dividing meridian. Approximating a
- * state line with a meridian is wrong at the margins and honest about it — the
- * confidence returned is "state-approximate", never "state".
+ * THREE fields, not two, and the third is the whole point. An earlier shape had
+ * only `dominant` and `west`, which quietly assumed the less-populous half of a
+ * split state is always the WESTERN half. That is false for Tennessee (the
+ * Eastern-time end is Knoxville, in the east) and for Oregon (the Mountain-time
+ * end is Malheur County, also in the east), and both were inverted as a result —
+ * Memphis was reported as Eastern and Knoxville as Central. So:
+ *
+ *   east      the zone for a business at or past the meridian
+ *   west      the zone for a business west of it
+ *   fallback  what to assume with NO map pin — where most people live, which is
+ *             a different question and deserves a different field
+ *
+ * Approximating a state line with a meridian is wrong at the margins and honest
+ * about it: with no pin the confidence is "state-approximate", never "state".
  */
-const SPLIT_STATES: Record<string, { dominant: string; west: string; meridian: number }> = {
-  AK: { dominant: "America/Anchorage", west: "America/Anchorage", meridian: -170 },
-  FL: { dominant: "America/New_York", west: "America/Chicago", meridian: -85 },
-  ID: { dominant: "America/Boise", west: "America/Los_Angeles", meridian: -116.5 },
-  IN: { dominant: "America/Indiana/Indianapolis", west: "America/Chicago", meridian: -87.2 },
-  KS: { dominant: "America/Chicago", west: "America/Denver", meridian: -101.5 },
-  KY: { dominant: "America/New_York", west: "America/Chicago", meridian: -85.5 },
-  MI: { dominant: "America/Detroit", west: "America/Menominee", meridian: -87.5 },
-  ND: { dominant: "America/Chicago", west: "America/Denver", meridian: -101 },
-  NE: { dominant: "America/Chicago", west: "America/Denver", meridian: -101 },
-  OR: { dominant: "America/Los_Angeles", west: "America/Boise", meridian: -117.5 },
-  SD: { dominant: "America/Chicago", west: "America/Denver", meridian: -100.5 },
-  TN: { dominant: "America/Chicago", west: "America/New_York", meridian: -85.5 },
-  TX: { dominant: "America/Chicago", west: "America/Denver", meridian: -105 },
+const SPLIT_STATES: Record<string, { east: string; west: string; meridian: number; fallback: string }> = {
+  AK: { east: "America/Anchorage", west: "America/Adak", meridian: -169.5, fallback: "America/Anchorage" },
+  FL: { east: "America/New_York", west: "America/Chicago", meridian: -85, fallback: "America/New_York" },
+  ID: { east: "America/Boise", west: "America/Los_Angeles", meridian: -116.5, fallback: "America/Boise" },
+  IN: { east: "America/Indiana/Indianapolis", west: "America/Chicago", meridian: -87.2, fallback: "America/Indiana/Indianapolis" },
+  KS: { east: "America/Chicago", west: "America/Denver", meridian: -101.5, fallback: "America/Chicago" },
+  KY: { east: "America/New_York", west: "America/Chicago", meridian: -85.5, fallback: "America/New_York" },
+  MI: { east: "America/Detroit", west: "America/Menominee", meridian: -87.5, fallback: "America/Detroit" },
+  ND: { east: "America/Chicago", west: "America/Denver", meridian: -101, fallback: "America/Chicago" },
+  NE: { east: "America/Chicago", west: "America/Denver", meridian: -101, fallback: "America/Chicago" },
+  OR: { east: "America/Boise", west: "America/Los_Angeles", meridian: -117.2, fallback: "America/Los_Angeles" },
+  SD: { east: "America/Chicago", west: "America/Denver", meridian: -100.5, fallback: "America/Chicago" },
+  TN: { east: "America/New_York", west: "America/Chicago", meridian: -85.5, fallback: "America/Chicago" },
+  TX: { east: "America/Chicago", west: "America/Denver", meridian: -105, fallback: "America/Chicago" },
 };
 
 const isZone = (z: string | null | undefined): z is string => {
@@ -100,25 +110,52 @@ const isZone = (z: string | null | undefined): z is string => {
  * first time an address is corrected. The moment a business tells us its own
  * timezone, THAT is worth a column; a derivation is not.
  */
-export function inferZone(lead: Pick<Lead, "state" | "longitude" | "latitude">): ZoneInference {
-  const state = (lead.state ?? "").trim().toUpperCase().slice(0, 2);
+/**
+ * Recover a two-letter state from a Google-formatted address line.
+ *
+ * Discovery stores the formatted address verbatim AND parses city/state out of
+ * it into their own columns — but that parse has failed on real production rows
+ * (four Ohio businesses carry `state = ""` while their address plainly reads
+ * "Middletown, OH 45042, USA"). Reading the address is therefore not a guess and
+ * not a heuristic: it is the SAME fact, from the copy that did not get lost.
+ *
+ * Anchored on the "XX 12345" pair so that a two-letter word elsewhere in a
+ * street name cannot be mistaken for a state.
+ */
+export function stateFromAddress(address: string | null | undefined): string | null {
+  const m = /,\s*([A-Z]{2})\s+\d{5}(?:-\d{4})?\b/.exec(address ?? "");
+  return m ? m[1] : null;
+}
+
+export function inferZone(lead: Pick<Lead, "state" | "longitude" | "latitude"> & { address?: string | null }): ZoneInference {
+  const stored = (lead.state ?? "").trim().toUpperCase().slice(0, 2);
+  const state = stored || (stateFromAddress(lead.address) ?? "");
+  const fromAddress = !stored && Boolean(state);
   const lon = typeof lead.longitude === "number" ? lead.longitude : null;
 
   const split = SPLIT_STATES[state];
   if (split) {
     if (lon != null) {
-      const zone = lon < split.meridian ? split.west : split.dominant;
+      const zone = lon < split.meridian ? split.west : split.east;
       return { zone, confidence: "coordinates", because: `${state} spans two zones; the map pin puts this business in ${label(zone)}.` };
     }
     return {
-      zone: split.dominant,
+      zone: split.fallback,
       confidence: "state-approximate",
-      because: `${state} spans two time zones and this business has no map pin — assuming ${label(split.dominant)}, which covers most of the state.`,
+      because: `${state} spans two time zones and this business has no map pin — assuming ${label(split.fallback)}, where most of the state lives.`,
     };
   }
 
   const zone = STATE_ZONE[state];
-  if (zone) return { zone, confidence: "state", because: `${state} is entirely in ${label(zone)}.` };
+  if (zone) {
+    return {
+      zone,
+      confidence: "state",
+      because: fromAddress
+        ? `${state} is entirely in ${label(zone)} — read from the address line, because the state column is empty for this business.`
+        : `${state} is entirely in ${label(zone)}.`,
+    };
+  }
 
   return { zone: DEFAULT_ZONE, confidence: "default", because: "No usable address — falling back to the workspace's own timezone." };
 }
@@ -234,7 +271,7 @@ export interface CallWindow {
  * know something the address does not.
  */
 export function callWindow(
-  lead: Pick<Lead, "state" | "longitude" | "latitude" | "hours">,
+  lead: Pick<Lead, "state" | "longitude" | "latitude" | "hours"> & { address?: string | null },
   now: Date,
 ): CallWindow {
   const { zone, confidence, because } = inferZone(lead);
@@ -301,7 +338,7 @@ export function callOrderWeight(w: CallWindow): number {
  * inputs always produce the same order, which is what keeps the daily queue
  * reproducible and testable.
  */
-export function compareForCalling<T extends Pick<Lead, "state" | "longitude" | "latitude" | "hours" | "businessName">>(
+export function compareForCalling<T extends Pick<Lead, "state" | "longitude" | "latitude" | "hours" | "businessName"> & { address?: string | null }>(
   a: T, b: T, now: Date,
 ): number {
   const wa = callWindow(a, now);

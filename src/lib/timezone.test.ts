@@ -11,7 +11,7 @@ import { readFileSync } from "fs";
 import { makeLead } from "./test-lead";
 import {
   inferZone, zonedParts, businessHours, callWindow, callOrderWeight,
-  compareForCalling, endOfDayIn, DEFAULT_ZONE,
+  compareForCalling, endOfDayIn, stateFromAddress, DEFAULT_ZONE,
 } from "./timezone";
 
 const at = (iso: string) => new Date(iso);
@@ -48,6 +48,104 @@ describe("deriving the zone from what a lead already carries", () => {
     const inf = inferZone(biz({ state: "", longitude: null }));
     expect(inf.zone).toBe(DEFAULT_ZONE);
     expect(inf.confidence).toBe("default");
+  });
+});
+
+// A real production address, verbatim: the state column is empty on this row
+// while the address plainly reads "OH". Before the fix, all four Middletown
+// businesses were labelled Pacific — a three-hour error on every call window,
+// in the one state the mandate named.
+const OHIO = "321 N Breiel Blvd, Middletown, OH 45042, USA";
+
+describe("the empty state column found in production", () => {
+  it("reads the state out of the address line when the column is empty", () => {
+    const l = biz({ state: "", address: OHIO, latitude: 39.5184316, longitude: -84.353532 });
+    const z = inferZone(l);
+    expect(z.zone).toBe("America/New_York");
+    expect(z.confidence).toBe("state");
+    expect(z.because).toMatch(/state column is empty/);
+  });
+
+  it("no longer silently calls an Ohio business Pacific", () => {
+    const l = biz({ state: "", address: OHIO });
+    expect(inferZone(l).zone).not.toBe(DEFAULT_ZONE);
+  });
+
+  it("still prefers the column when it has a value", () => {
+    // The address is a fallback, never an override — a corrected column wins.
+    const l = biz({ state: "CA", address: OHIO });
+    expect(inferZone(l).zone).toBe("America/Los_Angeles");
+    expect(inferZone(l).because).not.toMatch(/address line/);
+  });
+
+  it("anchors on the ZIP so a street name cannot be mistaken for a state", () => {
+    expect(stateFromAddress("100 OH Ave, Los Angeles, CA 90014, USA")).toBe("CA");
+    expect(stateFromAddress("12 Mount St, Somewhere, USA")).toBeNull();
+    expect(stateFromAddress("")).toBeNull();
+    expect(stateFromAddress(null)).toBeNull();
+    expect(stateFromAddress(undefined)).toBeNull();
+  });
+
+  it("supports ZIP+4 and still falls back honestly when there is nothing to read", () => {
+    expect(stateFromAddress("1 A St, Middletown, OH 45042-1234, USA")).toBe("OH");
+    const nothing = inferZone(biz({ state: "", address: "" }));
+    expect(nothing.zone).toBe(DEFAULT_ZONE);
+    expect(nothing.confidence).toBe("default");
+  });
+
+  it("routes an address-derived split state through the longitude rule too", () => {
+    // Tennessee is split; the address gives the state, the pin gives the side.
+    const memphis = biz({ state: "", address: "1 Beale St, Memphis, TN 38103, USA", longitude: -90.05 });
+    expect(inferZone(memphis).zone).toBe("America/Chicago");
+    const knoxville = biz({ state: "", address: "1 Gay St, Knoxville, TN 37902, USA", longitude: -83.92 });
+    expect(inferZone(knoxville).zone).toBe("America/New_York");
+  });
+});
+
+describe("split states where the odd half is the EASTERN half", () => {
+  // The bug these defend against: an earlier table had only "dominant" and
+  // "west", which assumed the less-populous half of a split state is always the
+  // western one. Tennessee and Oregon are both counterexamples, and both were
+  // inverted — Memphis read as Eastern, Knoxville as Central.
+  it("puts Memphis in Central and Knoxville in Eastern, not the reverse", () => {
+    expect(inferZone(biz({ state: "TN", longitude: -90.05 })).zone).toBe("America/Chicago");
+    expect(inferZone(biz({ state: "TN", longitude: -83.92 })).zone).toBe("America/New_York");
+  });
+
+  it("puts Portland in Pacific and Malheur County in Mountain", () => {
+    expect(inferZone(biz({ state: "OR", longitude: -122.68 })).zone).toBe("America/Los_Angeles");
+    expect(inferZone(biz({ state: "OR", longitude: -117.02 })).zone).toBe("America/Boise");
+  });
+
+  it("assumes where most people live when there is no pin, which is a different question", () => {
+    // Tennessee's eastern half is Eastern time, but most Tennesseans are Central.
+    expect(inferZone(biz({ state: "TN", longitude: null })).zone).toBe("America/Chicago");
+    expect(inferZone(biz({ state: "OR", longitude: null })).zone).toBe("America/Los_Angeles");
+    expect(inferZone(biz({ state: "TN", longitude: null })).confidence).toBe("state-approximate");
+  });
+
+  it("keeps every other split state pointing the way it always did", () => {
+    expect(inferZone(biz({ state: "FL", longitude: -87.2 })).zone).toBe("America/Chicago");   // Pensacola
+    expect(inferZone(biz({ state: "FL", longitude: -80.19 })).zone).toBe("America/New_York"); // Miami
+    expect(inferZone(biz({ state: "TX", longitude: -106.49 })).zone).toBe("America/Denver");  // El Paso
+    expect(inferZone(biz({ state: "TX", longitude: -95.37 })).zone).toBe("America/Chicago");  // Houston
+    expect(inferZone(biz({ state: "KY", longitude: -88.6 })).zone).toBe("America/Chicago");   // Paducah
+    expect(inferZone(biz({ state: "KY", longitude: -84.5 })).zone).toBe("America/New_York");  // Lexington
+    expect(inferZone(biz({ state: "IN", longitude: -86.16 })).zone).toBe("America/Indiana/Indianapolis");
+    expect(inferZone(biz({ state: "MI", longitude: -83.05 })).zone).toBe("America/Detroit");
+  });
+
+  it("gives the Ohio businesses a correct call window, not a three-hour lie", () => {
+    // 10:00 Eastern on a Wednesday: open in Ohio, still shut in California.
+    const when = at("2026-08-05T14:00:00.000Z");
+    const ohio = callWindow(biz({ state: "", address: OHIO }), when);
+    expect(ohio.zone).toBe("America/New_York");
+    expect(ohio.localClock).toMatch(/10:00/);
+    expect(ohio.state).toBe("open");
+
+    const cal = callWindow(biz({ state: "CA" }), when);
+    expect(cal.localClock).toMatch(/7:00/);
+    expect(cal.state).toBe("opens-later");
   });
 });
 
