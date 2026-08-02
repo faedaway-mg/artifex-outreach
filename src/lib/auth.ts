@@ -7,6 +7,8 @@ import { cookies } from "next/headers";
 import { DEV_PASSWORD, SESSION_MAX_AGE_MS, isProd, assertAuthConfigured, authConfigOk } from "./auth-config";
 import { signToken, verifyToken, tokenSubject } from "./auth-token";
 import { LEGACY_OPERATOR_ID } from "./operators/model";
+import { impersonatedOperatorId, impersonationStartedAt, endImpersonation } from "./impersonation";
+import type { ViewerContext } from "./impersonation";
 
 const COOKIE = "artifex_session";
 
@@ -37,6 +39,9 @@ export function setSession(operatorId: string = LEGACY_OPERATOR_ID): void {
 
 export function clearSession(): void {
   cookies().delete(COOKIE);
+  // Signing out must not leave a "view as" pointing at a colleague, waiting for
+  // whoever signs in next.
+  endImpersonation();
 }
 
 export function isAuthenticated(): boolean {
@@ -44,12 +49,34 @@ export function isAuthenticated(): boolean {
 }
 
 /**
- * Who is working right now. Falls back to the legacy operator so that a session
- * issued before operators existed keeps working instead of failing closed on a
- * tool the business runs on every morning.
+ * Whose workspace is on screen. Falls back to the legacy operator so that a
+ * session issued before operators existed keeps working instead of failing closed
+ * on a tool the business runs on every morning.
+ *
+ * While a manager is viewing as someone else this returns the OTHER operator —
+ * that is the entire point: the queue, the counts and the pages must be theirs.
+ * What it must never do is change who a write is credited to; that is
+ * currentActor(), and the two have been separate since operators existed.
  */
 export function currentOperatorId(): string {
-  return sessionSubject() ?? LEGACY_OPERATOR_ID;
+  return impersonatedOperatorId() ?? sessionSubject() ?? LEGACY_OPERATOR_ID;
+}
+
+/** The human at the keyboard, ignoring any "view as". */
+export function realOperatorId(): string | null {
+  return sessionSubject();
+}
+
+/** Who is on screen, who is actually here, and whether those differ. */
+export function viewerContext(): ViewerContext {
+  const real = sessionSubject();
+  const viewed = impersonatedOperatorId();
+  return {
+    realOperatorId: real,
+    effectiveOperatorId: viewed ?? real,
+    impersonating: Boolean(viewed && viewed !== real),
+    startedAt: viewed ? impersonationStartedAt() : null,
+  };
 }
 
 /**
@@ -57,6 +84,9 @@ export function currentOperatorId(): string {
  * person when there is no session — unattended work is recorded as "system"
  * rather than silently credited to an operator who was not there. With two
  * operators that difference stops being cosmetic.
+ *
+ * It also deliberately ignores impersonation. A manager working inside someone
+ * else's queue is still the one who did it, and the audit log will say so.
  */
 export function currentActor(): string {
   return sessionSubject() ?? "system";

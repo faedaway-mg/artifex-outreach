@@ -11,6 +11,11 @@ import { determineContactStrategy, strategyToWorkKind } from "./outreach/contact
 
 export type WorkKind = "discovery" | "follow-up" | "email" | "report" | "call" | "contact-form" | "instagram-dm" | "video" | "understand";
 
+/** Every kind, for anywhere an operator has to choose from them. Display order. */
+export const WORK_KINDS: readonly WorkKind[] = [
+  "discovery", "follow-up", "email", "report", "call", "contact-form", "instagram-dm", "video", "understand",
+] as const;
+
 export interface WorkCategory {
   kind: WorkKind;
   title: string;

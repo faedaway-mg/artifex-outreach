@@ -4,19 +4,29 @@
 // This page exists so that ownership stays explainable. It shows load, not rank:
 // the point is never who is winning, it is whether any business is about to sit
 // still because the person accountable for it cannot move it right now.
+//
+// It is also where a MANAGER works: moving businesses between operators, adding
+// people, and — when someone needs training or help — stepping into their
+// workspace. Those controls appear only for a role that has them, and every one
+// of them is checked again on the server.
 // ─────────────────────────────────────────────────────────────────────────────
 import Link from "next/link";
-import { Users, AlertTriangle, Inbox, Scale } from "lucide-react";
+import { Users, AlertTriangle, Inbox, Scale, ShieldCheck } from "lucide-react";
 import {
   listOperators, listLeads, allTasks, allPlans, allMeetings, allEmailSends, allInbound,
 } from "@/lib/repo";
-import { currentOperatorId } from "@/lib/auth";
 import { computeOperatorMetrics } from "@/lib/operators/metrics";
-import { planDistribution } from "@/lib/operators/assignment";
+import { planDistribution, isActiveConversation } from "@/lib/operators/assignment";
 import { needsAttention } from "@/lib/operators/scope";
 import { distributionEnabled } from "@/lib/operators/distribute";
 import { AVAILABILITY_LABEL, AVAILABILITY_MEANING, initialsOf, shortName } from "@/lib/operators/model";
+import { session } from "@/lib/operators/session";
+import { ROLE_LABEL, ROLE_MEANING, roleOf, canImpersonate } from "@/lib/operators/roles";
+import { WORK_KINDS } from "@/lib/work-queue";
 import { OperatorControls } from "@/components/OperatorControls";
+import { OperatorAdminControls } from "@/components/OperatorAdminControls";
+import { NewOperatorForm } from "@/components/NewOperatorForm";
+import { TransferPanel } from "@/components/TransferPanel";
 import { RebalancePanel } from "@/components/RebalancePanel";
 import { EmptyState } from "@/components/ui";
 
@@ -26,12 +36,12 @@ const pct = (v: number | null) => (v == null ? "—" : `${Math.round(v * 100)}%`
 const hours = (v: number | null) => (v == null ? "—" : v < 1 ? `${Math.round(v * 60)}m` : v < 48 ? `${v.toFixed(1)}h` : `${Math.round(v / 24)}d`);
 
 export default async function TeamPage() {
-  const [operators, leads, tasks, plans, meetings, emailSends, inbound] = await Promise.all([
-    listOperators(), listLeads(), allTasks(), allPlans(), allMeetings(), allEmailSends(), allInbound(),
+  const [operators, leads, tasks, plans, meetings, emailSends, inbound, me] = await Promise.all([
+    listOperators(), listLeads(), allTasks(), allPlans(), allMeetings(), allEmailSends(), allInbound(), session(),
   ]);
 
   const now = new Date();
-  const viewerId = currentOperatorId();
+  const viewerId = me.viewingId;
   const ctx = { plans, meetings };
   const metrics = computeOperatorMetrics({ operators, leads, tasks, emailSends, inbound, meetings, now });
   const metricsById = new Map(metrics.map((m) => [m.operatorId, m]));
@@ -49,6 +59,17 @@ export default async function TeamPage() {
     return <EmptyState title="No operators yet" hint="The workspace has no operators configured. Run the migration to seed them." />;
   }
 
+  const transferRows = leads
+    .map((l) => ({
+      id: l.id,
+      businessName: l.businessName,
+      owner: l.assignedTo ?? null,
+      ownerName: l.assignedTo ? opName.get(l.assignedTo) ?? l.assignedTo : "Unassigned",
+      stage: l.pipelineStage,
+      live: isActiveConversation(l, ctx, now),
+    }))
+    .sort((a, b) => a.businessName.localeCompare(b.businessName));
+
   return (
     <div className="space-y-8">
       <header>
@@ -57,6 +78,10 @@ export default async function TeamPage() {
         </h1>
         <p className="mt-1 text-sm text-chalk-400">
           Ownership exists to ensure accountability, not exclusivity. Every qualified business has someone answerable for it.
+        </p>
+        <p className="mt-1 flex items-center gap-1.5 text-[11px] text-chalk-500">
+          <ShieldCheck size={12} className="text-chalk-600" />
+          You are signed in as {me.actor ? shortName(me.actor) : me.actorId} · {ROLE_LABEL[me.role]} — {ROLE_MEANING[me.role]}
         </p>
       </header>
 
@@ -80,11 +105,17 @@ export default async function TeamPage() {
 
       {/* ── Operators ────────────────────────────────────────────────────────── */}
       <section className="space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-sm font-semibold text-chalk-200">Operators</h2>
+          {me.can.createOperator && <NewOperatorForm workKinds={[...WORK_KINDS]} />}
+        </div>
+
         {operators.map((op) => {
           const m = metricsById.get(op.id)!;
           const over = m.load > 1;
+          const verdict = canImpersonate(me.actor, op);
           return (
-            <div key={op.id} className="card p-5">
+            <div key={op.id} className={`card p-5 ${op.active ? "" : "opacity-60"}`}>
               <div className="flex flex-wrap items-start justify-between gap-4">
                 <div className="flex items-center gap-3">
                   <span className="grid h-10 w-10 place-items-center rounded-full bg-azure-500/15 text-sm font-semibold text-azure-200 ring-1 ring-azure-400/25">
@@ -94,17 +125,34 @@ export default async function TeamPage() {
                     <p className="text-sm font-semibold text-chalk-50">
                       {op.name}
                       {op.id === viewerId && <span className="ml-2 text-[11px] font-normal text-chalk-500">you</span>}
+                      <span className="ml-2 rounded bg-white/[0.06] px-1.5 py-0.5 text-[10px] font-normal text-chalk-400">
+                        {ROLE_LABEL[roleOf(op)]}
+                      </span>
+                      {!op.active && <span className="ml-2 text-[11px] font-normal text-coral-300">inactive</span>}
                     </p>
                     <p className="text-[11px] text-chalk-500">
                       {AVAILABILITY_LABEL[op.availabilityMode]} · {AVAILABILITY_MEANING[op.availabilityMode]}
                     </p>
+                    <p className="mt-0.5 text-[11px] text-chalk-600">{op.timezone.replace("_", " ")}</p>
                   </div>
                 </div>
-                <OperatorControls
-                  operatorId={op.id}
-                  availabilityMode={op.availabilityMode}
-                  dailyCapacity={op.dailyCapacity}
-                />
+                <div className="flex flex-col items-end gap-2">
+                  <OperatorControls
+                    operatorId={op.id}
+                    availabilityMode={op.availabilityMode}
+                    dailyCapacity={op.dailyCapacity}
+                  />
+                  {me.can.manageOperators && (
+                    <OperatorAdminControls
+                      operatorId={op.id}
+                      role={roleOf(op)}
+                      active={op.active}
+                      isSelf={op.id === me.actorId}
+                      canImpersonate={verdict.ok}
+                      impersonateBlockedReason={verdict.reason}
+                    />
+                  )}
+                </div>
               </div>
 
               <div className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-4 lg:grid-cols-5">
@@ -122,6 +170,9 @@ export default async function TeamPage() {
           );
         })}
       </section>
+
+      {/* ── Deliberate transfers ─────────────────────────────────────────────── */}
+      {me.can.transferWork && <TransferPanel rows={transferRows} operators={operators.filter((o) => o.active).map((o) => ({ id: o.id, name: shortName(o) }))} />}
 
       {/* ── What the scheduler will do ───────────────────────────────────────── */}
       <section>
@@ -151,7 +202,7 @@ export default async function TeamPage() {
       </section>
 
       {/* ── Deliberate rebalance ─────────────────────────────────────────────── */}
-      <RebalancePanel enabled={distributionEnabled()} />
+      {me.can.rebalance && <RebalancePanel enabled={distributionEnabled()} />}
     </div>
   );
 }

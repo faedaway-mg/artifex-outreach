@@ -5,6 +5,7 @@
 // is defending.
 // ─────────────────────────────────────────────────────────────────────────────
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "fs";
 import { makeLead } from "../test-lead";
 import { normalizeOperator } from "./model";
 import type { Lead, Operator, Task, AcquisitionPlan, Meeting } from "../types";
@@ -471,5 +472,154 @@ describe("stale ownership is eligibility, not a forced move", () => {
     expect(plan.reassignments).toHaveLength(0);
     expect(plan.excluded.map((e) => e.leadId).sort()).toEqual(["t1", "t2"]);
     expect(plan.excluded[0].reason).toMatch(/Internal test record/);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The team is going to be bigger than two.
+//
+// Everything above was written with Jordan and Alex in mind, and two is the one
+// team size where a broken design still looks fine: with two people "balance the
+// team" and "compare these two" are the same sentence. These tests are the ones
+// that would fail if any pairwise thinking had crept in — five operators, then
+// twelve, with the same engine and no per-team-size branch.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("more than two operators", () => {
+  const SILENT = "2026-07-20T00:00:00Z"; // long past the 4-business-day expiry
+  const team = (n: number, over: Partial<Operator> = {}) =>
+    Array.from({ length: n }, (_, i) => op(`op${String(i).padStart(2, "0")}`, over));
+
+  it("spreads unassigned work across five operators instead of stacking it on one", () => {
+    const operators = team(5);
+    const leads = Array.from({ length: 15 }, (_, i) => lead(`l${String(i).padStart(2, "0")}`));
+    const tasks = leads.map((l) => task(l.id));
+
+    const plan = planDistribution({ operators, leads, tasks, ctx: emptyCtx, now: NOW });
+
+    expect(plan.reassignments).toHaveLength(15);
+    const perOperator = new Map<string, number>();
+    for (const r of plan.reassignments) perOperator.set(r.to, (perOperator.get(r.to) ?? 0) + 1);
+    // Every operator got work, and nobody got more than one extra business.
+    expect(perOperator.size).toBe(5);
+    const counts = [...perOperator.values()].sort((a, b) => a - b);
+    expect(counts[counts.length - 1] - counts[0]).toBeLessThanOrEqual(1);
+  });
+
+  it("is deterministic — the same twelve-operator workspace always produces the same plan", () => {
+    const operators = team(12);
+    const leads = Array.from({ length: 40 }, (_, i) => lead(`l${String(i).padStart(2, "0")}`));
+    const tasks = leads.map((l) => task(l.id));
+
+    const a = planDistribution({ operators, leads, tasks, ctx: emptyCtx, now: NOW });
+    // Shuffling the inputs must not shuffle the answer: the engine sorts leads by
+    // id and breaks operator ties by id for exactly this reason.
+    const b = planDistribution({
+      operators: [...operators].reverse(),
+      leads: [...leads].reverse(),
+      tasks: [...tasks].reverse(),
+      ctx: emptyCtx, now: NOW,
+    });
+    expect(a.reassignments.map((r) => `${r.leadId}→${r.to}`)).toEqual(b.reassignments.map((r) => `${r.leadId}→${r.to}`));
+  });
+
+  it("routes around the unavailable ones without knowing how many there are", () => {
+    const operators = [
+      op("op00", { availabilityMode: "away" }),
+      op("op01", { availabilityMode: "engineering" }),
+      op("op02", { active: false }),
+      op("op03"),
+      op("op04"),
+    ];
+    const leads = Array.from({ length: 8 }, (_, i) => lead(`l${i}`));
+    const tasks = leads.map((l) => task(l.id));
+
+    const plan = planDistribution({ operators, leads, tasks, ctx: emptyCtx, now: NOW });
+    expect(new Set(plan.reassignments.map((r) => r.to))).toEqual(new Set(["op03", "op04"]));
+  });
+
+  it("still refuses to move a live conversation, whoever else is available", () => {
+    const operators = team(6);
+    const live = lead("live", {
+      assignedTo: "op00", assignedAt: SILENT, lastOperatorActivityAt: SILENT,
+      pipelineStage: "Proposal Sent", lastContactAt: "2026-08-04T17:00:00Z",
+    });
+    const plan = planDistribution({
+      operators, leads: [live], tasks: [task("live")], ctx: emptyCtx, now: NOW, mode: "level",
+    });
+    expect(plan.reassignments).toHaveLength(0);
+    expect(plan.held.find((h) => h.leadId === "live")?.code).toBe("active-conversation");
+  });
+
+  it("keeps stale ownership as eligibility, not a forced move, at five operators", () => {
+    // op00 holds five quiet businesses and everyone else is empty, so ownership
+    // has expired on all five. A forced-move engine would move all five; a
+    // capacity-aware one moves what actually helps and explains the rest.
+    const operators = team(5);
+    const leads = Array.from({ length: 5 }, (_, i) =>
+      lead(`l${i}`, { assignedTo: "op00", assignedAt: SILENT, lastOperatorActivityAt: SILENT }));
+    const plan = planDistribution({ operators, leads, tasks: [], ctx: emptyCtx, now: NOW });
+
+    // Nothing is due, so nobody's day changes — op00 is still a perfectly good owner.
+    expect(plan.reassignments.length).toBeLessThan(5);
+    for (const h of plan.held) expect(["already-best", "no-capacity"]).toContain(h.code);
+  });
+
+  it("levels against the whole team, not against one other person", () => {
+    // op00 is drowning; four colleagues are idle. The pass must relieve op00 by
+    // comparing them to the LIGHTEST operator in the room each time round, which
+    // is the thing that stops working at N > 2 if the comparison is pairwise.
+    const operators = team(5, { dailyCapacity: 4 });
+    const leads = Array.from({ length: 12 }, (_, i) =>
+      lead(`l${String(i).padStart(2, "0")}`, {
+        assignedTo: "op00", assignedAt: SILENT, lastOperatorActivityAt: SILENT,
+      }));
+    const tasks = leads.map((l) => task(l.id));
+
+    const plan = planDistribution({ operators, leads, tasks, ctx: emptyCtx, now: NOW, mode: "level" });
+
+    const after = new Map(plan.projected.map((w) => [w.operatorId, w]));
+    expect(after.get("op00")!.dueToday).toBeLessThanOrEqual(4);
+    // The work landed on more than one colleague — a pairwise implementation
+    // would have dumped all eight onto whoever was compared first.
+    const receivers = new Set(plan.reassignments.map((r) => r.to));
+    expect(receivers.size).toBeGreaterThan(1);
+  });
+
+  it("holds rather than overloading when the whole team is full", () => {
+    const operators = team(4, { dailyCapacity: 1 });
+    const leads = Array.from({ length: 4 }, (_, i) =>
+      lead(`l${i}`, { assignedTo: `op0${i}`, assignedAt: SILENT, lastOperatorActivityAt: SILENT }));
+    const tasks = leads.map((l) => task(l.id));
+
+    const plan = planDistribution({ operators, leads, tasks, ctx: emptyCtx, now: NOW, mode: "level" });
+    // Everyone is exactly at capacity. Nothing can improve, so nothing moves.
+    expect(plan.reassignments).toHaveLength(0);
+    for (const w of plan.projected) expect(w.dueToday).toBeLessThanOrEqual(w.capacity);
+  });
+
+  it("never reports the same business as both moved and held, at any team size", () => {
+    const operators = team(7, { dailyCapacity: 3 });
+    const leads = Array.from({ length: 30 }, (_, i) =>
+      lead(`l${String(i).padStart(2, "0")}`, {
+        assignedTo: `op0${i % 7}`, assignedAt: SILENT, lastOperatorActivityAt: SILENT,
+      }));
+    const tasks = leads.map((l) => task(l.id));
+
+    const plan = planDistribution({ operators, leads, tasks, ctx: emptyCtx, now: NOW, mode: "level" });
+    const movedIds = new Set(plan.reassignments.map((r) => r.leadId));
+    expect(plan.held.some((h) => movedIds.has(h.leadId))).toBe(false);
+  });
+
+  it("scales without a per-team-size branch — the engine never reads operators.length", () => {
+    // Structural. The engine reads a team SIZE in exactly two places and both
+    // ask "is there anyone at all": `receivers.length > 1` before levelling, and
+    // `!receivers.length` before choosing an owner. Neither is a team-size case,
+    // and `operators.length` is never read. If a branch for "when there are two"
+    // or "when there are more than three" ever appears, this fails.
+    const src = readFileSync(new URL("./assignment.ts", import.meta.url), "utf8");
+    expect(src.match(/operators\.length/g)).toBeNull();
+    expect(src.match(/receivers\.length/g)).toHaveLength(2);
+    expect(src).toMatch(/receivers\.length > 1/);
+    expect(src).toMatch(/!receivers\.length/);
   });
 });

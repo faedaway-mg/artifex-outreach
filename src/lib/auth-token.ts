@@ -31,6 +31,24 @@ export function tokenSubject(token: string | undefined): string | null {
   }
 }
 
+/**
+ * When a valid token was issued, in epoch ms — or null.
+ *
+ * Callers that need a SHORTER life than the session (impersonation is a visit,
+ * not a move) apply their own window on top of this rather than minting a second
+ * token format with its own expiry rules.
+ */
+export function tokenIssuedAt(token: string | undefined): number | null {
+  if (!verifyToken(token)) return null;
+  try {
+    const payload = Buffer.from(token!.split(".")[0], "base64url").toString();
+    const issued = Number(payload.slice(payload.lastIndexOf(".") + 1));
+    return Number.isFinite(issued) && issued > 0 ? issued : null;
+  } catch {
+    return null;
+  }
+}
+
 export function verifyToken(token: string | undefined): boolean {
   if (!token) return false;
   const [b64, sig] = token.split(".");
@@ -41,7 +59,10 @@ export function verifyToken(token: string | undefined): boolean {
     const a = Buffer.from(sig);
     const b = Buffer.from(expected);
     if (a.length !== b.length || !timingSafeEqual(a, b)) return false;
-    const issued = Number(payload.split(".")[1]);
+    // Read the timestamp from the LAST dot, matching tokenSubject. The two must
+    // agree about where the subject ends or a token could verify as one operator
+    // and expire as another.
+    const issued = Number(payload.slice(payload.lastIndexOf(".") + 1));
     if (!issued || Date.now() - issued > SESSION_MAX_AGE_MS) return false;
     return true;
   } catch {

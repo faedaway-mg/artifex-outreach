@@ -35,7 +35,7 @@ import {
 } from "./assignment";
 
 /** Audit actions that carry ownership history. Nothing else writes these. */
-export const OWNERSHIP_ACTIONS = ["lead.assigned", "lead.reassigned", "lead.transferred"] as const;
+export const OWNERSHIP_ACTIONS = ["lead.assigned", "lead.reassigned", "lead.transferred", "lead.released"] as const;
 export type OwnershipAction = (typeof OWNERSHIP_ACTIONS)[number];
 
 /**
@@ -189,27 +189,36 @@ export async function assignNewLead(leadId: string, opts?: { actor?: string; now
  */
 export async function transferLead(input: {
   leadId: string;
-  toOperatorId: string;
+  /** null releases the business back to Unassigned. */
+  toOperatorId: string | null;
   actor: string;
   reason: string;
   now?: Date;
+  /** Set when a manager is operating as someone else. Recorded, never substituted. */
+  onBehalfOf?: string | null;
 }): Promise<{ ok: boolean; from: string | null }> {
   const now = input.now ?? new Date();
   const lead = await getLead(input.leadId);
   if (!lead) return { ok: false, from: null };
-  if (lead.assignedTo === input.toOperatorId) return { ok: false, from: lead.assignedTo };
+  if ((lead.assignedTo ?? null) === (input.toOperatorId ?? null)) return { ok: false, from: lead.assignedTo };
 
   await updateLead(input.leadId, {
     assignedTo: input.toOperatorId,
-    assignedAt: now.toISOString(),
+    assignedAt: input.toOperatorId ? now.toISOString() : null,
     assignmentReason: input.reason,
   });
   await appendAudit({
-    action: "lead.transferred",
+    action: input.toOperatorId ? "lead.transferred" : "lead.released",
     actor: input.actor,
     targetType: "lead",
     targetId: input.leadId,
-    meta: { from: lead.assignedTo, to: input.toOperatorId, code: "manual-transfer", reason: input.reason },
+    meta: {
+      from: lead.assignedTo,
+      to: input.toOperatorId,
+      code: input.toOperatorId ? "manual-transfer" : "manual-release",
+      reason: input.reason,
+      ...(input.onBehalfOf ? { onBehalfOf: input.onBehalfOf } : {}),
+    },
     ip: null,
   });
   return { ok: true, from: lead.assignedTo };
