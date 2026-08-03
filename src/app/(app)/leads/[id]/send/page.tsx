@@ -5,6 +5,7 @@ import { getLead, getBusinessIntelligence, getSettings, contactsForLead, isSuppr
 import { buildOutreachKit } from "@/lib/outreach/kit";
 import { memoryReferences } from "@/lib/reasoning";
 import { renderPersonalEmailHtml, renderPersonalEmailText } from "@/lib/outreach/email-render";
+import { renderBody } from "@/lib/comms/render";
 import { readingSeconds } from "@/lib/outreach/voice-engine";
 import { scoreEmailQuality } from "@/lib/outreach/quality";
 import { deslug } from "@/lib/utils";
@@ -62,8 +63,14 @@ export default async function SendPage({ params }: { params: { id: string } }) {
   const mode: "intro" | "followup" = introSent ? "followup" : "intro";
   const email = mode === "followup" ? kit.followUp : kit.email;
 
-  const html = renderPersonalEmailHtml({ email, settings, unsubscribeUrl: "https://outreach.artifexlabs.tech/api/comms/unsubscribe" });
-  const text = renderPersonalEmailText({ email, settings });
+  // A stand-in, deliberately unsigned: clicking a real signed URL from a preview
+  // would suppress the very lead we're about to write to.
+  const unsubPreview = "https://outreach.artifexlabs.tech/api/comms/unsubscribe";
+  const html = renderPersonalEmailHtml({ email, settings, unsubscribeUrl: unsubPreview });
+  // Preview the plaintext through the same two steps dispatch uses — email-render
+  // stores the {{unsubscribe}} token, renderBody supplies the opt-out sentence — so
+  // the operator reads the wording the recipient will actually get.
+  const text = renderBody(renderPersonalEmailText({ email, settings, unsubscribeUrl: "{{unsubscribe}}" }), { replyEmail: settings.contactEmail, unsubscribeUrl: unsubPreview });
 
   // Decision-first summary — the same read the batch loop shows, so the operator answers
   // "would I send this?" without reading a giant email. The exact rendered message is

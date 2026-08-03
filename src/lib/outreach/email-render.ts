@@ -248,6 +248,9 @@ export function renderPersonalEmailText(input: RenderInput): string {
   const parts = [...email.paragraphs];
   if (veed?.url) parts.push(`If it's easier than reading, I recorded a short video: ${veed.url}`);
   parts.push(personalSignatureText(settings));
-  if (unsubscribeUrl) parts.push(`${settings.businessAddress ? `${settings.businessAddress}\n` : ""}Prefer not to hear from me? Unsubscribe: ${unsubscribeUrl}`);
+  // The opt-out SENTENCE belongs to renderBody (comms/render.ts), which substitutes
+  // the {{unsubscribe}} token at send time. Stating it here too made the delivered
+  // plaintext say it twice. This emits the token alone and lets one layer own the words.
+  if (unsubscribeUrl) parts.push(`${settings.businessAddress ? `${settings.businessAddress}\n` : ""}${unsubscribeUrl}`);
   return parts.join("\n\n");
 }

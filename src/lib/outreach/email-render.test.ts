@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { defaultSettings } from "../store";
 import { renderEmailHtml, renderEmailText, veedBlockHtml, ctaButton, renderPersonalEmailHtml, renderPersonalEmailText, personalSignatureHtml, SIGNATURE_MARKER } from "./email-render";
+import { renderBody } from "../comms/render";
 import type { OutreachEmail, VeedVideo } from "./types";
 
 const settings = defaultSettings();
@@ -139,5 +140,51 @@ describe("email-render — premium, restrained, honest", () => {
     expect(text).toContain("Jordan Jackson");
     expect(text).toContain("ten minutes experiencing your practice");
     expect(text).not.toContain("<");
+  });
+
+  // ── REGRESSION: the opt-out must be stated exactly once ──────────────────────
+  // email-render used to write its own lead-in ("Prefer not to hear from me?
+  // Unsubscribe: {{unsubscribe}}") and renderBody then substituted a whole
+  // SENTENCE for the token, so the delivered plaintext instructed the reader
+  // twice. Only one layer may own those words. This asserts the message as the
+  // recipient actually reads it — after dispatch's substitution, not before.
+  describe("the delivered plaintext opt-out", () => {
+    const SIGNED = "https://outreach.artifexlabs.tech/api/comms/unsubscribe?lead=lead_x&token=" + "a".repeat(64);
+    const delivered = () =>
+      renderBody(renderPersonalEmailText({ email, settings, veed: null, unsubscribeUrl: "{{unsubscribe}}" }), {
+        replyEmail: settings.contactEmail,
+        unsubscribeUrl: SIGNED,
+      });
+
+    it("states the instruction exactly once", () => {
+      const text = delivered();
+      expect((text.match(/To stop receiving these/g) ?? []).length).toBe(1);
+      expect(text.toLowerCase()).not.toContain("prefer not to hear from me? unsubscribe:");
+      expect(text).not.toMatch(/Unsubscribe:\s*To stop receiving these/i);
+    });
+
+    it("carries exactly one signed unsubscribe URL, fully substituted", () => {
+      const text = delivered();
+      expect((text.match(/https:\/\/outreach\.artifexlabs\.tech\/api\/comms\/unsubscribe/g) ?? []).length).toBe(1);
+      expect(text).toContain(SIGNED);
+      expect(text).not.toContain("{{unsubscribe}}");
+    });
+
+    it("reads as one clean line and keeps the postal address (CAN-SPAM)", () => {
+      const text = delivered();
+      const line = text.split("\n").find((l) => l.includes(SIGNED));
+      expect(line).toBe(`To stop receiving these, unsubscribe here: ${SIGNED}`);
+      expect(text).toContain(settings.businessAddress);
+    });
+
+    it("falls back to a reply instruction when no URL can be built", () => {
+      const text = renderBody(renderPersonalEmailText({ email, settings, veed: null, unsubscribeUrl: "{{unsubscribe}}" }), {
+        replyEmail: settings.contactEmail,
+        unsubscribeUrl: null,
+      });
+      expect((text.match(/To stop receiving these/g) ?? []).length).toBe(1);
+      expect(text).toContain('reply to this email with "unsubscribe"');
+      expect(text).not.toContain("{{unsubscribe}}");
+    });
   });
 });
