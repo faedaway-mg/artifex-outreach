@@ -117,6 +117,16 @@ async function main() {
   console.log(`        prior accepted sends for this lead: ${sentCount}`);
   chk(sentCount === 0, "no introduction has been sent yet — one tap will be the first");
 
+  // The whole message, as the recipient reads it. The signature token is masked:
+  // it is not a system secret (it ships in the email) but anyone holding it can
+  // suppress this lead, so it does not belong in a report or a terminal scrollback.
+  console.log("\n[7] THE COMPLETE DELIVERED PLAINTEXT  (signature token masked)");
+  const masked = url ? deliveredText.split(url).join(url.replace(/token=[0-9a-f]+/i, "token=<64-hex-signature-masked>")) : deliveredText;
+  console.log("        ┌────────────────────────────────────────────");
+  for (const l of masked.split("\n")) console.log(`        │ ${l}`);
+  console.log("        └────────────────────────────────────────────");
+  chk(!masked.includes("{{"), "no unsubstituted template token survives anywhere in the message");
+
   console.log(`\n${fail === 0 ? "ALL UNSUBSCRIBE DELIVERY CHECKS PASSED" : "SOME CHECKS FAILED — SEE ABOVE"}`);
   console.log("emails sent by this script: 0 · rows written: 0 · leads suppressed: 0");
   process.exit(fail);
