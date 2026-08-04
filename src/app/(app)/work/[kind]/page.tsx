@@ -13,6 +13,9 @@ import {
   todaysTasks, listLeads, allMeetings, getSettings, getBusinessIntelligence, contactsForLead, memoryForLead,
   getStep, stepsForPlan, allPlans, listOperators,
 } from "@/lib/repo";
+import { panelForWorkKind } from "@/lib/outreach/call-routing";
+import { deriveCallLeadState } from "@/lib/outreach/call-state";
+import { CallWorkspace } from "@/components/lead/CallWorkspace";
 import { currentOperatorId } from "@/lib/auth";
 import { parseScope, leadIdsInScope, tasksInScope } from "@/lib/operators/scope";
 import { describeSequenceContext, type SequenceContext } from "@/lib/comms/task-projection";
@@ -21,7 +24,7 @@ import { buildOutreachKit } from "@/lib/outreach/kit";
 import { buildVideoScript } from "@/lib/outreach/content";
 import { renderPersonalEmailHtml } from "@/lib/outreach/email-render";
 import { readingSeconds } from "@/lib/outreach/voice-engine";
-import { determineContactStrategy, buildCallBrief, findInstagram } from "@/lib/outreach/contact-strategy";
+import { determineContactStrategy, buildCallBrief, buildCallScript, findInstagram } from "@/lib/outreach/contact-strategy";
 import { memoryReferences } from "@/lib/reasoning";
 import { deslug } from "@/lib/utils";
 import { BatchAdvance } from "@/components/BatchAdvance";
@@ -32,9 +35,6 @@ export const dynamic = "force-dynamic";
 
 const KINDS: WorkKind[] = ["discovery", "follow-up", "email", "report", "call", "contact-form", "instagram-dm", "video", "understand"];
 const ICON: Record<WorkKind, typeof Video> = { discovery: CalendarClock, "follow-up": RotateCcw, email: Mail, report: FileText, call: Phone, "contact-form": FileText, "instagram-dm": Instagram, video: Video, understand: Compass };
-
-// Channel kinds render the Contact Strategy panel inline (below); the rest deep-link.
-const CHANNEL_KINDS: WorkKind[] = ["call", "contact-form", "instagram-dm"];
 
 // Per-kind primary action + how to frame the step.
 const ACTION: Record<WorkKind, { verb: string; label: string; href: (id: string) => string }> = {
@@ -147,6 +147,7 @@ export default async function BatchPage({ params, searchParams }: { params: { ki
 
   const videoScript = kind === "video" && profile ? buildVideoScript(lead, profile) : null;
   const action = ACTION[kind];
+  const panel = panelForWorkKind(kind);
 
   const Header = (
     <>
@@ -206,10 +207,31 @@ export default async function BatchPage({ params, searchParams }: { params: { ki
         </div>
       </section>
     );
-  } else if (CHANNEL_KINDS.includes(kind)) {
-    // Call / contact-form / Instagram-DM: the Contact Strategy panel is the whole step —
+  } else if (panel === "call-workspace") {
+    // A call in a batch is the SAME instrument as a call opened from the business
+    // page — the live assistant, the call button, and the outcome console. It used to
+    // be a recommendation panel here and the workspace there: one kind of work, two
+    // surfaces, and the weaker one was the one the daily batch pushed you into.
+    const collectedEmail = (await contactsForLead(lead.id))
+      .filter((c) => c.source === "conversation" && c.verified && !!c.email)
+      .sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt))[0]?.email ?? null;
+    body = (
+      <CallWorkspace
+        lead={lead}
+        script={buildCallScript(lead, { strongestObservation: observations[0] ?? null })}
+        reason={why}
+        state={deriveCallLeadState(lead)}
+        observation={observations[0] ?? null}
+        continuation={{ ids, kind }}
+        collectedEmail={collectedEmail}
+      />
+    );
+  } else if (panel === "contact-strategy") {
+    // Contact-form / Instagram-DM: the Contact Strategy panel is the whole step —
     // the recommended touch, the opener, the one channel action, and the capture form.
     const strategy = determineContactStrategy(lead);
+    // A form/DM step can still carry a call-first recommendation (the strategy reads
+    // the lead, not the task) — it keeps its opener.
     const wantsBrief = strategy.kind === "call-first" || strategy.kind === "instagram-dm-first";
     const brief = wantsBrief ? buildCallBrief(lead, { strongestObservation: observations[0] ?? null }) : null;
     body = (
@@ -234,8 +256,11 @@ export default async function BatchPage({ params, searchParams }: { params: { ki
     );
   }
 
+  // The call workspace is a two-column instrument (call action beside the live
+  // assistant). Trapping it at max-w-lg would collapse it to a single narrow column
+  // and hide the words to say below the fold — the one thing the operator needs.
   return (
-    <div className="mx-auto max-w-lg space-y-5">
+    <div className={`mx-auto space-y-5 ${panel === "call-workspace" ? "max-w-4xl" : "max-w-lg"}`}>
       {Header}
       {body}
       <BatchAdvance taskId={stepTask?.id ?? null} nextHref={nextHref} isLast={i + 1 >= total} />

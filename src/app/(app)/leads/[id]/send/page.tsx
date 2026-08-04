@@ -1,4 +1,4 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, ShieldAlert, User2, Mail, AlertTriangle, Clock, ChevronDown } from "lucide-react";
 import { getLead, getBusinessIntelligence, getSettings, contactsForLead, isSuppressed, emailSendsForLead, memoryForLead } from "@/lib/repo";
@@ -13,12 +13,18 @@ import { SendIntroForm } from "@/components/lead/SendIntroForm";
 import { EmailQualityPanel } from "@/components/lead/EmailQualityPanel";
 import { determineContactStrategy, buildCallBrief, findInstagram } from "@/lib/outreach/contact-strategy";
 import { ContactStrategyPanel } from "@/components/lead/ContactStrategyPanel";
+import { isCallFirstLead } from "@/lib/outreach/call-routing";
 
 export const dynamic = "force-dynamic";
 
 export default async function SendPage({ params }: { params: { id: string } }) {
   const lead = await getLead(params.id);
   if (!lead) notFound();
+
+  // A call-first business has no send to review. This page used to answer that with a
+  // recommendation panel — a third surface for the same call, reached by following a
+  // link that promised an email. Send the operator to the instrument instead.
+  if (isCallFirstLead(lead)) redirect(`/leads/${lead.id}`);
 
   const [stored, settings, contacts, memory] = await Promise.all([getBusinessIntelligence(lead.id), getSettings(), contactsForLead(lead.id), memoryForLead(lead.id)]);
   const profile = stored?.profile?.businessProfile ?? null;

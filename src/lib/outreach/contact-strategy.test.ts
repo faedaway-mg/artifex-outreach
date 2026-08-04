@@ -162,7 +162,14 @@ describe("buildCallScript — the full readable call guide", () => {
     const s = buildCallScript(ivy);
     expect(s.objective.length).toBeGreaterThan(0);
     expect(s.opening).toContain("The Secret House of Ivy");
-    expect(s.opening).toMatch(/best person/i); // opens by asking for the decision-maker
+    // Value first: the opening offers the review and asks for the address. It must
+    // NOT open by qualifying the person who answered — asking a stranger "who's the
+    // best person to speak with" costs them something before offering anything, and
+    // is why the call gets handled as a nuisance.
+    expect(s.opening).toMatch(/review/i);
+    expect(s.opening).toMatch(/best email/i);
+    expect(s.opening).not.toMatch(/best person/i);
+    expect(s.opening).not.toMatch(/who would be/i);
     expect(s.purpose).toMatch(/decision-maker|owner/i);
     expect(s.questions.length).toBeGreaterThanOrEqual(3);
     expect(s.questions.some((q) => /email/i.test(q))).toBe(true);

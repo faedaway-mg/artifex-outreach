@@ -313,52 +313,66 @@ export function buildCallScript(
   const ig = instagramUrl(lead);
   const brief = buildCallBrief(lead, opts);
 
-  // The opening resolves the real uncertainty: who owns the experience, and can
-  // we reach them. It names the business and asks for the right person — warm,
-  // curious, not a pitch. Tailored when Instagram is clearly the live channel.
+  // VALUE FIRST. The old opening asked "who would be the best person to speak with
+  // about the customer experience" — a qualifying question that costs the caller
+  // something before offering anything, which is exactly how a cold call gets
+  // handled as a nuisance. Whoever picked up has no reason to route a stranger who
+  // hasn't said what they want.
+  //
+  // So the opening leads with the thing we actually prepared and asks for the one
+  // piece of information that lets us deliver it. Reception can say yes to that;
+  // reception cannot say yes to being interrogated. Finding the decision-maker is a
+  // path to the goal, not the goal.
+  //
+  // These are the same words the conversation assistant opens with (see
+  // call-conversation.ts) — one script, whichever surface the operator is on.
   const opening = ig
-    ? `Hi — I was looking through ${name}'s Instagram and had a quick question. Who would be the best person to speak with about the customer experience or the way the business is presented online?`
-    : `Hi — I came across ${name} and had a quick question. Who would be the best person to speak with about the customer experience or the way the business is presented online?`;
+    ? `Hi, I'll keep this quick — I was looking through ${name}'s Instagram and put together a short review with a few observations that might be useful. I was hoping to send it over. What's the best email for that?`
+    : `Hi, I'll keep this quick — I put together a short review for ${name} with a few observations that might be useful. I was hoping to send it over. What's the best email for that?`;
 
   return {
-    objective: `Reach the owner or decision-maker, confirm the best email, and earn a yes to send the personalized review.`,
+    objective: `Offer the review, get the best email, and earn a yes to send it.`,
     opening,
     purpose:
-      "Identify the owner or decision-maker, confirm the best contact method, and earn permission to send the personalized review.",
+      "Offer something genuinely useful first, then earn permission to send it. The decision-maker is the ideal person to reach — but the address, freely given, is the win.",
     questions: [
-      "Who handles the customer experience or business technology decisions?",
-      "Is that person available right now?",
-      "What's the best email address for them?",
-      "May I send over a short personalized review I prepared?",
+      "What's the best email to send the review to?",
+      "Is it alright if I send it to that address?",
+      "Is there someone in particular who'd want to see it?",
+      "When's usually a good time to reach them?",
     ],
     branches: [
       {
         situation: "The decision-maker answers",
-        line: `Great — I'll keep this quick. ${brief.observation} ${brief.transition.replace(/,$/, "")}, ${brief.permissionQuestion} If it's useful, I'd love to send you a short personalized review — what's the best email for you?`,
+        line: `Great — I'll keep this short. ${brief.observation} ${brief.transition.replace(/,$/, "")}, and I could be wrong from the outside. Can I send the review over so you can judge for yourself? What's the best email?`,
       },
       {
         situation: "A receptionist or employee answers",
-        line: `No problem at all — who would be the best person to talk to about how the business is presented online, and is there a good email to reach them?`,
+        line: `No problem at all — is there a good email I could send the review to, or is there someone who'd want to see it?`,
       },
       {
         situation: "The decision-maker is unavailable",
-        line: `Totally understand. When's usually a good time to catch them? And is there a direct email I could send a short review to in the meantime?`,
+        line: `No problem at all. Is there an email I could send the review to in the meantime — and when's usually a good time to reach them?`,
       },
       {
         situation: "They ask what the call is about",
-        line: `Of course — I put together a short, no-strings review of how ${name} shows up online, with a couple of specific ideas. I just wanted to find the right person to send it to.`,
+        line: `Of course — I run a small studio here in LA and I put together a short review of ${name} with a couple of specific observations. There's no cost and nothing to sign; I just thought it might be useful. Can I send it over?`,
       },
       {
-        situation: "They're interested",
-        line: `Perfect — what's the best email? I'll send it over today, and if anything in it resonates we can find a few minutes to talk it through.`,
+        situation: "They give you an email",
+        line: `Perfect, thank you — let me read that back to make sure I have it right. Is it alright if I send the review to that address?`,
+      },
+      {
+        situation: "They say yes",
+        line: `Perfect, thank you. I'll send it over today. If anything in it is useful we can talk it through, and if not, no hard feelings at all.`,
       },
       {
         situation: "They're not interested",
-        line: `Completely fair — I appreciate you taking the call. If it's alright, I'll leave it here. Have a great rest of your day.`,
+        line: `Completely fair — I appreciate you taking the call. I'll leave it there. Have a good rest of your day.`,
       },
       {
         situation: "Voicemail",
-        line: `Hi, this is a quick message for the owner of ${name}. I put together a short review of how the business shows up online with a couple of specific ideas — no strings. I'll try again, or you can reach me back at this number.`,
+        line: `Hi, this is Jordan — I put together a short review for ${name} with a few observations that might be useful, and I wanted to send it over. If you'd like it, the easiest thing is to reply to this number with an email address. No cost, nothing to sign. Thanks very much.`,
       },
     ],
   };

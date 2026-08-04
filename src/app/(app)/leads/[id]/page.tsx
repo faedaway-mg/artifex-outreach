@@ -60,6 +60,7 @@ import { WebsiteLink } from "@/components/WebsiteLink";
 import { PhoneCopyButton } from "@/components/PhoneCopyButton";
 import { ContactRouteMissingWorkspace } from "@/components/lead/ContactRouteMissingWorkspace";
 import { deriveCallLeadState } from "@/lib/outreach/call-state";
+import { isCallFirstLead } from "@/lib/outreach/call-routing";
 import { formatRange, joinMeta, formatLocation, deslug } from "@/lib/utils";
 import { ArrowLeft, Globe, Phone, Mail, MapPin, Star, ExternalLink, Compass, ChevronDown } from "lucide-react";
 
@@ -152,8 +153,9 @@ export default async function LeadPage({ params, searchParams }: { params: { id:
   // availability, not permission to send — so it must not flip the lead into the
   // send flow. Only a permitted send route (lead.publicEmail — set by a pre-existing
   // public inbox or by an explicit asked-to-send outcome) leaves the call workflow.
+  // And that route has to be a REAL address: see isCallFirstLead.
   const callStrategy = determineContactStrategy(lead);
-  const isCallFirst = !lead.publicEmail && callStrategy.kind === "call-first";
+  const isCallFirst = isCallFirstLead(lead);
   // A lead with no verified, actionable channel is not ready for ANY outreach — the
   // only performable action is finding a contact route. This is checked before the
   // call workspace so we never render a call for a business we have no number for.
@@ -347,7 +349,7 @@ export default async function LeadPage({ params, searchParams }: { params: { id:
         </Link>
 
         {/* The one workspace responsible for the current action. */}
-        <CallWorkspace lead={lead} script={script} reason={callStrategy.reason} state={callState} continuation={continuation} collectedEmail={collectedEmail} />
+        <CallWorkspace lead={lead} script={script} reason={callStrategy.reason} state={callState} observation={stoodOut[0] ?? null} continuation={continuation} collectedEmail={collectedEmail} />
 
         {/* More about this business — the full lifecycle & intelligence, collapsed. */}
         <details className="group scroll-mt-4">

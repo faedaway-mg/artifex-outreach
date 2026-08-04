@@ -5,7 +5,7 @@
 // by the lead's single contact state (see deriveCallLeadState) — call-required,
 // attempt-scheduled, or closed.
 import { Phone, MapPin, Globe, Target, CheckCircle2, CalendarClock, XCircle } from "lucide-react";
-import { CallScriptCard } from "@/components/lead/CallScriptCard";
+import { CallSessionShell } from "@/components/lead/CallSessionShell";
 import { CallOutcomeConsole, type Continuation } from "@/components/lead/CallOutcomeConsole";
 import { ConvertToSendButton } from "@/components/lead/ConvertToSendButton";
 import { WebsiteLink } from "@/components/WebsiteLink";
@@ -50,11 +50,14 @@ export function CallWorkspace({
   state,
   continuation,
   collectedEmail,
+  observation,
 }: {
   lead: Lead;
   script: CallScript;
   reason: string;
   state: CallLeadState;
+  /** The strongest concrete thing we noticed — it makes the offer real on the phone. */
+  observation?: string | null;
   /** Batch/queue context so the outcome card can offer "Next lead". */
   continuation?: Continuation;
   /** An email collected on a call (on a contact) while the lead still has no send
@@ -104,10 +107,17 @@ export function CallWorkspace({
         </div>
       )}
 
-      {/* 2 · THE UNIFIED CALL ACTION + 3 · SCRIPT — side by side on desktop so both
-          the call button and the opening line are in the first viewport. */}
-      <div className="grid gap-5 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] lg:items-start">
-        <div className="space-y-5 lg:sticky lg:top-4">
+      {/* 2 · THE CALL ACTION + 3 · THE LIVE ASSISTANT — side by side on desktop so
+          both the call button and the words to say are in the first viewport. The
+          assistant and the outcome console share one session (see CallSessionShell),
+          so what the operator taps during the call becomes what gets recorded after it. */}
+      <CallSessionShell
+        leadId={lead.id}
+        businessName={lead.businessName}
+        observation={observation}
+        script={script}
+        continuation={continuation}
+        aside={
           <section className="card p-5">
             <p className="eyebrow text-azure-300">Next action</p>
             <h2 className="mt-1 text-lg font-semibold text-chalk-50">{scheduled ? "Call again" : "Call the business"}</h2>
@@ -143,14 +153,8 @@ export function CallWorkspace({
               </ul>
             </div>
           </section>
-        </div>
-
-        <CallScriptCard script={script} />
-      </div>
-
-      {/* 4 · LOG THE RESULT — the outcome drives the lead's next state, and the
-          success card continues the loop to the next actionable business. */}
-      <CallOutcomeConsole leadId={lead.id} continuation={continuation} />
+        }
+      />
     </div>
   );
 }

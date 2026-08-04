@@ -6,10 +6,12 @@
 // become real tasks, and every call appends a dated note. This is the machine that
 // turns "I made the call" into recorded, resumable state.
 import { revalidatePath } from "next/cache";
-import { getLead, updateLead, insertContact, insertTask, allTasks, updateTask, contactsForLead, appendAudit } from "@/lib/repo";
+import { getLead, updateLead, insertContact, insertTask, allTasks, updateTask, contactsForLead, appendAudit, auditForTarget } from "@/lib/repo";
 import { resolveCallWorkForEmail } from "@/lib/outreach/contact-route";
 import type { Lead, PipelineStage } from "@/lib/types";
 import { currentActor } from "@/lib/auth";
+import type { CallSession } from "@/lib/outreach/call-conversation";
+import { CALL_SESSION_AUDIT_ACTION, callSessionAuditMeta, findCommittedSession } from "@/lib/outreach/call-commit";
 
 /**
  * A lead has exactly ONE next call. Before scheduling a new attempt, supersede any
@@ -115,13 +117,42 @@ function outcomeSummary(o: CallOutcomeInput): string {
 /**
  * Record a call outcome and advance the lead's state accordingly. Every path
  * stamps lastContactAt and appends a note; the outcome then drives the rest.
+ *
+ * `session` is the optional tapped-through conversation (see call-conversation.ts).
+ * When present it does two things and nothing else: it makes the save IDEMPOTENT
+ * (an operator on a hotel wifi taps Save twice; that must be one call, not two),
+ * and it records what was learned as STRUCTURED facts alongside the human note.
+ * The nine outcomes, and every state change they drive, are unchanged.
  */
 export async function saveCallOutcomeAction(
   leadId: string,
   o: CallOutcomeInput,
+  session?: CallSession | null,
 ): Promise<CallOutcomeResult> {
   const lead = await getLead(leadId);
   if (!lead) return { ok: false, savedEmail: false, readyToSend: false, reason: "Lead not found." };
+
+  // A session carries the lead it was recorded against. Refusing a mismatch is the
+  // difference between a stale tab being harmless and it writing a call that
+  // happened with one business onto another.
+  if (session && session.leadId !== leadId) {
+    return { ok: false, savedEmail: false, readyToSend: false, reason: "That call was recorded for a different business." };
+  }
+
+  // Already recorded → return the same answer instead of writing a second time.
+  if (session?.sessionId) {
+    const prior = findCommittedSession(await auditForTarget("lead", leadId), session.sessionId);
+    if (prior) {
+      const m = (prior.meta ?? {}) as { outcome?: CallOutcome; permission?: boolean };
+      return {
+        ok: true,
+        savedEmail: !!(prior.meta as { emailKind?: string } | null)?.emailKind,
+        readyToSend: m.outcome === "asked-to-send" && !!lead.publicEmail,
+        stage: lead.pipelineStage,
+        reason: "This call was already saved.",
+      };
+    }
+  }
 
   const email = (o.verifiedEmail ?? "").trim();
   const validEmail = email.length > 0 && isEmail(email);
@@ -247,6 +278,21 @@ export async function saveCallOutcomeAction(
   // email-first. Supersede obsolete call work and queue the review so the operator's
   // next action becomes "Send the personalized review", with no manual queue management.
   if (patch.publicEmail) await resolveCallWorkForEmail(leadId, lead.businessName);
+
+  // The structured record of the call. This is written AFTER the state change and
+  // carries the session id, which makes it the idempotency key the check above
+  // reads. A phone call is otherwise the one channel that leaves us nothing but
+  // prose — these facts are what a later pass can actually query.
+  if (session?.sessionId) {
+    await appendAudit({
+      action: CALL_SESSION_AUDIT_ACTION,
+      actor: currentActor(),
+      targetType: "lead",
+      targetId: leadId,
+      meta: callSessionAuditMeta(session),
+      ip: null,
+    });
+  }
 
   // Cache revalidation is a BEST-EFFORT side effect that runs AFTER the write has
   // already committed. It must never turn a successful save into a user-facing

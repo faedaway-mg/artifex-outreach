@@ -3,17 +3,30 @@
 // that outcome needs appear. Saving records real state (see saveCallOutcomeAction):
 // an email unblocks the review send, a follow-up becomes a task, a decline closes
 // the lead. This is the "what do I record when the call ends" half of the workspace.
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Check, Loader2, ArrowRight, PhoneOff, Voicemail, CalendarClock, UserCheck, Mail, Ban, ChevronDown } from "lucide-react";
 import { saveCallOutcomeAction, type CallOutcome, type CallOutcomeResult, type VoicemailStatus } from "@/lib/outreach/call-outcome";
+import type { CallSession } from "@/lib/outreach/call-conversation";
 import { resolveNextLead } from "@/lib/outreach/next-lead";
 
 /** Batch/queue context carried from the lead page so "Next lead" can continue the loop. */
 export interface Continuation {
   ids?: string[];
   kind?: string;
+}
+
+/** What the tapped-through call says the outcome is — a proposal the operator can
+ *  still override, never a decision made on their behalf. */
+export interface SuggestedOutcome {
+  outcome: CallOutcome;
+  because: string;
+  email: string | null;
+  contactName: string | null;
+  role: "owner" | "manager" | "assistant" | null;
+  bestTime: string | null;
+  voicemail: VoicemailStatus | null;
 }
 
 type Field = "role" | "name" | "email" | "method" | "bestTime" | "followUp" | "voicemail" | "notes";
@@ -58,7 +71,23 @@ const TONE_BTN: Record<OutcomeDef["tone"], string> = {
   bad: "border-coral-400/40 bg-coral-400/10 text-coral-200",
 };
 
-export function CallOutcomeConsole({ leadId, collapsedLabel, continuation }: { leadId: string; collapsedLabel?: string; continuation?: Continuation }) {
+export function CallOutcomeConsole({
+  leadId,
+  collapsedLabel,
+  continuation,
+  session,
+  suggested,
+  onReset,
+}: {
+  leadId: string;
+  collapsedLabel?: string;
+  continuation?: Continuation;
+  /** The tapped-through call, when there was one. Carried to the save so it is
+   *  idempotent and so the structured record of the call is written with it. */
+  session?: CallSession | null;
+  suggested?: SuggestedOutcome | null;
+  onReset?: () => void;
+}) {
   const router = useRouter();
   const [advancing, startAdvance] = useTransition();
   const [outcome, setOutcome] = useState<CallOutcome | null>(null);
@@ -77,6 +106,22 @@ export function CallOutcomeConsole({ leadId, collapsedLabel, continuation }: { l
   const def = OUTCOMES.find((o) => o.value === outcome) ?? null;
   const has = (f: Field) => !!def?.fields.includes(f);
 
+  // The call answers this form. As the operator taps through the conversation the
+  // outcome and the fields it needs follow along, so nothing has to be re-entered
+  // when they hang up. Only fields the call actually learned are written — anything
+  // typed here by hand survives.
+  const signature = suggested ? `${suggested.outcome}|${suggested.email ?? ""}|${suggested.contactName ?? ""}|${suggested.role ?? ""}|${suggested.bestTime ?? ""}|${suggested.voicemail ?? ""}` : "";
+  useEffect(() => {
+    if (!suggested) return;
+    setOutcome(suggested.outcome);
+    if (suggested.email) setEmail(suggested.email);
+    if (suggested.contactName) setName(suggested.contactName);
+    if (suggested.role) setRole(suggested.role);
+    if (suggested.bestTime) setBestTime(suggested.bestTime);
+    setVoicemail(suggested.voicemail);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [signature]);
+
   async function onSave() {
     if (!outcome || saving) return;
     setSaving(true); setErr(null);
@@ -91,7 +136,7 @@ export function CallOutcomeConsole({ leadId, collapsedLabel, continuation }: { l
         followUpAt: has("followUp") && followUp ? new Date(followUp).toISOString() : undefined,
         voicemail: has("voicemail") ? voicemail : undefined,
         notes: notes || undefined,
-      });
+      }, session ?? null);
       if (res.ok) { setResult(res); router.refresh(); }
       else setErr(res.reason ?? "Couldn't save the outcome.");
     } catch {
@@ -164,7 +209,7 @@ export function CallOutcomeConsole({ leadId, collapsedLabel, continuation }: { l
         </div>
 
         <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px]">
-          <button onClick={() => { setResult(null); setOutcome(null); }} disabled={advancing} className="text-chalk-500 hover:text-chalk-300 disabled:opacity-50">Log another outcome</button>
+          <button onClick={() => { setResult(null); setOutcome(null); onReset?.(); }} disabled={advancing} className="text-chalk-500 hover:text-chalk-300 disabled:opacity-50">Log another outcome</button>
           {showNext && <button onClick={() => { setResult(null); router.refresh(); }} disabled={advancing} className="text-chalk-500 hover:text-chalk-300 disabled:opacity-50">Stay on this lead</button>}
         </div>
       </div>
@@ -174,7 +219,15 @@ export function CallOutcomeConsole({ leadId, collapsedLabel, continuation }: { l
   const body = (
     <section className="card p-5">
       <p className="label mb-1">When the call ends</p>
-      <p className="text-[13px] text-chalk-400">Pick what happened — only the fields you need will appear.</p>
+      {suggested ? (
+        // Never a surprise: say what this call will be recorded as, and why, before
+        // the operator commits it. They can still pick anything else.
+        <p className="text-[13px] text-chalk-400">
+          From the call, this looks like <span className="text-chalk-100">{OUTCOMES.find((o) => o.value === suggested.outcome)?.label ?? suggested.outcome}</span> — {suggested.because} Change it if that&rsquo;s not right.
+        </p>
+      ) : (
+        <p className="text-[13px] text-chalk-400">Pick what happened — only the fields you need will appear.</p>
+      )}
 
       <div className="mt-4 grid grid-cols-2 gap-1.5 sm:grid-cols-3">
         {OUTCOMES.map((o) => {
