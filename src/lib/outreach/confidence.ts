@@ -77,7 +77,7 @@ export function buildOutreachConfidence(
       score: s,
       band: band(s),
       why: dm.note,
-      howToImprove: dm.identified ? null : "Use the receptionist call to ask who owns the customer experience, or confirm the owner from a public listing before emailing a named person.",
+      howToImprove: dm.identified ? null : "Use the receptionist call to ask who'd want to see it, or confirm the owner from a public listing before emailing a named person.",
     });
   }
 

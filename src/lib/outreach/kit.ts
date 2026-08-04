@@ -65,7 +65,7 @@ export function buildOutreachKit(input: OutreachKitInput): OutreachKit {
   const nextBestAction = !ready
     ? blockers[0]
     : !decisionMaker.identified
-      ? "Send the email, then call the front desk to find who owns the customer experience — the phone guide handles that exact moment."
+      ? "Send the email, then call the front desk to find who'd want to see it — the phone guide handles that exact moment."
       : videoRecommended
         ? "Record the 45-second video, send it with the email, then plan the call for 3–4 days later so it continues the conversation."
         : "Send the email, then plan a follow-up call in 3–4 days — by then the call picks up a conversation the email already started.";

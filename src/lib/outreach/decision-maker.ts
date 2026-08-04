@@ -126,7 +126,7 @@ export function inferDecisionMakers(
     ? `${primary!.role} identified${primary!.name ? ` (${primary!.name})` : ""} — ${primary!.roleConfidence.toLowerCase()} confidence, via ${primary!.source}.`
     : candidates.length > 0
       ? "A contact exists, but the true decision maker could not be confidently identified. Confirm on the first call."
-      : "Decision maker could not be confidently identified. Use the receptionist call to find who owns the customer experience.";
+      : "Decision maker could not be confidently identified. Use the receptionist call to find who'd want to see it.";
 
   return { identified, primary, candidates, confidence, note };
 }
