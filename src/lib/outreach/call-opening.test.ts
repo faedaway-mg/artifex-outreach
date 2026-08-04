@@ -84,6 +84,17 @@ describe("understandJourney — reasoning about the business before any words", 
     expect(understandJourney({ industry: "Physical Therapist" }).actor).toMatch(/referral/i);
   });
 
+  it("3d. no spoken line ever puts a possessive on a long actor", () => {
+    // "from someone who just realized they need a lawyer's point of view" is what
+    // a template does. Found by reading real production copy out loud, not by a test.
+    for (const b of CORPUS) {
+      for (const line of spokenLines(buildCallOpening(b))) {
+        expect(line, b.businessName).not.toMatch(/\bthey need a lawyer's\b|contractors's|\bwould's\b/i);
+        expect(line, b.businessName).not.toMatch(/[a-z]s's/i);
+      }
+    }
+  });
+
   it("4. a hotel and a law firm never share a lens", () => {
     const hotel = understandJourney({ industry: "Motel" });
     const firm = understandJourney({ industry: "Law firms" });

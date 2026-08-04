@@ -1016,8 +1016,8 @@ export function composeOpening(u: LeadUnderstanding): CallOpening {
       ? `The analysis pointed at ${f.moment.replace(/-/g, " ")}, so that is what we lead with.`
       : `Nothing customer-visible was observed, so the opening claims nothing and offers the walkthrough instead.`,
     u.answerer === "mid-shift"
-      ? `Whoever answers is mid-shift at a ${u.size.replace(/-/g, " ")} business, so the opening is three sentences and holds the observation back for the transfer.`
-      : `Whoever answers is most likely ${u.answerer.replace(/-/g, " ")} at a ${u.size.replace(/-/g, " ")} business, so the opening stays under a minute.`,
+      ? `Whoever answers is mid-shift at ${/^[aeiou]/.test(u.size) ? "an" : "a"} ${u.size.replace(/-/g, " ")} business, so the opening is three sentences and holds the observation back for the transfer.`
+      : `Whoever answers is most likely ${u.answerer.replace(/-/g, " ")} at ${/^[aeiou]/.test(u.size) ? "an" : "a"} ${u.size.replace(/-/g, " ")} business, so the opening stays under a minute.`,
   ];
 
   return {
@@ -1043,7 +1043,9 @@ export function composeOpening(u: LeadUnderstanding): CallOpening {
       ),
       // Never run the cold opening twice.
       transferred: tidy(
-        `Thanks for taking the call — I know you just got handed this, so I'll be quick. I made ${u.deliverable} for ${name}, from ${lookedAt}'s point of view. ${claim} I'd like to send it to you directly. ${ask}`,
+        // "from someone who just realized they need a lawyer's point of view" is
+        // what a possessive does to a long actor. Say it the way a person would.
+        `Thanks for taking the call — I know you just got handed this, so I'll be quick. I made ${u.deliverable} for ${name}, from the point of view of ${lookedAt}. ${claim} I'd like to send it to you directly. ${ask}`,
       ),
       // The honest, complete answer to "what is this about". The only line that
       // spends words on the full lens — here it is asked for.
