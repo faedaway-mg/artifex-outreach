@@ -7,6 +7,7 @@
 // lead already carries and names the channel to begin the relationship on, plus a
 // short sequence so the operator never has to ask "what do I do now?".
 // ─────────────────────────────────────────────────────────────────────────────
+import { openingForLead } from "./call-opening";
 
 export type ContactStrategyKind =
   | "email-first"
@@ -120,6 +121,13 @@ export interface StrategyLead {
   businessStatus: string | null;
   rating: number | null;
   reviewCount: number | null;
+  // Optional because the strategy itself never needed them — the call opening
+  // does, and it reasons better the more of these it gets. A Lead has them all.
+  industry?: string | null;
+  normalizedCategory?: string | null;
+  categoryGroup?: string | null;
+  city?: string | null;
+  locationsCount?: number | null;
 }
 
 /** The lead's Instagram profile URL, if any — exported for the DM channel UI. */
@@ -259,11 +267,11 @@ const SEQUENCE: Record<ContactStrategyKind, string[]> = {
     "Call the business",
     "Ask for the owner or decision-maker",
     "Ask for the best email address",
-    "Send the personalized review afterward",
+    "Send the walkthrough afterward",
     "Schedule a conversation if they're interested",
   ],
-  "contact-form-first": ["Open their contact form", "Paste the short introduction", "Submit it", "Watch for a reply, then send the review"],
-  "instagram-dm-first": ["Open their Instagram", "Send a short, warm DM", "Ask for the best email address", "Send the review afterward"],
+  "contact-form-first": ["Open their contact form", "Paste the short introduction", "Submit it", "Watch for a reply, then send it over"],
+  "instagram-dm-first": ["Open their Instagram", "Send a short, warm DM", "Ask for the best email address", "Send it over afterward"],
   "no-channel": ["Search public sources for a contact route", "Verify what's found against its source", "Save the channel", "Then begin outreach on the channel that fits"],
 };
 
@@ -273,29 +281,20 @@ const SEQUENCE: Record<ContactStrategyKind, string[]> = {
  */
 export function buildCallBrief(
   lead: StrategyLead,
-  opts: { strongestObservation?: string | null } = {},
+  opts: { strongestObservation?: string | null; findingCategory?: string | null } = {},
 ): CallBrief {
-  const ig = instagramUrl(lead);
-  const noWebsite = !lead.website;
-  const via = looksLikeGoogleForm(lead) ? "just the Google Form through Instagram" : ig ? "mostly Instagram" : "no dedicated website";
-
-  const opening = ig
-    ? `I was looking through your Instagram and ${lead.businessName} looks incredible.`
-    : `I came across ${lead.businessName} and what you're doing looks genuinely impressive.`;
-
-  const observation = opts.strongestObservation?.trim()
-    ? opts.strongestObservation.trim()
-    : noWebsite
-      ? `One thing I noticed was that I couldn't find a dedicated website — it looks like it's ${via}.`
-      : `One thing I noticed was that the booking flow felt a little harder to find than it could be.`;
+  // The observation used to be the analysis pasted straight into the operator's
+  // mouth — "Customer Journey (highest leverage)" is a sentence no human says.
+  // It now comes back translated, or empty when we observed nothing worth
+  // claiming, from the same engine the script and the assistant read.
+  const o = openingForLead(lead, { observations: [opts.strongestObservation], findingCategory: opts.findingCategory });
+  const noticed = o.noticed ? `${o.noticed[0].toUpperCase()}${o.noticed.slice(1)}.` : "";
 
   return {
-    opening,
-    observation,
+    opening: o.say,
+    observation: noticed || `I couldn't tell everything from the outside — that's why I'd rather you look at it yourself.`,
     transition: "I might be completely wrong from the outside,",
-    permissionQuestion: noWebsite
-      ? "but has that ever become a limitation when people are trying to book with you?"
-      : "but has that ever come up as a friction point for the people trying to reach you?",
+    permissionQuestion: `but has that ever come up for ${o.journey.audience} trying to ${o.journey.goal}?`,
   };
 }
 
@@ -307,61 +306,51 @@ export function buildCallBrief(
  */
 export function buildCallScript(
   lead: StrategyLead,
-  opts: { strongestObservation?: string | null } = {},
+  opts: { strongestObservation?: string | null; findingCategory?: string | null } = {},
 ): CallScript {
-  const name = lead.businessName;
-  const ig = instagramUrl(lead);
-  const brief = buildCallBrief(lead, opts);
-
   // VALUE FIRST. The old opening asked "who would be the best person to speak with
   // about the customer experience" — a qualifying question that costs the caller
   // something before offering anything, which is exactly how a cold call gets
   // handled as a nuisance. Whoever picked up has no reason to route a stranger who
   // hasn't said what they want.
   //
-  // So the opening leads with the thing we actually prepared and asks for the one
-  // piece of information that lets us deliver it. Reception can say yes to that;
-  // reception cannot say yes to being interrogated. Finding the decision-maker is a
-  // path to the goal, not the goal.
+  // The replacement for that was value-first but still a template: every business
+  // heard "I put together a short review with a few observations." To whoever
+  // answers, "review" means Google, Yelp, or a complaint — and "a few
+  // observations" means nothing at all. So the words are no longer written here.
+  // They are reasoned per business in call-opening.ts, from what this kind of
+  // customer actually goes through and what the analysis actually found, and this
+  // function only arranges them. See that module's header for the rules.
   //
-  // These are the same words the conversation assistant opens with (see
-  // call-conversation.ts) — one script, whichever surface the operator is on.
-  const opening = ig
-    ? `Hi, I'll keep this quick — I was looking through ${name}'s Instagram and put together a short review with a few observations that might be useful. I was hoping to send it over. What's the best email for that?`
-    : `Hi, I'll keep this quick — I put together a short review for ${name} with a few observations that might be useful. I was hoping to send it over. What's the best email for that?`;
+  // These are the same words the conversation assistant speaks (see
+  // call-conversation.ts) — one opening, whichever surface the operator is on.
+  const o = openingForLead(lead, { observations: [opts.strongestObservation], findingCategory: opts.findingCategory });
 
   return {
-    objective: `Offer the review, get the best email, and earn a yes to send it.`,
-    opening,
+    objective: `Offer ${o.deliverable}, get the best email, and earn a yes to send it.`,
+    opening: o.say,
     purpose:
       "Offer something genuinely useful first, then earn permission to send it. The decision-maker is the ideal person to reach — but the address, freely given, is the win.",
     questions: [
-      "What's the best email to send the review to?",
+      "What's the best email to send it to?",
       "Is it alright if I send it to that address?",
       "Is there someone in particular who'd want to see it?",
       "When's usually a good time to reach them?",
     ],
     branches: [
-      {
-        situation: "The decision-maker answers",
-        line: `Great — I'll keep this short. ${brief.observation} ${brief.transition.replace(/,$/, "")}, and I could be wrong from the outside. Can I send the review over so you can judge for yourself? What's the best email?`,
-      },
-      {
-        situation: "A receptionist or employee answers",
-        line: `No problem at all — is there a good email I could send the review to, or is there someone who'd want to see it?`,
-      },
+      { situation: "The decision-maker answers", line: o.lines.decisionMaker },
+      { situation: "A receptionist or employee answers", line: o.lines.reception },
+      { situation: "They transfer you", line: o.lines.transferred },
       {
         situation: "The decision-maker is unavailable",
-        line: `No problem at all. Is there an email I could send the review to in the meantime — and when's usually a good time to reach them?`,
+        line: `No problem at all. Is there an email I could send it to in the meantime — and when's usually a good time to reach them?`,
       },
-      {
-        situation: "They ask what the call is about",
-        line: `Of course — I run a small studio here in LA and I put together a short review of ${name} with a couple of specific observations. There's no cost and nothing to sign; I just thought it might be useful. Can I send it over?`,
-      },
+      { situation: "They ask what the call is about", line: o.lines.whatIsThis },
       {
         situation: "They give you an email",
-        line: `Perfect, thank you — let me read that back to make sure I have it right. Is it alright if I send the review to that address?`,
+        line: `Perfect, thank you — let me read that back to make sure I have it right. Is it alright if I send it to that address?`,
       },
+      { situation: "They point you at the general inbox", line: o.lines.gatekept },
       {
         situation: "They say yes",
         line: `Perfect, thank you. I'll send it over today. If anything in it is useful we can talk it through, and if not, no hard feelings at all.`,
@@ -370,10 +359,7 @@ export function buildCallScript(
         situation: "They're not interested",
         line: `Completely fair — I appreciate you taking the call. I'll leave it there. Have a good rest of your day.`,
       },
-      {
-        situation: "Voicemail",
-        line: `Hi, this is Jordan — I put together a short review for ${name} with a few observations that might be useful, and I wanted to send it over. If you'd like it, the easiest thing is to reply to this number with an email address. No cost, nothing to sign. Thanks very much.`,
-      },
+      { situation: "Voicemail", line: o.lines.voicemail },
     ],
   };
 }

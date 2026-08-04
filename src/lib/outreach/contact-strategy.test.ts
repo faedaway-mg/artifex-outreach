@@ -142,9 +142,16 @@ describe("buildCallBrief — a conversation starter, not a script", () => {
     expect(b.transition).toMatch(/wrong from the outside/i);
   });
 
-  it("prefers a real strongest observation when provided", () => {
-    const b = buildCallBrief({ ...base, businessName: "X", phone: "(213) 555-0100" }, { strongestObservation: "Your humidor selection is unusually deep." });
-    expect(b.observation).toBe("Your humidor selection is unusually deep.");
+  it("speaks the analysis translated, never pasted into the operator's mouth", () => {
+    const raw = "Customer Journey (highest leverage): the booking flow requires a phone call before it will quote a rate.";
+    const b = buildCallBrief(
+      { ...base, businessName: "X", industry: "Hotel", website: "https://x.com", phone: "(213) 555-0100" },
+      { strongestObservation: raw },
+    );
+    // The finding drives the line — but in words a person would actually say.
+    expect(b.observation).not.toContain(raw);
+    expect(b.observation).not.toMatch(/customer journey|highest leverage/i);
+    expect(b.observation).toMatch(/book/i);
   });
 });
 
@@ -162,18 +169,21 @@ describe("buildCallScript — the full readable call guide", () => {
     const s = buildCallScript(ivy);
     expect(s.objective.length).toBeGreaterThan(0);
     expect(s.opening).toContain("The Secret House of Ivy");
-    // Value first: the opening offers the review and asks for the address. It must
-    // NOT open by qualifying the person who answered — asking a stranger "who's the
-    // best person to speak with" costs them something before offering anything, and
-    // is why the call gets handled as a nuisance.
-    expect(s.opening).toMatch(/review/i);
-    expect(s.opening).toMatch(/best email/i);
+    // Value first: the opening names the thing we made and asks for the address. It
+    // must NOT open by qualifying the person who answered — asking a stranger "who's
+    // the best person to speak with" costs them something before offering anything,
+    // and is why the call gets handled as a nuisance. And it never says "review":
+    // to whoever picks up, that word means Google, Yelp, or a complaint.
+    expect(s.opening).not.toMatch(/\breviews?\b/i);
+    expect(s.opening).toMatch(/one-page|walkthrough|breakdown|side-by-side|screenshots/i);
+    expect(s.opening).toMatch(/best (email|address)/i);
     expect(s.opening).not.toMatch(/best person/i);
     expect(s.opening).not.toMatch(/who would be/i);
     expect(s.purpose).toMatch(/decision-maker|owner/i);
     expect(s.questions.length).toBeGreaterThanOrEqual(3);
     expect(s.questions.some((q) => /email/i.test(q))).toBe(true);
-    expect(s.questions.some((q) => /review/i.test(q))).toBe(true);
+    expect(s.questions.some((q) => /send it|walkthrough|breakdown/i.test(q))).toBe(true);
+    expect(s.questions.every((q) => !/\breviews?\b/i.test(q))).toBe(true);
   });
 
   it("covers the common turns of a real call, each as a spoken line", () => {

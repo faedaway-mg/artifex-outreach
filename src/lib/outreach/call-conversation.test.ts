@@ -17,9 +17,24 @@ import {
   type CallEvent,
   type CallSession,
 } from "./call-conversation";
+import { openingForLead } from "./call-opening";
 
-const CTX = { businessName: "Villa Brasil Motel", observation: "The booking page asks for a phone call before it will quote a rate" };
-const NO_OBS = { businessName: "Villa Brasil Motel", observation: null };
+// A real lead, run through the real opening engine — the assistant's words are
+// no longer written in this file, so the fixture can't fake them either.
+const lead = {
+  businessName: "Villa Brasil Motel",
+  industry: "Motel",
+  city: "Los Angeles",
+  website: "https://villabrasilmotel.com",
+  rating: 4.3,
+  reviewCount: 180,
+};
+const CTX = {
+  businessName: "Villa Brasil Motel",
+  opening: openingForLead(lead, { observations: ["The booking page asks for a phone call before it will quote a rate"] }),
+  observation: "The booking page asks for a phone call before it will quote a rate",
+};
+const NO_OBS = { businessName: "Villa Brasil Motel", opening: openingForLead(lead), observation: null };
 
 const path = (...events: CallEvent[]): CallSession =>
   events.reduce((s, e) => appendEvent(s, e), newSession("lead_x", "sess_1"));
@@ -138,9 +153,13 @@ describe("the temporary session is a draft, not a write", () => {
 describe("the script responds to the conversation", () => {
   it("16. first contact leads with the value, not with a gatekeeper question", () => {
     const g = guidanceFor([], CTX);
-    expect(g.say).toContain("review");
+    // The value is the thing we made, named plainly — never "a short review".
+    expect(g.say).toContain(CTX.opening.deliverable);
+    expect(g.say).not.toMatch(/\breviews?\b/i);
     expect(g.say).toContain("Villa Brasil Motel");
-    expect(g.say.toLowerCase()).toContain("best email");
+    // Whoever answers, the opening ends on the email — asked for, never assumed.
+    expect(g.say.toLowerCase()).toMatch(/email/);
+    expect(g.say.trim().endsWith("?")).toBe(true);
     // The forbidden opening: qualifying the person before offering anything.
     expect(g.say.toLowerCase()).not.toContain("who handles");
     expect(g.say.toLowerCase()).not.toContain("in charge of");
@@ -155,7 +174,8 @@ describe("the script responds to the conversation", () => {
   it("17. reception state asks for the address, not for the owner", () => {
     const g = guidanceFor(["reception-answered"], CTX);
     expect(g.say.toLowerCase()).toContain("email");
-    expect(g.say).toContain("review");
+    expect(g.say).toContain(CTX.opening.deliverable);
+    expect(g.say).not.toMatch(/\breviews?\b/i);
     expect(g.next).toContain("general-email");
     expect(g.next).toContain("transferred");
     // Reception is a route to success, not an obstacle to get past.
@@ -164,7 +184,8 @@ describe("the script responds to the conversation", () => {
 
   it("18. the transferred state acknowledges the transfer instead of restarting", () => {
     const g = guidanceFor(["reception-answered", "transferred"], CTX);
-    expect(g.say.toLowerCase()).toContain("transferred me");
+    // It names the hand-off, so this person knows why they're mid-conversation.
+    expect(g.say.toLowerCase()).toContain("just got handed this");
     expect(g.note?.toLowerCase()).toContain("never run the cold opening twice");
     // It must not be the identical opening line read a second time.
     expect(g.say).not.toBe(guidanceFor([], CTX).say);
@@ -172,7 +193,9 @@ describe("the script responds to the conversation", () => {
 
   it("19. \"what is this about?\" gets a concise, honest value explanation", () => {
     const g = guidanceFor(["reception-answered", "asked-what-this-is"], CTX);
-    expect(g.say).toContain("review");
+    // The one line allowed to spend words on the lens — because it was asked for.
+    expect(g.say).toContain(CTX.opening.journey.lens);
+    expect(g.say).not.toMatch(/\breviews?\b/i);
     expect(g.say.toLowerCase()).toContain("no cost");
     expect(g.say.toLowerCase()).toContain("nothing to sign");
     expect(g.note?.toLowerCase()).toContain("stop talking");
@@ -221,7 +244,8 @@ describe("the script responds to the conversation", () => {
   it("24. voicemail guidance is a short, specific, leave-able message", () => {
     const g = guidanceFor(["no-answer", "voicemail-available"], CTX);
     expect(g.say).toContain("Villa Brasil Motel");
-    expect(g.say.toLowerCase()).toContain("review");
+    expect(g.say).toContain(CTX.opening.deliverable);
+    expect(g.say).not.toMatch(/\breviews?\b/i);
     expect(g.say.toLowerCase()).toContain("email address");
     expect(g.note?.toLowerCase()).toContain("twenty seconds");
     // The state before it asks the only question that matters: is there a mailbox?
@@ -258,7 +282,10 @@ describe("the script responds to the conversation", () => {
   });
 
   it("the observation makes the value concrete, and its absence never breaks the line", () => {
-    expect(guidanceFor(["dm-answered"], CTX).say).toContain("the booking page asks for a phone call");
+    // The analysis is translated before it is spoken — never read back verbatim.
+    const said = guidanceFor(["dm-answered"], CTX).say;
+    expect(said).toContain(CTX.opening.noticed);
+    expect(said).not.toContain("The booking page asks for a phone call before it will quote a rate");
     const without = guidanceFor(["dm-answered"], NO_OBS).say;
     expect(without).not.toContain("undefined");
     expect(without).not.toContain("null");
@@ -460,7 +487,7 @@ describe("structured intelligence captured from the taps", () => {
 
   it("the path reads back as what actually happened, not as a code", () => {
     expect(describePath(["reception-answered", "transferred", "dm-answered", "permission-granted"]))
-      .toBe("Reception answered → Transferred → Decision-maker answered → Said yes — send the review");
+      .toBe("Reception answered → Transferred → Decision-maker answered → Said yes — send it over");
     expect(describePath([])).toBe("");
   });
 });

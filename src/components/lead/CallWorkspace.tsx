@@ -11,13 +11,14 @@ import { ConvertToSendButton } from "@/components/lead/ConvertToSendButton";
 import { WebsiteLink } from "@/components/WebsiteLink";
 import { PhoneCopyButton } from "@/components/PhoneCopyButton";
 import type { CallScript } from "@/lib/outreach/contact-strategy";
+import { openingForLead } from "@/lib/outreach/call-opening";
 import type { CallLeadState } from "@/lib/outreach/call-state";
 import { deslug } from "@/lib/utils";
 import type { Lead } from "@/lib/types";
 
 // What every call must come home with — the whole reason to dial. Kept as a short,
 // glanceable checklist so the operator knows what to listen for.
-const COLLECT = ["Decision-maker name", "Their role", "Best email address", "Permission to send the review"];
+const COLLECT = ["Decision-maker name", "Their role", "Best email address", "Permission to send it over"];
 
 function Identity({ lead, reason }: { lead: Lead; reason: string }) {
   return (
@@ -87,6 +88,11 @@ export function CallWorkspace({
 
   const scheduled = state.kind === "attempt-scheduled" ? state : null;
 
+  // The words for THIS business, reasoned from what it is and what we found —
+  // built once here so the live assistant and the written guide below it are the
+  // same call, not two different ones (see call-opening.ts).
+  const opening = openingForLead(lead, { observations: [observation] });
+
   return (
     <div className="space-y-5">
       {/* 1 · COMPACT IDENTITY — name, category, city, phone, website status, one reason. */}
@@ -101,8 +107,8 @@ export function CallWorkspace({
           <span className="text-chalk-400">Next attempt {new Date(scheduled.at).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })}.</span>
           {scheduled.lastResult && <span className="w-full text-[12px] text-chalk-500">Last result: {scheduled.lastResult}</span>}
           {/* Correction path: an email was collected but the logged outcome scheduled
-              another call. If they actually asked us to send the review, one tap
-              converts it — the review is queued, the call-back superseded, history kept. */}
+              another call. If they actually asked us to send it, one tap converts
+              it — the send is queued, the call-back superseded, history kept. */}
           {collectedEmail && <ConvertToSendButton leadId={lead.id} email={collectedEmail} />}
         </div>
       )}
@@ -114,7 +120,7 @@ export function CallWorkspace({
       <CallSessionShell
         leadId={lead.id}
         businessName={lead.businessName}
-        observation={observation}
+        opening={opening}
         script={script}
         continuation={continuation}
         aside={

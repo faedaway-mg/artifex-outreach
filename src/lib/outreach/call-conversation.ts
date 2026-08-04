@@ -19,6 +19,7 @@
 // a set of structured facts — one set of taps, three uses.
 // ─────────────────────────────────────────────────────────────────────────────
 import type { CallOutcome, VoicemailStatus } from "./call-outcome";
+import type { CallOpening } from "./call-opening";
 
 // ── The events ───────────────────────────────────────────────────────────────
 // What just happened on the call. Named from the OPERATOR's point of view, because
@@ -73,7 +74,7 @@ export const EVENT_LABEL: Record<CallEvent, string> = {
   "busy-callback": "Busy — call back later",
   "general-email": "General email provided",
   "direct-email": "Direct email provided",
-  "permission-granted": "Said yes — send the review",
+  "permission-granted": "Said yes — send it over",
   "email-no-permission": "Email given, no permission asked",
   "asked-to-email-info": "Asked me to email information",
   "interested-broader": "Interested in broader help",
@@ -216,6 +217,13 @@ export interface CallGuidance {
 
 export interface GuidanceContext {
   businessName: string;
+  /**
+   * The reasoned opening for THIS business — what we looked at, what we made,
+   * what we noticed, and the words for each turn of the call. Required, because
+   * the alternative is this file inventing its own version of the same sentences
+   * and the two drifting apart. Build it with openingForLead().
+   */
+  opening: CallOpening;
   /** The strongest concrete observation we prepared, if we have one — it makes the
    *  value real instead of generic. */
   observation?: string | null;
@@ -231,19 +239,23 @@ const OPENING_NEXT: CallEvent[] = [
  *
  * The primary goal is NOT "find the decision-maker" — it is to earn permission to
  * send something genuinely valuable. Every line below is written to that end: brief,
- * specific, no pressure, and grounded in the review we actually prepared.
+ * specific, no pressure, and grounded in the thing we actually prepared.
+ *
+ * The business-specific words come from ctx.opening (see call-opening.ts). This
+ * file decides WHEN to say something; that engine decides WHAT, per business.
  */
 export function guidanceFor(path: CallEvent[], ctx: GuidanceContext): CallGuidance {
   const name = ctx.businessName;
+  const o = ctx.opening;
   const last = path[path.length - 1];
   const been = (e: CallEvent) => path.includes(e);
 
   // FIRST CONTACT — value first. Not "who handles your customer experience".
   if (!last) {
     return {
-      objective: "Offer the review and get the best email to send it to.",
-      say: `Hi, I'll keep this quick — I put together a short review for ${name} with a few observations that might be useful. I was hoping to send it over. What's the best email for that?`,
-      note: "Lead with what you prepared. The review is the door; everything else comes later.",
+      objective: `Offer ${o.deliverable} and get the best email to send it to.`,
+      say: o.say,
+      note: "Lead with what you prepared. What you made is the door; everything else comes later.",
       capture: [],
       next: OPENING_NEXT,
       likelyOutcomes: ["asked-to-send", "contact-collected", "no-answer"],
@@ -254,7 +266,7 @@ export function guidanceFor(path: CallEvent[], ctx: GuidanceContext): CallGuidan
     case "reception-answered":
       return {
         objective: "Get the best email, or the name of who can give it to you.",
-        say: `Hi — I'll be quick. I put together a short review for ${name} with a few specific observations. Is there a good email I could send it to, or is there someone who'd want to see it?`,
+        say: o.lines.reception,
         note: "Reception can hand you the address. You don't need the owner to succeed here.",
         capture: ["contactName"],
         next: ["general-email", "direct-email", "transferred", "on-hold", "asked-what-this-is", "dm-unavailable", "busy-callback", "asked-to-email-info", "not-interested"],
@@ -264,8 +276,8 @@ export function guidanceFor(path: CallEvent[], ctx: GuidanceContext): CallGuidan
     case "dm-answered":
       return {
         objective: "Make the value concrete, then ask permission to send it.",
-        say: `Hi — I'll keep this short. I put together a review of ${name} and a few things stood out${ctx.observation ? ` — ${lowerFirst(ctx.observation)}` : ""}. I could be wrong from the outside. Can I send it over so you can judge for yourself? What's the best email?`,
-        note: "You have the right person. Don't pitch — offer, and let the review do the work.",
+        say: o.lines.decisionMaker,
+        note: "You have the right person. Don't pitch — offer, and let the work speak for itself.",
         capture: ["contactName", "contactRole", "directEmail"],
         next: ["direct-email", "permission-granted", "general-email", "asked-what-this-is", "interested-specific", "interested-broader", "wants-meeting", "busy-callback", "not-interested"],
         likelyOutcomes: ["reached-dm", "asked-to-send", "contact-collected"],
@@ -275,7 +287,7 @@ export function guidanceFor(path: CallEvent[], ctx: GuidanceContext): CallGuidan
     case "transferred":
       return {
         objective: "Re-open warmly, in one sentence, without repeating yourself.",
-        say: `Thanks for taking the call — they transferred me over. I'll keep it quick: I put together a short review for ${name} with a few observations, and I wanted to send it to the right person. What's the best email?`,
+        say: o.lines.transferred,
         note: "Never run the cold opening twice. Acknowledge the transfer and get to the point.",
         capture: ["transferTo", "contactName"],
         next: ["dm-answered", "direct-email", "general-email", "permission-granted", "asked-what-this-is", "on-hold", "transfer-failed", "dm-unavailable", "not-interested"],
@@ -285,7 +297,7 @@ export function guidanceFor(path: CallEvent[], ctx: GuidanceContext): CallGuidan
     case "transfer-failed":
       return {
         objective: "Recover the call — or at least the address.",
-        say: `Sorry, I think we got cut off during the transfer. I'll be quick — is there an email I could send a short review to?`,
+        say: `Sorry, I think we got cut off during the transfer. I'll be quick — is there an email I could send ${o.deliverable} to?`,
         note: "A dropped transfer is not a dead lead. Ask once, then schedule a call back.",
         capture: ["generalEmail", "callbackWindow"],
         next: ["general-email", "direct-email", "busy-callback", "dm-unavailable", "no-answer", "end-call"],
@@ -305,7 +317,7 @@ export function guidanceFor(path: CallEvent[], ctx: GuidanceContext): CallGuidan
     case "asked-what-this-is":
       return {
         objective: "Explain the value in two sentences. No pitch.",
-        say: `Of course — I run a small studio here in LA, and I put together a short review of ${name}${ctx.observation ? ` after noticing ${lowerFirst(ctx.observation)}` : ""}. There's no cost and nothing to sign; I just thought it might be useful. Can I send it over?`,
+        say: o.lines.whatIsThis,
         note: "Answer plainly and stop talking. Over-explaining is what loses the call.",
         capture: [],
         next: ["permission-granted", "general-email", "direct-email", "transferred", "dm-answered", "interested-specific", "not-interested", "asked-to-email-info"],
@@ -315,7 +327,7 @@ export function guidanceFor(path: CallEvent[], ctx: GuidanceContext): CallGuidan
     case "dm-unavailable":
       return {
         objective: "Get the address now, and a time worth calling back.",
-        say: `No problem at all. Is there an email I could send the review to in the meantime — and when's usually a good time to reach them?`,
+        say: `No problem at all. Is there an email I could send it to in the meantime — and when's usually a good time to reach them?`,
         note: "Two asks, one breath. The address is the win; the callback time is the backup.",
         capture: ["generalEmail", "directEmail", "callbackWindow"],
         next: ["general-email", "direct-email", "busy-callback", "asked-to-email-info", "not-interested", "end-call"],
@@ -337,7 +349,7 @@ export function guidanceFor(path: CallEvent[], ctx: GuidanceContext): CallGuidan
     case "general-email":
       return {
         objective: "Turn an address into permission.",
-        say: `Perfect, thank you. Is it alright if I send the review to that address?`,
+        say: o.lines.gatekept,
         note: "An address is not a yes. Ask, and tap what they actually say.",
         capture: ["generalEmail", "contactName"],
         next: ["permission-granted", "email-no-permission", "asked-what-this-is", "not-interested", "end-call"],
@@ -347,7 +359,7 @@ export function guidanceFor(path: CallEvent[], ctx: GuidanceContext): CallGuidan
     case "direct-email":
       return {
         objective: "Confirm the address and who it belongs to, then ask.",
-        say: `Great, thank you — let me read that back to make sure I have it right. And is it alright if I send the review there?`,
+        say: `Great, thank you — let me read that back to make sure I have it right. And is it alright if I send it there?`,
         note: "Read the address back. A typo here loses the whole call.",
         capture: ["directEmail", "contactName", "contactRole"],
         next: ["permission-granted", "email-no-permission", "wants-meeting", "interested-specific", "not-interested", "end-call"],
@@ -384,12 +396,12 @@ export function guidanceFor(path: CallEvent[], ctx: GuidanceContext): CallGuidan
         likelyOutcomes: ["asked-to-send", "contact-collected"],
       };
 
-    // INTEREST — the review is the door, not the ceiling. Only after value is real
+    // INTEREST — what we made is the door, not the ceiling. Only after value is real
     // does it make sense to mention that we build software, not just websites.
     case "interested-specific":
       return {
         objective: "Capture the specific problem in their words.",
-        say: `That's really useful to know — tell me a bit more about how that shows up day to day. I'll make sure the review speaks to it.`,
+        say: `That's really useful to know — tell me a bit more about how that shows up day to day. I'll make sure what I send speaks to it.`,
         note: "Write down their words, not your paraphrase. This is what makes the follow-up land.",
         capture: ["interest", "notes"],
         next: ["permission-granted", "direct-email", "general-email", "wants-meeting", "end-call"],
@@ -408,9 +420,9 @@ export function guidanceFor(path: CallEvent[], ctx: GuidanceContext): CallGuidan
 
     case "wants-meeting":
       return {
-        objective: "Get the address, send the review, and let it set up the meeting.",
-        say: `I'd like that. Let me send the review over first so you've seen it, then we can find fifteen minutes. What's the best email?`,
-        note: "The review does the pre-selling. Don't book blind.",
+        objective: "Get the address, send it over, and let it set up the meeting.",
+        say: `I'd like that. Let me send it over first so you've seen it, then we can find fifteen minutes. What's the best email?`,
+        note: "What you send does the pre-selling. Don't book blind.",
         capture: ["directEmail", "contactName", "contactRole", "notes"],
         next: ["direct-email", "permission-granted", "end-call"],
         likelyOutcomes: ["reached-dm", "asked-to-send"],
@@ -440,7 +452,7 @@ export function guidanceFor(path: CallEvent[], ctx: GuidanceContext): CallGuidan
     case "transferred-to-english":
       return {
         objective: "Start again, briefly — this person hasn't heard any of it.",
-        say: `Thanks so much. I'll be quick — I put together a short review for ${name} with a few observations, and I wanted to send it to the right person. What's the best email?`,
+        say: o.lines.transferred,
         note: "The barrier is cleared. Treat this as a fresh, warm opening.",
         capture: ["contactName"],
         next: ["general-email", "direct-email", "permission-granted", "dm-answered", "asked-what-this-is", "not-interested"],
@@ -481,7 +493,7 @@ export function guidanceFor(path: CallEvent[], ctx: GuidanceContext): CallGuidan
     case "voicemail-available":
       return {
         objective: "Leave a short, specific message.",
-        say: `Hi, this is Jordan — I put together a short review for ${name} with a few observations that might be useful, and I wanted to send it over. If you'd like it, the easiest thing is to reply to this number with an email address. No cost, nothing to sign. Thanks very much.`,
+        say: o.lines.voicemail,
         note: "Name the business, name the value, give one easy action. Under twenty seconds.",
         capture: ["notes"],
         next: ["end-call"],
@@ -535,7 +547,7 @@ export function guidanceFor(path: CallEvent[], ctx: GuidanceContext): CallGuidan
         objective: "Record what happened.",
         say: `(Call ended.)`,
         note: been("permission-granted")
-          ? "You earned permission — saving this queues the review to send."
+          ? "You earned permission — saving this queues it to send."
           : "Review the outcome below, then save it once.",
         capture: ["notes"],
         next: [],
@@ -583,7 +595,7 @@ export function deriveOutcome(s: Pick<CallSession, "path" | "captured">): Derive
 
   // Permission is the win condition.
   if (been("permission-granted") || been("asked-to-email-info")) {
-    return { outcome: "asked-to-send", voicemail: vm, email, permission: true, because: email ? "They agreed to receive the review at the address you captured." : "They agreed to receive the review — capture the address to send it." };
+    return { outcome: "asked-to-send", voicemail: vm, email, permission: true, because: email ? "They agreed to receive it at the address you captured." : "They agreed to receive it — capture the address to send it." };
   }
 
   // An address WITHOUT permission is contact intelligence, never a licence to send.

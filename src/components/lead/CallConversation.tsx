@@ -21,6 +21,7 @@ import {
 } from "@/lib/outreach/call-conversation";
 import { CallScriptCard } from "@/components/lead/CallScriptCard";
 import type { CallScript } from "@/lib/outreach/contact-strategy";
+import type { CallOpening } from "@/lib/outreach/call-opening";
 
 const TONE_BTN: Record<"good" | "neutral" | "bad", string> = {
   good: "border-teal-400/40 bg-teal-400/[0.08] text-teal-200 hover:bg-teal-400/[0.14]",
@@ -49,7 +50,7 @@ const chip = (active: boolean) =>
 export function CallConversation({
   session,
   businessName,
-  observation,
+  opening,
   script,
   onEvent,
   onTruncate,
@@ -58,7 +59,8 @@ export function CallConversation({
 }: {
   session: CallSession;
   businessName: string;
-  observation?: string | null;
+  /** What we looked at, what we made, and the words for every turn of the call. */
+  opening: CallOpening;
   /** The full written guide, kept as collapsed reference beneath the live assistant. */
   script: CallScript;
   onEvent: (e: CallEvent) => void;
@@ -66,7 +68,7 @@ export function CallConversation({
   onUndo: () => void;
   onCapture: (patch: CallCaptured) => void;
 }) {
-  const g = guidanceFor(session.path, { businessName, observation });
+  const g = guidanceFor(session.path, { businessName, opening });
   const c = session.captured;
   const started = session.path.length > 0;
 

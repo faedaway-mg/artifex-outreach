@@ -21,6 +21,7 @@ import {
 import { CallConversation } from "@/components/lead/CallConversation";
 import { CallOutcomeConsole, type Continuation } from "@/components/lead/CallOutcomeConsole";
 import type { CallScript } from "@/lib/outreach/contact-strategy";
+import type { CallOpening } from "@/lib/outreach/call-opening";
 
 /** Stable for one call, and the idempotency key when it is saved: a double-tapped
  *  Save on a bad connection must record one call, not two. */
@@ -29,14 +30,15 @@ const makeSessionId = () => `cs_${Date.now().toString(36)}${Math.random().toStri
 export function CallSessionShell({
   leadId,
   businessName,
-  observation,
+  opening,
   script,
   continuation,
   aside,
 }: {
   leadId: string;
   businessName: string;
-  observation?: string | null;
+  /** The reasoned opening for this business — the words the assistant speaks. */
+  opening: CallOpening;
   script: CallScript;
   continuation?: Continuation;
   /** The call action card, rendered on the server and placed beside the assistant. */
@@ -61,7 +63,7 @@ export function CallSessionShell({
         <CallConversation
           session={session}
           businessName={businessName}
-          observation={observation}
+          opening={opening}
           script={script}
           onEvent={onEvent}
           onTruncate={onTruncate}
