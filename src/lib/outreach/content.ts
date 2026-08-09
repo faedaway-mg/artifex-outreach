@@ -59,7 +59,7 @@ export function buildSubjectLines(lead: Lead, profile: BusinessProfile): string[
 }
 
 // ── First-touch email ────────────────────────────────────────────────────────
-export function buildOutreachEmail(lead: Lead, profile: BusinessProfile, dm: DecisionMakerIntelligence, settings: Settings): OutreachEmail {
+export function buildOutreachEmail(lead: Lead, profile: BusinessProfile, dm: DecisionMakerIntelligence, settings: Settings, callHandoff?: string | null): OutreachEmail {
   const audience = audienceNoun(lead.industry);
   const subjects = buildSubjectLines(lead, profile);
   const name = publicBusinessName(lead);
@@ -96,7 +96,10 @@ export function buildOutreachEmail(lead: Lead, profile: BusinessProfile, dm: Dec
   // Generate → evaluate → keep the most authentic. The seeded ending leads, so two
   // different businesses vary; the evaluator guards against anything that reads generated.
   const assemble = (end: string): OutreachEmail => {
-    const paragraphs = [greeting(lead, dm), ...opener, identity, end];
+    // When permission was earned on a call, open as a continuation of that conversation
+    // and drop the cold-discovery first line (we didn't "come across" them — we spoke).
+    const leadIn = callHandoff ? [callHandoff, ...opener.slice(1)] : opener;
+    const paragraphs = [greeting(lead, dm), ...leadIn, identity, end];
     const body = [...paragraphs, complianceFooter(settings)].join("\n\n");
     return { subject: subjects[0], subjectAlternatives: subjects.slice(1), body, paragraphs, wordCount: body.split(/\s+/).filter(Boolean).length };
   };

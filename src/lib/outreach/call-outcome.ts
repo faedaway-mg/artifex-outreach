@@ -61,7 +61,7 @@ export type VoicemailStatus = "left" | "none-available" | "mailbox-full" | "not-
 export interface CallOutcomeInput {
   outcome: CallOutcome;
   /** Who we spoke with (their role), when a person answered. */
-  reachedRole?: "owner" | "manager" | "assistant" | null;
+  reachedRole?: "owner" | "manager" | "assistant" | "reception" | null;
   contactName?: string;
   verifiedEmail?: string;
   preferredMethod?: "email" | "phone" | "text";
@@ -100,6 +100,7 @@ const ROLE_LABEL: Record<NonNullable<CallOutcomeInput["reachedRole"]>, string> =
   owner: "Owner",
   manager: "Manager",
   assistant: "Assistant",
+  reception: "Front desk",
 };
 
 const isEmail = (v: string) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v);

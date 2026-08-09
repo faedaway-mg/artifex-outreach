@@ -10,6 +10,7 @@ import type { BusinessProfile } from "../business-intelligence/types";
 import type { BusinessImprovementPotential } from "../improvement";
 import type { OutreachKit, DecisionMaker, OutreachState } from "./types";
 import { inferDecisionMakers } from "./decision-maker";
+import { callHandoffOpener } from "./call-handoff";
 import { buildOutreachEmail, buildFollowUpEmail, buildVideoScript } from "./content";
 import { buildPhoneGuide, buildDiscoveryPlan } from "./conversation";
 import { buildOutreachConfidence } from "./confidence";
@@ -33,7 +34,9 @@ export function buildOutreachKit(input: OutreachKitInput): OutreachKit {
   const { lead, profile, settings, contacts = [], improvement, enrichedDecisionMakers = [], memoryLines } = input;
 
   const decisionMaker = inferDecisionMakers(lead, contacts, enrichedDecisionMakers);
-  const email = buildOutreachEmail(lead, profile, decisionMaker, settings);
+  // If permission came from a phone call, open the intro as a continuation of it.
+  const callHandoff = callHandoffOpener(lead, contacts);
+  const email = buildOutreachEmail(lead, profile, decisionMaker, settings, callHandoff);
   const followUp = buildFollowUpEmail(lead, profile, decisionMaker, settings, memoryLines);
   const phone = buildPhoneGuide(lead, profile, decisionMaker);
   const discovery = buildDiscoveryPlan(lead, profile);

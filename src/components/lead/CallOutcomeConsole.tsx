@@ -24,7 +24,7 @@ export interface SuggestedOutcome {
   because: string;
   email: string | null;
   contactName: string | null;
-  role: "owner" | "manager" | "assistant" | null;
+  role: "owner" | "manager" | "assistant" | "reception" | null;
   bestTime: string | null;
   voicemail: VoicemailStatus | null;
 }
@@ -92,7 +92,7 @@ export function CallOutcomeConsole({
   const router = useRouter();
   const [advancing, startAdvance] = useTransition();
   const [outcome, setOutcome] = useState<CallOutcome | null>(null);
-  const [role, setRole] = useState<"owner" | "manager" | "assistant">("owner");
+  const [role, setRole] = useState<"owner" | "manager" | "assistant" | "reception">("owner");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [method, setMethod] = useState<"email" | "phone" | "text">("email");
@@ -257,10 +257,10 @@ export function CallOutcomeConsole({
             <div>
               <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-chalk-500">Who you reached</p>
               <div className="flex flex-wrap gap-1.5">
-                {(["owner", "manager", "assistant"] as const).map((r) => (
+                {([["owner", "Owner"], ["manager", "Manager"], ["assistant", "Assistant"], ["reception", "Front desk"]] as const).map(([r, label]) => (
                   <button key={r} type="button" onClick={() => setRole(r)}
-                    className={`rounded-lg border px-2.5 py-1.5 text-[12.5px] capitalize ${role === r ? "border-amber-400/40 bg-amber-400/10 text-amber-200" : "border-white/10 text-chalk-400 hover:text-chalk-200"}`}>
-                    {r}
+                    className={`rounded-lg border px-2.5 py-1.5 text-[12.5px] ${role === r ? "border-amber-400/40 bg-amber-400/10 text-amber-200" : "border-white/10 text-chalk-400 hover:text-chalk-200"}`}>
+                    {label}
                   </button>
                 ))}
               </div>
