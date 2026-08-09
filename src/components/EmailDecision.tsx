@@ -1,15 +1,16 @@
 "use client";
 // ─────────────────────────────────────────────────────────────────────────────
-// Email decision — decide whether to send, don't re-read the whole email.
+// Email decision — review, EDIT, approve & send, then the next business loads.
 //
-// The operator sees who, why (two lines), what stood out, and a one-line summary of
-// the message (subject + opening + read time). The full email is collapsed behind
-// "Expand email" — supporting documentation, not the interface. One tap approves and
-// sends, then the next business loads. No scrolling to find the buttons.
+// The operator sees who, why, what stood out, the recipient, and the exact subject +
+// body — both editable inline. What they see and edit here IS what sends (WYSIWYS):
+// the edited plaintext is folded into the server render, so no hidden regeneration can
+// change the message after approval. One tap sends; the next email appears. Built to be
+// worked from a phone in the 60 seconds before a DoorDash pickup.
 // ─────────────────────────────────────────────────────────────────────────────
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronDown, Check, Pencil, ArrowRight, AlertTriangle, Clock } from "lucide-react";
+import { ChevronDown, Check, ArrowRight, AlertTriangle, Clock, Mail } from "lucide-react";
 import { sendIntroductionAction, sendFollowUpAction } from "@/lib/outreach/send-actions";
 import { completeTaskAction } from "@/lib/actions";
 
@@ -19,6 +20,8 @@ export interface EmailDecisionProps {
   business: string;
   industry: string;
   contact: string;
+  /** The address the email will actually go to — shown so the operator confirms the route. */
+  recipient: string;
   why: string;
   observations: string[];
   subject: string;
@@ -46,6 +49,11 @@ export function EmailDecision(p: EmailDecisionProps) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [note, setNote] = useState<string | null>(null);
+  // The editable message. Defaults are the generated draft; whatever is here at send
+  // time is exactly what goes out (folded into the server render).
+  const [subject, setSubject] = useState(p.subject);
+  const [body, setBody] = useState(p.fullParagraphs.join("\n\n"));
+  const edited = subject !== p.subject || body !== p.fullParagraphs.join("\n\n");
 
   const advance = (complete: boolean) =>
     start(async () => {
@@ -55,7 +63,11 @@ export function EmailDecision(p: EmailDecisionProps) {
 
   const approveSend = () =>
     start(async () => {
-      const res = p.mode === "followup" ? await sendFollowUpAction(p.leadId) : await sendIntroductionAction(p.leadId);
+      if (pending) return; // a double-tap can't fire a second send (also idempotent server-side)
+      const override = { subject, body };
+      const res = p.mode === "followup"
+        ? await sendFollowUpAction(p.leadId, override)
+        : await sendIntroductionAction(p.leadId, null, override);
       if (res.outcome === "sent" || res.outcome === "queued") {
         if (p.taskId) await completeTaskAction(p.taskId);
         router.push(p.nextHref);
@@ -99,24 +111,47 @@ export function EmailDecision(p: EmailDecisionProps) {
           </div>
         )}
 
-        {/* The email itself — a one-line summary; the full text is documentation. */}
-        <div className="mt-4 rounded-lg border border-white/[0.06] bg-white/[0.02] p-3">
-          <p className="text-[13px] font-medium text-chalk-100">{p.subject}</p>
-          <p className="mt-1 text-[12.5px] leading-relaxed text-chalk-400">“{p.openingSentence}”</p>
-          <p className="mt-1.5 inline-flex items-center gap-1 text-[11px] text-chalk-600"><Clock size={11} /> {p.readingLabel} · founder voice, low-pressure</p>
-          <details className="group mt-2">
-            <summary className="flex cursor-pointer list-none items-center gap-1 text-[11.5px] text-amber-300/90 hover:text-amber-300">
-              <ChevronDown size={13} className="transition-transform group-open:rotate-180" /> Expand email
-            </summary>
-            {p.html ? (
-              // The real branded email — exactly what the prospect receives.
+        {/* Recipient — confirm the route before anything sends. */}
+        <div className="mt-4 flex items-center gap-2 rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2">
+          <Mail size={14} className="shrink-0 text-chalk-500" />
+          <span className="text-[11px] uppercase tracking-wide text-chalk-500">To</span>
+          <span className="truncate text-[13px] text-chalk-100">{p.recipient}</span>
+        </div>
+
+        {/* The message — editable inline. What is here at send time IS what sends. */}
+        <div className="mt-3 space-y-2">
+          <label className="block">
+            <span className="text-[11px] font-medium uppercase tracking-wide text-chalk-500">Subject</span>
+            <input
+              value={subject}
+              onChange={(e) => setSubject(e.target.value)}
+              className="mt-1 w-full rounded-lg border border-white/10 bg-ink-950/40 px-3 py-2.5 text-[16px] text-chalk-100 focus:border-azure-400/40 focus:outline-none"
+            />
+          </label>
+          <label className="block">
+            <span className="text-[11px] font-medium uppercase tracking-wide text-chalk-500">Message</span>
+            <textarea
+              value={body}
+              onChange={(e) => setBody(e.target.value)}
+              rows={10}
+              className="mt-1 w-full resize-y rounded-lg border border-white/10 bg-ink-950/40 px-3 py-2.5 text-[15px] leading-relaxed text-chalk-200 focus:border-azure-400/40 focus:outline-none"
+            />
+          </label>
+          <p className="inline-flex items-center gap-1 text-[11px] text-chalk-600">
+            <Clock size={11} /> {p.readingLabel} · your signature + an unsubscribe link are added automatically
+          </p>
+          {/* Branded styling reference — only shown before edits, so it can never
+              disagree with what actually sends. After an edit, the fields above are the
+              single source of truth. */}
+          {p.html && !edited && (
+            <details className="group">
+              <summary className="flex cursor-pointer list-none items-center gap-1 text-[11.5px] text-amber-300/90 hover:text-amber-300">
+                <ChevronDown size={13} className="transition-transform group-open:rotate-180" /> Preview branded styling
+              </summary>
               <iframe title="Branded email preview" sandbox="" srcDoc={p.html} className="mt-2 w-full rounded-md border border-white/10 bg-white" style={{ height: 520 }} />
-            ) : (
-              <div className="mt-2 space-y-2 border-t border-white/[0.06] pt-2">
-                {p.fullParagraphs.map((para, i) => <p key={i} className="text-[13px] leading-relaxed text-chalk-300">{para}</p>)}
-              </div>
-            )}
-          </details>
+            </details>
+          )}
+          {edited && <p className="text-[11px] text-teal-300/90">Edited — your version is what will send.</p>}
         </div>
 
         {note && (
@@ -130,10 +165,9 @@ export function EmailDecision(p: EmailDecisionProps) {
           bottom nav, so the sticky bar sits just above the viewport edge. */}
       <div className="sticky bottom-4 z-10 space-y-2 md:static md:bottom-auto">
         <button onClick={approveSend} disabled={pending} className="btn-primary w-full justify-center !py-3 text-[15px] disabled:opacity-60">
-          <Check size={17} /> {note ? "Try send again" : "Approve & send"} <ArrowRight size={16} />
+          <Check size={17} /> {pending ? "Sending…" : note ? "Try send again" : edited ? "Approve & send edited" : "Approve & send"} <ArrowRight size={16} />
         </button>
         <div className="flex gap-2">
-          <button onClick={() => router.push(`/leads/${p.leadId}/send`)} disabled={pending} className="btn-secondary flex-1 justify-center !py-2.5 text-[13.5px]"><Pencil size={14} /> Edit</button>
           {note
             ? <button onClick={() => advance(false)} disabled={pending} className="btn-ghost flex-1 justify-center !py-2.5 text-[13.5px]">Next anyway <ArrowRight size={14} /></button>
             : <button onClick={() => advance(false)} disabled={pending} className="btn-ghost flex-1 justify-center !py-2.5 text-[13.5px]">Skip</button>}

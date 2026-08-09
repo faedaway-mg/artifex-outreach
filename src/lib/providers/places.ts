@@ -167,8 +167,21 @@ function mapGooglePlace(p: any, input: DiscoverInput): PlaceResult {
     reviewCount: typeof p.userRatingCount === "number" ? p.userRatingCount : null,
     businessStatus: p.businessStatus ?? "OPERATIONAL",
     googleMapsUrl: p.googleMapsUri ?? "",
-    hours: null,
+    hours: normalizeOpeningHours(p.regularOpeningHours),
   };
+}
+
+/**
+ * Normalize Places API v1 `regularOpeningHours` into the newline-joined "weekday_text"
+ * shape the businessHours parser already understands ("Monday: 9:00 AM – 5:00 PM",
+ * "Sunday: Closed"). Returns null when hours are absent — UNKNOWN must stay UNKNOWN, so
+ * knownClosedNow never withholds a business we simply have no data for. No fabrication.
+ */
+export function normalizeOpeningHours(regular: any): string | null {
+  const days = regular?.weekdayDescriptions;
+  if (!Array.isArray(days) || days.length === 0) return null;
+  const joined = days.filter((d: unknown) => typeof d === "string" && d.trim()).join("\n").trim();
+  return joined || null;
 }
 
 function base(mode: PlacesMode, timestamp: string, filtersApplied: boolean) {
@@ -246,6 +259,7 @@ export async function searchPlaces(input: DiscoverInput): Promise<PlacesSearchRe
           "places.websiteUri",
           "places.nationalPhoneNumber",
           "places.googleMapsUri",
+          "places.regularOpeningHours.weekdayDescriptions",
           "nextPageToken",
         ].join(","),
       },

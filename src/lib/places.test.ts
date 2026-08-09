@@ -90,6 +90,26 @@ describe("google path", () => {
     expect(p.category).toBe("dentist");
   });
 
+  it("5b. requests regular opening hours and normalizes weekdayDescriptions into leads.hours", async () => {
+    const weekday = [
+      "Monday: 8:00 AM – 5:00 PM", "Tuesday: 8:00 AM – 5:00 PM", "Wednesday: 8:00 AM – 5:00 PM",
+      "Thursday: 8:00 AM – 5:00 PM", "Friday: 8:00 AM – 5:00 PM", "Saturday: Closed", "Sunday: Closed",
+    ];
+    (fetch as any).mockResolvedValue(res(true, 200, { places: [googlePlace({ regularOpeningHours: { weekdayDescriptions: weekday } })] }));
+    const r = await searchPlaces(input());
+    // The field mask actually asks Google for the hours field.
+    const mask = (fetch as any).mock.calls[0][1].headers["X-Goog-FieldMask"] as string;
+    expect(mask).toContain("places.regularOpeningHours.weekdayDescriptions");
+    // Stored in the exact newline-joined shape the businessHours parser reads.
+    expect(r.results[0].hours).toBe(weekday.join("\n"));
+  });
+
+  it("5c. absent opening hours stays null — unknown remains unknown, never fabricated", async () => {
+    (fetch as any).mockResolvedValue(res(true, 200, { places: [googlePlace()] }));
+    const r = await searchPlaces(input());
+    expect(r.results[0].hours).toBeNull();
+  });
+
   it("6. does NOT read legacy field names", async () => {
     // Legacy shape only — new fields absent. Must NOT be interpreted.
     const legacy = { id: "ChIJ_legacy", name: "Legacy Name", formatted_address: "9 Old Rd", website: "https://legacy.example", user_ratings_total: 99, formatted_phone_number: "(111) 111-1111" };

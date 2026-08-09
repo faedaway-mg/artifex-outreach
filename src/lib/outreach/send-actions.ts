@@ -17,9 +17,28 @@ import { prepareAcquisitionPlanAction, approvePlanAction } from "../acquisition-
 import { dispatchStep } from "../comms/dispatch";
 import { buildOutreachKit } from "./kit";
 import { renderPersonalEmailHtml, renderPersonalEmailText } from "./email-render";
-import type { VeedVideo, IntroSendResult } from "./types";
+import type { VeedVideo, IntroSendResult, OutreachEmail } from "./types";
 
-async function sendNext(leadId: string, mode: "intro" | "followup", veed?: VeedVideo | null): Promise<IntroSendResult> {
+/** Operator edits from the Approve & Send screen — plaintext only. We re-render the
+ *  branded HTML from these server-side, so the operator can never inject markup and the
+ *  signature/unsubscribe chrome stays intact, while the SUBJECT and BODY that go out are
+ *  exactly what they typed (WYSIWYS). */
+export interface EmailOverride {
+  subject?: string;
+  body?: string;
+}
+
+/** Fold operator edits onto the generated email. Blank fields fall back to the draft, so
+ *  an untouched send is byte-identical to today's behaviour. */
+function applyOverride(email: OutreachEmail, override?: EmailOverride | null): OutreachEmail {
+  if (!override) return email;
+  const subject = override.subject?.trim();
+  const body = override.body?.replace(/\r\n/g, "\n").trim();
+  const paragraphs = body ? body.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean) : email.paragraphs;
+  return { ...email, subject: subject || email.subject, body: body || email.body, paragraphs };
+}
+
+async function sendNext(leadId: string, mode: "intro" | "followup", veed?: VeedVideo | null, override?: EmailOverride | null): Promise<IntroSendResult> {
   const lead = await getLead(leadId);
   if (!lead) return { outcome: "blocked", reason: "Lead not found." };
   if (!lead.publicEmail) return { outcome: "blocked", reason: "No email address on file — use the phone guide to find a route first." };
@@ -43,7 +62,9 @@ async function sendNext(leadId: string, mode: "intro" | "followup", veed?: VeedV
 
   const [settings, contacts] = await Promise.all([getSettings(), contactsForLead(leadId)]);
   const kit = buildOutreachKit({ lead, profile, settings, contacts });
-  const email = mode === "intro" ? kit.email : kit.followUp;
+  // The generated draft, with any operator edits folded in. What we render, store, and
+  // send from here on is the EDITED email — the exact copy the operator reviewed.
+  const email = applyOverride(mode === "intro" ? kit.email : kit.followUp, override);
 
   // The {{unsubscribe}} token is replaced by dispatch, keeping compliance intact.
   const renderInput = { email, settings, veed: mode === "intro" ? veed ?? null : null, unsubscribeUrl: "{{unsubscribe}}" as string | null };
@@ -89,12 +110,12 @@ async function sendNext(leadId: string, mode: "intro" | "followup", veed?: VeedV
   }
 }
 
-export async function sendIntroductionAction(leadId: string, veed?: VeedVideo | null): Promise<IntroSendResult> {
-  return sendNext(leadId, "intro", veed);
+export async function sendIntroductionAction(leadId: string, veed?: VeedVideo | null, override?: EmailOverride | null): Promise<IntroSendResult> {
+  return sendNext(leadId, "intro", veed, override);
 }
 
-export async function sendFollowUpAction(leadId: string): Promise<IntroSendResult> {
-  return sendNext(leadId, "followup");
+export async function sendFollowUpAction(leadId: string, override?: EmailOverride | null): Promise<IntroSendResult> {
+  return sendNext(leadId, "followup", null, override);
 }
 
 // Fetch VEED title + thumbnail from a hosted VEED URL so the operator only ever

@@ -82,3 +82,68 @@ describe("v2 introduction — real send through the pipeline, then Waiting, no d
     expect(sends).toHaveLength(0);
   });
 });
+
+// WYSIWYS: what the operator edits in the Approve & Send screen is exactly what the
+// provider receives — no hidden regeneration after approval.
+describe("operator edits are the actual send payload", () => {
+  it("sends the edited subject and body, and stores them as the canonical sent copy", async () => {
+    const lead = await seedQualifiedLead();
+    const bi = await analyzeBusiness({ lead, findings: [], contacts: [] });
+    await upsertBusinessIntelligence({ leadId: lead.id, profile: bi, enrichmentDelta: null, generatedAt: "2026-07-22T00:00:00.000Z" });
+
+    const override = { subject: "A subject I typed myself", body: "First edited paragraph.\n\nSecond edited paragraph." };
+    const r = await sendIntroductionAction(lead.id, null, override);
+    expect(r.outcome).toBe("sent");
+    expect(sends).toHaveLength(1);
+    // The transmitted message carries the operator's exact subject + body...
+    expect(sends[0].subject).toBe("A subject I typed myself");
+    expect(sends[0].html).toContain("First edited paragraph.");
+    expect(sends[0].html).toContain("Second edited paragraph.");
+    expect(sends[0].text).toContain("First edited paragraph.");
+    // ...wrapped in the real branded template with compliance chrome intact.
+    expect(sends[0].html).toContain("Artifex Labs");
+    expect(sends[0].html).not.toContain("{{unsubscribe}}");
+  });
+
+  it("an untouched send is unchanged (blank override falls back to the generated draft)", async () => {
+    const lead = await seedQualifiedLead();
+    const bi = await analyzeBusiness({ lead, findings: [], contacts: [] });
+    await upsertBusinessIntelligence({ leadId: lead.id, profile: bi, enrichmentDelta: null, generatedAt: "2026-07-22T00:00:00.000Z" });
+    const r = await sendIntroductionAction(lead.id, null, { subject: "", body: "" });
+    expect(r.outcome).toBe("sent");
+    expect(sends[0].subject).toBeTruthy(); // the generated subject, not empty
+  });
+});
+
+// Operator Approve & Send is a HUMAN-gated action: it must obey provider/compliance
+// rules but NOT the Mon–Fri automation window (that only governs the unattended cron).
+describe("operator sends are independent of the automation send window", () => {
+  it("sends on a Sunday (the automation window is Mon–Fri; the operator path never consults it)", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-09T18:00:00Z")); // a Sunday
+    try {
+      const lead = await seedQualifiedLead();
+      const bi = await analyzeBusiness({ lead, findings: [], contacts: [] });
+      await upsertBusinessIntelligence({ leadId: lead.id, profile: bi, enrichmentDelta: null, generatedAt: "2026-07-22T00:00:00.000Z" });
+      const r = await sendIntroductionAction(lead.id);
+      expect(r.outcome).toBe("sent"); // Sunday does not block a human-approved send
+      expect(sends).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+// A failed provider response must never masquerade as success or advance the workflow.
+describe("failure semantics — a bad send is never recorded as sent", () => {
+  it("a provider rejection returns failed, sends no success, and leaves the lead re-sendable", async () => {
+    global.fetch = vi.fn(async () => ({ ok: false, status: 422, json: async () => ({}), text: async () => "invalid recipient" }) as unknown as Response) as any;
+    const lead = await seedQualifiedLead();
+    const bi = await analyzeBusiness({ lead, findings: [], contacts: [] });
+    await upsertBusinessIntelligence({ leadId: lead.id, profile: bi, enrichmentDelta: null, generatedAt: "2026-07-22T00:00:00.000Z" });
+    const r = await sendIntroductionAction(lead.id);
+    expect(r.outcome).not.toBe("sent");
+    const ledger = await emailSendsForLead(lead.id);
+    expect(ledger.every((s) => !s.sentAt)).toBe(true); // nothing marked sent
+  });
+});

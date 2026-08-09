@@ -191,6 +191,7 @@ export default async function BatchPage({ params, searchParams }: { params: { ki
         <EmailDecision
           leadId={lead.id} mode={kind === "follow-up" ? "followup" : "intro"}
           business={lead.businessName} industry={deslug(lead.industry)} contact={emailProps.contact}
+          recipient={lead.publicEmail ?? ""}
           why={why} observations={observations} subject={emailProps.subject} openingSentence={emailProps.openingSentence}
           readingLabel={emailProps.readingLabel} fullParagraphs={emailProps.fullParagraphs} html={emailProps.html}
           taskId={stepTask?.id ?? null} nextHref={nextHref} isLast={i + 1 >= total}
