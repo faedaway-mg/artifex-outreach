@@ -105,6 +105,19 @@ describe("operator edits are the actual send payload", () => {
     expect(sends[0].html).not.toContain("{{unsubscribe}}");
   });
 
+  it("From and Reply-To both resolve to the monitored hello@ mailbox (replies land in Outlook)", async () => {
+    // RESEND_FROM in this suite is "Jordan <hello@artifexlabs.tech>".
+    const lead = await seedQualifiedLead();
+    const bi = await analyzeBusiness({ lead, findings: [], contacts: [] });
+    await upsertBusinessIntelligence({ leadId: lead.id, profile: bi, enrichmentDelta: null, generatedAt: "2026-07-22T00:00:00.000Z" });
+    const r = await sendIntroductionAction(lead.id);
+    expect(r.outcome).toBe("sent");
+    expect(sends[0].from).toContain("hello@artifexlabs.tech");
+    // Reply-To is the bare sending address, so a recipient's reply returns to that
+    // exact mailbox (its Microsoft 365 inbox), not a divergent contact address.
+    expect(sends[0].reply_to).toBe("hello@artifexlabs.tech");
+  });
+
   it("an untouched send is unchanged (blank override falls back to the generated draft)", async () => {
     const lead = await seedQualifiedLead();
     const bi = await analyzeBusiness({ lead, findings: [], contacts: [] });

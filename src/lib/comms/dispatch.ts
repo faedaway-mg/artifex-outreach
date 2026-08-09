@@ -41,6 +41,12 @@ function senderFrom(settingsEmail: string): string {
   return process.env.RESEND_FROM || settingsEmail;
 }
 
+/** The bare email out of a From header, e.g. `Artifex Labs <hello@x.tech>` → `hello@x.tech`. */
+export function addressOnly(from: string): string {
+  const m = from.match(/<([^>]+)>/);
+  return (m ? m[1] : from).trim();
+}
+
 // Advance plan progress after a successful send: point at the next unsent step, or
 // complete the plan when the sequence is exhausted. Never resurrects a stopped plan.
 async function advancePlan(plan: AcquisitionPlan, sentStep: AcquisitionStep): Promise<void> {
@@ -140,7 +146,11 @@ export async function dispatchStep(stepId: string, opts: { now?: Date } = {}): P
   const isFollowUp = priorEmailSteps(step, planSteps).length > 0;
   const subject = isFollowUp ? reSubject(priorEmailSteps(step, planSteps)[0].subject) : step.subject;
   const headers = { ...listUnsubscribeHeaders(lead.id, settings.contactEmail), ...threadingHeaders(step, planSteps, domain) };
-  const msg: EmailMessage = { to: lead.publicEmail!, from, replyTo: settings.contactEmail, subject, text, ...(html ? { html } : {}), headers, idempotencyKey: key };
+  // Reply-To follows the SENDING identity, not a separate contact knob, so a recipient
+  // who hits Reply always reaches the monitored mailbox the mail was sent from
+  // (hello@artifexlabs.tech → its Microsoft 365 inbox). Same address as From by design.
+  const replyTo = addressOnly(from);
+  const msg: EmailMessage = { to: lead.publicEmail!, from, replyTo, subject, text, ...(html ? { html } : {}), headers, idempotencyKey: key };
   const res = await provider.send(msg);
 
   if (res.sent) {
