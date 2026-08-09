@@ -64,6 +64,8 @@ export function ProspectingSettings({ profile, lastRun, nextRunLabel }: { profil
           <label className="block"><span className="field-label">Min rating</span><input name="minRating" type="number" step={0.1} min={0} max={5} defaultValue={profile.minRating} className="input" /></label>
           <label className="block"><span className="field-label">Min reviews</span><input name="minReviews" type="number" min={0} defaultValue={profile.minReviews} className="input" /></label>
           <label className="block"><span className="field-label">Daily queue size</span><input name="dailyQueueSize" type="number" min={1} max={20} defaultValue={profile.dailyQueueSize} className="input" /></label>
+          <label className="block"><span className="field-label">Calls / day</span><input name="callDailyTarget" type="number" min={0} max={50} defaultValue={profile.callDailyTarget ?? 10} className="input" /></label>
+          <label className="block"><span className="field-label">Emails / day (warm-up cap)</span><input name="emailDailyTarget" type="number" min={0} max={50} defaultValue={profile.emailDailyTarget ?? 10} className="input" /></label>
           <label className="block"><span className="field-label">Run time (PT)</span><input name="runTime" type="time" defaultValue={profile.runTime} className="input" /></label>
           <label className="block"><span className="field-label">Tier A target</span><input name="tierTargetA" type="number" min={0} max={8} defaultValue={profile.tierTargetA} className="input" /></label>
           <label className="block"><span className="field-label">Tier B target</span><input name="tierTargetB" type="number" min={0} max={8} defaultValue={profile.tierTargetB} className="input" /></label>

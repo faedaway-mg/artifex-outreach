@@ -337,6 +337,62 @@ describe("correctToAskedToSendAction — the Wilshire correction (collected → 
   });
 });
 
+// The business-hours defect from the live Sunday session: a business closed RIGHT
+// NOW is an operational availability fact, never a sales outcome. It must not be
+// confused with a rejection or a dead listing, and it must not burn the lead.
+describe("closed-now — operational closure, not a sales outcome", () => {
+  beforeEach(() => __resetStoreForTests());
+
+  it("is distinct from no-answer: the note says closed, not no-answer", async () => {
+    const lead = await seedCallFirstLead();
+    await saveCallOutcomeAction(lead.id, { outcome: "closed-now" });
+    const note = (await getLead(lead.id))?.note ?? "";
+    expect(note).toContain("closed right now");
+    expect(note).not.toContain("no answer");
+  });
+
+  it("does NOT disqualify, reject, or otherwise burn the lead", async () => {
+    const lead = await seedCallFirstLead({ pipelineStage: "Qualified" });
+    const res = await saveCallOutcomeAction(lead.id, { outcome: "closed-now" });
+    expect(res.ok).toBe(true);
+    const after = await getLead(lead.id);
+    // Unlike business-closed (Disqualified) and not-interested (Lost), the pipeline
+    // stage and business status are untouched.
+    expect(after?.pipelineStage).toBe("Qualified");
+    expect(after?.businessStatus).not.toBe("CLOSED_PERMANENTLY");
+    // It is not a failed HUMAN contact, so no contact is fabricated.
+    expect(await contactsForLead(lead.id)).toHaveLength(0);
+  });
+
+  it("removes the lead from today and reschedules a real call for a future open time", async () => {
+    const lead = await seedCallFirstLead({ state: "CA", hours: "Mon–Fri 8–5" });
+    const res = await saveCallOutcomeAction(lead.id, { outcome: "closed-now" });
+    expect(res.scheduledFor).toBeTruthy();
+    expect(+new Date(res.scheduledFor!)).toBeGreaterThan(Date.now());
+    const after = await getLead(lead.id);
+    expect(after?.nextFollowUpAt).toBe(res.scheduledFor);
+    // The attempt is preserved (stamped) so the loop skips it for the rest of today.
+    expect(after?.lastContactAt).toBeTruthy();
+    const open = (await allTasks()).filter((t) => t.leadId === lead.id && t.type === "call" && t.status === "open");
+    expect(open).toHaveLength(1);
+    expect(open[0].dueAt).toBe(res.scheduledFor);
+  });
+
+  it("captures hours learned on the call so the queue can withhold it next time", async () => {
+    const lead = await seedCallFirstLead({ hours: null });
+    await saveCallOutcomeAction(lead.id, { outcome: "closed-now", hours: "Mon–Fri 8–5" });
+    expect((await getLead(lead.id))?.hours).toBe("Mon–Fri 8–5");
+  });
+
+  it("never accumulates duplicate open call tasks across repeated closures", async () => {
+    const lead = await seedCallFirstLead({ state: "CA", hours: "Mon–Fri 8–5" });
+    await saveCallOutcomeAction(lead.id, { outcome: "closed-now" });
+    await saveCallOutcomeAction(lead.id, { outcome: "closed-now" });
+    const open = (await allTasks()).filter((t) => t.leadId === lead.id && t.type === "call" && t.status === "open");
+    expect(open).toHaveLength(1);
+  });
+});
+
 describe("call-task dedupe — a lead has exactly ONE next call", () => {
   beforeEach(() => __resetStoreForTests());
 

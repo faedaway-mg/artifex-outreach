@@ -1,7 +1,8 @@
 import Link from "next/link";
 import {
-  todaysTasks, listLeads, allMeetings, allProposals, getSettings, allPlans, allBusinessIntelligence, allFindings, allTasks, allSteps, listOperators,
+  todaysTasks, listLeads, allMeetings, allProposals, getSettings, allPlans, allBusinessIntelligence, allFindings, allTasks, allSteps, listOperators, allEmailSends,
 } from "@/lib/repo";
+import { emailsSentOn } from "@/lib/outreach/send-capacity";
 import { currentOperatorId } from "@/lib/auth";
 import { parseScope, leadIdsInScope, tasksInScope, scopeOptions, scopeLabel, scopeMeaning, scopeToParam } from "@/lib/operators/scope";
 import { QueueScopeSwitcher } from "@/components/QueueScopeSwitcher";
@@ -16,7 +17,7 @@ import { TodayControls } from "@/components/TodayControls";
 import { MorningWarming } from "@/components/MorningWarming";
 import { WorkQueue } from "@/components/WorkQueue";
 import { DailyMission } from "@/components/DailyMission";
-import { buildWorkQueue, buildDailyMission } from "@/lib/work-queue";
+import { buildWorkQueue, buildDailyMission, surfaceTodaysTasks, channelCapacity, channelOf, workKindForTask } from "@/lib/work-queue";
 import { accountQueue } from "@/lib/queue-accounting";
 import { accountSequences } from "@/lib/comms/task-projection";
 import { formatCurrency, relativeDate, timeOfDay, shortDate, joinMeta, formatLocation, deslug } from "@/lib/utils";
@@ -50,8 +51,8 @@ export default async function TodayPage({ searchParams }: { searchParams?: { vie
   const queueSize = settings.prospecting.dailyQueueSize;
   // The queue is fetched UNCAPPED and scoped to the operator before slicing —
   // capping first would hide an operator's work behind someone else's.
-  const [dueTasks, leads, meetings, proposals, plans, bi, findings, everyTask, allAcquisitionSteps, operators] = await Promise.all([
-    todaysTasks(), listLeads(), allMeetings(), allProposals(), allPlans(), allBusinessIntelligence(), allFindings(), allTasks(), allSteps(), listOperators(),
+  const [dueTasks, leads, meetings, proposals, plans, bi, findings, everyTask, allAcquisitionSteps, operators, emailSends] = await Promise.all([
+    todaysTasks(), listLeads(), allMeetings(), allProposals(), allPlans(), allBusinessIntelligence(), allFindings(), allTasks(), allSteps(), listOperators(), allEmailSends(),
   ]);
 
   const now = new Date();
@@ -60,16 +61,28 @@ export default async function TodayPage({ searchParams }: { searchParams?: { vie
   const scope = parseScope(searchParams?.view, viewerId, operators.map((o) => o.id));
   const scopedLeadIds = leadIdsInScope({ scope, viewerId, leads, operators, ctx: scopeCtx, now });
   const views = scopeOptions({ viewerId, leads, operators, ctx: scopeCtx, now });
-  const tasks = tasksInScope(dueTasks, scopedLeadIds).slice(0, queueSize);
 
   const leadMap = new Map<string, Lead>(leads.filter((l) => scopedLeadIds.has(l.id)).map((l) => [l.id, l]));
+
+  // Calls and emails are PARALLEL streams, each with its own daily capacity, instead
+  // of a single combined cap that let calls crowd out email-first leads. Email capacity
+  // is the warm-up-safe daily ceiling minus what has already gone out today.
+  const emailsSentToday = emailsSentOn(emailSends, now);
+  const capacity = channelCapacity({
+    callTarget: settings.prospecting.callDailyTarget,
+    emailTarget: settings.prospecting.emailDailyTarget,
+    otherBudget: queueSize,
+    emailsSentToday,
+  });
+  const scopedDue = tasksInScope(dueTasks, scopedLeadIds);
+  const tasks = surfaceTodaysTasks({ tasks: scopedDue, leads: leadMap, capacity, now });
   const biByLead = new Map<string, StoredBusinessIntelligence>(bi.map((b) => [b.leadId, b]));
   const oppScoreOf = (l: Lead) => biByLead.get(l.id)?.improvementScore ?? l.leadScore ?? 0;
   const om = opportunityMetrics(leads, bi);
 
   const discoveryMode = placesMode();
   const nextRun = nextScheduledRun(settings.prospecting);
-  const atCapacity = tasks.length >= queueSize;
+  const atCapacity = tasks.length >= capacity.call + capacity.email + capacity.other;
   const advisories = concentrationAdvisories(leads, settings.prospecting);
 
   const endOfToday = new Date();
@@ -132,9 +145,17 @@ export default async function TodayPage({ searchParams }: { searchParams?: { vie
   const ledger = accountQueue({
     leads: leads.filter((l) => scopedLeadIds.has(l.id)),
     tasks: everyTask.filter((t) => scopedLeadIds.has(t.leadId)),
-    cap: queueSize,
+    // Beyond-capacity is measured against what actually surfaced across all streams,
+    // not a single combined number, now that calls and emails are capped separately.
+    cap: tasks.length,
     now,
   });
+  // Email-first work deferred specifically because today's warm-up-safe send ceiling is
+  // spent — surfaced so the operator knows it is capacity, not a bug (it returns tomorrow).
+  const emailLeads = (ts: typeof tasks) =>
+    new Set(ts.filter((t) => leadMap.has(t.leadId) && channelOf(workKindForTask(t, leadMap.get(t.leadId))) === "email").map((t) => t.leadId)).size;
+  const emailDeferred = Math.max(0, emailLeads(scopedDue) - emailLeads(tasks));
+  const emailCeilingReached = capacity.email === 0 && emailDeferred > 0;
   // Sequence state that Today cannot show directly: future touches are real work
   // that simply isn't due yet, and a plan stalled before approval is invisible
   // work. Neither is actionable now, so neither is counted as today's work.
@@ -151,11 +172,12 @@ export default async function TodayPage({ searchParams }: { searchParams?: { vie
         <WorkQueue categories={workQueue} />
         {/* Queue ledger — where everything else is, so "where did my leads go?" is
             never a mystery. One quiet line; shown only when something is out of view. */}
-        {(ledger.beyondCap > 0 || ledger.waitingFuture > 0 || ledger.snoozed > 0 || ledger.noWorkActive > 0
+        {(ledger.beyondCap > 0 || ledger.waitingFuture > 0 || ledger.snoozed > 0 || ledger.noWorkActive > 0 || emailCeilingReached
           || sequences.futureScheduledSteps > 0 || sequences.plansAwaitingApproval > 0 || sequences.dueStepsMissingTask > 0) && (
           <p className="mt-2.5 text-[12px] text-chalk-500">
             {[
-              ledger.beyondCap > 0 ? `${ledger.beyondCap} more due today (beyond the daily ${queueSize})` : null,
+              emailCeilingReached ? `${emailDeferred} more email${emailDeferred === 1 ? "" : "s"} ready — today's safe send capacity is used up (resets tomorrow)` : null,
+              ledger.beyondCap > 0 ? `${ledger.beyondCap} more due today (beyond today's capacity)` : null,
               ledger.waitingFuture > 0 ? `${ledger.waitingFuture} scheduled for later dates` : null,
               ledger.snoozed > 0 ? `${ledger.snoozed} snoozed` : null,
               ledger.noWorkActive > 0 ? `${ledger.noWorkActive} businesses with nothing queued` : null,

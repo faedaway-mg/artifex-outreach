@@ -11,15 +11,16 @@ import { notFound } from "next/navigation";
 import { CheckCircle2, ArrowRight, ArrowLeft, X, Video, Mail, RotateCcw, FileText, Phone, CalendarClock, Compass, Clock, Instagram } from "lucide-react";
 import {
   todaysTasks, listLeads, allMeetings, getSettings, getBusinessIntelligence, contactsForLead, memoryForLead,
-  getStep, stepsForPlan, allPlans, listOperators,
+  getStep, stepsForPlan, allPlans, listOperators, allEmailSends,
 } from "@/lib/repo";
+import { emailsSentOn } from "@/lib/outreach/send-capacity";
 import { panelForWorkKind } from "@/lib/outreach/call-routing";
 import { deriveCallLeadState } from "@/lib/outreach/call-state";
 import { CallWorkspace } from "@/components/lead/CallWorkspace";
 import { currentOperatorId } from "@/lib/auth";
 import { parseScope, leadIdsInScope, tasksInScope } from "@/lib/operators/scope";
 import { describeSequenceContext, type SequenceContext } from "@/lib/comms/task-projection";
-import { buildWorkQueue, batchLeadIds, categoryTitle, kindOfTask, type WorkKind } from "@/lib/work-queue";
+import { buildWorkQueue, batchLeadIds, categoryTitle, kindOfTask, surfaceTodaysTasks, channelCapacity, type WorkKind } from "@/lib/work-queue";
 import { buildOutreachKit } from "@/lib/outreach/kit";
 import { buildVideoScript } from "@/lib/outreach/content";
 import { renderPersonalEmailHtml } from "@/lib/outreach/email-render";
@@ -56,16 +57,24 @@ export default async function BatchPage({ params, searchParams }: { params: { ki
   const settings = await getSettings();
   // Same rule as Today: scope to the operator BEFORE the daily cap, so a batch
   // can never be emptied by someone else's work sorting higher.
-  const [dueTasks, leads, meetings, plans, operators] = await Promise.all([
-    todaysTasks(), listLeads(), allMeetings(), allPlans(), listOperators(),
+  const [dueTasks, leads, meetings, plans, operators, emailSends] = await Promise.all([
+    todaysTasks(), listLeads(), allMeetings(), allPlans(), listOperators(), allEmailSends(),
   ]);
 
   const now = new Date();
   const viewerId = currentOperatorId();
   const scope = parseScope(searchParams.view, viewerId, operators.map((o) => o.id));
   const scopedLeadIds = leadIdsInScope({ scope, viewerId, leads, operators, ctx: { plans, meetings }, now });
-  const tasks = tasksInScope(dueTasks, scopedLeadIds).slice(0, settings.prospecting.dailyQueueSize);
   const leadMap = new Map(leads.filter((l) => scopedLeadIds.has(l.id)).map((l) => [l.id, l]));
+  // Same channel-aware surfacing as Today, so a batch (email especially) holds its full
+  // per-stream capacity instead of being clipped by a single combined daily cap.
+  const capacity = channelCapacity({
+    callTarget: settings.prospecting.callDailyTarget,
+    emailTarget: settings.prospecting.emailDailyTarget,
+    otherBudget: settings.prospecting.dailyQueueSize,
+    emailsSentToday: emailsSentOn(emailSends, now),
+  });
+  const tasks = surfaceTodaysTasks({ tasks: tasksInScope(dueTasks, scopedLeadIds), leads: leadMap, capacity, now });
 
   const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);

@@ -5,8 +5,9 @@
 // work-queue the batch runner and Today use (one source of truth), and it is
 // strictly READ-ONLY: resolving the next lead never records another outcome or
 // creates a task, so pressing it — or double-pressing it — can't double-write.
-import { todaysTasks, listLeads, allMeetings, getSettings } from "@/lib/repo";
-import { buildWorkQueue, batchLeadIds } from "@/lib/work-queue";
+import { todaysTasks, listLeads, allMeetings, getSettings, allEmailSends } from "@/lib/repo";
+import { buildWorkQueue, batchLeadIds, surfaceTodaysTasks, channelCapacity } from "@/lib/work-queue";
+import { emailsSentOn } from "@/lib/outreach/send-capacity";
 import type { Lead } from "@/lib/types";
 
 export interface NextLeadResult {
@@ -41,21 +42,33 @@ export async function resolveNextLead(
   opts: { ids?: string[]; kind?: string } = {},
 ): Promise<NextLeadResult> {
   const settings = await getSettings();
-  const [tasks, leads, meetings] = await Promise.all([
-    todaysTasks(settings.prospecting.dailyQueueSize),
+  const now = new Date();
+  const [dueTasks, leads, meetings, sends] = await Promise.all([
+    todaysTasks(), // UNCAPPED — capacity is applied per channel below, not as one combined slice
     listLeads(),
     allMeetings(),
+    allEmailSends(),
   ]);
   const leadMap = new Map(leads.map((l) => [l.id, l]));
 
-  const now = new Date();
+  // Same channel-aware surfacing Today and the batch runner use, so "Next lead" walks
+  // the exact set the operator sees — calls and emails as parallel streams, not one
+  // combined cap that lets calls crowd out emails.
+  const capacity = channelCapacity({
+    callTarget: settings.prospecting.callDailyTarget,
+    emailTarget: settings.prospecting.emailDailyTarget,
+    otherBudget: settings.prospecting.dailyQueueSize,
+    emailsSentToday: emailsSentOn(sends, now),
+  });
+  const tasks = surfaceTodaysTasks({ tasks: dueTasks, leads: leadMap, capacity, now });
+
   const sod = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const eod = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
   const meetingsToday = meetings
     .filter((m) => { const d = new Date(m.scheduledAt); return d >= sod && d <= eod; })
     .map((m) => ({ leadId: m.leadId, scheduledAt: m.scheduledAt }));
 
-  const queue = buildWorkQueue({ tasks, meetingsToday, leads: leadMap });
+  const queue = buildWorkQueue({ tasks, meetingsToday, leads: leadMap, now });
 
   // Candidate order: a carried batch is fixed for its run (matches the batch runner);
   // otherwise the authoritative batch for this kind, else everything still on the board.

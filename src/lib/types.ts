@@ -1075,7 +1075,12 @@ export interface ProspectingProfile {
   minReviews: number;
   requireWebsite: boolean;
   requirePhone: boolean;
-  dailyQueueSize: number; // Today target (default 8)
+  dailyQueueSize: number; // Today target for non-outreach work + new-lead generation (default 8)
+  /** How many phone calls to surface as an active stream per day (default 10). */
+  callDailyTarget?: number;
+  /** Warm-up-safe daily email ceiling — the email stream surfaces up to this many,
+   *  minus what has already been sent today (default 10). Protects deliverability. */
+  emailDailyTarget?: number;
   runTime: string; // "05:30" America/Los_Angeles
   weekdays: number[]; // 0=Sun … 6=Sat
   tierTargetA: number; // max new Tier A per run

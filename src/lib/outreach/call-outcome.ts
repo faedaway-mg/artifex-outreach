@@ -8,6 +8,7 @@
 import { revalidatePath } from "next/cache";
 import { getLead, updateLead, insertContact, insertTask, allTasks, updateTask, contactsForLead, appendAudit, auditForTarget } from "@/lib/repo";
 import { resolveCallWorkForEmail } from "@/lib/outreach/contact-route";
+import { nextOpenAt } from "@/lib/timezone";
 import type { Lead, PipelineStage } from "@/lib/types";
 import { currentActor } from "@/lib/auth";
 import type { CallSession } from "@/lib/outreach/call-conversation";
@@ -24,7 +25,17 @@ async function supersedeOpenCallTasks(leadId: string): Promise<number> {
   return open.length;
 }
 
-/** The nine outcomes an operator can log at the end of a call-first call. */
+/** The outcomes an operator can log at the end of a call-first call.
+ *
+ * Note the deliberate split between three superficially-similar "closed" ideas, kept
+ * distinct because Acquisition OS learns from this data and must never confuse an
+ * OPERATIONAL availability signal with a SALES outcome:
+ *   • closed-now       — open for business, just not answering the phone at THIS hour
+ *                        (Sunday, after hours). Reschedule, don't burn the lead.
+ *   • business-closed  — the business is permanently closed or the listing is invalid.
+ *                        Disqualify.
+ *   • not-interested   — a human declined. Lost.
+ */
 export type CallOutcome =
   | "reached-dm" // spoke with the owner / decision-maker
   | "contact-collected" // got a name + email (may or may not be the DM)
@@ -32,6 +43,7 @@ export type CallOutcome =
   | "follow-up" // call again later at a set time
   | "voicemail" // left a voicemail
   | "no-answer" // rang out, nobody picked up
+  | "closed-now" // reliably closed at this hour (not open yet / after hours / Sunday)
   | "wrong-number" // the number isn't this business
   | "not-interested" // politely declined
   | "business-closed"; // closed or otherwise invalid
@@ -58,6 +70,10 @@ export interface CallOutcomeInput {
   followUpAt?: string;
   /** Optional voicemail state for no-answer / voicemail calls (analytics + note). */
   voicemail?: VoicemailStatus | null;
+  /** Business hours the operator learned on the call (e.g. from a recorded message).
+   *  Recorded ONLY on a "closed-now" outcome so the queue can withhold this business
+   *  automatically next time instead of the operator rediscovering it is closed. */
+  hours?: string;
   notes?: string;
 }
 
@@ -108,6 +124,7 @@ function outcomeSummary(o: CallOutcomeInput): string {
     case "follow-up": return `Call: follow up${o.followUpAt ? ` on ${o.followUpAt.slice(0, 10)}` : " later"}.`;
     case "voicemail": return `Call: ${o.voicemail ? VOICEMAIL_LABEL[o.voicemail] : "left a voicemail"}.`;
     case "no-answer": return `Call: no answer${vm}.`;
+    case "closed-now": return `Call: closed right now${o.hours?.trim() ? ` — hours noted: ${o.hours.trim()}` : ""}; rescheduling to next open period.`;
     case "wrong-number": return `Call: wrong number — this line isn't the business.`;
     case "not-interested": return `Call: not interested.`;
     case "business-closed": return `Call: business appears closed or invalid.`;
@@ -248,6 +265,34 @@ export async function saveCallOutcomeAction(
         leadId,
         type: "call",
         title: `${o.outcome === "voicemail" ? "Call back after voicemail" : "Retry call"} — ${lead.businessName}`,
+        dueAt: when,
+        status: "open",
+        priority: 50,
+        snoozedUntil: null,
+      });
+      break;
+    }
+
+    case "closed-now": {
+      // OPERATIONALLY closed at this hour — not a rejection, not a dead business, not
+      // failed human contact. Preserve every bit of lead state and history (no stage
+      // change, no businessStatus); the ONLY thing that changes is WHEN we try next.
+      // If the operator learned real hours on the call, capture them so the call queue
+      // withholds this business automatically next time (see knownClosedNow) rather
+      // than the operator rediscovering the closure one dial at a time.
+      const learnedHours = o.hours?.trim();
+      if (learnedHours) patch.hours = learnedHours;
+      const reopen = nextOpenAt({ ...lead, hours: learnedHours ?? lead.hours }, new Date());
+      const when = o.followUpAt || reopen?.toISOString() || daysFromNow(1);
+      patch.nextFollowUpAt = when;
+      scheduledFor = when;
+      // Exactly one open call task per lead — supersede first so a rescheduled attempt
+      // never accumulates as a duplicate in the queue.
+      await supersedeOpenCallTasks(leadId);
+      await insertTask({
+        leadId,
+        type: "call",
+        title: `Call when open — ${lead.businessName}`,
         dueAt: when,
         status: "open",
         priority: 50,

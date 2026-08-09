@@ -157,6 +157,8 @@ export function defaultProspecting() {
     requireWebsite: false,
     requirePhone: false,
     dailyQueueSize: 8,
+    callDailyTarget: 10,
+    emailDailyTarget: 10,
     runTime: "05:30",
     weekdays: [1, 2, 3, 4, 5],
     tierTargetA: 3,

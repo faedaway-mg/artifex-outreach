@@ -8,6 +8,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import type { Task, TaskType, Lead } from "./types";
 import { determineContactStrategy, strategyToWorkKind } from "./outreach/contact-strategy";
+import { knownClosedNow } from "./timezone";
 
 export type WorkKind = "discovery" | "follow-up" | "email" | "report" | "call" | "contact-form" | "instagram-dm" | "video" | "understand";
 
@@ -35,7 +36,7 @@ interface KindMeta { title: string; blurb: string; perMinutes: number; cta: stri
 const META: Record<WorkKind, KindMeta> = {
   discovery: { title: "Discovery calls today", blurb: "Conversations on the calendar — walk in ready.", perMinutes: 10, cta: "Prepare", urgency: 0, timeBound: true },
   "follow-up": { title: "Follow-ups due", blurb: "Open threads ready for the next touch.", perMinutes: 2, cta: "Review follow-ups", urgency: 1 },
-  email: { title: "Initial emails ready", blurb: "First-contact emails drafted and waiting for your eyes.", perMinutes: 3, cta: "Review emails", urgency: 2 },
+  email: { title: "Emails to send", blurb: "Prepared first-contact emails — review, approve, send.", perMinutes: 3, cta: "Start sending", urgency: 2 },
   report: { title: "Reports waiting", blurb: "Business Technology Reviews ready for approval.", perMinutes: 5, cta: "Review reports", urgency: 3 },
   call: { title: "Calls to make", blurb: "No email on file — open the relationship by phone.", perMinutes: 6, cta: "Start calling", urgency: 4 },
   "contact-form": { title: "Contact forms to submit", blurb: "Reach out through their contact form.", perMinutes: 4, cta: "Start forms", urgency: 4.4 },
@@ -75,11 +76,20 @@ export function buildWorkQueue(input: {
   tasks: Task[];
   meetingsToday: Array<{ leadId: string; scheduledAt: string }>;
   leads: Map<string, Lead>;
+  /** For business-hours-aware call filtering. Injected in tests; defaults to real time. */
+  now?: Date;
 }): WorkCategory[] {
   const { tasks, meetingsToday, leads } = input;
+  const now = input.now ?? new Date();
   const byKind = new Map<WorkKind, string[]>();
   const push = (kind: WorkKind, leadId: string) => {
-    if (!leads.has(leadId)) return;
+    const lead = leads.get(leadId);
+    if (!lead) return;
+    // A PHONE-call task for a business we can prove is closed right now does not
+    // belong on the active call board — it would just be a locked door. This is the
+    // ONLY channel we withhold: asynchronous work (email, forms, DMs) is unaffected,
+    // and only RELIABLE hours withhold anyone (knownClosedNow fails open on unknowns).
+    if (kind === "call" && knownClosedNow(lead, now)) return;
     const arr = byKind.get(kind) ?? [];
     if (!arr.includes(leadId)) arr.push(leadId); // dedupe within a batch
     byKind.set(kind, arr);
@@ -110,6 +120,91 @@ export function buildWorkQueue(input: {
 /** The ordered lead list for one batch (for the batch runner). */
 export function batchLeadIds(cats: WorkCategory[], kind: string): string[] {
   return cats.find((c) => c.kind === kind)?.leadIds ?? [];
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Channel-aware capacity — calls and emails are PARALLEL operator streams.
+//
+// The original queue capped the whole day with a single number (dailyQueueSize=8)
+// applied to a priority-sorted list. Because follow-ups (70) and calls (50–65) sort
+// above initial email work (40), that one combined cap let calls fill the day and
+// leave legitimate email-first leads stranded beyond the cap — the operator saw a
+// full "Calls to make" board and an empty "Emails to send" one. These functions cap
+// each stream INDEPENDENTLY so email capacity is comparable to call capacity, and a
+// day can hold ~10 calls + ~10 emails instead of 8 of whichever sorts highest.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const DEFAULT_CALL_TARGET = 10;
+export const DEFAULT_EMAIL_TARGET = 10;
+
+/** The three operator streams a task can draw capacity from. */
+export interface ChannelCapacity {
+  /** Phone calls to place. */
+  call: number;
+  /** Emails to send (initial + follow-up) — bounded by warm-up-safe daily capacity. */
+  email: number;
+  /** Everything else (reports, videos, understand, forms, DMs) — a shared budget. */
+  other: number;
+}
+
+/** Which capacity stream a work kind draws from. Follow-ups are email sends, so they
+ *  share the email stream's warm-up budget. */
+export function channelOf(kind: WorkKind): keyof ChannelCapacity {
+  if (kind === "call") return "call";
+  if (kind === "email" || kind === "follow-up") return "email";
+  return "other";
+}
+
+/**
+ * Resolve the per-stream capacity for a day. Email capacity is the warm-up-safe daily
+ * ceiling MINUS what has already gone out today, so deliverability protection wins
+ * over raw volume: once the day's safe sends are spent, the email stream reports zero
+ * (and the deferred leads simply become eligible again tomorrow — nothing is dropped).
+ */
+export function channelCapacity(opts: {
+  callTarget?: number | null;
+  emailTarget?: number | null;
+  otherBudget: number;
+  emailsSentToday?: number;
+}): ChannelCapacity {
+  const call = Math.max(0, opts.callTarget ?? DEFAULT_CALL_TARGET);
+  const emailTarget = Math.max(0, opts.emailTarget ?? DEFAULT_EMAIL_TARGET);
+  const email = Math.max(0, emailTarget - Math.max(0, opts.emailsSentToday ?? 0));
+  return { call, email, other: Math.max(0, opts.otherBudget) };
+}
+
+/**
+ * Choose which due tasks to SURFACE today, capping each stream independently. Input is
+ * the full priority-sorted due-task set (from todaysTasks with no limit); output is the
+ * subset that fits within each stream's capacity, counted by DISTINCT BUSINESS so a
+ * lead with two tasks in one stream spends one slot. Known-closed CALL leads are skipped
+ * here too (composing with the business-hours fix) so a locked door never costs a call
+ * slot. Replaces the old single `.slice(0, dailyQueueSize)`.
+ */
+export function surfaceTodaysTasks(input: {
+  tasks: Task[];
+  leads: Map<string, Lead>;
+  capacity: ChannelCapacity;
+  now?: Date;
+}): Task[] {
+  const { tasks, leads, capacity } = input;
+  const now = input.now ?? new Date();
+  const usedLeads: Record<keyof ChannelCapacity, Set<string>> = { call: new Set(), email: new Set(), other: new Set() };
+  const out: Task[] = [];
+  for (const t of tasks) {
+    const lead = leads.get(t.leadId);
+    if (!lead) continue;
+    const kind = workKindForTask(t, lead);
+    if (kind === "call" && knownClosedNow(lead, now)) continue; // a locked door is not work
+    const ch = channelOf(kind);
+    const used = usedLeads[ch];
+    if (!used.has(t.leadId)) {
+      if (used.size >= capacity[ch]) continue; // this stream is full → defer the lead
+      used.add(t.leadId);
+    }
+    out.push(t);
+  }
+  return out;
 }
 
 export interface DailyMission {

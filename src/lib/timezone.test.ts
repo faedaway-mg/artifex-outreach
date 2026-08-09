@@ -11,7 +11,7 @@ import { readFileSync } from "fs";
 import { makeLead } from "./test-lead";
 import {
   inferZone, zonedParts, businessHours, callWindow, callOrderWeight,
-  compareForCalling, endOfDayIn, stateFromAddress, DEFAULT_ZONE,
+  compareForCalling, endOfDayIn, stateFromAddress, knownClosedNow, nextOpenAt, DEFAULT_ZONE,
 } from "./timezone";
 
 const at = (iso: string) => new Date(iso);
@@ -174,23 +174,124 @@ describe("daylight saving is never arithmetic", () => {
 });
 
 describe("business hours", () => {
-  it("states its assumption when the lead carries none — which is every lead today", () => {
+  it("states its assumption when the lead carries none — Mon–Fri 9–5, weekends closed", () => {
     const h = businessHours({ hours: null });
     expect(h.source).toBe("assumed");
-    expect(h.openHour).toBe(9);
-    expect(h.closeHour).toBe(17);
+    expect(h.days[1]).toEqual({ open: 540, close: 1020 }); // Monday 9–5
+    expect(h.days[0]).toBeNull(); // Sunday closed
+    expect(h.days[6]).toBeNull(); // Saturday closed
   });
 
-  it("reads the column when something finally populates it", () => {
+  it("reads a one-line day+time range when something finally populates it", () => {
     const h = businessHours({ hours: "Mon–Fri 9–5" });
     expect(h.source).toBe("lead");
-    expect(h.openHour).toBe(9);
-    expect(h.closeHour).toBe(17);
+    expect(h.days[1]).toEqual({ open: 540, close: 1020 });
+    expect(h.days[5]).toEqual({ open: 540, close: 1020 });
+    expect(h.days[6]).toBeNull();
+  });
+
+  it("keeps a weekend-open business open on the weekend — the hotel case", () => {
+    // The old parser forced Mon–Fri onto every parsed row, which would have
+    // wrongly reported a Sunday-open business as closed on Sunday.
+    const daily = businessHours({ hours: "Daily 11–21" });
+    expect(daily.source).toBe("lead");
+    expect(daily.days[0]).toEqual({ open: 660, close: 1260 }); // Sunday open
+    expect(daily.days[6]).toEqual({ open: 660, close: 1260 }); // Saturday open
+  });
+
+  it("recognizes 24/7 as open every day, around the clock", () => {
+    const h = businessHours({ hours: "24/7" });
+    expect(h.source).toBe("lead");
+    for (let d = 0; d < 7; d++) expect(h.days[d]).toEqual({ open: 0, close: 1440 });
+  });
+
+  it("parses Google weekday_text, per day, including a closed day", () => {
+    const h = businessHours({
+      hours: [
+        "Monday: 8:00 AM – 5:00 PM",
+        "Tuesday: 8:00 AM – 5:00 PM",
+        "Sunday: Closed",
+        "Saturday: 9:00 AM – 1:00 PM",
+      ].join("\n"),
+    });
+    expect(h.source).toBe("lead");
+    expect(h.days[1]).toEqual({ open: 480, close: 1020 }); // Mon 8–5
+    expect(h.days[0]).toBeNull(); // Sun closed
+    expect(h.days[6]).toEqual({ open: 540, close: 780 }); // Sat 9–1
+  });
+
+  it("keeps overnight hours as a close-before-open window", () => {
+    const h = businessHours({ hours: "Fri 9pm–2am" });
+    expect(h.days[5]).toEqual({ open: 1260, close: 120 }); // 21:00 → 02:00 next day
   });
 
   it("falls back to the assumption rather than trusting a shape it cannot read", () => {
     expect(businessHours({ hours: "by appointment" }).source).toBe("assumed");
-    expect(businessHours({ hours: "24/7" }).source).toBe("assumed");
+    expect(businessHours({ hours: "call for hours" }).source).toBe("assumed");
+  });
+});
+
+describe("withholding known-closed businesses from the call queue", () => {
+  // Sunday 2026-08-09, ~10am Pacific.
+  const SUN_10AM_PT = at("2026-08-09T17:00:00Z");
+
+  it("withholds a business whose RELIABLE hours prove it is shut today", () => {
+    const dentist = biz({ state: "CA", hours: "Mon–Fri 8–5" });
+    expect(knownClosedNow(dentist, SUN_10AM_PT)).toBe(true);
+  });
+
+  it("never withholds on an ASSUMPTION — unknown hours stay callable", () => {
+    // Same Sunday, but no hours on file: the assumption says Mon–Fri, yet we must
+    // not suppress a business we simply lack data for.
+    const unknown = biz({ state: "CA", hours: null });
+    expect(callWindow(unknown, SUN_10AM_PT).hoursSource).toBe("assumed");
+    expect(knownClosedNow(unknown, SUN_10AM_PT)).toBe(false);
+  });
+
+  it("does not withhold a business that is open right now", () => {
+    const hotel = biz({ state: "CA", hours: "24/7" });
+    expect(knownClosedNow(hotel, SUN_10AM_PT)).toBe(false);
+    const sundayRestaurant = biz({ state: "CA", hours: "Daily 9–17" });
+    expect(knownClosedNow(sundayRestaurant, SUN_10AM_PT)).toBe(false);
+  });
+
+  it("does not withhold a business that merely opens later today", () => {
+    const early = biz({ state: "CA", hours: "Daily 9–17" });
+    const sunday7am = at("2026-08-09T14:00:00Z"); // 7am PT Sunday, opens at 9
+    expect(callWindow(early, sunday7am).state).toBe("opens-later");
+    expect(knownClosedNow(early, sunday7am)).toBe(false);
+  });
+});
+
+describe("when a closed business becomes callable again", () => {
+  it("reschedules a Sunday-closed dentist to Monday morning open", () => {
+    const dentist = biz({ state: "CA", hours: "Mon–Fri 8–5" });
+    const sunday = at("2026-08-09T17:00:00Z"); // Sun 10am PT
+    const next = nextOpenAt(dentist, sunday)!;
+    expect(next).not.toBeNull();
+    const parts = zonedParts(next, "America/Los_Angeles");
+    expect(parts.weekday).toBe(1); // Monday
+    expect(parts.hour).toBe(8); // opens at 8am local
+    expect(parts.minute).toBe(0);
+    expect(+next).toBeGreaterThan(+sunday);
+  });
+
+  it("returns today's opening when the business simply hasn't opened yet", () => {
+    const shop = biz({ state: "CA", hours: "Daily 9–17" });
+    const sunday7am = at("2026-08-09T14:00:00Z"); // 7am PT, opens 9
+    const next = nextOpenAt(shop, sunday7am)!;
+    const parts = zonedParts(next, "America/Los_Angeles");
+    expect(parts.weekday).toBe(0); // still Sunday
+    expect(parts.hour).toBe(9);
+  });
+
+  it("falls back to the assumed Mon–Fri opening when hours are unknown", () => {
+    const unknown = biz({ state: "CA", hours: null });
+    const saturday = at("2026-08-08T20:00:00Z"); // Sat 1pm PT
+    const next = nextOpenAt(unknown, saturday)!;
+    const parts = zonedParts(next, "America/Los_Angeles");
+    expect(parts.weekday).toBe(1); // Monday
+    expect(parts.hour).toBe(9);
   });
 });
 

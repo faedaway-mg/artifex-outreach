@@ -6,7 +6,7 @@
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Check, Loader2, ArrowRight, PhoneOff, Voicemail, CalendarClock, UserCheck, Mail, Ban, ChevronDown } from "lucide-react";
+import { Check, Loader2, ArrowRight, PhoneOff, Voicemail, CalendarClock, UserCheck, Mail, Ban, ChevronDown, Clock } from "lucide-react";
 import { saveCallOutcomeAction, type CallOutcome, type CallOutcomeResult, type VoicemailStatus } from "@/lib/outreach/call-outcome";
 import type { CallSession } from "@/lib/outreach/call-conversation";
 import { resolveNextLead } from "@/lib/outreach/next-lead";
@@ -29,7 +29,7 @@ export interface SuggestedOutcome {
   voicemail: VoicemailStatus | null;
 }
 
-type Field = "role" | "name" | "email" | "method" | "bestTime" | "followUp" | "voicemail" | "notes";
+type Field = "role" | "name" | "email" | "method" | "bestTime" | "followUp" | "voicemail" | "hours" | "notes";
 
 // Voicemail is independent of the outcome — a "no answer" call may simply have no
 // voicemail to leave. Optional; never blocks a save.
@@ -60,9 +60,10 @@ const OUTCOMES: OutcomeDef[] = [
   { value: "follow-up", label: "Follow up later", tone: "neutral", Icon: CalendarClock, fields: ["followUp", "notes"], consequence: "→ schedules the next call at the time you pick" },
   { value: "voicemail", label: "Left voicemail", tone: "neutral", Icon: Voicemail, fields: ["voicemail", "notes"], consequence: "→ schedules a call-back in ~2 days" },
   { value: "no-answer", label: "No answer", tone: "neutral", Icon: PhoneOff, fields: ["voicemail", "notes"], consequence: "→ schedules a retry call tomorrow" },
+  { value: "closed-now", label: "Closed right now", tone: "neutral", Icon: Clock, fields: ["hours", "notes"], consequence: "→ reschedules the call for the next time they're open — the lead is kept, not burned" },
   { value: "wrong-number", label: "Wrong number", tone: "bad", Icon: Ban, fields: ["notes"], consequence: "→ stops dialing this number; research keeps the lead" },
   { value: "not-interested", label: "Not interested", tone: "bad", Icon: Ban, fields: ["notes"], consequence: "→ closes the lead as Lost" },
-  { value: "business-closed", label: "Closed / invalid", tone: "bad", Icon: Ban, fields: ["notes"], consequence: "→ disqualifies the lead" },
+  { value: "business-closed", label: "Permanently closed / invalid", tone: "bad", Icon: Ban, fields: ["notes"], consequence: "→ disqualifies the lead" },
 ];
 
 const TONE_BTN: Record<OutcomeDef["tone"], string> = {
@@ -97,6 +98,7 @@ export function CallOutcomeConsole({
   const [method, setMethod] = useState<"email" | "phone" | "text">("email");
   const [bestTime, setBestTime] = useState("");
   const [followUp, setFollowUp] = useState("");
+  const [hours, setHours] = useState("");
   const [voicemail, setVoicemail] = useState<VoicemailStatus | null>(null);
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
@@ -135,6 +137,7 @@ export function CallOutcomeConsole({
         bestTime: has("bestTime") ? bestTime : undefined,
         followUpAt: has("followUp") && followUp ? new Date(followUp).toISOString() : undefined,
         voicemail: has("voicemail") ? voicemail : undefined,
+        hours: has("hours") && hours.trim() ? hours.trim() : undefined,
         notes: notes || undefined,
       }, session ?? null);
       if (res.ok) { setResult(res); router.refresh(); }
@@ -302,6 +305,14 @@ export function CallOutcomeConsole({
             <div>
               <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-chalk-500">When to call back</p>
               <input value={followUp} onChange={(e) => setFollowUp(e.target.value)} type="datetime-local" className={input} />
+            </div>
+          )}
+
+          {has("hours") && (
+            <div>
+              <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-chalk-500">Their hours <span className="text-chalk-600">(optional — teaches the queue)</span></p>
+              <input value={hours} onChange={(e) => setHours(e.target.value)} placeholder="e.g. Mon–Fri 8–5, closed weekends" className={input} />
+              <p className="mt-1 text-[11.5px] text-chalk-500">If you heard their hours, note them here — next time we won&rsquo;t queue this call while they&rsquo;re closed.</p>
             </div>
           )}
 
