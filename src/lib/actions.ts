@@ -48,6 +48,7 @@ import {
 import { normalizeName, domainFromUrl, reseed } from "./store";
 import { assignNewLead, touchOperatorActivity } from "./operators/distribute";
 import { currentOperatorId, currentActor } from "./auth";
+import { createEmailTestLead } from "./testing/email-test-lead";
 import { hasDb } from "@/db/client";
 import {
   qualifyLead,
@@ -912,4 +913,25 @@ export async function resetDemoDataAction(): Promise<void> {
   if (!hasDb()) reseed();
   revalidatePath("/");
   redirect("/");
+}
+
+// ── Internal email test control (operator-only) ───────────────────────────────
+/**
+ * Prepare the internal "TEST — Acquisition OS Email" lead pointed at an operator-owned
+ * address, entirely from the (authenticated) Settings screen — no terminal needed. This
+ * ONLY prepares the lead + its review_and_send work; it NEVER sends. The operator still
+ * previews/edits and presses Approve & Send in the real Emails-to-send flow. Reuses the
+ * exact same canonical logic as scripts/seed-email-test-lead.ts so UI and CLI can't drift.
+ */
+export async function createEmailTestLeadAction(recipientEmail: string): Promise<{ ok: boolean; leadId?: string; reused?: boolean; reason?: string }> {
+  // Operator-only: the (app) route group is auth-gated; require an operator context too.
+  if (!currentOperatorId()) return { ok: false, reason: "Not authorized." };
+  try {
+    const r = await createEmailTestLead((recipientEmail ?? "").trim());
+    revalidatePath("/"); // the new high-priority task surfaces under Emails to send
+    revalidatePath("/work/email");
+    return { ok: true, leadId: r.leadId, reused: r.reused };
+  } catch (e) {
+    return { ok: false, reason: (e as Error).message };
+  }
 }

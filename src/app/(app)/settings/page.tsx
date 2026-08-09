@@ -1,4 +1,4 @@
-import { getSettings, listSuppressions, listProspectingRuns } from "@/lib/repo";
+import { getSettings, listSuppressions, listProspectingRuns, listLeads, allTasks } from "@/lib/repo";
 import { updateSettingsAction } from "@/lib/actions";
 import { aiMode } from "@/lib/providers/ai";
 import { storageStatus } from "@/lib/storage";
@@ -7,13 +7,17 @@ import { nextScheduledRun } from "@/lib/schedule";
 import { ResetDemoButton } from "@/components/ResetDemoButton";
 import { ProspectingSettings } from "@/components/ProspectingSettings";
 import { CategoryManager } from "@/components/CategoryManager";
+import { EmailTestControl } from "@/components/EmailTestControl";
+import { TEST_LEAD_SOURCE } from "@/lib/testing/email-test-lead";
 import { formatRange } from "@/lib/utils";
 import { CheckCircle2, Circle } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
 export default async function SettingsPage() {
-  const [settings, suppressions, runs] = await Promise.all([getSettings(), listSuppressions(), listProspectingRuns(1)]);
+  const [settings, suppressions, runs, leads, tasks] = await Promise.all([getSettings(), listSuppressions(), listProspectingRuns(1), listLeads(), allTasks()]);
+  // Does a PENDING (not-yet-sent) internal test lead already exist? Drives the CTA label.
+  const testLeadExists = leads.some((l) => l.source === TEST_LEAD_SOURCE && tasks.some((t) => t.leadId === l.id && t.status === "open" && t.type === "review_and_send"));
   const ai = aiMode();
   const store = storageStatus();
   const nextRun = nextScheduledRun(settings.prospecting);
@@ -41,6 +45,9 @@ export default async function SettingsPage() {
 
       {/* Category portfolio */}
       <CategoryManager categories={settings.prospecting.categories} preset={settings.prospecting.preset} />
+
+      {/* Internal email test (operator-only, mobile-friendly) */}
+      <EmailTestControl exists={testLeadExists} />
 
       <div className="grid gap-6 lg:grid-cols-3">
         {/* Identity */}
