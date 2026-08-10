@@ -12,7 +12,9 @@
 // is refused once one has been accepted; a follow-up is refused until the intro
 // has been sent (and refused if already sent).
 // ─────────────────────────────────────────────────────────────────────────────
-import { getLead, updateLead, getBusinessIntelligence, getSettings, contactsForLead, plansForLead, stepsForPlan, getPlan, updateStep, emailSendsForLead } from "../repo";
+import { getLead, updateLead, getBusinessIntelligence, getSettings, contactsForLead, plansForLead, stepsForPlan, getPlan, updateStep, emailSendsForLead, allTasks, insertTask } from "../repo";
+import { gatekeeperHeavy } from "./contact-strategy";
+import type { Lead } from "../types";
 import { prepareAcquisitionPlanAction, approvePlanAction } from "../acquisition-actions";
 import { dispatchStep } from "../comms/dispatch";
 import { buildOutreachKit } from "./kit";
@@ -37,6 +39,37 @@ function applyOverride(email: OutreachEmail, override?: EmailOverride | null): O
   const body = override.body?.replace(/\r\n/g, "\n").trim();
   const paragraphs = body ? body.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean) : email.paragraphs;
   return { ...email, subject: subject || email.subject, body: body || email.body, paragraphs };
+}
+
+/** The same clock time N BUSINESS days ahead (skips Sat/Sun) — the email must land before the call. */
+function businessDaysFromNow(n: number): string {
+  const d = new Date();
+  let added = 0;
+  while (added < n) {
+    d.setDate(d.getDate() + 1);
+    const wd = d.getDay();
+    if (wd !== 0 && wd !== 6) added++;
+  }
+  return d.toISOString();
+}
+
+/**
+ * For a gatekeeper-heavy practice (dental/legal), once the personalized review has actually
+ * been emailed, schedule ONE contextual follow-up call a couple business days out — so the
+ * phone call follows the email with legitimate context, never a cold call. Idempotent (never
+ * piles up call tasks), only for practices we can actually call, and it leaves a dated note
+ * the Call Assistant surfaces so the operator opens with "I sent over a quick review…".
+ */
+async function scheduleGatekeeperFollowUpCall(leadId: string, lead: Lead, subject: string): Promise<void> {
+  if (!gatekeeperHeavy(lead) || !lead.phone) return;
+  const hasOpenCall = (await allTasks()).some((t) => t.leadId === leadId && t.status === "open" && t.type === "call");
+  if (hasOpenCall) return;
+  const when = businessDaysFromNow(2);
+  await insertTask({ leadId, type: "call", title: `Follow up on the review — ${lead.businessName}`, dueAt: when, status: "open", priority: 58, snoozedUntil: null });
+  const stamp = new Date().toISOString().slice(0, 10);
+  const line = `[${stamp}] Emailed the Quick Review${lead.publicEmail ? ` to ${lead.publicEmail}` : ""} ("${subject}"). Follow-up call: make sure it reached the right person.`;
+  const fresh = await getLead(leadId);
+  await updateLead(leadId, { note: fresh?.note?.trim() ? `${line}\n${fresh.note.trim()}` : line, nextFollowUpAt: when });
 }
 
 async function sendNext(leadId: string, mode: "intro" | "followup", veed?: VeedVideo | null, override?: EmailOverride | null): Promise<IntroSendResult> {
@@ -120,6 +153,10 @@ async function sendNext(leadId: string, mode: "intro" | "followup", veed?: VeedV
   switch (res.outcome) {
     case "sent":
     case "deduped":
+      // For gatekeeper-heavy practices the phone call now FOLLOWS the email: once the review
+      // has actually gone out, schedule one contextual follow-up call a couple business days
+      // later so reception has a legitimate reason ("I sent over a quick review…"), never a cold call.
+      if (mode === "intro") await scheduleGatekeeperFollowUpCall(leadId, lead, email.subject);
       return { outcome: "sent", providerMessageId: res.providerMessageId ?? null, stepId: step.id };
     case "skipped":
       return /suppress/i.test(res.reason ?? "")

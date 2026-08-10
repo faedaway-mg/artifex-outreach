@@ -23,6 +23,10 @@ const mockedSearch = vi.mocked(searchPlaces);
 async function seedNoChannelLead(over: Partial<Lead> = {}) {
   const base = makeLead({
     businessName: "Glendale Plaza",
+    // Owner-accessible (not a gatekeeper-heavy dental/legal practice) so a resolved phone
+    // routes call-first, as these contact-resolution tests assert.
+    industry: "Boutique retail",
+    normalizedCategory: "boutique",
     googlePlaceId: "PLACE_GP",
     phone: null, website: null, websiteDomain: null, publicEmail: null,
     contactFormUrl: null, socialLinks: [], note: null,

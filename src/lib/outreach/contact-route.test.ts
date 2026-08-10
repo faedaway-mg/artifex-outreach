@@ -12,7 +12,9 @@ import { makeLead } from "../test-lead";
 import type { Lead } from "../types";
 
 async function seedCallFirst(over: Partial<Lead> = {}) {
-  const base = makeLead({ businessName: "Wilshire Law Firm", phone: "(213) 329-7576", publicEmail: null, website: "https://wilshirelawfirm.com", websiteDomain: "wilshirelawfirm.com", socialLinks: [], note: null, lastContactAt: null, ...over });
+  // A call-first business (owner-accessible auto shop, NOT a gatekeeper-heavy dental/legal
+  // practice), so the "no email → call-first, then email added → email-first" flip still holds.
+  const base = makeLead({ businessName: "Wilshire Auto Care", industry: "Auto repair", normalizedCategory: "auto-repair", phone: "(213) 329-7576", publicEmail: null, website: "https://wilshireautocare.example", websiteDomain: "wilshireautocare.example", socialLinks: [], note: null, lastContactAt: null, ...over });
   const { id, createdAt, updatedAt, ...rest } = base;
   const lead = await insertLead(rest);
   // The outreach task that buckets by contact strategy (call while no email).

@@ -16,6 +16,10 @@ import type { Lead } from "../types";
 async function seedCallFirstLead(over: Partial<Lead> = {}) {
   const base = makeLead({
     businessName: "The Secret House of Ivy",
+    // An owner-accessible boutique (NOT a gatekeeper-heavy dental/legal practice), so the
+    // no-email → call-first routing these state-machine tests assert still holds.
+    industry: "Boutique retail",
+    normalizedCategory: "boutique",
     publicEmail: null,
     website: null,
     phone: "(562) 966-0379",

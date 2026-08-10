@@ -30,17 +30,21 @@ describe("where a call happens", () => {
     for (const k of WORK_KINDS) expect(panelForWorkKind(k)).toBeTruthy();
   });
 
+  // A non-gatekeeper (owner-accessible) business, so no-email → call-first holds. Gatekeeper
+  // dental/legal routing is covered in contact-strategy.test.
+  const ownerAccessible = (over: Parameters<typeof makeLead>[0] = {}) => makeLead({ industry: "Auto repair", normalizedCategory: "auto-repair", ...over });
+
   it("4. a business with no send route is call-first", () => {
-    const lead = makeLead({ publicEmail: null, phone: "(213) 555-0100" });
+    const lead = ownerAccessible({ publicEmail: null, phone: "(213) 555-0100" });
     expect(isCallFirstLead(lead)).toBe(true);
 
     // With a real public inbox, it is not — the email flow owns it.
-    expect(isCallFirstLead(makeLead({ publicEmail: "hello@x.com", phone: "(213) 555-0100" }))).toBe(false);
+    expect(isCallFirstLead(ownerAccessible({ publicEmail: "hello@x.com", phone: "(213) 555-0100" }))).toBe(false);
   });
 
   it("5. a blank or malformed address is not a send route and never ends the call workflow", () => {
     for (const bad of ["", "   ", "info@", "@x.com", "not an email", "info@localhost"]) {
-      expect(isCallFirstLead(makeLead({ publicEmail: bad, phone: "(213) 555-0100" })), `"${bad}" treated as a send route`).toBe(true);
+      expect(isCallFirstLead(ownerAccessible({ publicEmail: bad, phone: "(213) 555-0100" })), `"${bad}" treated as a send route`).toBe(true);
     }
   });
 

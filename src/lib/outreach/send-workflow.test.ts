@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 // Server actions call revalidatePath, which needs a request context — stub it.
 vi.mock("next/cache", () => ({ revalidatePath: () => {}, revalidateTag: () => {} }));
-import { insertLead, upsertBusinessIntelligence, emailSendsForLead, getLead, plansForLead } from "../repo";
+import { insertLead, upsertBusinessIntelligence, emailSendsForLead, getLead, plansForLead, allTasks } from "../repo";
 import { analyzeBusiness } from "../intelligence/engine";
 import { resetEmailProvider } from "../comms/provider";
 import { __resetStoreForTests } from "../store";
@@ -163,6 +163,36 @@ describe("call-derived send without a scored acquisition strategy", () => {
     expect(second.outcome).toBe("blocked"); // already sent → no double send
     expect(await plansForLead(lead.id)).toHaveLength(1); // no duplicate plan
     expect(sends).toHaveLength(1);
+  }, 20000);
+});
+
+// Gatekeeper-heavy practices (the seed lead is "Workflow Dental") get a CONTEXTUAL follow-up
+// call AFTER the review is emailed — never a cold call before it.
+describe("email → follow-up call for gatekeeper practices", () => {
+  it("schedules one contextual follow-up call, a business day out, once the review is emailed", async () => {
+    const lead = await seedQualifiedLead(); // dental (gatekeeper) + phone + email
+    const bi = await analyzeBusiness({ lead, findings: [], contacts: [] });
+    await upsertBusinessIntelligence({ leadId: lead.id, profile: bi, enrichmentDelta: null, generatedAt: "2026-07-22T00:00:00.000Z" });
+
+    const r = await sendIntroductionAction(lead.id);
+    expect(r.outcome).toBe("sent");
+    const calls = (await allTasks()).filter((t) => t.leadId === lead.id && t.status === "open" && t.type === "call");
+    expect(calls).toHaveLength(1); // the follow-up call
+    expect(calls[0].title).toMatch(/Follow up on the review/);
+    const due = new Date(calls[0].dueAt);
+    expect(+due).toBeGreaterThan(Date.now()); // in the future — email lands before the call
+    expect([0, 6]).not.toContain(due.getDay()); // and on a business day (not Sat/Sun)
+    // Context the Call Assistant surfaces so the operator opens with "I sent over a quick review…".
+    expect((await getLead(lead.id))?.note).toMatch(/Emailed the Quick Review/);
+  }, 20000);
+
+  it("does not stack follow-up calls if one is already open (idempotent)", async () => {
+    const lead = await seedQualifiedLead();
+    const bi = await analyzeBusiness({ lead, findings: [], contacts: [] });
+    await upsertBusinessIntelligence({ leadId: lead.id, profile: bi, enrichmentDelta: null, generatedAt: "2026-07-22T00:00:00.000Z" });
+    await sendIntroductionAction(lead.id);
+    await sendIntroductionAction(lead.id); // blocked (already sent) — must not add a 2nd call
+    expect((await allTasks()).filter((t) => t.leadId === lead.id && t.status === "open" && t.type === "call")).toHaveLength(1);
   }, 20000);
 });
 

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { determineContactStrategy, buildCallBrief, buildCallScript, strategyToWorkKind, isCallablePhone, isValidEmail, isUsableUrl, type StrategyLead } from "./contact-strategy";
+import { determineContactStrategy, gatekeeperHeavy, buildCallBrief, buildCallScript, strategyToWorkKind, isCallablePhone, isValidEmail, isUsableUrl, type StrategyLead } from "./contact-strategy";
 import { computeNextAction, freshState } from "./next-action";
 import { workKindForTask } from "../work-queue";
 import type { Lead, Task } from "../types";
@@ -15,6 +15,51 @@ const base: StrategyLead = {
   rating: 4.8,
   reviewCount: 120,
 };
+
+// Gatekeeper-heavy practices (dental/orthodontic/legal): reception filters cold calls, so
+// they are email-first → follow-up call, NEVER cold call-first. Owner-accessible businesses
+// (motels/construction/trades) stay call-first. Evidence-based prior, not a hard blacklist.
+describe("determineContactStrategy — gatekeeper-heavy routing", () => {
+  const phoneNoEmail = { ...base, phone: "(213) 555-0100", publicEmail: null };
+
+  it("classifies dental / orthodontic / legal as gatekeeper-heavy (and not motels/construction)", () => {
+    expect(gatekeeperHeavy({ industry: "Dental practice", normalizedCategory: "dentist" })).toBe(true);
+    expect(gatekeeperHeavy({ industry: "Orthodontist", normalizedCategory: "orthodontist" })).toBe(true);
+    expect(gatekeeperHeavy({ industry: "Law firm", normalizedCategory: "law-firm" })).toBe(true);
+    expect(gatekeeperHeavy({ industry: "Legal services", normalizedCategory: "attorney" })).toBe(true);
+    expect(gatekeeperHeavy({ industry: "Motel", normalizedCategory: "motel" })).toBe(false);
+    expect(gatekeeperHeavy({ industry: "Construction company", normalizedCategory: "construction" })).toBe(false);
+    expect(gatekeeperHeavy({ industry: "Auto repair", normalizedCategory: "auto-repair" })).toBe(false);
+  });
+
+  it("a dentist with a phone but NO email is NOT cold call-first — it holds for an email route", () => {
+    const s = determineContactStrategy({ ...phoneNoEmail, industry: "Dental practice", normalizedCategory: "dentist" });
+    expect(s.kind).not.toBe("call-first");
+    expect(s.kind).toBe("no-channel"); // off the morning call board
+    expect(strategyToWorkKind(s.kind)).toBe("understand"); // research, not a cold call slot
+  });
+
+  it("a law firm with a phone but NO email is NOT cold call-first", () => {
+    const s = determineContactStrategy({ ...phoneNoEmail, industry: "Legal services", normalizedCategory: "attorney" });
+    expect(s.kind).not.toBe("call-first");
+  });
+
+  it("a gatekeeper practice WITH an email is email-first (review goes first, then a follow-up call)", () => {
+    const s = determineContactStrategy({ ...base, industry: "Dental practice", publicEmail: "office@dds.example" });
+    expect(s.kind).toBe("email-first");
+  });
+
+  it("a gatekeeper practice with no email but a contact form uses the form (async), not a cold call", () => {
+    const s = determineContactStrategy({ ...phoneNoEmail, industry: "Dental practice", contactFormUrl: "https://dds.example/contact" });
+    expect(s.kind).toBe("contact-form-first");
+  });
+
+  it("owner-accessible businesses with a phone and no email STAY call-first", () => {
+    for (const industry of ["Motel", "Construction company", "Auto repair", "Landscaping"]) {
+      expect(determineContactStrategy({ ...phoneNoEmail, industry }).kind).toBe("call-first");
+    }
+  });
+});
 
 describe("determineContactStrategy — archetypes", () => {
   it("email-first when a public email exists (law firm / website business)", () => {

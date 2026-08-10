@@ -130,6 +130,20 @@ export interface StrategyLead {
   locationsCount?: number | null;
 }
 
+// Gatekeeper-heavy professional practices — dental / orthodontic / legal — whose front
+// desk exists to serve patients/clients and filter unknown calls. Live operator evidence:
+// cold-calling reception here burns a call slot and rarely reaches a decision-maker, whereas
+// motels / construction / trades (owner-accessible) convert well by phone. So these are
+// routed EMAIL-FIRST (personalized Quick Review) → FOLLOW-UP CALL WITH CONTEXT, never cold
+// call-first. This is an evidence-based INITIAL PRIOR, not a permanent blacklist — extend it
+// as category×channel performance data accrues; operators can still override per lead.
+const GATEKEEPER_HEAVY_RE = /dentist|dental|orthodont|endodont|periodont|prosthodont|\blaw\b|law[\s-]*(firm|office|group|practice)|lawyer|attorney|legal\s*(services|practice|counsel)|solicitor|barrister/i;
+
+/** True when a business's front desk structurally filters cold vendor calls (dental/legal). */
+export function gatekeeperHeavy(lead: Pick<StrategyLead, "industry" | "normalizedCategory">): boolean {
+  return GATEKEEPER_HEAVY_RE.test(lead.industry ?? "") || GATEKEEPER_HEAVY_RE.test(lead.normalizedCategory ?? "");
+}
+
 /** The lead's Instagram profile URL, if any — exported for the DM channel UI. */
 export function findInstagram(socialLinks: string[]): string | null {
   return (socialLinks ?? []).find((u) => /instagram\.com/i.test(u)) ?? null;
@@ -207,10 +221,14 @@ export function determineContactStrategy(
     sequence: SEQUENCE[kind],
   });
 
+  const gatekeeper = gatekeeperHeavy(lead);
+
   if (hasEmailRoute) {
+    // Gatekeeper practices too: email the personalized review first, then follow up by phone.
     return build("email-first", "A verified email route was found — the personalized introduction can go out directly.");
   }
-  if (hasPhone) {
+  if (hasPhone && !gatekeeper) {
+    // Owner-accessible businesses (motels, construction, trades) convert well by phone.
     const via = [ig ? "Instagram" : null, looksLikeGoogleForm(lead) ? "Google Forms" : hasForm ? "a contact form" : null]
       .filter(Boolean)
       .join(", ");
@@ -220,10 +238,25 @@ export function determineContactStrategy(
     );
   }
   if (hasForm) {
-    return build("contact-form-first", "No email or phone was found, but there's a contact form — send a short, warm note through it.");
+    return build(
+      "contact-form-first",
+      gatekeeper
+        ? "This practice's front desk filters unknown calls, so lead with the personalized review through their contact form — then follow up by phone with real context."
+        : "No email or phone was found, but there's a contact form — send a short, warm note through it.",
+    );
   }
   if (ig) {
     return build("instagram-dm-first", "No email, phone, or form was found. Instagram is the live channel — open with a brief, human DM.");
+  }
+  if (hasPhone && gatekeeper) {
+    // Gatekeeper-heavy + no email + no form: a COLD call reaches reception, which filters
+    // vendor calls — the wrong first touch that wastes a call slot. Do NOT route to call-first.
+    // Hold for a direct email route (research/enrichment) so the personalized review can go
+    // first; the phone call then follows up with legitimate context.
+    return build(
+      "no-channel",
+      "This is a gatekeeper-heavy practice — reception is focused on patients/clients, so a cold call is the wrong first touch. Find a direct email first so the personalized review can lead; the call then follows up with context.",
+    );
   }
   // Nothing actionable exists. This is NOT a call-first lead — there is no number to
   // dial. The only performable action is finding a real contact route first.

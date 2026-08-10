@@ -12,7 +12,7 @@ import type { Lead } from "../types";
 
 // A no-channel lead (Glendale Plaza) with its open "review" task — how it lands in the queue.
 async function seedNoChannelLead(name: string, priority: number, over: Partial<Lead> = {}) {
-  const base = makeLead({ businessName: name, phone: null, publicEmail: null, website: null, websiteDomain: null, contactFormUrl: null, socialLinks: [], note: null, lastContactAt: null, pipelineStage: "Discovered", ...over });
+  const base = makeLead({ businessName: name, industry: "Boutique retail", normalizedCategory: "boutique", phone: null, publicEmail: null, website: null, websiteDomain: null, contactFormUrl: null, socialLinks: [], note: null, lastContactAt: null, pipelineStage: "Discovered", ...over });
   const { id, createdAt, updatedAt, ...rest } = base;
   const lead = await insertLead(rest);
   await insertTask({ leadId: lead.id, type: "review", title: `Review — ${name}`, dueAt: new Date().toISOString(), status: "open", priority, snoozedUntil: null });
