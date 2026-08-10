@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 // Server actions call revalidatePath, which needs a request context — stub it.
 vi.mock("next/cache", () => ({ revalidatePath: () => {}, revalidateTag: () => {} }));
-import { insertLead, upsertBusinessIntelligence, emailSendsForLead } from "../repo";
+import { insertLead, upsertBusinessIntelligence, emailSendsForLead, getLead, plansForLead } from "../repo";
 import { analyzeBusiness } from "../intelligence/engine";
 import { resetEmailProvider } from "../comms/provider";
 import { __resetStoreForTests } from "../store";
@@ -126,6 +126,44 @@ describe("operator edits are the actual send payload", () => {
     expect(r.outcome).toBe("sent");
     expect(sends[0].subject).toBeTruthy(); // the generated subject, not empty
   });
+});
+
+// The call → email path can produce a ready-to-send lead that was never scored into an
+// acquisitionStrategy. The send must still work — it should NOT fail with "Could not prepare
+// an outreach plan" for an already-prepared operator email.
+describe("call-derived send without a scored acquisition strategy", () => {
+  async function seedStrategylessLead(over: Partial<Lead> = {}) {
+    const base = await seedQualifiedLead();
+    const { id: _i, createdAt: _c, updatedAt: _u, ...rest } = base as any;
+    return insertLead({ ...rest, website: null, websiteDomain: null, acquisitionStrategy: null, ...over } as any);
+  }
+  async function withBI(lead: Lead) {
+    const bi = await analyzeBusiness({ lead, findings: [], contacts: [] });
+    await upsertBusinessIntelligence({ leadId: lead.id, profile: bi, enrichmentDelta: null, generatedAt: "2026-07-22T00:00:00.000Z" });
+  }
+
+  it("prepares a plan and SENDS the prepared operator email even when acquisitionStrategy is null", async () => {
+    const lead = await seedStrategylessLead({ businessName: "Villa Brasil Motel", publicEmail: "villabrasilmotel@gmail.test" });
+    await withBI(lead);
+    expect(lead.acquisitionStrategy).toBeNull(); // the exact Villa Brasil precondition
+
+    const r = await sendIntroductionAction(lead.id);
+    expect(r.outcome).toBe("sent"); // was: "Could not prepare an outreach plan."
+    expect(sends).toHaveLength(1); // provider called exactly once
+    expect(sends[0].attachments?.[0]?.content_type).toBe("application/pdf"); // Quick Review still attached
+    expect((await getLead(lead.id))?.acquisitionStrategy).toBe("Assisted"); // default filled in
+    expect(await plansForLead(lead.id)).toHaveLength(1); // exactly one plan
+  }, 20000);
+
+  it("does not duplicate the plan on retry and blocks a second intro (idempotent)", async () => {
+    const lead = await seedStrategylessLead({ publicEmail: "b@x.test" });
+    await withBI(lead);
+    await sendIntroductionAction(lead.id);
+    const second = await sendIntroductionAction(lead.id);
+    expect(second.outcome).toBe("blocked"); // already sent → no double send
+    expect(await plansForLead(lead.id)).toHaveLength(1); // no duplicate plan
+    expect(sends).toHaveLength(1);
+  }, 20000);
 });
 
 // The initial email carries the one-page Artifex Quick Review as a real PDF attachment.

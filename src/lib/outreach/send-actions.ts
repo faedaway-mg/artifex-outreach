@@ -12,7 +12,7 @@
 // is refused once one has been accepted; a follow-up is refused until the intro
 // has been sent (and refused if already sent).
 // ─────────────────────────────────────────────────────────────────────────────
-import { getLead, getBusinessIntelligence, getSettings, contactsForLead, plansForLead, stepsForPlan, getPlan, updateStep, emailSendsForLead } from "../repo";
+import { getLead, updateLead, getBusinessIntelligence, getSettings, contactsForLead, plansForLead, stepsForPlan, getPlan, updateStep, emailSendsForLead } from "../repo";
 import { prepareAcquisitionPlanAction, approvePlanAction } from "../acquisition-actions";
 import { dispatchStep } from "../comms/dispatch";
 import { buildOutreachKit } from "./kit";
@@ -82,11 +82,23 @@ async function sendNext(leadId: string, mode: "intro" | "followup", veed?: VeedV
   const html = renderPersonalEmailHtml(renderInput);
   const text = renderPersonalEmailText(renderInput);
 
+  // A lead can legitimately become ready-to-send via the CALL → email-capture path
+  // (asked-to-send: permission + email captured on a call) WITHOUT ever being scored into an
+  // acquisitionStrategy. The plan/step pipeline — which owns dispatch idempotency, threading,
+  // and follow-up sequencing — still needs a strategy to materialize the initial email step;
+  // without one, prepareAcquisitionPlanAction returns early and the send fails with the generic
+  // "Could not prepare an outreach plan." Default a sensible strategy so the ALREADY-PREPARED
+  // operator email can send. Idempotent: only fills a MISSING strategy, never overwrites one,
+  // and prepareAcquisitionPlanAction still refuses to create a second plan.
+  if (!lead.acquisitionStrategy) {
+    await updateLead(leadId, { acquisitionStrategy: "Assisted" });
+  }
+
   // Reuse the real plan/step pipeline. prepareAcquisitionPlanAction is idempotent.
   await prepareAcquisitionPlanAction(leadId);
   const plans = await plansForLead(leadId);
   const plan = plans.find((p) => p.status === "prepared" || p.status === "active") ?? plans[0];
-  if (!plan) return { outcome: "failed", reason: "Could not prepare an outreach plan." };
+  if (!plan) return { outcome: "blocked", reason: "This lead isn't set up for outreach (its strategy may be Do Not Contact)." };
 
   const steps = await stepsForPlan(plan.id);
   const step = steps.filter((s) => s.channel === "email" && !s.sentAt).sort((a, b) => a.stepNumber - b.stepNumber)[0];
