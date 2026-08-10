@@ -7,6 +7,7 @@
 import { Phone, MapPin, Globe, Target, CheckCircle2, CalendarClock, XCircle } from "lucide-react";
 import { CallSessionShell } from "@/components/lead/CallSessionShell";
 import { CallOutcomeConsole, type Continuation } from "@/components/lead/CallOutcomeConsole";
+import { ResetLeadButton } from "@/components/lead/ResetLeadButton";
 import { ConvertToSendButton } from "@/components/lead/ConvertToSendButton";
 import { WebsiteLink } from "@/components/WebsiteLink";
 import { PhoneCopyButton } from "@/components/PhoneCopyButton";
@@ -78,8 +79,13 @@ export function CallWorkspace({
           <p className="mt-1.5 text-[13px] text-chalk-400">
             No further outreach is queued for this business. Its research and history remain below.
           </p>
+          {/* Accidental terminal tap recovery — the clear, explicit way to undo a mistaken
+              close (e.g. "Permanently closed" when you meant "Closed right now"). */}
           <div className="mt-4">
-            <CallOutcomeConsole leadId={lead.id} collapsedLabel="Reopen or log a new result" />
+            <ResetLeadButton leadId={lead.id} />
+          </div>
+          <div className="mt-3">
+            <CallOutcomeConsole leadId={lead.id} collapsedLabel="Or log a different outcome" />
           </div>
         </section>
       </div>

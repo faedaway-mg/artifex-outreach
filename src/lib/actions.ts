@@ -675,6 +675,60 @@ export async function markUnqualifiedAction(leadId: string, taskId?: string): Pr
   await touch(leadId);
 }
 
+const TERMINAL_LEAD_STAGES = new Set(["Lost", "Disqualified", "Closed Won", "Closed Lost"]);
+
+function prependCorrectionNote(existing: string | null, line: string): string {
+  const stamp = new Date().toISOString().slice(0, 10);
+  const entry = `[${stamp}] ${line}`;
+  return existing?.trim() ? `${entry}\n${existing.trim()}` : entry;
+}
+
+/**
+ * Undo an accidental TERMINAL call outcome (Permanently closed / Not interested / etc.) and
+ * restore the lead to active outreach — WITHOUT deleting anything. This is an operator
+ * correction, not a restart:
+ *   • reverses ONLY the terminal state the bad outcome set (pipelineStage → Qualified; a
+ *     CLOSED_* businessStatus → OPERATIONAL) so the lead is internally consistent again
+ *   • restores exactly ONE open call task (idempotent — never duplicates)
+ *   • appends a dated correction note and a `lead.reopened` audit event (history preserved)
+ *   • DELIBERATELY does not touch BI, the Quick Review, contacts, emails, notes, research, or
+ *     — critically — email suppression/unsubscribe (compliance/consent is never reversed here)
+ *   • does NOT guess the intended replacement outcome — the operator logs the correct one next
+ * Idempotent: on a lead that is already active it is a safe no-op (reopened: false).
+ */
+export async function reopenLeadAction(leadId: string): Promise<{ ok: boolean; reopened: boolean; reason?: string }> {
+  if (!currentOperatorId()) return { ok: false, reopened: false, reason: "Not authorized." };
+  const lead = await getLead(leadId);
+  if (!lead) return { ok: false, reopened: false, reason: "Lead not found." };
+
+  const status = (lead.businessStatus ?? "").toUpperCase();
+  const terminal = TERMINAL_LEAD_STAGES.has(lead.pipelineStage) || status.startsWith("CLOSED");
+  if (!terminal) return { ok: true, reopened: false }; // already active — nothing to undo
+
+  const wasClosedStatus = status.startsWith("CLOSED");
+  const patch: Partial<import("./types").Lead> = {
+    pipelineStage: "Qualified",
+    recommendedAction: "Call",
+    note: prependCorrectionNote(
+      lead.note,
+      `Operator correction: lead reopened (was ${lead.pipelineStage}${wasClosedStatus ? `, ${lead.businessStatus}` : ""}). Research, review, and email suppression unchanged.`,
+    ),
+  };
+  if (wasClosedStatus) patch.businessStatus = "OPERATIONAL"; // no longer terminal — keep state consistent
+  await updateLead(leadId, patch);
+
+  // Restore one actionable call task if none is open (repeated taps never pile up tasks).
+  const hasOpenCall = (await allTasks()).some((t) => t.leadId === leadId && t.status === "open" && t.type === "call");
+  if (!hasOpenCall) {
+    await insertTask({ leadId, type: "call", title: `Call — ${lead.businessName}`, dueAt: new Date().toISOString(), status: "open", priority: 55, snoozedUntil: null });
+  }
+
+  await audit("lead.reopened", "lead", leadId, { reason: "operator_correction", previousStage: lead.pipelineStage, previousBusinessStatus: lead.businessStatus ?? null });
+  revalidatePath(`/leads/${leadId}`);
+  revalidatePath("/");
+  return { ok: true, reopened: true };
+}
+
 // ── Pipeline ─────────────────────────────────────────────────────────────────
 export async function changeStageAction(leadId: string, stage: PipelineStage): Promise<void> {
   const lead = await getLead(leadId);
