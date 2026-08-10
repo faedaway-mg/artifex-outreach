@@ -96,12 +96,31 @@ describe("channel-aware capacity — calls and emails as parallel streams", () =
   const callTasks = (n: number) => Array.from({ length: n }, (_, i) => task(`C${i}`, "call"));
   const mapFor = (tasks: Task[]) => new Map(tasks.map((t) => [t.leadId, lead(t.leadId)]));
 
-  it("channelOf routes calls, emails+follow-ups, and everything else to their streams", () => {
+  it("channelOf routes calls, videos, emails+follow-ups, and everything else to their streams", () => {
     expect(channelOf("call")).toBe("call");
+    expect(channelOf("video")).toBe("video"); // its own stream now
     expect(channelOf("email")).toBe("email");
     expect(channelOf("follow-up")).toBe("email"); // follow-ups are email sends → same warm-up budget
     expect(channelOf("report")).toBe("other");
-    expect(channelOf("video")).toBe("other");
+    expect(channelOf("understand")).toBe("other");
+  });
+
+  it("channelCapacity gives video its own independent target", () => {
+    expect(channelCapacity({ videoTarget: 3, otherBudget: 8 })).toMatchObject({ call: 10, video: 3, email: 10, other: 8 });
+    expect(channelCapacity({ videoTarget: 0, otherBudget: 8 }).video).toBe(0);
+    expect(channelCapacity({ otherBudget: 8 }).video).toBe(3); // default
+  });
+
+  it("video, call, and email streams coexist without crowding each other", () => {
+    const videoTasks = Array.from({ length: 5 }, (_, i) => task(`V${i}`, "prepare_video"));
+    const callTasks = Array.from({ length: 5 }, (_, i) => task(`C${i}`, "call"));
+    const emailTasks = Array.from({ length: 5 }, (_, i) => task(`E${i}`, "review_and_send"));
+    const all = [...videoTasks, ...callTasks, ...emailTasks];
+    const leads = new Map(all.map((t) => [t.leadId, lead(t.leadId)]));
+    const surfaced = surfaceTodaysTasks({ tasks: all, leads, capacity: { call: 5, video: 3, email: 5, other: 0 } });
+    expect(surfaced.filter((t) => t.type === "prepare_video")).toHaveLength(3); // video capped independently at 3
+    expect(surfaced.filter((t) => t.type === "call")).toHaveLength(5);
+    expect(surfaced.filter((t) => t.type === "review_and_send")).toHaveLength(5);
   });
 
   it("channelCapacity subtracts today's sends from the warm-up ceiling", () => {
@@ -109,13 +128,13 @@ describe("channel-aware capacity — calls and emails as parallel streams", () =
     expect(channelCapacity({ callTarget: 10, emailTarget: 10, otherBudget: 8, emailsSentToday: 4 }).email).toBe(6);
     expect(channelCapacity({ callTarget: 10, emailTarget: 10, otherBudget: 8, emailsSentToday: 99 }).email).toBe(0); // never negative
     // Sensible defaults when nothing is configured.
-    expect(channelCapacity({ otherBudget: 8 })).toMatchObject({ call: 10, email: 10, other: 8 });
+    expect(channelCapacity({ otherBudget: 8 })).toMatchObject({ call: 10, video: 3, email: 10, other: 8 });
   });
 
   it("surfaces email-first leads up to email capacity — calls never crowd them out", () => {
     const all = [...callTasks(12), ...emailTasks(12)]; // 12 of each, calls first (as priority would)
     const leads = mapFor(all);
-    const surfaced = surfaceTodaysTasks({ tasks: all, leads, capacity: { call: 10, email: 10, other: 8 } });
+    const surfaced = surfaceTodaysTasks({ tasks: all, leads, capacity: { call: 10, video: 3, email: 10, other: 8 } });
     const calls = surfaced.filter((t) => t.type === "call");
     const emails = surfaced.filter((t) => t.type === "review_and_send");
     expect(calls).toHaveLength(10); // both streams get their full capacity...
@@ -126,7 +145,7 @@ describe("channel-aware capacity — calls and emails as parallel streams", () =
   it("does not let a small combined target impose a hard ceiling on total outreach", () => {
     // Even with a modest per-stream target, the day holds calls + emails together.
     const all = [...emailTasks(6), ...callTasks(6)];
-    const surfaced = surfaceTodaysTasks({ tasks: all, leads: mapFor(all), capacity: { call: 6, email: 6, other: 0 } });
+    const surfaced = surfaceTodaysTasks({ tasks: all, leads: mapFor(all), capacity: { call: 6, video: 0, email: 6, other: 0 } });
     expect(surfaced).toHaveLength(12);
   });
 
@@ -143,7 +162,7 @@ describe("channel-aware capacity — calls and emails as parallel streams", () =
   it("replenishes: once a surfaced email completes, the next eligible one takes its slot", () => {
     const all = emailTasks(12);
     const leads = mapFor(all);
-    const cap = { call: 10, email: 10, other: 8 };
+    const cap = { call: 10, video: 3, email: 10, other: 8 };
     const first = surfaceTodaysTasks({ tasks: all, leads, capacity: cap });
     expect(first).toHaveLength(10);
     // Operator sends one → it's done → remove it → the queue recomputes.
@@ -155,7 +174,7 @@ describe("channel-aware capacity — calls and emails as parallel streams", () =
 
   it("call and email streams coexist; working one never removes the other's tasks", () => {
     const all = [...emailTasks(3), ...callTasks(3)];
-    const surfaced = surfaceTodaysTasks({ tasks: all, leads: mapFor(all), capacity: { call: 10, email: 10, other: 8 } });
+    const surfaced = surfaceTodaysTasks({ tasks: all, leads: mapFor(all), capacity: { call: 10, video: 3, email: 10, other: 8 } });
     expect(surfaced.filter((t) => t.type === "call")).toHaveLength(3);
     expect(surfaced.filter((t) => t.type === "review_and_send")).toHaveLength(3);
   });
@@ -165,7 +184,7 @@ describe("channel-aware capacity — calls and emails as parallel streams", () =
     const closedCallLead: Lead = { ...lead("CLOSED"), state: "CA", longitude: null, latitude: null, address: null, hours: "Mon–Fri 8–5" } as unknown as Lead;
     const leads = new Map<string, Lead>([["CLOSED", closedCallLead], ["C0", lead("C0")], ["C1", lead("C1")]]);
     const tasks = [task("CLOSED", "call"), task("C0", "call"), task("C1", "call"), task("CLOSED", "review_and_send")];
-    const surfaced = surfaceTodaysTasks({ tasks, leads, capacity: { call: 2, email: 10, other: 8 }, now: SUN_10AM_PT });
+    const surfaced = surfaceTodaysTasks({ tasks, leads, capacity: { call: 2, video: 3, email: 10, other: 8 }, now: SUN_10AM_PT });
     const callIds = surfaced.filter((t) => t.type === "call").map((t) => t.leadId);
     expect(callIds).not.toContain("CLOSED"); // withheld
     expect(callIds).toEqual(["C0", "C1"]); // the closed lead did NOT consume a call slot

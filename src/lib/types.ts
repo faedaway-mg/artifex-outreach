@@ -1078,6 +1078,8 @@ export interface ProspectingProfile {
   dailyQueueSize: number; // Today target for non-outreach work + new-lead generation (default 8)
   /** How many phone calls to surface as an active stream per day (default 10). */
   callDailyTarget?: number;
+  /** How many personal videos to surface to record per day (default 3). */
+  videoDailyTarget?: number;
   /** Warm-up-safe daily email ceiling — the email stream surfaces up to this many,
    *  minus what has already been sent today (default 10). Protects deliverability. */
   emailDailyTarget?: number;

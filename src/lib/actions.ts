@@ -835,6 +835,7 @@ export async function updateProspectingProfileAction(formData: FormData): Promis
       requirePhone: formData.get("requirePhone") === "on",
       dailyQueueSize: Math.max(1, Math.min(20, Number(formData.get("dailyQueueSize")) || 8)),
       callDailyTarget: Math.max(0, Math.min(50, Number(formData.get("callDailyTarget")) || (s.prospecting.callDailyTarget ?? 10))),
+      videoDailyTarget: Math.max(0, Math.min(20, Number(formData.get("videoDailyTarget")) || (s.prospecting.videoDailyTarget ?? 3))),
       emailDailyTarget: Math.max(0, Math.min(50, Number(formData.get("emailDailyTarget")) || (s.prospecting.emailDailyTarget ?? 10))),
       runTime: String(formData.get("runTime") ?? s.prospecting.runTime),
       tierTargetA: Number(formData.get("tierTargetA")) || 3,

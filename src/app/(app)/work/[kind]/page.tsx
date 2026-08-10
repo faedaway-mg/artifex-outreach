@@ -71,6 +71,7 @@ export default async function BatchPage({ params, searchParams }: { params: { ki
   const capacity = channelCapacity({
     callTarget: settings.prospecting.callDailyTarget,
     emailTarget: settings.prospecting.emailDailyTarget,
+    videoTarget: settings.prospecting.videoDailyTarget,
     otherBudget: settings.prospecting.dailyQueueSize,
     emailsSentToday: emailsSentOn(emailSends, now),
   });

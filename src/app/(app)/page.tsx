@@ -71,6 +71,7 @@ export default async function TodayPage({ searchParams }: { searchParams?: { vie
   const capacity = channelCapacity({
     callTarget: settings.prospecting.callDailyTarget,
     emailTarget: settings.prospecting.emailDailyTarget,
+    videoTarget: settings.prospecting.videoDailyTarget,
     otherBudget: queueSize,
     emailsSentToday,
   });
@@ -82,7 +83,7 @@ export default async function TodayPage({ searchParams }: { searchParams?: { vie
 
   const discoveryMode = placesMode();
   const nextRun = nextScheduledRun(settings.prospecting);
-  const atCapacity = tasks.length >= capacity.call + capacity.email + capacity.other;
+  const atCapacity = tasks.length >= capacity.call + capacity.video + capacity.email + capacity.other;
   const advisories = concentrationAdvisories(leads, settings.prospecting);
 
   const endOfToday = new Date();

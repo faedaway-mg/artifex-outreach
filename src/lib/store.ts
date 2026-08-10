@@ -159,6 +159,7 @@ export function defaultProspecting() {
     requirePhone: false,
     dailyQueueSize: 8,
     callDailyTarget: 10,
+    videoDailyTarget: 3,
     emailDailyTarget: 10,
     runTime: "05:30",
     weekdays: [1, 2, 3, 4, 5],

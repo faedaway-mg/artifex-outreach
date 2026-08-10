@@ -33,15 +33,18 @@ export interface WorkCategory {
 
 interface KindMeta { title: string; blurb: string; perMinutes: number; cta: string; urgency: number; timeBound?: boolean }
 
+// Ordering reflects the operator's day: scheduled conversations first, then the
+// MORNING/computer block (calls, then videos), then ANYTIME/mobile work (emails,
+// follow-ups) and the rest. It is triage, not a lock — every batch is openable anytime.
 const META: Record<WorkKind, KindMeta> = {
   discovery: { title: "Discovery calls today", blurb: "Conversations on the calendar — walk in ready.", perMinutes: 10, cta: "Prepare", urgency: 0, timeBound: true },
-  "follow-up": { title: "Follow-ups due", blurb: "Open threads ready for the next touch.", perMinutes: 2, cta: "Review follow-ups", urgency: 1 },
-  email: { title: "Emails to send", blurb: "Prepared first-contact emails — review, approve, send.", perMinutes: 3, cta: "Start sending", urgency: 2 },
+  call: { title: "Calls to make", blurb: "Morning work — reach businesses while they're open.", perMinutes: 6, cta: "Start calling", urgency: 1 },
+  video: { title: "Videos to record", blurb: "Morning work — record personal walkthroughs at your computer.", perMinutes: 8, cta: "Start video batch", urgency: 1.5 },
+  "follow-up": { title: "Follow-ups due", blurb: "Open threads ready for the next touch.", perMinutes: 2, cta: "Review follow-ups", urgency: 2 },
+  email: { title: "Emails to send", blurb: "Anytime — review, approve, and send from your phone.", perMinutes: 3, cta: "Start sending", urgency: 2.5 },
   report: { title: "Reports waiting", blurb: "Business Technology Reviews ready for approval.", perMinutes: 5, cta: "Review reports", urgency: 3 },
-  call: { title: "Calls to make", blurb: "No email on file — open the relationship by phone.", perMinutes: 6, cta: "Start calling", urgency: 4 },
   "contact-form": { title: "Contact forms to submit", blurb: "Reach out through their contact form.", perMinutes: 4, cta: "Start forms", urgency: 4.4 },
   "instagram-dm": { title: "Instagram DMs to send", blurb: "Instagram is the live channel — open with a warm DM.", perMinutes: 3, cta: "Start DMs", urgency: 4.6 },
-  video: { title: "Videos to record", blurb: "Businesses ready for a personal video.", perMinutes: 8, cta: "Start video batch", urgency: 5 },
   understand: { title: "New businesses to understand", blurb: "Fresh businesses worth getting to know.", perMinutes: 5, cta: "Start reviewing", urgency: 6 },
 };
 
@@ -136,21 +139,26 @@ export function batchLeadIds(cats: WorkCategory[], kind: string): string[] {
 
 export const DEFAULT_CALL_TARGET = 10;
 export const DEFAULT_EMAIL_TARGET = 10;
+export const DEFAULT_VIDEO_TARGET = 3; // manual video work — a conservative daily target
 
-/** The three operator streams a task can draw capacity from. */
+/** The operator streams a task can draw capacity from. Calls, videos, and emails are the
+ *  three primary outreach streams, each capped INDEPENDENTLY so none starves another. */
 export interface ChannelCapacity {
   /** Phone calls to place. */
   call: number;
+  /** Personal videos to record (morning/computer work). */
+  video: number;
   /** Emails to send (initial + follow-up) — bounded by warm-up-safe daily capacity. */
   email: number;
-  /** Everything else (reports, videos, understand, forms, DMs) — a shared budget. */
+  /** Everything else (reports, understand, forms, DMs) — a shared budget. */
   other: number;
 }
 
 /** Which capacity stream a work kind draws from. Follow-ups are email sends, so they
- *  share the email stream's warm-up budget. */
+ *  share the email stream's warm-up budget; videos get their own stream. */
 export function channelOf(kind: WorkKind): keyof ChannelCapacity {
   if (kind === "call") return "call";
+  if (kind === "video") return "video";
   if (kind === "email" || kind === "follow-up") return "email";
   return "other";
 }
@@ -164,13 +172,15 @@ export function channelOf(kind: WorkKind): keyof ChannelCapacity {
 export function channelCapacity(opts: {
   callTarget?: number | null;
   emailTarget?: number | null;
+  videoTarget?: number | null;
   otherBudget: number;
   emailsSentToday?: number;
 }): ChannelCapacity {
   const call = Math.max(0, opts.callTarget ?? DEFAULT_CALL_TARGET);
   const emailTarget = Math.max(0, opts.emailTarget ?? DEFAULT_EMAIL_TARGET);
   const email = Math.max(0, emailTarget - Math.max(0, opts.emailsSentToday ?? 0));
-  return { call, email, other: Math.max(0, opts.otherBudget) };
+  const video = Math.max(0, opts.videoTarget ?? DEFAULT_VIDEO_TARGET);
+  return { call, video, email, other: Math.max(0, opts.otherBudget) };
 }
 
 /**
@@ -189,7 +199,7 @@ export function surfaceTodaysTasks(input: {
 }): Task[] {
   const { tasks, leads, capacity } = input;
   const now = input.now ?? new Date();
-  const usedLeads: Record<keyof ChannelCapacity, Set<string>> = { call: new Set(), email: new Set(), other: new Set() };
+  const usedLeads: Record<keyof ChannelCapacity, Set<string>> = { call: new Set(), video: new Set(), email: new Set(), other: new Set() };
   const out: Task[] = [];
   for (const t of tasks) {
     const lead = leads.get(t.leadId);
