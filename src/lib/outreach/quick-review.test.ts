@@ -59,4 +59,19 @@ describe("buildQuickReview — deterministic, business-specific, never fabricate
     expect(buf.length).toBeGreaterThan(1000);
     expect(buf.subarray(0, 5).toString("latin1")).toBe("%PDF-"); // a valid PDF
   }, 20000);
+
+  it("renders a valid PDF WITH an embedded data-URI logo (no remote fetch at render)", async () => {
+    // 1x1 transparent PNG as a data URI — the shape resolveLeadBrand now caches.
+    const png = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+    const brand: ResolvedBrand = { logoUrl: png, sourceType: "apple-touch-icon", confidence: 0.9 };
+    const r = buildQuickReview(lead(), profile([{ observation: "Reviews live on Google.", whyItMatters: "Reputation isn't on a site you own.", rationale: "Surface reviews on-site." }]), brand);
+    const buf = await renderQuickReviewPdf(r, "August 9, 2026");
+    expect(buf.subarray(0, 5).toString("latin1")).toBe("%PDF-");
+  }, 20000);
+
+  it("still renders a valid one-page PDF when content is sparse (no blank/throw)", async () => {
+    const r = buildQuickReview(lead(), profile([]), null); // not ready, but must not throw
+    const buf = await renderQuickReviewPdf(r, "August 9, 2026");
+    expect(buf.subarray(0, 5).toString("latin1")).toBe("%PDF-");
+  }, 20000);
 });

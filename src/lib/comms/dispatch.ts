@@ -162,20 +162,30 @@ export async function dispatchStep(stepId: string, opts: { now?: Date } = {}): P
   // in sendNext (the operator send path), which cannot proceed until the review is ready.
   let attachments: EmailMessage["attachments"] | undefined;
   if (!isFollowUp) {
+    let review: import("../outreach/quick-review").QuickReview | null = null;
     try {
       const bi = await getBusinessIntelligence(lead.id);
       const profile = (bi?.profile?.businessProfile as BusinessProfile | undefined) ?? null;
       if (profile) {
         const brand = await resolveLeadBrand(lead);
-        const review = buildQuickReview(lead, profile, brand);
-        if (review.ready) {
-          const dateStr = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
-          const pdf = await renderQuickReviewPdf(review, dateStr);
-          attachments = [{ filename: quickReviewFilename(lead.businessName), content: pdf.toString("base64"), contentType: "application/pdf" }];
-        }
+        review = buildQuickReview(lead, profile, brand);
       }
     } catch {
-      /* attachment is best-effort here; the operator path already gated readiness upstream */
+      review = null; // no BI / resolution issue → nothing to attach (bare-lead flows are unaffected)
+    }
+    if (review?.ready) {
+      try {
+        const dateStr = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+        const pdf = await renderQuickReviewPdf(review, dateStr);
+        attachments = [{ filename: quickReviewFilename(lead.businessName), content: pdf.toString("base64"), contentType: "application/pdf" }];
+      } catch {
+        // A real initial email must not go out CLAIMING a review it couldn't attach. Fail the
+        // send (before any provider call) rather than send it bare. Internal test is exempt.
+        if (lead.source !== "internal-test") {
+          await updateEmailSend(sendRow.id, { status: "failed", failedAt: nowIso, lastError: "quick review render failed", lastErrorCode: "artifact_render_failed" });
+          return { stepId, outcome: "failed", reason: "Could not render the Quick Review attachment.", sendId: sendRow.id };
+        }
+      }
     }
   }
 

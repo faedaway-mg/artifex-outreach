@@ -33,6 +33,8 @@ export interface EmailDecisionProps {
   /** The attached one-page Artifex Quick Review — filename + a preview URL (initial emails only). */
   attachmentName?: string | null;
   attachmentHref?: string | null;
+  /** False when the initial email's Quick Review isn't ready — send is withheld until it is. */
+  reviewReady?: boolean;
   taskId: string | null;
   nextHref: string;
   isLast: boolean;
@@ -157,6 +159,17 @@ export function EmailDecision(p: EmailDecisionProps) {
           {edited && <p className="text-[11px] text-teal-300/90">Edited — your version is what will send.</p>}
         </div>
 
+        {/* Review not ready → withhold sending; never claim an attachment that isn't there. */}
+        {p.reviewReady === false && (
+          <div className="mt-3 flex items-start gap-2 rounded-lg border border-amber-400/25 bg-amber-400/[0.06] px-3 py-2.5">
+            <AlertTriangle size={14} className="mt-0.5 shrink-0 text-amber-300" />
+            <div>
+              <p className="text-[13px] font-medium text-amber-200">Review needs attention</p>
+              <p className="mt-0.5 text-[12px] text-chalk-400">No credible findings yet, so there's nothing to attach. Sending is paused for this business.</p>
+            </div>
+          </div>
+        )}
+
         {/* The attached one-page Quick Review — what the recipient opens. Never buried. */}
         {p.attachmentName && (
           <div className="mt-3 flex items-center gap-2 rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2.5">
@@ -181,8 +194,8 @@ export function EmailDecision(p: EmailDecisionProps) {
       {/* Primary actions — always visible, no scrolling to reach them. Focus mode has no
           bottom nav, so the sticky bar sits just above the viewport edge. */}
       <div className="sticky bottom-4 z-10 space-y-2 md:static md:bottom-auto">
-        <button onClick={approveSend} disabled={pending} className="btn-primary w-full justify-center !py-3 text-[15px] disabled:opacity-60">
-          <Check size={17} /> {pending ? "Sending…" : note ? "Try send again" : edited ? "Approve & send edited" : "Approve & send"} <ArrowRight size={16} />
+        <button onClick={approveSend} disabled={pending || p.reviewReady === false} className="btn-primary w-full justify-center !py-3 text-[15px] disabled:opacity-50">
+          <Check size={17} /> {p.reviewReady === false ? "Review needs attention" : pending ? "Sending…" : note ? "Try send again" : edited ? "Approve & send edited" : "Approve & send"} <ArrowRight size={16} />
         </button>
         <div className="flex gap-2">
           {note

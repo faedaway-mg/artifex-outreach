@@ -97,28 +97,37 @@ export function cachedBrand(profile: BusinessProfile | null): ResolvedBrand | nu
   return (((profile as (BusinessProfile & { resolvedBrand?: ResolvedBrand | null }) | null)?.resolvedBrand) ?? null) as ResolvedBrand | null;
 }
 
-// Pick the best candidate that is (a) above the confidence gate, (b) not an SVG (react-pdf
-// embeds raster reliably), and (c) actually fetches as an image. Confirming the asset here
-// keeps PDF rendering robust — we never point the renderer at a URL we couldn't load.
+const MAX_LOGO_BYTES = 1_500_000; // cap what we inline into the BI jsonb / the PDF
+
+// Pick the best candidate above the confidence gate and DOWNLOAD it into a data URI, so the
+// PDF never depends on a remote fetch at render time (no single point of failure, deterministic,
+// fast). Only PNG/JPEG are embedded — the formats @react-pdf reliably decodes. Anything else,
+// or any fetch failure, is skipped → the review falls back to a business-name treatment. A
+// remote logo can therefore never blank or slow the document.
 async function pickValidatedLogo(website: string): Promise<ResolvedBrand | null> {
   const candidates = (await discoverLogoCandidates(website))
     .filter((c) => c.confidence >= MIN_LOGO_CONFIDENCE && c.sourceType !== "favicon-svg" && !/\.svg(\?|$)/i.test(c.url));
   for (const c of candidates) {
-    if (await isFetchableImage(c.url)) return { logoUrl: c.url, sourceType: c.sourceType, confidence: c.confidence };
+    const dataUri = await fetchImageAsDataUri(c.url);
+    if (dataUri) return { logoUrl: dataUri, sourceType: c.sourceType, confidence: c.confidence };
   }
   return null;
 }
 
-async function isFetchableImage(url: string): Promise<boolean> {
+async function fetchImageAsDataUri(url: string): Promise<string | null> {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 8000);
   try {
     const res = await fetch(url, { signal: ctrl.signal, redirect: "follow" });
-    if (!res.ok) return false;
-    const ct = (res.headers.get("content-type") ?? "").toLowerCase();
-    return ct.startsWith("image/") && !ct.includes("svg");
+    if (!res.ok) return null;
+    const ct = (res.headers.get("content-type") ?? "").toLowerCase().split(";")[0].trim();
+    const mime = ct === "image/png" ? "image/png" : ct === "image/jpeg" || ct === "image/jpg" ? "image/jpeg" : null;
+    if (!mime) return null; // only formats react-pdf reliably embeds
+    const buf = Buffer.from(await res.arrayBuffer());
+    if (buf.length === 0 || buf.length > MAX_LOGO_BYTES) return null;
+    return `data:${mime};base64,${buf.toString("base64")}`;
   } catch {
-    return false;
+    return null;
   } finally {
     clearTimeout(timer);
   }
