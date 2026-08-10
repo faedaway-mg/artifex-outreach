@@ -1122,6 +1122,9 @@ export interface Settings {
   defaultPricing: Record<ArtifexService, { low: number; high: number }>;
   followUpTiming: number[]; // days offsets, e.g. [0,3,7,14]
   prospecting: ProspectingProfile;
+  /** Which human signs outbound outreach (the mailbox stays shared: hello@artifexlabs.tech).
+   *  Only two signers exist today. Defaults to "jordan". */
+  outreachSigner?: "jordan" | "alex";
   // Business-hours window during which the scheduler is allowed to send.
   sendingWindow?: SendingWindow;
   // ── Launch readiness sign-off ───────────────────────────────────────────────

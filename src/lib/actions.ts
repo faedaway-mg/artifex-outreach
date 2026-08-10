@@ -915,6 +915,19 @@ export async function resetDemoDataAction(): Promise<void> {
   redirect("/");
 }
 
+// ── Outreach signer (operator-only) ───────────────────────────────────────────
+/** Choose which human signs outbound outreach. The mailbox stays hello@artifexlabs.tech;
+ *  only the signature name changes. Both preview and send read this from settings. */
+export async function setOutreachSignerAction(signer: "jordan" | "alex"): Promise<{ ok: boolean }> {
+  if (!currentOperatorId()) return { ok: false };
+  if (signer !== "jordan" && signer !== "alex") return { ok: false };
+  await updateSettings({ outreachSigner: signer });
+  revalidatePath("/settings");
+  revalidatePath("/work/email");
+  revalidatePath("/");
+  return { ok: true };
+}
+
 // ── Internal email test control (operator-only) ───────────────────────────────
 /**
  * Prepare the internal "TEST — Acquisition OS Email" lead pointed at an operator-owned

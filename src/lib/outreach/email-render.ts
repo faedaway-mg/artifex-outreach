@@ -29,8 +29,6 @@ const FONT = "-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-s
 // The official constellation mark, rasterized (renders where SVG is blocked). This is
 // the PRIMARY mark; the CSS box below is only the graceful fallback if it's absent.
 const DEFAULT_MARK_URL = "https://outreach.artifexlabs.tech/api/brand/mark";
-// Jordan's signature headshot (placeholder until the real photo is hosted).
-const DEFAULT_HEADSHOT_URL = "https://outreach.artifexlabs.tech/api/brand/headshot";
 // A hidden token so an Exchange transport rule can detect our signature and NOT append
 // a duplicate. Kept identical in HTML and plain text.
 export const SIGNATURE_MARKER = "artifex-signature-v1";
@@ -80,35 +78,90 @@ function header(logoUrl?: string | null): string {
   </table>`;
 }
 
-// ── One compact signature, shared by personal + branded email (and Outlook) ──────
-// Personal first, branded second: name strongest, company + role secondary, one link,
-// a small circular headshot. No social row, no big logo, no legal wall, no CTA stack.
-// A blocked image degrades to alt text. `booking` is off by default (cold outreach
-// wants a reply, not a calendar link).
-export function personalSignatureHtml(settings: Settings, opts?: { headshotUrl?: string | null; booking?: boolean }): string {
-  const url = opts?.headshotUrl === undefined ? DEFAULT_HEADSHOT_URL : opts.headshotUrl;
-  const site = (settings.website || "https://artifexlabs.tech").replace(/^https?:\/\//, "").replace(/\/$/, "");
-  const img = url ? `<img src="${escapeHtml(url)}" width="52" height="52" alt="Jordan Jackson" style="display:block;border-radius:50%;">` : "";
-  const booking = opts?.booking && settings.calendarLink
-    ? `<div style="font-size:13px;line-height:1.5;margin-top:2px;"><a href="${escapeHtml(settings.calendarLink)}" style="color:${GOLD_LINK};text-decoration:none;">Book a conversation</a></div>`
+// ── The ONE canonical Artifex signature ──────────────────────────────────────
+// The mailbox is shared (hello@artifexlabs.tech); the SIGNER is the person. This single
+// renderer feeds every surface — outbound email HTML, the in-app preview, the Settings
+// preview, and the copy-for-Outlook export — so they can never drift. The brand mark is
+// the circular Artifex "A" (a public HTTPS PNG that resolves inside Outlook too); a
+// blocked image degrades to the "Artifex Labs" alt without breaking the layout. It
+// contains NO unsubscribe/compliance text — that footer belongs to the outreach shell.
+
+/** A human outreach signer. Only two exist today; trivially extensible. */
+export type SignerId = "jordan" | "alex";
+const SIGNER_NAMES: Record<SignerId, string> = { jordan: "Jordan Jackson", alex: "Alex Perez" };
+/** For a mobile picker: the signers, in display order. */
+export const OUTREACH_SIGNERS: ReadonlyArray<{ id: SignerId; name: string }> = [
+  { id: "jordan", name: SIGNER_NAMES.jordan },
+  { id: "alex", name: SIGNER_NAMES.alex },
+];
+
+export interface SignatureProfile {
+  name: string;
+  company: string;
+  descriptor: string;
+  /** Display + link base, e.g. "https://artifexlabs.tech". */
+  website: string;
+}
+
+/** Resolve a signer to a full signature profile. Alex has no distinct stored title, so
+ *  both share the established company descriptor (never a fabricated personal title). */
+export function signerProfile(signer: SignerId, settings: Pick<Settings, "website">): SignatureProfile {
+  return {
+    name: SIGNER_NAMES[signer] ?? SIGNER_NAMES.jordan,
+    company: "Artifex Labs",
+    descriptor: "Business technology partner",
+    website: settings.website || "https://artifexlabs.tech",
+  };
+}
+
+/**
+ * The canonical signature HTML. `markUrl` defaults to the hosted circular Artifex mark
+ * (public, Outlook-resolvable); pass null for the CSS-box fallback. No compliance footer.
+ */
+export function signatureHtml(profile: SignatureProfile, opts?: { markUrl?: string | null; booking?: { label: string; url: string } | null }): string {
+  const markUrl = opts?.markUrl === undefined ? DEFAULT_MARK_URL : opts.markUrl;
+  const site = profile.website.replace(/^https?:\/\//, "").replace(/\/$/, "");
+  const href = /^https?:\/\//.test(profile.website) ? profile.website : `https://${profile.website}`;
+  const mark = markUrl
+    ? `<img src="${escapeHtml(markUrl)}" width="46" height="46" alt="${escapeHtml(profile.company)}" style="display:block;border-radius:50%;">`
+    : markBox(46);
+  const booking = opts?.booking
+    ? `<div style="font-size:13px;line-height:1.5;margin-top:2px;"><a href="${escapeHtml(opts.booking.url)}" style="color:${GOLD_LINK};text-decoration:none;">${escapeHtml(opts.booking.label)}</a></div>`
     : "";
   return `<!--${SIGNATURE_MARKER}-->
   <table role="presentation" cellpadding="0" cellspacing="0" style="margin-top:22px;">
     <tr>
-      ${img ? `<td valign="top" style="width:64px;">${img}</td>` : ""}
-      <td valign="top" style="${img ? "padding-left:12px;" : ""}">
-        <div style="font-weight:600;color:${INK};font-size:15px;line-height:1.4;">Jordan Jackson</div>
-        <div style="color:${MUTE};font-size:13px;line-height:1.5;">Artifex Labs &middot; Business technology partner</div>
-        <div style="font-size:13px;line-height:1.5;"><a href="${escapeHtml(settings.website || "https://artifexlabs.tech")}" style="color:${GOLD_LINK};text-decoration:none;">${site}</a></div>
+      <td valign="top" style="width:58px;">${mark}</td>
+      <td valign="top" style="padding-left:12px;">
+        <div style="font-weight:600;color:${INK};font-size:15px;line-height:1.4;">${escapeHtml(profile.name)}</div>
+        <div style="color:${MUTE};font-size:13px;line-height:1.5;">${escapeHtml(profile.company)} &middot; ${escapeHtml(profile.descriptor)}</div>
+        <div style="font-size:13px;line-height:1.5;"><a href="${escapeHtml(href)}" style="color:${GOLD_LINK};text-decoration:none;">${escapeHtml(site)}</a></div>
         ${booking}
       </td>
     </tr>
   </table>`;
 }
 
-export function personalSignatureText(settings: Settings): string {
-  const site = settings.website || "https://artifexlabs.tech";
-  return `Jordan Jackson\nArtifex Labs — Business technology partner\n${site}`;
+export function signatureText(profile: SignatureProfile): string {
+  return `${profile.name}\n${profile.company} — ${profile.descriptor}\n${profile.website}`;
+}
+
+/** Which signer to use when a caller doesn't specify one — the configured outreach signer. */
+function resolveSigner(settings: Settings, override?: SignerId): SignerId {
+  return override ?? settings.outreachSigner ?? "jordan";
+}
+
+// Back-compat wrappers used by the outbound renderers below. `signer` picks the human;
+// `booking` adds the calendar line (off for cold outreach). `headshotUrl` is accepted but
+// ignored — the signature now uses the Artifex mark, not a headshot placeholder.
+export function personalSignatureHtml(settings: Settings, opts?: { signer?: SignerId; booking?: boolean; headshotUrl?: string | null }): string {
+  const profile = signerProfile(resolveSigner(settings, opts?.signer), settings);
+  const booking = opts?.booking && settings.calendarLink ? { label: "Book a conversation", url: settings.calendarLink } : null;
+  return signatureHtml(profile, { booking });
+}
+
+export function personalSignatureText(settings: Settings, opts?: { signer?: SignerId }): string {
+  return signatureText(signerProfile(resolveSigner(settings, opts?.signer), settings));
 }
 
 /** A real-action CTA — constellation gold, dark text, tap-friendly. Use sparingly. */
@@ -150,8 +203,6 @@ export interface RenderInput {
   businessName?: string | null;
   /** A real CTA where one genuinely helps (e.g. Book a conversation). Optional. */
   cta?: { label: string; url: string } | null;
-  /** Signature headshot override; omit for the hosted default, null for text-only. */
-  headshotUrl?: string | null;
 }
 
 /** The final HTML the recipient sees — and the exact HTML previewed in the app. */
@@ -181,7 +232,7 @@ export function renderEmailHtml(input: RenderInput): string {
           ${paras}
           ${videoHtml}
           ${ctaHtml}
-          ${personalSignatureHtml(settings, { headshotUrl: input.headshotUrl, booking: true })}
+          ${personalSignatureHtml(settings, { booking: true })}
         </td></tr>
         <tr><td style="padding:16px 34px 4px;color:${MUTE};font-size:11.5px;line-height:1.6;">
           ${footer}
@@ -237,7 +288,7 @@ export function renderPersonalEmailHtml(input: RenderInput): string {
   <div style="max-width:600px;margin:0 auto;padding:18px 16px;font-family:${FONT};color:#222222;font-size:15.5px;line-height:1.6;">
     ${paras}
     ${video}
-    ${personalSignatureHtml(settings, { headshotUrl: input.headshotUrl, booking: false })}
+    ${personalSignatureHtml(settings, { booking: false })}
     ${footer}
   </div>
 </body></html>`;

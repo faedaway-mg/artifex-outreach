@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { defaultSettings } from "../store";
-import { renderEmailHtml, renderEmailText, veedBlockHtml, ctaButton, renderPersonalEmailHtml, renderPersonalEmailText, personalSignatureHtml, SIGNATURE_MARKER } from "./email-render";
+import { renderEmailHtml, renderEmailText, veedBlockHtml, ctaButton, renderPersonalEmailHtml, renderPersonalEmailText, personalSignatureHtml, signatureHtml, signatureText, signerProfile, OUTREACH_SIGNERS, SIGNATURE_MARKER } from "./email-render";
 import { renderBody } from "../comms/render";
 import type { OutreachEmail, VeedVideo } from "./types";
 
@@ -124,7 +124,8 @@ describe("email-render — premium, restrained, honest", () => {
     const html = renderPersonalEmailHtml({ email, settings });
     expect(html).toContain(SIGNATURE_MARKER);               // for Exchange de-duplication
     expect(html).toContain("artifexlabs.tech");
-    expect(html).toContain('alt="Jordan Jackson"');         // headshot fallback works image-blocked
+    expect(html).toContain("Jordan Jackson");               // the signer's name
+    expect(html).toContain('alt="Artifex Labs"');           // the Artifex mark; blocked-image fallback
     expect(html).not.toContain("Book a conversation");      // cold outreach wants a reply, not a CTA
   });
 
@@ -140,6 +141,64 @@ describe("email-render — premium, restrained, honest", () => {
     expect(text).toContain("Jordan Jackson");
     expect(text).toContain("ten minutes experiencing your practice");
     expect(text).not.toContain("<");
+  });
+
+  // ── Canonical signature system: one renderer, two signers, Outlook-copyable ──
+  describe("canonical Artifex signature", () => {
+    it("renders each signer with the shared Artifex identity and the circular mark", () => {
+      const jordan = signatureHtml(signerProfile("jordan", settings));
+      const alex = signatureHtml(signerProfile("alex", settings));
+      expect(jordan).toContain("Jordan Jackson");
+      expect(alex).toContain("Alex Perez");
+      for (const sig of [jordan, alex]) {
+        expect(sig).toContain("Artifex Labs &middot; Business technology partner");
+        expect(sig).toContain("artifexlabs.tech");
+        // the canonical hosted mark — an absolute public HTTPS URL, resolvable from Outlook
+        expect(sig).toContain('src="https://outreach.artifexlabs.tech/api/brand/mark"');
+        expect(sig).toContain('alt="Artifex Labs"');
+      }
+    });
+
+    it("the copyable signature has NO unsubscribe/compliance footer and no private asset paths", () => {
+      const sig = signatureHtml(signerProfile("jordan", settings));
+      expect(sig.toLowerCase()).not.toContain("unsubscribe");
+      expect(sig.toLowerCase()).not.toContain("prefer not to hear");
+      expect(sig).not.toContain("localhost");
+      expect(sig).not.toContain("/_next/");
+      expect(sig).not.toContain('src="/'); // no app-relative image path
+      // the old generic headshot mark is gone
+      expect(sig).not.toContain("/api/brand/headshot");
+    });
+
+    it("exposes exactly the two signers, in order", () => {
+      expect(OUTREACH_SIGNERS.map((s) => s.id)).toEqual(["jordan", "alex"]);
+    });
+
+    it("plain-text signature is a clean fallback with the name, company, and site", () => {
+      const text = signatureText(signerProfile("alex", settings));
+      expect(text).toContain("Alex Perez");
+      expect(text).toContain("Artifex Labs — Business technology partner");
+      expect(text).not.toContain("<");
+      expect(text.toLowerCase()).not.toContain("unsubscribe");
+    });
+
+    it("outbound email uses the configured signer (mailbox unchanged)", () => {
+      const asAlex = renderPersonalEmailHtml({ email, settings: { ...settings, outreachSigner: "alex" } });
+      expect(asAlex).toContain("Alex Perez");
+      expect(asAlex).not.toContain("Jordan Jackson");
+      const asJordan = renderPersonalEmailHtml({ email, settings: { ...settings, outreachSigner: "jordan" } });
+      expect(asJordan).toContain("Jordan Jackson");
+      // an explicit opts.signer override wins over the setting
+      expect(personalSignatureHtml({ ...settings, outreachSigner: "jordan" }, { signer: "alex" })).toContain("Alex Perez");
+    });
+
+    it("preview and sent HTML both derive from the same signature (parity)", () => {
+      const sig = signatureHtml(signerProfile("jordan", settings));
+      const nameLine = '<div style="font-weight:600;color:#211C15;font-size:15px;line-height:1.4;">Jordan Jackson</div>';
+      expect(sig).toContain(nameLine);
+      expect(renderPersonalEmailHtml({ email, settings })).toContain(nameLine); // personal send
+      expect(renderEmailHtml({ email, settings })).toContain(nameLine);         // branded send/preview
+    });
   });
 
   // ── REGRESSION: the opt-out must be stated exactly once ──────────────────────

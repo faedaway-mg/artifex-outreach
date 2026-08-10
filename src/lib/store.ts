@@ -96,6 +96,7 @@ export function defaultSettings(): Settings {
     calendarLink: ARTIFEX_IDENTITY.bookingUrl,
     website: ARTIFEX_IDENTITY.publicWebsite,
     contactEmail: ARTIFEX_IDENTITY.publicEmail,
+    outreachSigner: "jordan",
     defaultReportLanguage: "English",
     defaultPricing: {
       "Launch Website": { low: 3500, high: 6500 },
