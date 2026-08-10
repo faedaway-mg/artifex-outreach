@@ -22,6 +22,7 @@ import { parseScope, leadIdsInScope, tasksInScope } from "@/lib/operators/scope"
 import { describeSequenceContext, type SequenceContext } from "@/lib/comms/task-projection";
 import { buildWorkQueue, batchLeadIds, categoryTitle, kindOfTask, surfaceTodaysTasks, channelCapacity, type WorkKind } from "@/lib/work-queue";
 import { buildOutreachKit } from "@/lib/outreach/kit";
+import { quickReviewFilename } from "@/lib/outreach/quick-review";
 import { buildVideoScript } from "@/lib/outreach/content";
 import { renderPersonalEmailHtml } from "@/lib/outreach/email-render";
 import { readingSeconds } from "@/lib/outreach/voice-engine";
@@ -193,6 +194,8 @@ export default async function BatchPage({ params, searchParams }: { params: { ki
           leadId={lead.id} mode={kind === "follow-up" ? "followup" : "intro"}
           business={lead.businessName} industry={deslug(lead.industry)} contact={emailProps.contact}
           recipient={lead.publicEmail ?? ""}
+          attachmentName={kind === "email" ? quickReviewFilename(lead.businessName) : null}
+          attachmentHref={kind === "email" ? `/api/quick-review/${lead.id}/pdf` : null}
           why={why} observations={observations} subject={emailProps.subject} openingSentence={emailProps.openingSentence}
           readingLabel={emailProps.readingLabel} fullParagraphs={emailProps.fullParagraphs} html={emailProps.html}
           taskId={stepTask?.id ?? null} nextHref={nextHref} isLast={i + 1 >= total}

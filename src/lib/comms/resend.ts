@@ -62,6 +62,7 @@ function body(msg: EmailMessage) {
     ...(msg.html ? { html: msg.html } : {}),
     ...(msg.replyTo ? { reply_to: msg.replyTo } : {}),
     ...(msg.headers ? { headers: msg.headers } : {}),
+    ...(msg.attachments?.length ? { attachments: msg.attachments.map((a) => ({ filename: a.filename, content: a.content, ...(a.contentType ? { content_type: a.contentType } : {}) })) } : {}),
   };
 }
 

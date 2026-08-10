@@ -10,7 +10,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronDown, Check, ArrowRight, AlertTriangle, Clock, Mail } from "lucide-react";
+import { ChevronDown, Check, ArrowRight, AlertTriangle, Clock, Mail, Paperclip } from "lucide-react";
 import { sendIntroductionAction, sendFollowUpAction } from "@/lib/outreach/send-actions";
 import { completeTaskAction } from "@/lib/actions";
 
@@ -30,6 +30,9 @@ export interface EmailDecisionProps {
   fullParagraphs: string[];
   /** The actual branded email HTML — shown on expand so the operator approves the real thing. */
   html?: string;
+  /** The attached one-page Artifex Quick Review — filename + a preview URL (initial emails only). */
+  attachmentName?: string | null;
+  attachmentHref?: string | null;
   taskId: string | null;
   nextHref: string;
   isLast: boolean;
@@ -153,6 +156,20 @@ export function EmailDecision(p: EmailDecisionProps) {
           )}
           {edited && <p className="text-[11px] text-teal-300/90">Edited — your version is what will send.</p>}
         </div>
+
+        {/* The attached one-page Quick Review — what the recipient opens. Never buried. */}
+        {p.attachmentName && (
+          <div className="mt-3 flex items-center gap-2 rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2.5">
+            <Paperclip size={14} className="shrink-0 text-chalk-500" />
+            <div className="min-w-0 flex-1">
+              <p className="text-[11px] uppercase tracking-wide text-chalk-500">Attached review</p>
+              <p className="truncate text-[13px] text-chalk-100">{p.attachmentName}</p>
+            </div>
+            {p.attachmentHref && (
+              <a href={p.attachmentHref} target="_blank" rel="noopener noreferrer" className="shrink-0 rounded-lg border border-white/10 px-2.5 py-1.5 text-[12px] text-azure-200 hover:border-white/20">Preview review</a>
+            )}
+          </div>
+        )}
 
         {note && (
           <p className="mt-3 flex items-start gap-1.5 rounded-lg border border-amber-400/20 bg-amber-400/[0.05] p-2.5 text-[12.5px] text-amber-200">

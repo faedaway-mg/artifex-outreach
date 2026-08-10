@@ -12,12 +12,15 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import {
   getStep, getPlan, getLead, getSettings, updateStep, updatePlan, stepsForPlan, isSuppressed,
-  insertEmailSendIfAbsent, casEmailSendStatus, updateEmailSend,
+  insertEmailSendIfAbsent, casEmailSendStatus, updateEmailSend, getBusinessIntelligence,
 } from "../repo";
 import { validEmail } from "../acquisition/compliance";
 import { stopPlansForLead } from "../acquisition/stop";
 import { getEmailProvider } from "./provider";
 import { renderBody } from "./render";
+import { renderQuickReviewPdf } from "../pdf/render";
+import { buildQuickReview, resolveLeadBrand, quickReviewFilename } from "../outreach/quick-review";
+import type { BusinessProfile } from "../business-intelligence/types";
 import { isSent, backoffMs, MAX_ATTEMPTS, STUCK_SENDING_MS } from "./state";
 import { unsubscribeUrlFor, listUnsubscribeHeaders } from "./unsubscribe";
 import { threadingHeaders, priorEmailSteps, reSubject, domainFromAddress } from "./threading";
@@ -150,7 +153,33 @@ export async function dispatchStep(stepId: string, opts: { now?: Date } = {}): P
   // who hits Reply always reaches the monitored mailbox the mail was sent from
   // (hello@artifexlabs.tech → its Microsoft 365 inbox). Same address as From by design.
   const replyTo = addressOnly(from);
-  const msg: EmailMessage = { to: lead.publicEmail!, from, replyTo, subject, text, ...(html ? { html } : {}), headers, idempotencyKey: key };
+
+  // The INITIAL outreach email carries the personalized one-page Artifex Quick Review as a
+  // PDF attachment (follow-ups do not re-attach it), rendered deterministically from the SAME
+  // stored review the operator previewed (WYSIWYS). This is BEST-EFFORT at the dispatch layer:
+  // dispatch is the shared send-once core (also used by sequences/recovery/tests), so it never
+  // refuses a send here. The blocking "initial email needs its review" invariant lives upstream
+  // in sendNext (the operator send path), which cannot proceed until the review is ready.
+  let attachments: EmailMessage["attachments"] | undefined;
+  if (!isFollowUp) {
+    try {
+      const bi = await getBusinessIntelligence(lead.id);
+      const profile = (bi?.profile?.businessProfile as BusinessProfile | undefined) ?? null;
+      if (profile) {
+        const brand = await resolveLeadBrand(lead);
+        const review = buildQuickReview(lead, profile, brand);
+        if (review.ready) {
+          const dateStr = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+          const pdf = await renderQuickReviewPdf(review, dateStr);
+          attachments = [{ filename: quickReviewFilename(lead.businessName), content: pdf.toString("base64"), contentType: "application/pdf" }];
+        }
+      }
+    } catch {
+      /* attachment is best-effort here; the operator path already gated readiness upstream */
+    }
+  }
+
+  const msg: EmailMessage = { to: lead.publicEmail!, from, replyTo, subject, text, ...(html ? { html } : {}), ...(attachments ? { attachments } : {}), headers, idempotencyKey: key };
   const res = await provider.send(msg);
 
   if (res.sent) {

@@ -128,6 +128,28 @@ describe("operator edits are the actual send payload", () => {
   });
 });
 
+// The initial email carries the one-page Artifex Quick Review as a real PDF attachment.
+describe("initial email attaches the Quick Review PDF", () => {
+  it("sends an application/pdf attachment with a professional filename and non-empty bytes", async () => {
+    // A no-website lead reliably yields a real finding, so the review is send-ready.
+    const base = await seedQualifiedLead();
+    const lead = await insertLead({ ...(({ id, createdAt, updatedAt, ...rest }) => rest)(base as any), businessName: "Villa Brasil Motel", website: null, websiteDomain: null, publicEmail: "reviews@villabrasil.test" } as any);
+    const bi = await analyzeBusiness({ lead, findings: [], contacts: [] });
+    await upsertBusinessIntelligence({ leadId: lead.id, profile: bi, enrichmentDelta: null, generatedAt: "2026-07-22T00:00:00.000Z" });
+
+    const r = await sendIntroductionAction(lead.id);
+    expect(r.outcome).toBe("sent");
+    const att = sends[0].attachments;
+    expect(Array.isArray(att)).toBe(true);
+    expect(att[0].filename).toBe("Villa Brasil Motel — Artifex Quick Review.pdf");
+    expect(att[0].content_type).toBe("application/pdf");
+    expect(typeof att[0].content).toBe("string");
+    expect(att[0].content.length).toBeGreaterThan(1000); // base64 of a real PDF
+    // The email still carries From/Reply-To + signature unchanged.
+    expect(sends[0].from).toContain("hello@artifexlabs.tech");
+  }, 20000);
+});
+
 // Operator Approve & Send is a HUMAN-gated action: it must obey provider/compliance
 // rules but NOT the Mon–Fri automation window (that only governs the unattended cron).
 describe("operator sends are independent of the automation send window", () => {

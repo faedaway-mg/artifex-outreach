@@ -16,6 +16,7 @@ import { getLead, getBusinessIntelligence, getSettings, contactsForLead, plansFo
 import { prepareAcquisitionPlanAction, approvePlanAction } from "../acquisition-actions";
 import { dispatchStep } from "../comms/dispatch";
 import { buildOutreachKit } from "./kit";
+import { buildQuickReview, resolveLeadBrand } from "./quick-review";
 import { renderPersonalEmailHtml, renderPersonalEmailText } from "./email-render";
 import type { VeedVideo, IntroSendResult, OutreachEmail } from "./types";
 
@@ -53,6 +54,16 @@ async function sendNext(leadId: string, mode: "intro" | "followup", veed?: VeedV
   const stored = await getBusinessIntelligence(leadId);
   const profile = stored?.profile?.businessProfile ?? null;
   if (!profile) return { outcome: "blocked", reason: "No Business Technology Review yet — generate it before sending." };
+
+  // SEND-READY INVARIANT: an INITIAL email carries the one-page Quick Review as an attachment.
+  // If there are no credible findings yet, the review isn't ready — block the send with a clear
+  // reason rather than let an email go out claiming an attachment it doesn't have. (The internal
+  // test lead is exempt so transport can always be verified.)
+  if (mode === "intro" && lead.source !== "internal-test") {
+    const brand = await resolveLeadBrand(lead); // resolves + caches the logo once (dispatch reuses it)
+    const review = buildQuickReview(lead, profile, brand);
+    if (!review.ready) return { outcome: "blocked", reason: "Quick Review needs attention — no credible findings yet, so there's nothing to attach." };
+  }
 
   // Workflow guards keyed off provider-accepted sends (the ledger is the truth).
   const priorSent = (await emailSendsForLead(leadId)).filter((s) => !!s.sentAt).length;

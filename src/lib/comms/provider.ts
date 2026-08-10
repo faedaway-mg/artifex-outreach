@@ -18,6 +18,8 @@ export interface EmailMessage {
   /** Optional HTML body. When present, sent alongside the plaintext part. */
   html?: string;
   headers?: Record<string, string>;
+  /** Optional attachments (e.g. the Artifex Quick Review PDF). `content` is base64. */
+  attachments?: Array<{ filename: string; content: string; contentType?: string }>;
   idempotencyKey: string; // dedupes retries — a step never sends twice
 }
 

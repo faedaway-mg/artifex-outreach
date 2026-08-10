@@ -99,7 +99,12 @@ export function buildOutreachEmail(lead: Lead, profile: BusinessProfile, dm: Dec
     // When permission was earned on a call, open as a continuation of that conversation
     // and drop the cold-discovery first line (we didn't "come across" them — we spoke).
     const leadIn = callHandoff ? [callHandoff, ...opener.slice(1)] : opener;
-    const paragraphs = [greeting(lead, dm), ...leadIn, identity, end];
+    // Every initial email carries the one-page Quick Review as an attachment; the copy names it
+    // (a call continues the conversation; email-first leads with the value up front).
+    const attachmentLine = callHandoff
+      ? `I attached the one-page breakdown I put together for ${name}.`
+      : `I put together a quick one-page review for ${name} and attached it here.`;
+    const paragraphs = [greeting(lead, dm), ...leadIn, attachmentLine, identity, end];
     const body = [...paragraphs, complianceFooter(settings)].join("\n\n");
     return { subject: subjects[0], subjectAlternatives: subjects.slice(1), body, paragraphs, wordCount: body.split(/\s+/).filter(Boolean).length };
   };

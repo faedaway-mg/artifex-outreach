@@ -146,6 +146,10 @@ export interface BusinessProfile {
 
   /** Per-dimension measured/total coverage — surfaces what we could and couldn't see. */
   coverage: Array<{ dimension: Dimension; measured: number; total: number }>;
+
+  /** Cached business logo for the Quick Review (resolved once via the logo extractor).
+   *  `undefined` = not yet resolved; `null` = resolved, none trustworthy. jsonb — no migration. */
+  resolvedBrand?: { logoUrl: string; sourceType: string; confidence: number } | null;
 }
 
 // ── Inputs the profile is built from ────────────────────────────────────────────

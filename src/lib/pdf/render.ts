@@ -1,5 +1,7 @@
 import { renderToBuffer } from "@react-pdf/renderer";
 import { BriefDocument } from "./BriefDocument";
+import { QuickReviewDocument } from "./QuickReviewDocument";
+import type { QuickReview } from "@/lib/outreach/quick-review";
 import type { Lead, Deliverable, Settings } from "@/lib/types";
 
 /**
@@ -33,4 +35,11 @@ export async function renderBriefPdf(lead: Lead, deliverable: Deliverable, setti
   const safeDeliverable = deepSanitize(deliverable);
   const safeSettings = deepSanitize(settings);
   return renderToBuffer(BriefDocument({ lead: safeLead, deliverable: safeDeliverable, settings: safeSettings }) as any);
+}
+
+/** Render the one-page Artifex Quick Review to a PDF Buffer (Node runtime). Deterministic:
+ *  the same review snapshot always yields the same document (WYSIWYS across preview + send). */
+export async function renderQuickReviewPdf(review: QuickReview, dateStr: string): Promise<Buffer> {
+  const safeReview = deepSanitize(review);
+  return renderToBuffer(QuickReviewDocument({ review: safeReview, dateStr }) as any);
 }
