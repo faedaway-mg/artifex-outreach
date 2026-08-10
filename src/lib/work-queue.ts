@@ -45,7 +45,10 @@ const META: Record<WorkKind, KindMeta> = {
   report: { title: "Reports waiting", blurb: "Business Technology Reviews ready for approval.", perMinutes: 5, cta: "Review reports", urgency: 3 },
   "contact-form": { title: "Contact forms to submit", blurb: "Reach out through their contact form.", perMinutes: 4, cta: "Start forms", urgency: 4.4 },
   "instagram-dm": { title: "Instagram DMs to send", blurb: "Instagram is the live channel — open with a warm DM.", perMinutes: 3, cta: "Start DMs", urgency: 4.6 },
-  understand: { title: "New businesses to understand", blurb: "Fresh businesses worth getting to know.", perMinutes: 5, cta: "Start reviewing", urgency: 6 },
+  // The system understands and routes new businesses automatically; this queue is now the
+  // EXCEPTION path — leads it genuinely could not resolve safely (no verifiable channel,
+  // conflicting identity). It surfaces only when such a case exists, and asks a real question.
+  understand: { title: "Needs attention", blurb: "Businesses the system couldn't route on its own — a quick human call.", perMinutes: 4, cta: "Resolve", urgency: 3.2 },
 };
 
 const TASK_TO_KIND: Record<TaskType, WorkKind> = {
@@ -181,6 +184,39 @@ export function channelCapacity(opts: {
   const email = Math.max(0, emailTarget - Math.max(0, opts.emailsSentToday ?? 0));
   const video = Math.max(0, opts.videoTarget ?? DEFAULT_VIDEO_TARGET);
   return { call, video, email, other: Math.max(0, opts.otherBudget) };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Active supply goals — targets mean "attempt to have N legitimate items ready",
+// not just "show at most N". Readiness/deficit are the honest ledger behind that:
+// how many businesses actually have first-touch work prepared per stream, and how
+// far each stream is from its target. Replenishment reads the deficit to decide how
+// much MORE qualified work to prepare — it never fabricates work to hit a number.
+// ─────────────────────────────────────────────────────────────────────────────
+export interface ChannelReadiness { call: number; email: number; video: number }
+
+/** Distinct businesses with actionable first-touch work already prepared in each stream —
+ *  the "ready" side of the target. Counted by business so a lead with two email tasks is one. */
+export function channelReadiness(tasks: Task[], leads: Map<string, Lead>): ChannelReadiness {
+  const seen: Record<"call" | "video" | "email", Set<string>> = { call: new Set(), video: new Set(), email: new Set() };
+  for (const t of tasks) {
+    const lead = leads.get(t.leadId);
+    if (!lead) continue;
+    const ch = channelOf(workKindForTask(t, lead));
+    if (ch === "other") continue; // reports/forms/DMs/needs-attention are not one of the three supply goals
+    seen[ch].add(t.leadId);
+  }
+  return { call: seen.call.size, video: seen.video.size, email: seen.email.size };
+}
+
+/** Positive gap between each stream's daily target (active supply goal) and what's ready.
+ *  Never negative — a stream at or over target has zero deficit and pulls no replenishment. */
+export function channelDeficits(ready: ChannelReadiness, targets: ChannelReadiness): ChannelReadiness {
+  return {
+    call: Math.max(0, targets.call - ready.call),
+    email: Math.max(0, targets.email - ready.email),
+    video: Math.max(0, targets.video - ready.video),
+  };
 }
 
 /**

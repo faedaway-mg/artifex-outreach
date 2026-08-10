@@ -17,7 +17,7 @@ import { TodayControls } from "@/components/TodayControls";
 import { MorningWarming } from "@/components/MorningWarming";
 import { WorkQueue } from "@/components/WorkQueue";
 import { DailyMission } from "@/components/DailyMission";
-import { buildWorkQueue, buildDailyMission, surfaceTodaysTasks, channelCapacity, channelOf, workKindForTask } from "@/lib/work-queue";
+import { buildWorkQueue, buildDailyMission, surfaceTodaysTasks, channelCapacity, channelOf, workKindForTask, channelReadiness, channelDeficits } from "@/lib/work-queue";
 import { accountQueue } from "@/lib/queue-accounting";
 import { accountSequences } from "@/lib/comms/task-projection";
 import { formatCurrency, relativeDate, timeOfDay, shortDate, joinMeta, formatLocation, deslug } from "@/lib/utils";
@@ -30,7 +30,7 @@ import type { TaskType, Lead, StoredBusinessIntelligence } from "@/lib/types";
 export const dynamic = "force-dynamic";
 
 const TASK_META: Record<TaskType, { label: string; icon: any; primary: string; tone: string }> = {
-  review: { label: "Understand this business", icon: ArrowRight, primary: "Review", tone: "text-azure-300" },
+  review: { label: "Needs attention — the system couldn't route this on its own", icon: AlertTriangle, primary: "Resolve", tone: "text-amber-300" },
   prepare_video: { label: "Personalized walkthrough recommended", icon: Video, primary: "Prepare video", tone: "text-amber-300" },
   review_and_send: { label: "Outreach ready for your review", icon: Mail, primary: "Review & send", tone: "text-indigo-300" },
   call: { label: "A conversation is warranted", icon: Phone, primary: "Call", tone: "text-azure-300" },
@@ -137,9 +137,24 @@ export default async function TodayPage({ searchParams }: { searchParams?: { vie
     leads: leadMap,
   });
 
-  // Businesses moved today (tasks completed today) → the mission's progress.
-  const doneToday = everyTask.filter((t) => t.status === "done" && isSameDay(t.updatedAt, now)).length;
+  // Businesses moved today (tasks completed today) → the mission's progress. Only real
+  // outreach counts as a "conversation": resolving a Needs-attention item, or the system
+  // routing a business out of the understand placeholder (both `review` tasks), is
+  // preparation, not contact — so it never inflates the conversation count.
+  const doneToday = everyTask.filter((t) => t.status === "done" && t.type !== "review" && isSameDay(t.updatedAt, now)).length;
   const mission = buildDailyMission(workQueue, doneToday);
+
+  // Active supply goals — how many businesses are actually READY per stream vs the day's
+  // target. When a stream is short, the system is preparing more (discovery replenishes to
+  // the deficit); this line is honest about partial readiness rather than implying a full board.
+  const supplyTargets = {
+    call: Math.max(0, settings.prospecting.callDailyTarget ?? 10),
+    email: Math.max(0, settings.prospecting.emailDailyTarget ?? 10),
+    video: Math.max(0, settings.prospecting.videoDailyTarget ?? 3),
+  };
+  const ready = channelReadiness(tasks, leadMap);
+  const deficits = channelDeficits(ready, supplyTargets);
+  const anyDeficit = deficits.call + deficits.email + deficits.video > 0;
   // The honest ledger of everything NOT on screen (beyond cap, future, snoozed, unqueued).
   // Scoped to the same businesses as the queue above, so the ledger's totals
   // reconcile with what is actually on screen rather than with the whole company.
@@ -171,6 +186,14 @@ export default async function TodayPage({ searchParams }: { searchParams?: { vie
       <div>
         <p className="eyebrow mb-3">{dateLabel} · Today's work</p>
         <WorkQueue categories={workQueue} />
+        {/* Active supply goals — ready-vs-target per stream. Shown only when a stream is
+            short, so the operator sees the system is preparing more, not that work vanished. */}
+        {anyDeficit && (
+          <p className="mt-2.5 text-[12px] text-chalk-500">
+            Ready today · Calls {ready.call}/{supplyTargets.call} · Emails {ready.email}/{supplyTargets.email} · Videos {ready.video}/{supplyTargets.video}
+            <span className="text-chalk-600"> — preparing more qualified work to fill the gap</span>
+          </p>
+        )}
         {/* Queue ledger — where everything else is, so "where did my leads go?" is
             never a mystery. One quiet line; shown only when something is out of view. */}
         {(ledger.beyondCap > 0 || ledger.waitingFuture > 0 || ledger.snoozed > 0 || ledger.noWorkActive > 0 || emailCeilingReached

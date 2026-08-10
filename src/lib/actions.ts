@@ -841,11 +841,17 @@ export async function runProspectingNowAction(): Promise<void> {
 }
 export async function refillTodayAction(): Promise<void> {
   const { runProspecting } = await import("./prospecting");
+  // Drain any lingering "understand" placeholders into real execution work FIRST, so a
+  // refill first materializes work the system already understands before discovering more.
+  const { materializeRouting } = await import("./outreach/auto-route");
+  await materializeRouting();
   await runProspecting({ trigger: "refill" });
   revalidatePath("/");
 }
 export async function findMoreLeadsAction(count = 3): Promise<void> {
   const { runProspecting } = await import("./prospecting");
+  const { materializeRouting } = await import("./outreach/auto-route");
+  await materializeRouting();
   await runProspecting({ trigger: "find-more", count });
   revalidatePath("/");
 }

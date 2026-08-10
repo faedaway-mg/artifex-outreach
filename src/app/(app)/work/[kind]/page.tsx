@@ -48,7 +48,10 @@ const ACTION: Record<WorkKind, { verb: string; label: string; href: (id: string)
   "contact-form": { verb: "Submit the form for", label: "Open the form", href: (id) => `/leads/${id}` },
   "instagram-dm": { verb: "DM", label: "Open Instagram", href: (id) => `/leads/${id}` },
   video: { verb: "Record a video for", label: "Open the kit to record", href: (id) => `/leads/${id}/send` },
-  understand: { verb: "Get to know", label: "Review the business", href: (id) => `/leads/${id}` },
+  // Needs attention — the system couldn't route this safely (no verifiable channel). The
+  // action names the real question rather than a generic "review", and opens the business so
+  // the operator can find/confirm a contact route. It does NOT deep-link into the Call Assistant.
+  understand: { verb: "Resolve", label: "Find the contact route", href: (id) => `/leads/${id}` },
 };
 
 export default async function BatchPage({ params, searchParams }: { params: { kind: string }; searchParams: { i?: string; ids?: string; view?: string } }) {

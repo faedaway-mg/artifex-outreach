@@ -14,7 +14,6 @@ import {
   findDuplicate,
   isSuppressed,
   insertLead,
-  insertTask,
   todaysTasks,
   insertProspectingRun,
   updateProspectingRun,
@@ -27,6 +26,7 @@ import type { ProspectingRun, Lead, Settings, Tier, ProspectCategoryTarget, Arti
 import { discoverInputSchema } from "./schemas";
 import { categoryGroupOf } from "./categories";
 import { assignNewLead } from "./operators/distribute";
+import { channelReadiness, channelDeficits, DEFAULT_CALL_TARGET, DEFAULT_EMAIL_TARGET, DEFAULT_VIDEO_TARGET, type ChannelReadiness } from "./work-queue";
 
 const PLACES_COST_PER_REQUEST = 0.032;
 
@@ -110,8 +110,28 @@ export async function runProspecting(req: ProspectRequest): Promise<ProspectingR
     }
   }
 
-  const currentTodayCount = (await todaysTasks()).length;
-  const target = Math.min(req.count ?? Math.max(0, p.dailyQueueSize - currentTodayCount), p.maxNewLeadsPerRun);
+  const dueTasks = await todaysTasks();
+  const currentTodayCount = dueTasks.length;
+  const existing = await listLeads();
+
+  // Active supply goals: a daily target means "attempt to have N legitimate items ready",
+  // not "show at most N". The discovery target is the TOTAL positive deficit across the three
+  // streams (Calls + Emails + Videos), so an empty email stream actually pulls new
+  // email-capable leads instead of the whole day stopping at one combined count. The old
+  // combined floor (dailyQueueSize − what's already queued) is preserved. Quality gates are
+  // untouched — discovery still only adds businesses that pass scoring/exclusion, so a deficit
+  // is an ATTEMPT, never fabricated work; maxNewLeadsPerRun and the cost budget still bound it.
+  const leadMapForReadiness = new Map(existing.map((l) => [l.id, l] as const));
+  const ready = channelReadiness(dueTasks, leadMapForReadiness);
+  const targets: ChannelReadiness = {
+    call: Math.max(0, p.callDailyTarget ?? DEFAULT_CALL_TARGET),
+    email: Math.max(0, p.emailDailyTarget ?? DEFAULT_EMAIL_TARGET),
+    video: Math.max(0, p.videoDailyTarget ?? DEFAULT_VIDEO_TARGET),
+  };
+  const deficits = channelDeficits(ready, targets);
+  const totalDeficit = deficits.call + deficits.email + deficits.video;
+  const supplyGoal = Math.max(p.dailyQueueSize - currentTodayCount, totalDeficit);
+  const target = Math.min(req.count ?? Math.max(0, supplyGoal), p.maxNewLeadsPerRun);
   if (target <= 0) {
     await updateSettings({ prospecting: { ...p, lastRunAt: nowIso() } });
     return finalize({ stopReason: "queue-full" });
@@ -119,9 +139,8 @@ export async function runProspecting(req: ProspectRequest): Promise<ProspectingR
 
   // ── Rotation: score + select a diverse, budget-bounded category set ─────────
   const categories = resetWeekly(p.categories ?? []);
-  const existing = await listLeads();
   const pipelineByCat = concentration(existing.map((l) => l.normalizedCategory));
-  const todayLeadIds = new Set((await todaysTasks()).map((t) => t.leadId));
+  const todayLeadIds = new Set(dueTasks.map((t) => t.leadId));
   const todayByCat = concentration(existing.filter((l) => todayLeadIds.has(l.id)).map((l) => l.normalizedCategory));
   const totalLeads = Math.max(1, existing.length);
 
@@ -438,16 +457,12 @@ async function createQualifiedLead(place: PlaceResult, cat: ProspectCategoryTarg
     pipelineStage: "Qualified",
   });
 
-  const tierBonus = tier === "A" ? 30 : tier === "B" ? 18 : 8;
-  await insertTask({
-    leadId: lead.id,
-    type: "review",
-    title: `Review new lead — ${place.businessName}`,
-    dueAt: nowIso(),
-    status: "open",
-    priority: 15 + tierBonus + Math.round(score.total / 8),
-    snoozedUntil: null,
-  });
+  // The system has already understood and qualified this business, so it does NOT wait in
+  // a "New businesses to understand" placeholder for a human to rubber-stamp. It is routed
+  // straight to its first-touch execution stream (Calls / Emails / Videos) by contact
+  // strategy; only a lead with no verifiable channel becomes a Needs-attention question.
+  const { routeNewLead } = await import("./outreach/auto-route");
+  await routeNewLead(lead);
   // Prospecting runs unattended, so a newly discovered business is given an
   // accountable operator immediately rather than waiting in an unassigned pile.
   await assignNewLead(lead.id, { actor: "system" });

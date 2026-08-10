@@ -43,6 +43,13 @@ export async function POST(req: NextRequest) {
   // day. Pass ?horizon=now to restrict this to steps already past their instant.
   const horizon = req.nextUrl.searchParams.get("horizon") === "now" ? "now" : "end-of-day";
   try {
+    // Route understood businesses out of the "Needs attention"/understand placeholder and
+    // into Calls / Emails / Videos before projecting sequence steps. Idempotent and I/O-free
+    // (local task transitions only) — this is what keeps Today an execution dashboard rather
+    // than a pile of "review this" chores, and it migrates pre-existing placeholders.
+    const { materializeRouting } = await import("@/lib/outreach/auto-route");
+    const routing = dryRun ? null : await materializeRouting();
+
     const summary = await materializeDueSteps({ apply: !dryRun, horizon });
 
     // Phase 2 runs after projection so it sees today's real workload, not
@@ -57,7 +64,7 @@ export async function POST(req: NextRequest) {
     });
 
     // Audit only when something actually changed, so idle ticks don't flood the log.
-    if (summary.created || summary.reconciledStale || distribution.written.length) {
+    if (summary.created || summary.reconciledStale || distribution.written.length || (routing?.processed ?? 0)) {
       await appendAudit({
         action: "comms.tasks_materialized",
         actor: "cron",
@@ -68,6 +75,7 @@ export async function POST(req: NextRequest) {
           alreadyPresent: summary.alreadyPresent, reconciledStale: summary.reconciledStale,
           skipped: summary.skipped,
           reassigned: distribution.written.length,
+          routed: routing ? { processed: routing.processed, ...routing.routed, needsAttention: routing.needsAttention } : null,
         },
         ip: null,
       });
@@ -78,6 +86,7 @@ export async function POST(req: NextRequest) {
       dryRun,
       horizon,
       sent: 0, // this route never sends — stated explicitly so monitoring can assert it
+      routed: routing, // understand-placeholder → execution-stream materialization (null on dryRun)
       ranAt: summary.ranAt,
       considered: summary.considered,
       created: summary.created,
