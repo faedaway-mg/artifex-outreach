@@ -11,7 +11,7 @@ import { notFound } from "next/navigation";
 import { CheckCircle2, ArrowRight, ArrowLeft, X, Video, Mail, RotateCcw, FileText, Phone, CalendarClock, Compass, Clock, Instagram } from "lucide-react";
 import {
   todaysTasks, listLeads, allMeetings, getSettings, getBusinessIntelligence, contactsForLead, memoryForLead,
-  getStep, stepsForPlan, allPlans, listOperators, allEmailSends,
+  getStep, stepsForPlan, allPlans, listOperators, allEmailSends, emailSendsForLead,
 } from "@/lib/repo";
 import { emailsSentOn } from "@/lib/outreach/send-capacity";
 import { panelForWorkKind } from "@/lib/outreach/call-routing";
@@ -235,6 +235,8 @@ export default async function BatchPage({ params, searchParams }: { params: { ki
     const collectedEmail = (await contactsForLead(lead.id))
       .filter((c) => c.source === "conversation" && c.verified && !!c.email)
       .sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt))[0]?.email ?? null;
+    // A call reached from the queue after we've already emailed the review is a WARM follow-up.
+    const priorEmailSent = (await emailSendsForLead(lead.id)).some((s) => !!s.sentAt);
     body = (
       <CallWorkspace
         lead={lead}
@@ -244,6 +246,7 @@ export default async function BatchPage({ params, searchParams }: { params: { ki
         observation={observations[0] ?? null}
         continuation={{ ids, kind }}
         collectedEmail={collectedEmail}
+        priorEmailSent={priorEmailSent}
       />
     );
   } else if (panel === "contact-strategy") {

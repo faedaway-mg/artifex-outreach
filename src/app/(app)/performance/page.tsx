@@ -8,10 +8,13 @@ import {
   allPlans,
   listSuppressions,
   allFeedback,
+  listAudit,
+  allEmailSends,
 } from "@/lib/repo";
 import { Stat } from "@/components/ui";
 import { categoryPerformance, MIN_SAMPLE } from "@/lib/analytics";
 import { acquisitionMetrics } from "@/lib/acquisition/analytics";
+import { channelFunnel } from "@/lib/outreach/channel-funnel";
 import { formatCurrency } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -22,7 +25,7 @@ function pct(n: number, d: number): string {
 }
 
 export default async function PerformancePage() {
-  const [leads, meetings, proposals, outreach, videos, deliverables, plans, suppressions, feedback] = await Promise.all([
+  const [leads, meetings, proposals, outreach, videos, deliverables, plans, suppressions, feedback, audit, emailSends] = await Promise.all([
     listLeads(),
     allMeetings(),
     allProposals(),
@@ -32,7 +35,11 @@ export default async function PerformancePage() {
     allPlans(),
     listSuppressions(),
     allFeedback(),
+    listAudit(2000),
+    allEmailSends(),
   ]);
+  // Channel comparison — value-first email → warm follow-up vs cold call, from existing sources.
+  const funnel = channelFunnel({ audit, emailSends, outreach, meetings });
   const acq = acquisitionMetrics(leads, plans, meetings, proposals, suppressions, feedback);
 
   const discovered = leads.length;
@@ -77,6 +84,22 @@ export default async function PerformancePage() {
         <Stat label="Partnerships formed" value={won} tone="emerald" />
         <Stat label="Revenue won" value={formatCurrency(revenue)} tone="emerald" />
       </div>
+
+      {/* Channel comparison — which path creates pipeline per minute of attention */}
+      <section>
+        <h2 className="mb-1 text-sm font-semibold uppercase tracking-wide text-chalk-400">Channel comparison</h2>
+        <p className="mb-3 text-[12px] text-chalk-500">Value-first email → warm follow-up vs cold calling. Warm = a call placed after the business was already emailed.</p>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+          <Stat label="Emails sent" value={funnel.email.sent} tone="indigo" hint={`${funnel.email.businessesEmailed} businesses`} />
+          <Stat label="Email replies" value={funnel.email.replies} tone="emerald" hint={pct(funnel.email.replies, funnel.email.sent)} />
+          <Stat label="Warm calls" value={funnel.warmCalls.attempted} tone="teal" hint={`${funnel.warmCalls.answered} answered`} />
+          <Stat label="Warm call answer rate" value={pct(funnel.warmCalls.answered, funnel.warmCalls.attempted)} tone="teal" />
+          <Stat label="Cold calls" value={funnel.coldCalls.attempted} hint={`${funnel.coldCalls.answered} answered`} />
+          <Stat label="Cold call answer rate" value={pct(funnel.coldCalls.answered, funnel.coldCalls.attempted)} />
+          <Stat label="Cold call → email" value={funnel.coldCalls.emailCaptured} hint={pct(funnel.coldCalls.emailCaptured, funnel.coldCalls.attempted)} />
+          <Stat label="Conversations" value={funnel.conversations} tone="amber" />
+        </div>
+      </section>
 
       {/* Progression rates */}
       <section>

@@ -900,6 +900,10 @@ export interface OpeningInput {
   observations?: string[];
   /** The opportunity category from the intelligence engine, if we have one. */
   findingCategory?: string | null;
+  /** True when the personalized review has ALREADY been emailed to this business, so the
+   *  call is a WARM follow-up, not a cold open. Switches the opener to reference what we
+   *  already sent ("wanted to make sure it reached the right person"). */
+  emailedReview?: boolean;
 }
 
 export interface LeadUnderstanding {
@@ -911,6 +915,8 @@ export interface LeadUnderstanding {
   size: BusinessSize;
   /** Strong public reputation is worth acknowledging — it is true and it lands. */
   wellReviewed: boolean;
+  /** The review was already emailed — this call is a warm follow-up. */
+  emailedReview: boolean;
 }
 
 /** Everything reasoned, before a single word is written. */
@@ -927,6 +933,7 @@ export function understandLead(input: OpeningInput): LeadUnderstanding {
     answerer: whoAnswers(journey, size, group),
     size,
     wellReviewed: (input.rating ?? 0) >= 4.5 && (input.reviewCount ?? 0) >= 40,
+    emailedReview: input.emailedReview === true,
   };
 }
 
@@ -966,6 +973,22 @@ export interface CallOpening {
     whatIsThis: string;
     voicemail: string;
     gatekept: string;
+  };
+  /**
+   * Present ONLY when the review was already emailed: the warm follow-up beats. These are
+   * short conversational moves (who/why + two forks + a voicemail), never the cold opener —
+   * so a post-email call never sounds like a first cold pitch. Delivered as beats the operator
+   * speaks naturally, not a paragraph to read verbatim.
+   */
+  followUp?: {
+    /** The one thing said when someone picks up — references what we already sent. */
+    opener: string;
+    /** If they saw it. */
+    ifSeen: string;
+    /** If they didn't. */
+    ifNotSeen: string;
+    /** No-answer message. */
+    voicemail: string;
   };
 }
 
@@ -1060,6 +1083,18 @@ export function composeOpening(u: LeadUnderstanding): CallOpening {
         `That works — is it alright if I send it there? It's ${u.deliverable}, one page, no cost. Who should I put in the subject line so it gets to the right desk?`,
       ),
     },
+    // Warm follow-up beats — only when we've already emailed. References the thing we SENT
+    // (the walkthrough), never "a review" (which, aloud, means Google/Yelp). Two forks + VM.
+    ...(u.emailedReview
+      ? {
+          followUp: {
+            opener: tidy(`Hi — it's Jordan, following up. I emailed over ${u.deliverable} for ${name} a couple days ago and wanted to make sure it reached the right person.`),
+            ifSeen: tidy(`Oh good — did any of it land? ${f.grounded ? `The part about ${lowerFirst(f.moment.replace(/-/g, " "))} is the one I'd start with.` : `Happy to talk through the one thing that'd move the needle most.`} Worth fifteen minutes to walk through it?`),
+            ifNotSeen: tidy(`No problem — it may have gone to a general inbox. What's the best address for you directly and I'll resend it right now so you have it in hand.`),
+            voicemail: tidy(`Hi, this is Jordan — I emailed over ${u.deliverable} for ${name} a couple days ago and wanted to make sure it got to the right person. No cost, nothing to sign. Give me a call back or text this number and I'll make sure you have it. Thanks very much.`),
+          },
+        }
+      : {}),
   };
 }
 
@@ -1088,7 +1123,7 @@ export interface OpeningLead {
  */
 export function openingForLead(
   lead: OpeningLead,
-  opts: { observations?: (string | null | undefined)[]; findingCategory?: string | null } = {},
+  opts: { observations?: (string | null | undefined)[]; findingCategory?: string | null; emailedReview?: boolean } = {},
 ): CallOpening {
   return buildCallOpening({
     businessName: lead.businessName,
@@ -1103,6 +1138,7 @@ export function openingForLead(
     locationsCount: lead.locationsCount,
     observations: (opts.observations ?? []).map((o) => (o ?? "").trim()).filter(Boolean),
     findingCategory: opts.findingCategory,
+    emailedReview: opts.emailedReview,
   });
 }
 
@@ -1158,5 +1194,6 @@ export function findForbiddenPhrases(text: string): string[] {
 
 /** Every line this opening would ever have the operator say aloud. */
 export function spokenLines(o: CallOpening): string[] {
-  return [o.say, o.lines.reception, o.lines.decisionMaker, o.lines.transferred, o.lines.whatIsThis, o.lines.voicemail, o.lines.gatekept];
+  const base = [o.say, o.lines.reception, o.lines.decisionMaker, o.lines.transferred, o.lines.whatIsThis, o.lines.voicemail, o.lines.gatekept];
+  return o.followUp ? [...base, o.followUp.opener, o.followUp.ifSeen, o.followUp.ifNotSeen, o.followUp.voicemail] : base;
 }

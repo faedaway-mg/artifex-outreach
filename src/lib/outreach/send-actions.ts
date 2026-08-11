@@ -13,7 +13,7 @@
 // has been sent (and refused if already sent).
 // ─────────────────────────────────────────────────────────────────────────────
 import { getLead, updateLead, getBusinessIntelligence, getSettings, contactsForLead, plansForLead, stepsForPlan, getPlan, updateStep, emailSendsForLead, allTasks, insertTask } from "../repo";
-import { gatekeeperHeavy } from "./contact-strategy";
+import { isCallablePhone } from "./contact-strategy";
 import type { Lead } from "../types";
 import { prepareAcquisitionPlanAction, approvePlanAction } from "../acquisition-actions";
 import { dispatchStep } from "../comms/dispatch";
@@ -54,14 +54,15 @@ function businessDaysFromNow(n: number): string {
 }
 
 /**
- * For a gatekeeper-heavy practice (dental/legal), once the personalized review has actually
- * been emailed, schedule ONE contextual follow-up call a couple business days out — so the
- * phone call follows the email with legitimate context, never a cold call. Idempotent (never
- * piles up call tasks), only for practices we can actually call, and it leaves a dated note
- * the Call Assistant surfaces so the operator opens with "I sent over a quick review…".
+ * The value-first hypothesis in one function: once the personalized review has ACTUALLY been
+ * emailed, schedule ONE warm follow-up call a couple business days out for ANY lead we can call
+ * (not just gatekeeper practices). The call then follows the email with legitimate context —
+ * "I sent over a quick review of the business, wanted to make sure it reached the right person"
+ * — instead of a cold pitch. Idempotent (never piles up call tasks), only when there's a
+ * callable number, and it leaves a dated note the Call Assistant reads so the opener is warm.
  */
-async function scheduleGatekeeperFollowUpCall(leadId: string, lead: Lead, subject: string): Promise<void> {
-  if (!gatekeeperHeavy(lead) || !lead.phone) return;
+async function scheduleFollowUpCallAfterEmail(leadId: string, lead: Lead, subject: string): Promise<void> {
+  if (!isCallablePhone(lead.phone)) return; // no number to warm-follow-up on
   const hasOpenCall = (await allTasks()).some((t) => t.leadId === leadId && t.status === "open" && t.type === "call");
   if (hasOpenCall) return;
   const when = businessDaysFromNow(2);
@@ -153,10 +154,10 @@ async function sendNext(leadId: string, mode: "intro" | "followup", veed?: VeedV
   switch (res.outcome) {
     case "sent":
     case "deduped":
-      // For gatekeeper-heavy practices the phone call now FOLLOWS the email: once the review
-      // has actually gone out, schedule one contextual follow-up call a couple business days
-      // later so reception has a legitimate reason ("I sent over a quick review…"), never a cold call.
-      if (mode === "intro") await scheduleGatekeeperFollowUpCall(leadId, lead, email.subject);
+      // Value-first: once the review has actually gone out, the phone call FOLLOWS it with
+      // context for every callable lead — schedule one warm follow-up call a couple business
+      // days later ("I sent over a quick review…"), never a cold pitch.
+      if (mode === "intro") await scheduleFollowUpCallAfterEmail(leadId, lead, email.subject);
       return { outcome: "sent", providerMessageId: res.providerMessageId ?? null, stepId: step.id };
     case "skipped":
       return /suppress/i.test(res.reason ?? "")

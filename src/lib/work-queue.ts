@@ -9,6 +9,14 @@
 import type { Task, TaskType, Lead } from "./types";
 import { determineContactStrategy, strategyToWorkKind } from "./outreach/contact-strategy";
 import { knownClosedNow } from "./timezone";
+import { isOrdinaryColdPhoneFirst, predictablyClosedForWeekend } from "./outreach/call-priority";
+
+/** Should this CALL be withheld from the PRIMARY board right now? Composes the three
+ *  value-first withholds: a locked door (known closed), a predictably-out weekend office,
+ *  and an ordinary completely-cold phone-first lead (deprioritized, never deleted). */
+export function callWithheld(lead: Lead, now: Date): boolean {
+  return knownClosedNow(lead, now) || predictablyClosedForWeekend(lead, now) || isOrdinaryColdPhoneFirst(lead);
+}
 
 export type WorkKind = "discovery" | "follow-up" | "email" | "report" | "call" | "contact-form" | "instagram-dm" | "video" | "understand";
 
@@ -91,11 +99,12 @@ export function buildWorkQueue(input: {
   const push = (kind: WorkKind, leadId: string) => {
     const lead = leads.get(leadId);
     if (!lead) return;
-    // A PHONE-call task for a business we can prove is closed right now does not
-    // belong on the active call board — it would just be a locked door. This is the
-    // ONLY channel we withhold: asynchronous work (email, forms, DMs) is unaffected,
-    // and only RELIABLE hours withhold anyone (knownClosedNow fails open on unknowns).
-    if (kind === "call" && knownClosedNow(lead, now)) return;
+    // A PHONE-call task is withheld from the active board when it would waste the operator's
+    // scarce synchronous attention: a locked door (known closed now), a predictably-out
+    // professional office on a weekend, or an ordinary completely-cold phone-first lead
+    // (value-first: warm/high-value calls surface, cold ones wait in the ledger). Async work
+    // (email, forms, DMs) is never withheld. Nothing is deleted — the lead stays reachable.
+    if (kind === "call" && callWithheld(lead, now)) return;
     const arr = byKind.get(kind) ?? [];
     if (!arr.includes(leadId)) arr.push(leadId); // dedupe within a batch
     byKind.set(kind, arr);
@@ -241,7 +250,7 @@ export function surfaceTodaysTasks(input: {
     const lead = leads.get(t.leadId);
     if (!lead) continue;
     const kind = workKindForTask(t, lead);
-    if (kind === "call" && knownClosedNow(lead, now)) continue; // a locked door is not work
+    if (kind === "call" && callWithheld(lead, now)) continue; // locked door / weekend office / cold phone-first
     const ch = channelOf(kind);
     const used = usedLeads[ch];
     if (!used.has(t.leadId)) {

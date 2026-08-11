@@ -10,9 +10,32 @@
 import type { Lead, StoredBusinessIntelligence } from "./types";
 import type { WebsiteSignals } from "./scoring";
 import type { SuppliedPage, SuppliedReview } from "./intelligence/providers";
-import { analyzeBusiness } from "./intelligence/engine";
+import { analyzeBusiness, type BusinessIntelligence } from "./intelligence/engine";
 import { diffIntelligence } from "./intelligence/enrichment-delta";
-import { findingsForLead, contactsForLead, getBusinessIntelligence, upsertBusinessIntelligence } from "./repo";
+import { findingsForLead, contactsForLead, getBusinessIntelligence, upsertBusinessIntelligence, getLead, updateLead, appendAudit } from "./repo";
+import { isSameSiteEmail } from "./intelligence/providers/website-intelligence";
+import { isValidEmail } from "./outreach/contact-strategy";
+import { resolveCallWorkForEmail } from "./outreach/contact-route";
+
+/**
+ * Value-first supply: the website crawler already fetched the HTML and (now) extracted the
+ * business's published email. If the lead has NO send route yet and the discovered address is
+ * on the business's OWN domain (reasonably trustworthy — never a stray third party), adopt it
+ * as the lead's public email. This flips the lead from cold-call-first to email-first through
+ * the EXISTING contact-strategy engine, and resolveCallWorkForEmail supersedes any obsolete
+ * cold-call task and queues the review-and-send. Idempotent: only fills a MISSING route, never
+ * overwrites one; audited; no new network I/O (reuses the crawl). Sends nothing.
+ */
+async function promoteDiscoveredEmail(leadId: string, profile: BusinessIntelligence): Promise<void> {
+  const fresh = await getLead(leadId);
+  if (!fresh || isValidEmail(fresh.publicEmail)) return; // never overwrite an existing route
+  const evidence = profile.evidence.find((e: { field: string; value: unknown }) => e.field === "publicEmail");
+  const email = typeof evidence?.value === "string" ? evidence.value.trim().toLowerCase() : null;
+  if (!email || !isSameSiteEmail(email, fresh.websiteDomain)) return;
+  await updateLead(leadId, { publicEmail: email });
+  await appendAudit({ action: "lead.email.discovered", actor: "system", targetType: "lead", targetId: leadId, meta: { email, source: "website-crawl" }, ip: null });
+  await resolveCallWorkForEmail(leadId, fresh.businessName); // supersede cold-call work, queue review-and-send
+}
 
 /**
  * The single wiring point for review TEXT. Review intelligence needs review bodies,
@@ -42,5 +65,9 @@ export async function generateAndStoreBI(lead: Lead, opts: GenerateBIOptions = {
   const enrichmentDelta = prev ? diffIntelligence(prev.profile, profile) : null;
   const generatedAt = new Date().toISOString();
 
-  return upsertBusinessIntelligence({ leadId: lead.id, profile, enrichmentDelta, generatedAt });
+  const stored = await upsertBusinessIntelligence({ leadId: lead.id, profile, enrichmentDelta, generatedAt });
+  // Value-first: adopt a same-domain published email as the send route so the review can be
+  // emailed rather than the lead falling through to a cold call. Best-effort — never break BI.
+  try { await promoteDiscoveredEmail(lead.id, profile); } catch { /* enrichment must not fail on this */ }
+  return stored;
 }

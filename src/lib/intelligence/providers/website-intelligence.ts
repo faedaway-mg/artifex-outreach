@@ -73,6 +73,14 @@ export function analyzeWebsitePages(pages: SuppliedPage[]): Evidence[] {
   const contactPaths = contactPaths_(allHtml);
   if (contactPaths.length) fact("channel", "contactPaths", contactPaths.join(","), `Contact routes visible: ${contactPaths.join(", ")}.`);
 
+  // Public email — the crawler already has the HTML; extract the actual address (not just
+  // "an email exists") so the value-first review can be emailed instead of falling through to
+  // a cold call. Prefer an address on the business's own domain; role inboxes (info@/office@)
+  // are fine for a first touch. Emitted as evidence; promotion to the lead's send route is
+  // gated downstream (same-domain only) so a stray third-party address is never used blindly.
+  const emailPick = pickBusinessEmail(extractEmailsFromHtml(allHtml), src);
+  if (emailPick) fact("channel", "publicEmail", emailPick, `A public email is published on the site: ${emailPick}.`, "Verified");
+
   // Locations
   const locs = countLocations(allText);
   if (locs > 1) fact("scale", "locations", locs, `Appears to reference ${locs} locations.`, "Likely");
@@ -190,6 +198,55 @@ function detectBooking(lc: string): string | null {
   if (/\b(book (now|online|an appointment)|schedule (now|online|an appointment))\b/.test(lc)) return "on-site booking";
   return null;
 }
+// Junk / non-contact addresses that appear in markup but are never a real business inbox:
+// tracking/CDN/builder placeholders, template stubs, and image/asset filenames.
+const EMAIL_JUNK_RE = /(sentry|wixpress|example\.(com|org)|godaddy|squarespace|cloudflare|domain\.com|yourdomain|your-email|email@|name@|user@|\.(png|jpe?g|gif|webp|svg)$|u00|sentry-next|localhost)/i;
+const ROLE_LOCALPARTS = ["info", "contact", "hello", "office", "hi", "admin", "reception", "appointments", "frontdesk", "front.desk", "bookings", "team", "mail"];
+
+/** PURE: every plausible email address in the page markup (mailto: links + inline text). */
+export function extractEmailsFromHtml(html: string): string[] {
+  const found = new Set<string>();
+  for (const m of html.matchAll(/href=["']mailto:([^"'?&>]+)/gi)) {
+    const e = decodeURIComponent(m[1].trim()).toLowerCase();
+    if (e) found.add(e);
+  }
+  for (const m of html.matchAll(/[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}/g)) {
+    found.add(m[0].trim().toLowerCase());
+  }
+  return [...found].filter((e) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e) && !EMAIL_JUNK_RE.test(e));
+}
+
+/** The registrable-ish host of a URL or email domain (last two labels), for same-site matching. */
+function siteHost(urlOrDomain: string): string {
+  const host = urlOrDomain.replace(/^[a-z]+:\/\//i, "").replace(/^www\./i, "").split(/[/?#]/)[0].toLowerCase();
+  const labels = host.split(".").filter(Boolean);
+  return labels.length >= 2 ? labels.slice(-2).join(".") : host;
+}
+
+/**
+ * PURE: choose the single most trustworthy business inbox from candidates, or null.
+ * Prefers an address on the business's OWN domain (so we never send to the web designer's
+ * or a directory's address), then a role inbox (info@/office@…), then the first same-site
+ * one. Returns a non-same-domain address only when NO same-domain address exists (a small
+ * business that publishes its gmail) — downstream promotion still gates on same-domain.
+ */
+export function pickBusinessEmail(emails: string[], siteUrl: string | null | undefined): string | null {
+  if (!emails.length) return null;
+  const site = siteUrl ? siteHost(siteUrl) : "";
+  const sameSite = site ? emails.filter((e) => siteHost(e.split("@")[1] ?? "") === site) : [];
+  const pool = sameSite.length ? sameSite : emails;
+  const role = pool.find((e) => ROLE_LOCALPARTS.includes(e.split("@")[0]));
+  return role ?? pool[0] ?? null;
+}
+
+/** True when an email is safe to auto-adopt as the lead's send route: valid AND on the
+ *  business's own website domain (the "reasonably trustworthy" bar — never a stray third party). */
+export function isSameSiteEmail(email: string | null | undefined, websiteDomain: string | null | undefined): boolean {
+  if (!email || !websiteDomain) return false;
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return false;
+  return siteHost(email.split("@")[1] ?? "") === siteHost(websiteDomain);
+}
+
 function contactPaths_(html: string): string[] {
   const out: string[] = [];
   if (/href=["']tel:/i.test(html)) out.push("phone");

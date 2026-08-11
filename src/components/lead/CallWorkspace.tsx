@@ -4,7 +4,7 @@
 // the call and record it lives here, and nothing else does. What renders is driven
 // by the lead's single contact state (see deriveCallLeadState) — call-required,
 // attempt-scheduled, or closed.
-import { Phone, MapPin, Globe, Target, CheckCircle2, CalendarClock, XCircle } from "lucide-react";
+import { Phone, MapPin, Globe, Target, CheckCircle2, CalendarClock, XCircle, Mail } from "lucide-react";
 import { CallSessionShell } from "@/components/lead/CallSessionShell";
 import { CallOutcomeConsole, type Continuation } from "@/components/lead/CallOutcomeConsole";
 import { ResetLeadButton } from "@/components/lead/ResetLeadButton";
@@ -53,6 +53,7 @@ export function CallWorkspace({
   continuation,
   collectedEmail,
   observation,
+  priorEmailSent,
 }: {
   lead: Lead;
   script: CallScript;
@@ -65,6 +66,9 @@ export function CallWorkspace({
   /** An email collected on a call (on a contact) while the lead still has no send
    *  route — enables the one-tap "they asked us to send it" correction. */
   collectedEmail?: string | null;
+  /** True when the personalized review was already emailed — makes this a WARM follow-up call
+   *  with context, not a cold open. Switches the opener the operator is shown. */
+  priorEmailSent?: boolean;
 }) {
   // CLOSED — the lead is done. No call button, no script: one calm status card and
   // the ability to reopen if it was a mistake. Deeper info still lives below.
@@ -97,7 +101,7 @@ export function CallWorkspace({
   // The words for THIS business, reasoned from what it is and what we found —
   // built once here so the live assistant and the written guide below it are the
   // same call, not two different ones (see call-opening.ts).
-  const opening = openingForLead(lead, { observations: [observation] });
+  const opening = openingForLead(lead, { observations: [observation], emailedReview: priorEmailSent });
 
   return (
     <div className="space-y-5">
@@ -117,6 +121,28 @@ export function CallWorkspace({
               it — the send is queued, the call-back superseded, history kept. */}
           {collectedEmail && <ConvertToSendButton leadId={lead.id} email={collectedEmail} />}
         </div>
+      )}
+
+      {/* WARM FOLLOW-UP CONTEXT — this call follows an email we already sent, so the operator
+          opens with context, not a cold pitch. Short beats to say naturally, not a script to read. */}
+      {opening.followUp && (
+        <section className="card border-teal-400/25 bg-teal-400/[0.04] p-5">
+          <p className="inline-flex items-center gap-2 text-[13px] font-semibold text-teal-200">
+            <Mail size={15} /> Warm follow-up — the review was already emailed
+          </p>
+          <p className="mt-2 text-[14.5px] leading-relaxed text-chalk-100">“{opening.followUp.opener}”</p>
+          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+            <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-3">
+              <p className="text-[11px] font-medium uppercase tracking-wide text-chalk-500">If they saw it</p>
+              <p className="mt-1 text-[13px] leading-relaxed text-chalk-300">“{opening.followUp.ifSeen}”</p>
+            </div>
+            <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-3">
+              <p className="text-[11px] font-medium uppercase tracking-wide text-chalk-500">If they didn’t</p>
+              <p className="mt-1 text-[13px] leading-relaxed text-chalk-300">“{opening.followUp.ifNotSeen}”</p>
+            </div>
+          </div>
+          <p className="mt-2 text-[12px] text-chalk-500">Voicemail: “{opening.followUp.voicemail}”</p>
+        </section>
       )}
 
       {/* 2 · THE CALL ACTION + 3 · THE LIVE ASSISTANT — side by side on desktop so

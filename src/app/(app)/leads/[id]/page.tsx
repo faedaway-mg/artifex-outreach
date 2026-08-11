@@ -349,7 +349,7 @@ export default async function LeadPage({ params, searchParams }: { params: { id:
         </Link>
 
         {/* The one workspace responsible for the current action. */}
-        <CallWorkspace lead={lead} script={script} reason={callStrategy.reason} state={callState} observation={stoodOut[0] ?? null} continuation={continuation} collectedEmail={collectedEmail} />
+        <CallWorkspace lead={lead} script={script} reason={callStrategy.reason} state={callState} observation={stoodOut[0] ?? null} continuation={continuation} collectedEmail={collectedEmail} priorEmailSent={leadSends.some((s) => !!s.sentAt)} />
 
         {/* More about this business — the full lifecycle & intelligence, collapsed. */}
         <details className="group scroll-mt-4">
