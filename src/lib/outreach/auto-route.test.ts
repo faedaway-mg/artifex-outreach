@@ -151,7 +151,9 @@ describe("materializeRouting — drains the understand backlog into execution st
     const dq = await seedWithReview(ownerAccessible({ businessName: "Closed D", pipelineStage: "Disqualified" }));
 
     const summary = await materializeRouting();
-    expect(summary.processed).toBe(4);
+    // `processed` counts leads ACTED upon: Dentist A (email created), Shop B (call created),
+    // Closed D (review retired). Ghost C is needs-attention (a no-op), counted separately.
+    expect(summary.processed).toBe(3);
     expect(summary.routed.email).toBe(1);
     expect(summary.routed.call).toBe(1);
     expect(summary.needsAttention).toBe(1);
