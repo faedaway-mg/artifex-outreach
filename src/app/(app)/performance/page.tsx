@@ -15,6 +15,7 @@ import { Stat } from "@/components/ui";
 import { categoryPerformance, MIN_SAMPLE } from "@/lib/analytics";
 import { acquisitionMetrics } from "@/lib/acquisition/analytics";
 import { channelFunnel } from "@/lib/outreach/channel-funnel";
+import { acquisitionChannelOf, isFromContent001 } from "@/lib/acquisition/provenance";
 import { formatCurrency } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -40,6 +41,11 @@ export default async function PerformancePage() {
   ]);
   // Channel comparison — value-first email → warm follow-up vs cold call, from existing sources.
   const funnel = channelFunnel({ audit, emailSends, outreach, meetings });
+
+  // Acquisition provenance — where businesses came from (first-class over lead.source).
+  const bySourceChannel = { outbound: 0, "organic-content": 0, inbound: 0, referral: 0, paid: 0 } as Record<string, number>;
+  for (const l of leads) bySourceChannel[acquisitionChannelOf(l.source)] += 1;
+  const content001Requests = leads.filter((l) => isFromContent001(l.source)).length;
   const acq = acquisitionMetrics(leads, plans, meetings, proposals, suppressions, feedback);
 
   const discovered = leads.length;
@@ -84,6 +90,20 @@ export default async function PerformancePage() {
         <Stat label="Partnerships formed" value={won} tone="emerald" />
         <Stat label="Revenue won" value={formatCurrency(revenue)} tone="emerald" />
       </div>
+
+      {/* Acquisition provenance — where did each business come from? (Content #001 loop) */}
+      <section>
+        <h2 className="mb-1 text-sm font-semibold uppercase tracking-wide text-chalk-400">Where businesses come from</h2>
+        <p className="mb-3 text-[12px] text-chalk-500">First-class acquisition provenance. Content #001 → /review requests land as organic-content.</p>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+          <Stat label="Outbound" value={bySourceChannel.outbound} />
+          <Stat label="Organic / content" value={bySourceChannel["organic-content"]} tone="teal" />
+          <Stat label="Inbound / direct" value={bySourceChannel.inbound} tone="azure" />
+          <Stat label="Referral" value={bySourceChannel.referral} tone="indigo" />
+          <Stat label="Paid" value={bySourceChannel.paid} />
+          <Stat label="Content #001 requests" value={content001Requests} tone="amber" />
+        </div>
+      </section>
 
       {/* Channel comparison — which path creates pipeline per minute of attention */}
       <section>

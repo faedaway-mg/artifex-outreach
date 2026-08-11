@@ -7,6 +7,11 @@ export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
   const isPublic =
     pathname.startsWith("/login") ||
+    // The public inbound front door: the Business Technology Review request landing (and its
+    // server action, which posts to the same /review path). Creates a lead in the existing
+    // model; sends nothing. Kept public so real prospects can reach it.
+    pathname === "/review" ||
+    pathname.startsWith("/review/") ||
     pathname.startsWith("/api/auth") ||
     pathname.startsWith("/api/health") ||
     pathname.startsWith("/api/cron") ||
