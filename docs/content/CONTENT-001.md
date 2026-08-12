@@ -1,10 +1,13 @@
 # Content #001 — "I accidentally built a cold-calling machine (and I hate cold calling)"
 
-**Status:** READY TO RECORD. Do not publish until Jordan approves the final cut.
-**Format:** Short-form vertical video, ~75 seconds (target 60–90s).
-**Grounded in a real event:** the value-first fix shipped in this repo — commit `8e70ef6`
-("value-first email supply + warm follow-up calls + deprioritize cold phone-first").
-**Destination CTA:** `https://outreach.artifexlabs.tech/review?ref=content-001`
+**Status:** READY TO RECORD. Do NOT publish until Jordan approves the final cut. /review is NOT
+yet publicly live — record now; we deploy the public page + publish only after your approval.
+**Format:** Short-form vertical video (9:16), ~75 seconds (target 60–90s).
+**Grounded in real, shipped work:** the value-first line in this repo — `8e70ef6` (email supply +
+warm follow-up + cold-call deprioritization), `36b054f` (route-aware reconciliation / stale-call
+recovery), `3e403be` (prepared-inventory separation + no cold-call quota), and background email
+prep now enabled in prod. The story uses only the parts that strengthen it (see beats).
+**Destination CTA:** `https://outreach.artifexlabs.tech/review?ref=content-001` (attributed to Content #001).
 
 > This is ONE artifact for ONE loop, not a content engine. Record it once, in your own
 > words. The beats below are guardrails, not a teleprompter.
@@ -17,6 +20,11 @@
 > built a really efficient cold-calling machine — and I hate cold calling. So I changed it."
 
 Alt hook (pick whichever lands): *"My own software kept handing me the worst possible sales job."*
+
+**Cleaner variant (if posting from the official Artifex Labs account):**
+> "We built a system to help find our own clients — and realized it was quietly pushing human
+> attention toward the wrong work. Here's what we changed, and the principle behind it."
+Same story, less first-person self-deprecation; use the personal version from Jordan's own account.
 
 ## CONVERSATIONAL BEATS (explain in your own words)
 
@@ -43,7 +51,21 @@ Alt hook (pick whichever lands): *"My own software kept handing me the worst pos
 
 ---
 
-## VISUAL PLAN (minimum viable — reuse, don't over-produce)
+## VISUAL PACKAGE — ABSTRACTED (privacy-safe default: NO real screenshots needed)
+
+To ship fast AND stay safe, the recommended visuals are three simple ABSTRACT flow cards + an end
+card — no Acquisition OS screenshots, so there is zero risk of exposing prospect data. Build them
+in Asset Factory or as plain tokened slides (ink background, chalk text, azure/teal accents,
+constellation mark). Screenshots are OPTIONAL and only if fully mock/sanitized.
+
+- **Visual 1 — The problem:**  `SOFTWARE → COLD CALL → human has to create interest from zero`
+- **Visual 2 — The discovery:** `WEBSITE ALREADY HAD THE EMAIL → system wasn't using it → wrong human work`
+- **Visual 3 — The new flow:** `WEBSITE → EMAIL → PERSONALIZED REVIEW → value first → WARM CONVERSATION`
+- **End card:** constellation mark · "SOFTWARE HANDLES SCALE. HUMANS HANDLE INTENT." ·
+  "Request a Business Technology Review" · `artifexlabs.tech/review` (this is exactly the
+  `/review` OG card look, already in the repo at `src/app/review/opengraph-image.tsx`).
+
+## VISUAL PLAN (optional richer version — reuse, don't over-produce)
 
 | Beat | Visual | Source |
 | --- | --- | --- |
