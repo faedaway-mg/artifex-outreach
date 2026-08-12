@@ -116,11 +116,14 @@ export async function runProspecting(req: ProspectRequest): Promise<ProspectingR
 
   // Active supply goals: a daily target means "attempt to have N legitimate items ready",
   // not "show at most N". The discovery target is the TOTAL positive deficit across the three
-  // streams (Calls + Emails + Videos), so an empty email stream actually pulls new
-  // email-capable leads instead of the whole day stopping at one combined count. The old
-  // combined floor (dailyQueueSize − what's already queued) is preserved. Quality gates are
-  // untouched — discovery still only adds businesses that pass scoring/exclusion, so a deficit
-  // is an ATTEMPT, never fabricated work; maxNewLeadsPerRun and the cost budget still bound it.
+  // streams — but CALLS are NOT a supply goal. We no longer manufacture cold-call inventory to
+  // hit "10 calls today"; calls should surface only when justified (a review was emailed, a
+  // reply, prior context, or a strong no-email opportunity). Discovery therefore replenishes
+  // EMAIL and VIDEO deficits only, so an empty email board pulls new email-capable leads while a
+  // thin call board is left alone. The old combined floor (dailyQueueSize − what's already
+  // queued) is preserved. Quality gates are untouched — discovery still only adds businesses that
+  // pass scoring/exclusion, so a deficit is an ATTEMPT, never fabricated work; maxNewLeadsPerRun
+  // and the cost budget still bound it.
   const leadMapForReadiness = new Map(existing.map((l) => [l.id, l] as const));
   const ready = channelReadiness(dueTasks, leadMapForReadiness);
   const targets: ChannelReadiness = {
@@ -129,7 +132,7 @@ export async function runProspecting(req: ProspectRequest): Promise<ProspectingR
     video: Math.max(0, p.videoDailyTarget ?? DEFAULT_VIDEO_TARGET),
   };
   const deficits = channelDeficits(ready, targets);
-  const totalDeficit = deficits.call + deficits.email + deficits.video;
+  const totalDeficit = deficits.email + deficits.video; // calls deliberately excluded (no cold-call quota)
   const supplyGoal = Math.max(p.dailyQueueSize - currentTodayCount, totalDeficit);
   const target = Math.min(req.count ?? Math.max(0, supplyGoal), p.maxNewLeadsPerRun);
   if (target <= 0) {

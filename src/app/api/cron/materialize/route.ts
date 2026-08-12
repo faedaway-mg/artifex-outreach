@@ -50,6 +50,27 @@ export async function POST(req: NextRequest) {
     const { materializeRouting } = await import("@/lib/outreach/auto-route");
     const routing = dryRun ? null : await materializeRouting();
 
+    // Deepen the EMAIL reservoir ahead of consumption: run the existing website analysis on a
+    // few qualified leads that have a site but no email yet, so they harvest a same-domain
+    // address and become email-first. Bounded per tick (cost-safe); read-only crawl, never
+    // contact; no send. Then reconcile again so newly-email leads get their review task.
+    // Gated OFF by default — a background bulk crawl is a decision, not a deploy side effect.
+    let prep: unknown = null;
+    if (!dryRun && process.env.EMAIL_PREP_ENABLED === "1") {
+      const { prepareEmailInventory } = await import("@/lib/outreach/inventory-prep");
+      const { runWebsiteAnalysisAction } = await import("@/lib/actions");
+      const { listLeads, allBusinessIntelligence, getLead } = await import("@/lib/repo");
+      const [leads, bi] = await Promise.all([listLeads(), allBusinessIntelligence()]);
+      prep = await prepareEmailInventory({
+        leads,
+        analyzedLeadIds: new Set(bi.map((b) => b.leadId)),
+        analyze: (id) => runWebsiteAnalysisAction(id),
+        getEmailAfter: async (id) => (await getLead(id))?.publicEmail ?? null,
+        max: Number(process.env.EMAIL_PREP_PER_TICK ?? 8),
+      });
+      await materializeRouting(); // surface review tasks for any newly email-first leads
+    }
+
     const summary = await materializeDueSteps({ apply: !dryRun, horizon });
 
     // Phase 2 runs after projection so it sees today's real workload, not
@@ -87,6 +108,7 @@ export async function POST(req: NextRequest) {
       horizon,
       sent: 0, // this route never sends — stated explicitly so monitoring can assert it
       routed: routing, // understand-placeholder → execution-stream materialization (null on dryRun)
+      emailPrep: prep, // bounded email-inventory preparation (null unless EMAIL_PREP_ENABLED=1)
       ranAt: summary.ranAt,
       considered: summary.considered,
       created: summary.created,

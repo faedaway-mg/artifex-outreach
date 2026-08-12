@@ -17,7 +17,8 @@ import { TodayControls } from "@/components/TodayControls";
 import { MorningWarming } from "@/components/MorningWarming";
 import { WorkQueue } from "@/components/WorkQueue";
 import { DailyMission } from "@/components/DailyMission";
-import { buildWorkQueue, buildDailyMission, surfaceTodaysTasks, channelCapacity, channelOf, workKindForTask, channelReadiness, channelDeficits } from "@/lib/work-queue";
+import { buildWorkQueue, buildDailyMission, surfaceTodaysTasks, channelCapacity, channelOf, workKindForTask, channelReadiness, emailInventory } from "@/lib/work-queue";
+import { auditQueue } from "@/lib/outreach/inventory-prep";
 import { accountQueue } from "@/lib/queue-accounting";
 import { accountSequences } from "@/lib/comms/task-projection";
 import { formatCurrency, relativeDate, timeOfDay, shortDate, joinMeta, formatLocation, deslug } from "@/lib/utils";
@@ -144,17 +145,21 @@ export default async function TodayPage({ searchParams }: { searchParams?: { vie
   const doneToday = everyTask.filter((t) => t.status === "done" && t.type !== "review" && isSameDay(t.updatedAt, now)).length;
   const mission = buildDailyMission(workQueue, doneToday);
 
-  // Active supply goals — how many businesses are actually READY per stream vs the day's
-  // target. When a stream is short, the system is preparing more (discovery replenishes to
-  // the deficit); this line is honest about partial readiness rather than implying a full board.
-  const supplyTargets = {
-    call: Math.max(0, settings.prospecting.callDailyTarget ?? 10),
-    email: Math.max(0, settings.prospecting.emailDailyTarget ?? 10),
-    video: Math.max(0, settings.prospecting.videoDailyTarget ?? 3),
-  };
+  // Board composition reflects the value-first model, NOT quotas:
+  //  • Emails: PREPARED inventory (deep) is distinct from what's send-safe TODAY.
+  //  • Calls: "warm/high-value ready" — never an "x/10 cold-call quota" (cold ones are withheld).
+  //  • Videos: a small capacity, reserved for the best opportunities.
+  const emailTarget = Math.max(0, settings.prospecting.emailDailyTarget ?? 10);
+  const videoTarget = Math.max(0, settings.prospecting.videoDailyTarget ?? 3);
   const ready = channelReadiness(tasks, leadMap);
-  const deficits = channelDeficits(ready, supplyTargets);
-  const anyDeficit = deficits.call + deficits.email + deficits.video > 0;
+  const scopedOpen = everyTask.filter((t) => scopedLeadIds.has(t.leadId));
+  const inventory = emailInventory({ leads: leadMap, tasks: scopedOpen, emailsSentToday, sendTarget: emailTarget });
+  const showComposition = inventory.prepared > 0 || ready.call > 0 || ready.video > 0;
+  // Queue-health audit: turn "nothing queued / needs attention" into an owner breakdown so the
+  // operator can see what the SYSTEM is handling vs what genuinely needs them. Defects (should
+  // have work but don't) self-heal on the next reconciliation tick — surfaced honestly, not hidden.
+  const queueAudit = auditQueue({ leads: leads.filter((l) => scopedLeadIds.has(l.id)), tasks: scopedOpen, analyzedLeadIds: new Set(bi.map((b) => b.leadId)) });
+  const showQueueHealth = queueAudit.byOwner.human > 0 || queueAudit.byOwner["software-research"] > 0 || queueAudit.byOwner.defect > 0;
   // The honest ledger of everything NOT on screen (beyond cap, future, snoozed, unqueued).
   // Scoped to the same businesses as the queue above, so the ledger's totals
   // reconcile with what is actually on screen rather than with the whole company.
@@ -186,12 +191,14 @@ export default async function TodayPage({ searchParams }: { searchParams?: { vie
       <div>
         <p className="eyebrow mb-3">{dateLabel} · Today's work</p>
         <WorkQueue categories={workQueue} />
-        {/* Active supply goals — ready-vs-target per stream. Shown only when a stream is
-            short, so the operator sees the system is preparing more, not that work vanished. */}
-        {anyDeficit && (
+        {/* Board composition — value-first, not quotas. Emails lead: what's send-safe today vs
+            the deeper prepared reservoir. Calls are shown as "warm ready", never a cold quota. */}
+        {showComposition && (
           <p className="mt-2.5 text-[12px] text-chalk-500">
-            Ready today · Calls {ready.call}/{supplyTargets.call} · Emails {ready.email}/{supplyTargets.email} · Videos {ready.video}/{supplyTargets.video}
-            <span className="text-chalk-600"> — preparing more qualified work to fill the gap</span>
+            Emails ready to send today: <span className="text-chalk-300">{inventory.readyToday}</span>
+            {inventory.beyondToday > 0 && <span className="text-chalk-600"> · {inventory.beyondToday} more Review{inventory.beyondToday === 1 ? "" : "s"} prepared</span>}
+            {" · "}Warm calls ready: <span className="text-chalk-300">{ready.call}</span>
+            {" · "}Videos: <span className="text-chalk-300">{ready.video}</span>/{videoTarget}
           </p>
         )}
         {/* Queue ledger — where everything else is, so "where did my leads go?" is
@@ -209,6 +216,15 @@ export default async function TodayPage({ searchParams }: { searchParams?: { vie
               sequences.plansAwaitingApproval > 0 ? `${sequences.plansAwaitingApproval} sequences waiting on approval` : null,
               sequences.dueStepsMissingTask > 0 ? `${sequences.dueStepsMissingTask} due follow-ups not yet queued` : null,
             ].filter(Boolean).join(" · ")}
+          </p>
+        )}
+        {/* Queue health — who owns the off-board businesses: you vs the system. Makes the old
+            opaque "N nothing queued / M needs attention" an honest, actionable breakdown. */}
+        {showQueueHealth && (
+          <p className="mt-1 text-[12px] text-chalk-500">
+            Queue health · <span className="text-chalk-300">{queueAudit.byOwner.human}</span> genuinely need you
+            {queueAudit.byOwner["software-research"] > 0 && <> · <span className="text-chalk-400">{queueAudit.byOwner["software-research"]}</span> preparing (system researching)</>}
+            {queueAudit.byOwner.defect > 0 && <> · <span className="text-amber-300/80">{queueAudit.byOwner.defect}</span> auto-fixing on next refresh</>}
           </p>
         )}
       </div>

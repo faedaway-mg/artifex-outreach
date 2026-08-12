@@ -46,7 +46,7 @@ interface KindMeta { title: string; blurb: string; perMinutes: number; cta: stri
 // follow-ups) and the rest. It is triage, not a lock — every batch is openable anytime.
 const META: Record<WorkKind, KindMeta> = {
   discovery: { title: "Discovery calls today", blurb: "Conversations on the calendar — walk in ready.", perMinutes: 10, cta: "Prepare", urgency: 0, timeBound: true },
-  call: { title: "Calls to make", blurb: "Morning work — reach businesses while they're open.", perMinutes: 6, cta: "Start calling", urgency: 1 },
+  call: { title: "Calls to make", blurb: "Warm & high-value calls worth a synchronous conversation — cold strangers wait in the ledger.", perMinutes: 6, cta: "Start calling", urgency: 1 },
   video: { title: "Videos to record", blurb: "Morning work — record personal walkthroughs at your computer.", perMinutes: 8, cta: "Start video batch", urgency: 1.5 },
   "follow-up": { title: "Follow-ups due", blurb: "Open threads ready for the next touch.", perMinutes: 2, cta: "Review follow-ups", urgency: 2 },
   email: { title: "Emails to send", blurb: "Anytime — review, approve, and send from your phone.", perMinutes: 3, cta: "Start sending", urgency: 2.5 },
@@ -226,6 +226,50 @@ export function channelDeficits(ready: ChannelReadiness, targets: ChannelReadine
     email: Math.max(0, targets.email - ready.email),
     video: Math.max(0, targets.video - ready.video),
   };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Prepared email inventory ≠ today's send capacity.
+//
+// A deep reservoir of qualified, personalized Business Technology Review emails can (and
+// should) exist even when the safe daily SEND target is small. The operator experience
+// "there is only one email" is very different from "you can send 10 today; 37 more Reviews
+// are already prepared." These are separate concepts: PREPARATION runs ahead of CONSUMPTION;
+// SENDING stays gated by the warm-up-safe daily target. This does NOT change any send limit.
+// ─────────────────────────────────────────────────────────────────────────────
+export interface EmailInventory {
+  /** Distinct email-first businesses with a prepared review-and-send task (the reservoir). */
+  prepared: number;
+  /** Safe sends remaining today = max(0, sendTarget − already sent today). */
+  sendCapacity: number;
+  /** What the operator can actually send today = min(prepared, sendCapacity). */
+  readyToday: number;
+  /** Prepared inventory held back purely by today's send capacity (returns tomorrow). */
+  beyondToday: number;
+}
+
+/** Measure prepared email inventory vs today's send capacity from open tasks. Counts a business
+ *  once (distinct leadId) when it has an open review_and_send that buckets to the email stream —
+ *  i.e. a prepared Review awaiting operator review/approval. Send capacity is unchanged. */
+export function emailInventory(input: {
+  leads: Map<string, Lead> | Lead[];
+  tasks: Task[];
+  emailsSentToday: number;
+  sendTarget: number;
+}): EmailInventory {
+  const leadMap = Array.isArray(input.leads) ? new Map(input.leads.map((l) => [l.id, l])) : input.leads;
+  const seen = new Set<string>();
+  for (const t of input.tasks) {
+    if (t.status !== "open" || t.type !== "review_and_send") continue;
+    const lead = leadMap.get(t.leadId);
+    if (!lead) continue;
+    if (workKindForTask(t, lead) !== "email") continue; // only email-bucketed reviews count
+    seen.add(t.leadId);
+  }
+  const prepared = seen.size;
+  const sendCapacity = Math.max(0, input.sendTarget - Math.max(0, input.emailsSentToday));
+  const readyToday = Math.min(prepared, sendCapacity);
+  return { prepared, sendCapacity, readyToday, beyondToday: Math.max(0, prepared - readyToday) };
 }
 
 /**
