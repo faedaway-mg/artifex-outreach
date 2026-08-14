@@ -10,7 +10,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import type { Territory } from "./types";
 
-export type GeoPool = "SoCal" | "California" | "West/Southwest" | "Texas/Central" | "Midwest/East/South";
+export type GeoPool = "SoCal" | "California" | "West/Southwest" | "Texas/Central" | "Midwest/East/South" | "Regional";
 
 export interface PoolMarket extends Territory { pool: GeoPool }
 
@@ -41,7 +41,17 @@ export const POOLS: Record<GeoPool, PoolMarket[]> = {
   "Midwest/East/South": [
     { city: "Chicago", state: "IL", pool: "Midwest/East/South" }, { city: "Atlanta", state: "GA", pool: "Midwest/East/South" },
     { city: "Miami", state: "FL", pool: "Midwest/East/South" }, { city: "New York", state: "NY", pool: "Midwest/East/South" },
-    { city: "Nashville", state: "TN", pool: "Midwest/East/South" }, { city: "Charlotte", state: "NC", pool: "Midwest/East/South" },
+  ],
+  // Less sales-saturated regional markets — EMPHASIZED for the first receptivity test (Ohio-forward).
+  Regional: [
+    { city: "Columbus", state: "OH", pool: "Regional" }, { city: "Cincinnati", state: "OH", pool: "Regional" },
+    { city: "Cleveland", state: "OH", pool: "Regional" }, { city: "Dayton", state: "OH", pool: "Regional" },
+    { city: "Indianapolis", state: "IN", pool: "Regional" }, { city: "Louisville", state: "KY", pool: "Regional" },
+    { city: "Nashville", state: "TN", pool: "Regional" }, { city: "Kansas City", state: "MO", pool: "Regional" },
+    { city: "St. Louis", state: "MO", pool: "Regional" }, { city: "Milwaukee", state: "WI", pool: "Regional" },
+    { city: "Grand Rapids", state: "MI", pool: "Regional" }, { city: "Pittsburgh", state: "PA", pool: "Regional" },
+    { city: "Charlotte", state: "NC", pool: "Regional" }, { city: "Greenville", state: "SC", pool: "Regional" },
+    { city: "Omaha", state: "NE", pool: "Regional" }, { city: "Tulsa", state: "OK", pool: "Regional" },
   ],
 };
 
@@ -56,9 +66,12 @@ export function isUsMarket(t: { state: string }): boolean {
   return US_STATES.has((t.state ?? "").trim().toUpperCase());
 }
 
-// Non-local pools interleaved region-by-region so a short rotating slice is regionally diverse
-// (a CA metro, then a West one, then Texas, then East, then back) rather than five Texas metros.
-const NON_LOCAL_ORDER: GeoPool[] = ["California", "West/Southwest", "Texas/Central", "Midwest/East/South"];
+// Non-local pools interleaved region-by-region so a short rotating slice is regionally diverse. The
+// RECEPTIVITY thesis is expressed here (not as quotas): the less-saturated Regional pool leads the
+// interleave and is the LARGEST bloc (Ohio-forward), so it's naturally over-represented in the
+// rotation while primary/secondary metros still appear. Cost is unchanged — territories only cycle
+// across the already budget-bounded category searches.
+const NON_LOCAL_ORDER: GeoPool[] = ["Regional", "California", "West/Southwest", "Texas/Central", "Midwest/East/South"];
 export const NATIONAL_METROS: PoolMarket[] = (() => {
   const lists = NON_LOCAL_ORDER.map((p) => POOLS[p]);
   const out: PoolMarket[] = [];

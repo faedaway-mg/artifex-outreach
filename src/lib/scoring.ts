@@ -3,6 +3,7 @@
 // The AI layer may *explain* a score but never invents the number.
 // ─────────────────────────────────────────────────────────────────────────────
 import type { Lead, ScoreBreakdown, Tier } from "./types";
+import { receptivityPoints } from "./geo-market";
 
 // Industry fit for Artifex Labs' positioning (0–1 multipliers).
 const INDUSTRY_FIT: Record<string, number> = {
@@ -97,6 +98,11 @@ export function computeScore(lead: Lead, signals?: WebsiteSignals): ScoreResult 
     contactability,
     triggerUrgency,
   };
+  // Market receptivity — a SMALL capped tie-breaker (max 4) that modestly favors an ESTABLISHED
+  // business in a less-saturated regional market. It can nudge a borderline lead but never
+  // override fundamentals, and is 0 for tiny businesses and for high-saturation primary metros.
+  const marketReceptivity = receptivityPoints(lead);
+
   const total =
     businessFit +
     websiteOpportunity +
@@ -104,7 +110,8 @@ export function computeScore(lead: Lead, signals?: WebsiteSignals): ScoreResult 
     abilityToPay +
     publicReputation +
     contactability +
-    triggerUrgency;
+    triggerUrgency +
+    marketReceptivity;
 
   const tier: Tier = total >= 70 ? "A" : total >= 45 ? "B" : "C";
 
