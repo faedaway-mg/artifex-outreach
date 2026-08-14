@@ -27,6 +27,7 @@ import { discoverInputSchema } from "./schemas";
 import { categoryGroupOf } from "./categories";
 import { assignNewLead } from "./operators/distribute";
 import { channelReadiness, channelDeficits, DEFAULT_CALL_TARGET, DEFAULT_EMAIL_TARGET, DEFAULT_VIDEO_TARGET, type ChannelReadiness } from "./work-queue";
+import { effectiveTerritories } from "./geo-pools";
 
 const PLACES_COST_PER_REQUEST = 0.032;
 
@@ -181,7 +182,11 @@ export async function runProspecting(req: ProspectRequest): Promise<ProspectingR
   }
   const skippedForBudget = ranked.length - selected.length;
 
-  const territories = p.territories.length ? p.territories : [{ city: "Los Angeles", state: "CA" }];
+  // NATIONWIDE (US-only) discovery: the operator's local coverage PLUS a rotating, region-diverse
+  // slice of national markets. Cost is UNCHANGED — territories only cycle across the already
+  // budget-bounded category searches (one territory per search), so a larger universe adds NO
+  // Places calls. Rotation is keyed to the lead count so different metros surface each run.
+  const territories = effectiveTerritories(p.territories, existing.length);
   const terrOffset = existing.length % territories.length;
 
   const candidates: Array<{ place: PlaceResult; score: ReturnType<typeof computeScore>; cat: ProspectCategoryTarget }> = [];
