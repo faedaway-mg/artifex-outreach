@@ -1,12 +1,14 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // Artifex daily queue cron (Railway cron service).
 //
-// Runs on cron "30 12,13 * * *" — both UTC equivalents of 5:30 AM
-// America/Los_Angeles across PDT/PST. It checks LA local time and acts ONLY when
-// LA hour = 5 and minute 20–45 (a safe late-start window). The other firing sees
-// LA hour 4 or 6 and exits cleanly.
+// Runs on cron "30 12,13,17,20,23 * * *". The 12:30/13:30 UTC pair are the two DST equivalents of
+// 5:30 AM America/Los_Angeles — the FULL daily run (materialize + discovery). The added 17:30/20:30/
+// 23:30 UTC firings are bounded intraday reservoir TOP-UPS (~10:30 AM / 1:30 PM / 4:30 PM PT): they
+// run materialize ONLY, which is reservoir-aware and self-throttles to zero once inventory is
+// healthy. This keeps email supply from depending on one perfect overnight run, at no extra
+// discovery cost. Any firing not in the 5:30 window is treated as a top-up (DST-robust).
 //
-// It makes TWO distinct calls, in this order, and reports both:
+// The FULL run makes TWO distinct calls, in this order, and reports both:
 //
 //   1. MATERIALIZE — /api/cron/materialize projects acquisition steps that come
 //      due today into operator-visible Tasks. It sends NO email; it only makes
@@ -61,12 +63,14 @@ async function main() {
   const utc = new Date().toISOString();
   const la = laParts();
   const testMode = process.env.SCHEDULER_TEST === "true";
-  const inWindow = la.hour === 5 && la.minute >= 20 && la.minute <= 45;
-
-  if (!testMode && !inWindow) {
-    console.log(JSON.stringify({ utc, la: la.stamp, action: "skipped", reason: "outside 5:20-5:45 AM LA window" }));
-    return;
-  }
+  // The 5:30 AM window is the FULL daily run: materialize + discovery (prospect). Every OTHER
+  // scheduled firing (the added intraday times) is a bounded reservoir TOP-UP: materialize only,
+  // which is reservoir-aware and SELF-THROTTLES to zero once inventory is healthy — so email supply
+  // no longer depends on one perfect overnight run, and it adds NO extra discovery cost. Discovery
+  // stays once/day. testMode forces a full run for manual verification.
+  const fullWindow = la.hour === 5 && la.minute >= 20 && la.minute <= 45;
+  const doFullRun = testMode || fullWindow;
+  const runKind = doFullRun ? "full" : "topup";
 
   const secret = process.env.CRON_SECRET;
   if (!secret) {
@@ -93,13 +97,13 @@ async function main() {
       summary = { note: "non-JSON response" };
     }
     console.log(JSON.stringify({
-      utc, la: la.stamp, action: "materialize", testMode,
+      utc, la: la.stamp, action: "materialize", runKind, testMode,
       status: res.status, result: res.ok ? "ok" : "failure", summary,
     }));
     if (!res.ok) process.exitCode = 1;
   } catch (err) {
     console.log(JSON.stringify({
-      utc, la: la.stamp, action: "materialize", result: "error",
+      utc, la: la.stamp, action: "materialize", runKind, result: "error",
       reason: err?.name === "AbortError" ? "timeout" : "network error",
     }));
     process.exitCode = 1;
@@ -107,7 +111,14 @@ async function main() {
     clearTimeout(mTimer);
   }
 
-  // ── 2. Prospect for new leads ──────────────────────────────────────────────
+  // Intraday TOP-UP firings stop here: they only replenish the reservoir (materialize above),
+  // never discovery — so extra firings cost nothing when inventory is healthy.
+  if (!doFullRun) {
+    console.log(JSON.stringify({ utc, la: la.stamp, action: "prospect", runKind, result: "skipped", reason: "top-up tick — discovery runs only on the 5:30 full run" }));
+    return;
+  }
+
+  // ── 2. Prospect for new leads (FULL run only) ──────────────────────────────
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 30_000);
   try {
@@ -123,10 +134,10 @@ async function main() {
       summary = { note: "non-JSON response" };
     }
     const result = res.ok ? "ok" : "failure";
-    console.log(JSON.stringify({ utc, la: la.stamp, action: "prospect", testMode, status: res.status, result, summary }));
+    console.log(JSON.stringify({ utc, la: la.stamp, action: "prospect", runKind, testMode, status: res.status, result, summary }));
     if (!res.ok) process.exitCode = 1;
   } catch (err) {
-    console.log(JSON.stringify({ utc, la: la.stamp, action: "prospect", result: "error", reason: err?.name === "AbortError" ? "timeout" : "network error" }));
+    console.log(JSON.stringify({ utc, la: la.stamp, action: "prospect", runKind, result: "error", reason: err?.name === "AbortError" ? "timeout" : "network error" }));
     process.exitCode = 1;
   } finally {
     clearTimeout(timer);

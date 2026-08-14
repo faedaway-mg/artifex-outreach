@@ -5,7 +5,7 @@
   },
   "deploy": {
     "startCommand": "node daily-prospecting.mjs",
-    "cronSchedule": "30 12,13 * * *",
+    "cronSchedule": "30 12,13,17,20,23 * * *",
     "restartPolicyType": "NEVER"
   }
 }

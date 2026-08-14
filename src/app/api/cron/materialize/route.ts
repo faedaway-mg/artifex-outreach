@@ -77,7 +77,9 @@ export async function POST(req: NextRequest) {
       // Hard per-tick ceiling (env-tunable). Prep's marginal paid cost is the per-lead AI scoring
       // calls; the ceiling + reservoir throttling keep that bounded. Website crawl / harvest / BI /
       // Review render are all local/free. costCap == hardCap here (operator tunes the ceiling).
-      const hardCap = Math.max(0, Number(process.env.EMAIL_PREP_MAX ?? 24));
+      // Default raised 24→32 so a single run can build DEPTH (a reserve) when eligible supply allows;
+      // it stays supply-bounded and throttles to 0 once the reservoir is healthy.
+      const hardCap = Math.max(0, Number(process.env.EMAIL_PREP_MAX ?? 32));
       const plan = planPreparation({ prepared: preparedNow, eligible: eligibleNow, yieldRate, hardCap, costCap: hardCap, bands: DEFAULT_BANDS });
       if (plan.examine > 0) {
         const summary = await prepareEmailInventory({
@@ -124,7 +126,7 @@ export async function POST(req: NextRequest) {
       const samples = audRows.filter((a) => a.action === "email.prep.sample" && a.meta && typeof a.meta === "object")
         .map((a) => ({ examined: Number((a.meta as any).examined ?? 0), adoptedEmail: Number((a.meta as any).adoptedEmail ?? 0) }));
       const yieldRate = observedYield(samples);
-      const hardCap = Math.max(0, Number(process.env.EMAIL_PREP_MAX ?? 24));
+      const hardCap = Math.max(0, Number(process.env.EMAIL_PREP_MAX ?? 32));
       const band = reservoirBand(inv.prepared);
       const plan = planPreparation({ prepared: inv.prepared, eligible: prepEligible, yieldRate, hardCap, costCap: hardCap });
       // Email-discovery funnel (lifetime, read-only, reuses existing state — no analytics platform).
@@ -140,6 +142,11 @@ export async function POST(req: NextRequest) {
         reservoir: { band, label: reservoirLabel(band), observedYield: Math.round(yieldRate * 100) / 100, wouldExamineNextTick: plan.examine, planReason: plan.reason },
         emailPrepEligible: prepEligible, // leads with a site + no email, not yet analyzed → prep can harvest an email
         funnel: { leads: dLeads.length, withWebsite, analyzed: analyzedLeadIds.size, emailFirst, preparedReviews: inv.prepared, sent: sentCount, replied: repliedLeadIds.size },
+        // Recent run trail — so "what did the last cron actually do?" is answerable without DB access.
+        recentRuns: audRows
+          .filter((a) => a.action === "email.prep.sample" || a.action === "comms.tasks_materialized")
+          .slice(0, 8)
+          .map((a) => ({ at: a.createdAt, action: a.action, meta: a.meta })),
         queueByReason: audit.byReason,
         queueByOwner: audit.byOwner, // software-research / defect self-heal; human = genuine exceptions
       };
