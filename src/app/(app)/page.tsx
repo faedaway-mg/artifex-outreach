@@ -19,6 +19,7 @@ import { WorkQueue } from "@/components/WorkQueue";
 import { DailyMission } from "@/components/DailyMission";
 import { buildWorkQueue, buildDailyMission, buildReplyCard, surfaceTodaysTasks, channelCapacity, channelOf, workKindForTask, channelReadiness, emailInventory } from "@/lib/work-queue";
 import { orderEmailProspects } from "@/lib/acquisition/email-ordering";
+import { reservoirBand, reservoirLabel } from "@/lib/acquisition/reservoir";
 import { auditQueue } from "@/lib/outreach/inventory-prep";
 import { accountQueue } from "@/lib/queue-accounting";
 import { accountSequences } from "@/lib/comms/task-projection";
@@ -173,7 +174,9 @@ export default async function TodayPage({ searchParams }: { searchParams?: { vie
   const ready = channelReadiness(tasks, leadMap);
   const scopedOpen = everyTask.filter((t) => scopedLeadIds.has(t.leadId));
   const inventory = emailInventory({ leads: leadMap, tasks: scopedOpen, emailsSentToday, sendTarget: emailTarget });
-  const showComposition = inventory.prepared > 0 || ready.call > 0 || ready.video > 0;
+  // Show the composition line whenever email-first acquisition is active (target > 0), so the
+  // reservoir's supply health is visible even at zero prepared — a thin morning is a supply state.
+  const showComposition = emailTarget > 0 || inventory.prepared > 0 || ready.call > 0 || ready.video > 0;
   // Queue-health audit: turn "nothing queued / needs attention" into an owner breakdown so the
   // operator can see what the SYSTEM is handling vs what genuinely needs them. Defects (should
   // have work but don't) self-heal on the next reconciliation tick — surfaced honestly, not hidden.
@@ -216,6 +219,8 @@ export default async function TodayPage({ searchParams }: { searchParams?: { vie
           <p className="mt-2.5 text-[12px] text-chalk-500">
             Emails ready to send today: <span className="text-chalk-300">{inventory.readyToday}</span>
             {inventory.beyondToday > 0 && <span className="text-chalk-600"> · {inventory.beyondToday} more Review{inventory.beyondToday === 1 ? "" : "s"} prepared</span>}
+            {/* Supply health — the reservoir band, so a thin morning reads as a supply state, not a bug. */}
+            {" · "}Reservoir: <span className="text-chalk-300">{reservoirLabel(reservoirBand(inventory.prepared))}</span>
             {/* No quota on calls or videos — both are signal-triggered; zero is a healthy morning. */}
             {ready.call > 0 && <>{" · "}Warm calls: <span className="text-chalk-300">{ready.call}</span></>}
             {ready.video > 0 && <>{" · "}Videos: <span className="text-chalk-300">{ready.video}</span></>}

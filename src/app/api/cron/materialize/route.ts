@@ -50,25 +50,49 @@ export async function POST(req: NextRequest) {
     const { materializeRouting } = await import("@/lib/outreach/auto-route");
     const routing = dryRun ? null : await materializeRouting();
 
-    // Deepen the EMAIL reservoir ahead of consumption: run the existing website analysis on a
-    // few qualified leads that have a site but no email yet, so they harvest a same-domain
-    // address and become email-first. Bounded per tick (cost-safe); read-only crawl, never
-    // contact; no send. Then reconcile again so newly-email leads get their review task.
-    // Gated OFF by default — a background bulk crawl is a decision, not a deploy side effect.
+    // Deepen the EMAIL reservoir ahead of consumption: run the existing website analysis on
+    // qualified leads that have a site but no email yet, so they harvest a same-domain address and
+    // become email-first. This is now RESERVOIR-AWARE and yield-sized: we examine only as many as
+    // the review gap needs (given the observed email yield), throttling to ZERO once the reservoir
+    // is healthy so we never bulk-crawl for no reason. Read-only crawl, never contact, no send.
+    // Then reconcile so newly-email leads get their review task. Gated OFF by default.
     let prep: unknown = null;
     if (!dryRun && process.env.EMAIL_PREP_ENABLED === "1") {
       const { prepareEmailInventory } = await import("@/lib/outreach/inventory-prep");
       const { runWebsiteAnalysisAction } = await import("@/lib/actions");
-      const { listLeads, allBusinessIntelligence, getLead } = await import("@/lib/repo");
-      const [leads, bi] = await Promise.all([listLeads(), allBusinessIntelligence()]);
-      prep = await prepareEmailInventory({
-        leads,
-        analyzedLeadIds: new Set(bi.map((b) => b.leadId)),
-        analyze: (id) => runWebsiteAnalysisAction(id),
-        getEmailAfter: async (id) => (await getLead(id))?.publicEmail ?? null,
-        max: Number(process.env.EMAIL_PREP_PER_TICK ?? 8),
-      });
-      await materializeRouting(); // surface review tasks for any newly email-first leads
+      const { listLeads, allBusinessIntelligence, getLead, getSettings, listAudit, allTasks } = await import("@/lib/repo");
+      const { emailInventory } = await import("@/lib/work-queue");
+      const { isValidEmail } = await import("@/lib/outreach/contact-strategy");
+      const { planPreparation, observedYield, DEFAULT_BANDS } = await import("@/lib/acquisition/reservoir");
+      const [pLeads, pBi, pSettings, audit, pTasks] = await Promise.all([listLeads(), allBusinessIntelligence(), getSettings(), listAudit(200), allTasks()]);
+      const analyzedIds = new Set(pBi.map((b) => b.leadId));
+      const openForPrep = pTasks.filter((t) => t.status === "open");
+      const preparedNow = emailInventory({ leads: pLeads, tasks: openForPrep, emailsSentToday: 0, sendTarget: pSettings.prospecting.emailDailyTarget ?? 10 }).prepared;
+      const TERMINAL = new Set(["Won", "Lost", "Disqualified"]);
+      const eligibleNow = pLeads.filter((l) => !TERMINAL.has(l.pipelineStage) && l.acquisitionStrategy !== "Do Not Contact" && !!l.website && !isValidEmail(l.publicEmail) && !analyzedIds.has(l.id)).length;
+      // Observed yield from prior prep samples (conservative prior when thin), so we size honestly.
+      const samples = audit.filter((a) => a.action === "email.prep.sample" && a.meta && typeof a.meta === "object")
+        .map((a) => ({ examined: Number((a.meta as any).examined ?? 0), adoptedEmail: Number((a.meta as any).adoptedEmail ?? 0) }));
+      const yieldRate = observedYield(samples);
+      // Hard per-tick ceiling (env-tunable). Prep's marginal paid cost is the per-lead AI scoring
+      // calls; the ceiling + reservoir throttling keep that bounded. Website crawl / harvest / BI /
+      // Review render are all local/free. costCap == hardCap here (operator tunes the ceiling).
+      const hardCap = Math.max(0, Number(process.env.EMAIL_PREP_MAX ?? 24));
+      const plan = planPreparation({ prepared: preparedNow, eligible: eligibleNow, yieldRate, hardCap, costCap: hardCap, bands: DEFAULT_BANDS });
+      if (plan.examine > 0) {
+        const summary = await prepareEmailInventory({
+          leads: pLeads,
+          analyzedLeadIds: analyzedIds,
+          analyze: (id) => runWebsiteAnalysisAction(id),
+          getEmailAfter: async (id) => (await getLead(id))?.publicEmail ?? null,
+          max: plan.examine,
+        });
+        await materializeRouting(); // surface review tasks for any newly email-first leads
+        await appendAudit({ action: "email.prep.sample", actor: "cron", targetType: "comms", targetId: null, meta: { examined: summary.analyzed, adoptedEmail: summary.adoptedEmail, eligible: summary.eligible, plan: plan.reason, band: plan.band, yieldRate: Math.round(yieldRate * 100) / 100 }, ip: null });
+        prep = { ...summary, plan: plan.reason, band: plan.band, yieldRate: Math.round(yieldRate * 100) / 100, examined: summary.analyzed };
+      } else {
+        prep = { skipped: true, plan: plan.reason, band: plan.band, prepared: preparedNow, yieldRate: Math.round(yieldRate * 100) / 100 };
+      }
     }
 
     const summary = await materializeDueSteps({ apply: !dryRun, horizon });
@@ -80,11 +104,11 @@ export async function POST(req: NextRequest) {
     // operator can curl this and SEE where inventory is constrained instead of guessing.
     let inventory: unknown = null;
     if (dryRun) {
-      const { listLeads, allTasks, allBusinessIntelligence, getSettings } = await import("@/lib/repo");
+      const { listLeads, allTasks, allBusinessIntelligence, getSettings, allEmailSends, allInbound } = await import("@/lib/repo");
       const { auditQueue } = await import("@/lib/outreach/inventory-prep");
       const { emailInventory } = await import("@/lib/work-queue");
       const { isValidEmail } = await import("@/lib/outreach/contact-strategy");
-      const [dLeads, dTasks, dBi, dSettings] = await Promise.all([listLeads(), allTasks(), allBusinessIntelligence(), getSettings()]);
+      const [dLeads, dTasks, dBi, dSettings, dSends, dInbound] = await Promise.all([listLeads(), allTasks(), allBusinessIntelligence(), getSettings(), allEmailSends(), allInbound()]);
       const analyzedLeadIds = new Set(dBi.map((b) => b.leadId));
       const openTasks = dTasks.filter((t) => t.status === "open");
       const audit = auditQueue({ leads: dLeads, tasks: openTasks, analyzedLeadIds });
@@ -94,10 +118,28 @@ export async function POST(req: NextRequest) {
         (l) => !TERMINAL.has(l.pipelineStage) && l.acquisitionStrategy !== "Do Not Contact" &&
                !!l.website && !isValidEmail(l.publicEmail) && !analyzedLeadIds.has(l.id),
       ).length;
+      // Reservoir band + the prep plan that WOULD run this tick (preview; nothing is examined here).
+      const { reservoirBand, reservoirLabel, planPreparation, observedYield } = await import("@/lib/acquisition/reservoir");
+      const audRows = await (await import("@/lib/repo")).listAudit(200);
+      const samples = audRows.filter((a) => a.action === "email.prep.sample" && a.meta && typeof a.meta === "object")
+        .map((a) => ({ examined: Number((a.meta as any).examined ?? 0), adoptedEmail: Number((a.meta as any).adoptedEmail ?? 0) }));
+      const yieldRate = observedYield(samples);
+      const hardCap = Math.max(0, Number(process.env.EMAIL_PREP_MAX ?? 24));
+      const band = reservoirBand(inv.prepared);
+      const plan = planPreparation({ prepared: inv.prepared, eligible: prepEligible, yieldRate, hardCap, costCap: hardCap });
+      // Email-discovery funnel (lifetime, read-only, reuses existing state — no analytics platform).
+      // Answers the yield questions: of businesses with a website, how many became email-first;
+      // of email-first, how many have a prepared Review; then sent → replied.
+      const withWebsite = dLeads.filter((l) => !!l.website).length;
+      const emailFirst = dLeads.filter((l) => isValidEmail(l.publicEmail) && !TERMINAL.has(l.pipelineStage) && l.acquisitionStrategy !== "Do Not Contact").length;
+      const sentCount = dSends.filter((s) => !!s.sentAt).length;
+      const repliedLeadIds = new Set(dInbound.filter((m) => (m.classification ?? "") !== "Bounce" && (m.classification ?? "") !== "Out Of Office").map((m) => m.leadId));
       inventory = {
         totals: { leads: dLeads.length, openTasks: openTasks.length, analyzed: analyzedLeadIds.size },
         email: { prepared: inv.prepared, sendCapacity: inv.sendCapacity, readyToday: inv.readyToday, beyondToday: inv.beyondToday },
+        reservoir: { band, label: reservoirLabel(band), observedYield: Math.round(yieldRate * 100) / 100, wouldExamineNextTick: plan.examine, planReason: plan.reason },
         emailPrepEligible: prepEligible, // leads with a site + no email, not yet analyzed → prep can harvest an email
+        funnel: { leads: dLeads.length, withWebsite, analyzed: analyzedLeadIds.size, emailFirst, preparedReviews: inv.prepared, sent: sentCount, replied: repliedLeadIds.size },
         queueByReason: audit.byReason,
         queueByOwner: audit.byOwner, // software-research / defect self-heal; human = genuine exceptions
       };
