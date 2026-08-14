@@ -100,7 +100,7 @@ built.push(slide({ name: "06-cta.svg", accent: AMBER, lines: [
   { t: "Request a", size: 46, fill: CHALK, weight: 600 },
   { t: "Business Technology Review", size: 54, fill: AMBER, weight: 700, gap: 28 },
   { t: "No cost. Nothing to sign.", size: 40, fill: MUTE, weight: 500 },
-], footer: "artifexlabs.tech/review" }));
+], footer: "Artifex Labs" }));
 // 7 — COVER / THUMBNAIL
 built.push(slide({ name: "07-cover.svg", accent: AZURE, lines: [
   { t: "FIELD NOTE 001", size: 42, fill: AZURE, weight: 700, spacing: "4", gap: 90 },
