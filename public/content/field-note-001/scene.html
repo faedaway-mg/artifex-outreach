@@ -1,0 +1,153 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+/* ARTIFEX / FIELD NOTE 001 — V2 animated product film. Deterministic: render(t seconds) from ?t.
+   One continuous visual world, 1080x1920, faceless, synthetic data only. */
+:root{ --ink0:#06080C; --ink1:#0C1220; --ink2:#101a2e; --chalk:#F6F8FC; --mute:#AEBBD0; --azure:#93B8FF;
+  --teal:#7FE3C7; --amber:#F5B95C; --faint:#5A6B85; --card:#141c2b; --line:#26334a; }
+*{margin:0;box-sizing:border-box;-webkit-font-smoothing:antialiased}
+html,body{width:1080px;height:1920px;overflow:hidden}
+body{background:radial-gradient(1200px 900px at 50% 22%, #12203a 0%, var(--ink1) 42%, var(--ink0) 100%);
+  font-family:Inter,system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:var(--chalk)}
+#stage{position:absolute;inset:0}
+.l{position:absolute;left:50%;top:0;transform:translateX(-50%);opacity:0;will-change:transform,opacity}
+.center{width:900px;left:50%;transform:translateX(-50%);text-align:center}
+.eyebrow{font-size:24px;font-weight:600;letter-spacing:6px;color:var(--azure)}
+.h1{font-size:82px;font-weight:800;line-height:1.04;letter-spacing:-1px}
+.h2{font-size:58px;font-weight:800;line-height:1.08}
+.sub{font-size:40px;font-weight:500;color:var(--mute);line-height:1.3}
+.tag{font-size:30px;font-weight:600;letter-spacing:3px;color:var(--faint)}
+/* call card */
+.call{width:360px;height:96px;border-radius:18px;background:var(--card);border:1px solid var(--line);
+  display:flex;align-items:center;gap:18px;padding:0 26px;font-size:34px;font-weight:700;color:var(--mute)}
+.dot{width:44px;height:44px;border-radius:50%;background:#20304a;display:flex;align-items:center;justify-content:center}
+/* browser */
+.win{width:760px;border-radius:22px;background:var(--card);border:1px solid var(--line);overflow:hidden;box-shadow:0 30px 80px rgba(0,0,0,.45)}
+.bar{height:70px;background:#0f1826;display:flex;align-items:center;gap:14px;padding:0 26px;border-bottom:1px solid var(--line)}
+.tl{width:18px;height:18px;border-radius:50%}
+.addr{margin-left:14px;font-size:26px;color:var(--faint)}
+.wc{padding:34px 40px}
+.wl{height:22px;border-radius:6px;background:#1d2740;margin:18px 0}
+.mail{display:inline-flex;align-items:center;gap:14px;font-size:32px;color:var(--teal);font-weight:700;border:1px solid #2b5f52;background:#10241f;border-radius:12px;padding:12px 20px}
+.scan{position:absolute;left:0;right:0;height:5px;background:linear-gradient(90deg,transparent,var(--teal),transparent);opacity:.9;filter:blur(1px)}
+.chip{display:inline-flex;align-items:center;gap:14px;font-size:34px;font-weight:800;color:var(--teal);
+  border:1px solid #2b5f52;background:#10241f;border-radius:14px;padding:16px 26px}
+/* workflow pills */
+.pill{font-size:36px;font-weight:700;color:var(--chalk);background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px 30px;display:inline-block}
+.arw{color:var(--azure);font-size:40px;font-weight:400}
+/* review document (the hero) */
+.doc{width:720px;border-radius:20px;background:linear-gradient(180deg,#f7f9fc,#eef2f8);color:#0c1220;
+  box-shadow:0 40px 100px rgba(0,0,0,.5);overflow:hidden;border:1px solid #cdd6e6}
+.dhead{display:flex;align-items:center;gap:24px;padding:34px 40px 22px}
+.logo{width:84px;height:84px;border-radius:16px;background:linear-gradient(135deg,#2c5ac4,#7fe3c7);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:40px}
+.dco{font-size:40px;font-weight:800;color:#0c1220;line-height:1.1}
+.dtag{font-size:22px;font-weight:700;letter-spacing:2px;color:#5a6b85;margin-top:4px}
+.drule{height:1px;background:#dbe2ee;margin:0 40px}
+.sec{padding:20px 40px}
+.sh{font-size:22px;font-weight:800;letter-spacing:2px;color:#2c5ac4}
+.sb{height:16px;border-radius:5px;background:#dfe6f1;margin-top:12px}
+.badge{position:absolute;right:56px;font-size:26px;font-weight:800;color:var(--teal)}
+.env{width:120px;height:88px;border-radius:14px;border:2px solid var(--azure);position:relative;background:#101a2e}
+.env:before{content:"";position:absolute;inset:0;border-top:44px solid transparent;border-left:60px solid rgba(147,184,255,.25);border-right:60px solid rgba(147,184,255,.25)}
+</style></head><body><div id="stage">
+  <!-- persistent metadata -->
+  <div class="l" id="meta" style="top:150px"><span style="display:inline-flex;align-items:center;gap:16px">
+    <svg width="52" height="52" viewBox="0 0 32 32"><path d="M16 4 L27 27 M16 4 L5 27 M9.5 19 L22.5 19" fill="none" stroke="#F7F6F4" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/><circle cx="16" cy="4" r="2.7" fill="#F7F6F4"/><circle cx="5" cy="27" r="2.5" fill="#F7F6F4"/><circle cx="27" cy="27" r="2.5" fill="#F5B95C"/></svg>
+    <span class="eyebrow">ARTIFEX / FIELD NOTE 001</span></span></div>
+
+  <!-- BEAT 1 -->
+  <div class="l center h1" id="b1" style="top:540px">We built the<br>wrong system.</div>
+  <div class="l tag" id="swlabel" style="top:800px">SOFTWARE</div>
+  <div class="l call" id="c0" style="top:880px"><span class="dot">📞</span> CALL</div>
+  <div class="l call" id="c1" style="top:990px"><span class="dot">📞</span> CALL</div>
+  <div class="l call" id="c2" style="top:1100px"><span class="dot">📞</span> CALL</div>
+  <div class="l call" id="c3" style="top:1210px"><span class="dot">📞</span> CALL</div>
+  <div class="l center sub" id="b1sub" style="top:1420px">The software worked.<br>The workflow didn't.</div>
+
+  <!-- BEAT 2 -->
+  <div class="l" id="win" style="top:620px">
+    <div class="win"><div class="bar"><span class="tl" style="background:#e0655a"></span><span class="tl" style="background:#e8b25a"></span><span class="tl" style="background:#5ac07a"></span><span class="addr">meridiandental.com</span></div>
+      <div class="wc"><div class="wl" style="width:70%"></div><div class="wl" style="width:88%"></div><div class="wl" style="width:52%"></div>
+        <div style="margin-top:26px"><span class="mail" id="mailrow">✉ hello@meridiandental.com</span></div>
+        <div class="wl" style="width:60%;margin-top:26px"></div></div>
+      <div class="scan" id="scan" style="top:70px"></div></div></div>
+  <div class="l chip" id="found" style="top:1330px">✓ Public email found</div>
+  <div class="l center sub" id="b2i" style="top:1480px">The website already<br>had a better path.</div>
+
+  <!-- BEAT 3 — workflow + REVIEW hero -->
+  <div class="l" id="flow" style="top:470px;width:900px;text-align:center">
+    <span class="pill" id="p1">WEBSITE</span> <span class="arw" id="a1">→</span>
+    <span class="pill" id="p2">UNDERSTAND</span> <span class="arw" id="a2">→</span>
+    <span class="pill" id="p3">EMAIL</span></div>
+  <div class="l" id="doc" style="top:640px">
+    <div class="doc"><div class="dhead"><div class="logo">N</div><div><div class="dco">Northstar Hospitality</div><div class="dtag">BUSINESS TECHNOLOGY REVIEW</div></div></div>
+      <div class="drule"></div>
+      <div class="sec" id="s1"><div class="sh">WHAT STOOD OUT</div><div class="sb" style="width:82%"></div></div>
+      <div class="sec" id="s2"><div class="sh">WHY IT MATTERS</div><div class="sb" style="width:90%"></div><div class="sb" style="width:64%"></div></div>
+      <div class="sec" id="s3"><div class="sh">WHAT WE'D PRIORITIZE</div><div class="sb" style="width:74%"></div></div>
+      <div style="height:34px"></div></div></div>
+
+  <!-- BEAT 4 -->
+  <div class="l" id="env" style="top:900px"><div class="env"></div></div>
+  <div class="l chip" id="valuefirst" style="top:1080px">✓ Value first</div>
+  <div class="l" id="warm" style="top:1220px"><span class="pill" style="border-color:#2b5f52;color:var(--teal)">WARM FOLLOW-UP</span></div>
+
+  <!-- BEAT 5 -->
+  <div class="l center h2" id="principle" style="top:760px">Software handles scale.<br><span style="color:var(--azure)">Humans handle intent.</span></div>
+  <div class="l center sub" id="ctaq" style="top:1040px">Want us to look at your business?</div>
+  <div class="l center" id="ctar" style="top:1150px"><span style="font-size:52px;font-weight:800;color:var(--amber)">Request a Business Technology Review</span></div>
+  <div class="l tag" id="brand" style="top:1300px">ARTIFEX LABS</div>
+</div>
+<script>
+const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
+const inv=(t,a,b)=>clamp((t-a)/(b-a||1e-6),0,1);
+const eo=x=>1-Math.pow(1-x,3);            // easeOutCubic
+const eio=x=>x<.5?4*x*x*x:1-Math.pow(-2*x+2,3)/2;
+// visibility window with quick eased fades
+function win(t,a,b,fi=.3,fo=.3){ if(t<a||t>b)return 0; return Math.min(eo(inv(t,a,a+fi)),eo(1-inv(t,b-fo,b))); }
+function S(id,o,x=0,y=0,s=1){ const e=document.getElementById(id); if(!e)return;
+  e.style.opacity=o; e.style.transform=`translateX(-50%) translate(${x}px,${y}px) scale(${s})`; }
+function Sraw(id,o,tx,ty,s=1){ const e=document.getElementById(id); if(!e)return; e.style.opacity=o; e.style.transform=`translate(${tx}px,${ty}px) scale(${s})`; }
+
+function render(t){
+  // persistent metadata (subtle secondary identity)
+  document.getElementById('meta').style.opacity = t<0.8?0 : t<1.8? eo(inv(t,0.8,1.8))*0.55 : 0.55;
+
+  // ---------- BEAT 1 (0–6): the wrong system + rapid CALL stack ----------
+  S('b1', win(t,0.05,6.0,0.25,0.5), 0, 0, t<0.4? .96+eo(inv(t,0,.4))*.04:1);
+  S('swlabel', win(t,1.1,6.2,0.3,0.5)*0.9);
+  ['c0','c1','c2','c3'].forEach((id,i)=>{ const st=1.7+i*0.42;   // staggered rapid arrival (~every 0.4s)
+    const o=win(t,st,6.3,0.16,0.5), x=eo(inv(t,st,st+0.3)), away=eo(inv(t,6.0,6.7));
+    S(id, o, (1-x)*90 - away*280, -away*120, 1-away*0.3); });
+  S('b1sub', win(t,4.2,5.9,0.3,0.4));
+
+  // ---------- BEAT 2 (6–13): scan the website, find the email ----------
+  S('win', win(t,6.2,13.2,0.4,0.5), 0, (1-eo(inv(t,6.2,6.9)))*40, 0.9+eo(inv(t,6.2,6.9))*0.1);
+  { const p=inv(t,7.0,8.6), sc=document.getElementById('scan'); sc.style.top=(70+eio(p)*300)+'px'; sc.style.opacity=(t>7&&t<8.7?0.9:0); }
+  document.getElementById('mailrow').style.boxShadow = (t>8.4&&t<12? '0 0 0 3px rgba(127,227,199,.6)':'none');
+  S('found', win(t,8.6,13.0,0.25,0.4));
+  S('b2i', win(t,9.6,12.6,0.3,0.4));
+
+  // ---------- BEAT 3 (13–27): workflow builds, then the REVIEW assembles (hero) ----------
+  S('flow', win(t,13.0,26.6,0.4,0.5), 0, (1-eo(inv(t,13.0,13.7)))*20);
+  let dOn=win(t,15.3,27.0,0.4,0.5), dY=(1-eo(inv(t,15.3,16.1)))*90, dS=0.9+eo(inv(t,15.3,16.1))*0.06;
+  if(t>24.6){ const back=eo(inv(t,24.6,26.6)); dY=-back*24; dS=0.96-back*0.10; }
+  const reveal=(id,a)=>{ const e=document.getElementById(id); const p=eo(inv(t,a,a+0.7)); e.style.opacity=(t<15.3?0:p); e.style.transform=`translateY(${(1-p)*22}px)`; };
+  reveal('s1',16.9); reveal('s2',18.6); reveal('s3',20.6);
+  { const g=t>22.5?eio(inv(t,22.5,24.2)):0; document.querySelector('#doc .doc').style.boxShadow=`0 40px 100px rgba(0,0,0,.5),0 0 ${g*70}px rgba(127,227,199,${g*0.4})`; }
+
+  // ---------- BEAT 4 (27–33): Review → send → value first → warm ----------
+  if(t>=27.0){ const p=eio(inv(t,27.0,28.4)); dOn=(1-p)*win(t,15.3,29,0.4,1.5); dY=-p*280; dS=Math.max(0.34,dS-p*0.5); }
+  S('doc', dOn, 0, dY, dS);
+  S('env', win(t,27.9,33.0,0.3,0.5), 0, -40, 1);
+  S('valuefirst', win(t,28.6,33.0,0.25,0.4));
+  S('warm', win(t,30.2,33.2,0.25,0.4));
+
+  // ---------- BEAT 5 (33–39): principle + CTA ----------
+  S('principle', win(t,33.2,39.5,0.35,0.7), 0, t<33.9?(1-eo(inv(t,33.2,33.9)))*30:0);
+  S('ctaq', win(t,35.4,39.5,0.35,0.7));
+  S('ctar', win(t,36.3,39.5,0.35,0.7), 0, t<37?(1-eo(inv(t,36.3,37)))*16:0);
+  S('brand', win(t,37.2,39.5,0.35,0.9)*0.9);
+}
+const q=new URLSearchParams(location.search); const t=parseFloat(q.get('t')||'0');
+function go(){ render(t); document.title='t='+t; }
+if(document.readyState!=='loading') go(); else document.addEventListener('DOMContentLoaded',go);
+</script></body></html>
