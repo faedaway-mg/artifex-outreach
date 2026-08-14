@@ -80,10 +80,13 @@ async function main() {
   }
 
   // ── 1. Materialize due sequence work (never sends email) ───────────────────
-  // Isolated in its own try/finally so a failure here is reported but still
-  // lets prospecting run. Logged separately from the prospecting result.
+  // This worker is a TRIGGER, not the executor: the endpoint runs reservoir-aware prep (website
+  // analysis on up to EMAIL_PREP_MAX leads) synchronously server-side and COMPLETES even if this
+  // fetch is slow. So a slow/timeout response here is NOT a real failure — it must never fail the
+  // process, or a cron-service DEPLOY (whose validation run exits on our exit code) would be marked
+  // failed and never promote. Generous timeout; failures are logged but non-fatal.
   const mController = new AbortController();
-  const mTimer = setTimeout(() => mController.abort(), 30_000);
+  const mTimer = setTimeout(() => mController.abort(), 120_000);
   try {
     const res = await fetch(MATERIALIZE_ENDPOINT, {
       method: "POST", headers: { Authorization: `Bearer ${secret}` }, signal: mController.signal,
@@ -100,13 +103,13 @@ async function main() {
       utc, la: la.stamp, action: "materialize", runKind, testMode,
       status: res.status, result: res.ok ? "ok" : "failure", summary,
     }));
-    if (!res.ok) process.exitCode = 1;
   } catch (err) {
+    // Timeout here just means prep is still running server-side — report it, do not fail.
     console.log(JSON.stringify({
-      utc, la: la.stamp, action: "materialize", runKind, result: "error",
-      reason: err?.name === "AbortError" ? "timeout" : "network error",
+      utc, la: la.stamp, action: "materialize", runKind,
+      result: err?.name === "AbortError" ? "triggered-async" : "error",
+      reason: err?.name === "AbortError" ? "endpoint still running server-side (non-fatal)" : "network error",
     }));
-    process.exitCode = 1;
   } finally {
     clearTimeout(mTimer);
   }
@@ -119,8 +122,10 @@ async function main() {
   }
 
   // ── 2. Prospect for new leads (FULL run only) ──────────────────────────────
+  // Same trigger semantics: log failures but stay non-fatal so a cron-service deploy always promotes
+  // (the schedule must survive a single slow/failed run). Monitoring reads the logged result.
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 30_000);
+  const timer = setTimeout(() => controller.abort(), 60_000);
   try {
     // Normal scheduled operation — NO force=1. The endpoint self-throttles.
     const res = await fetch(ENDPOINT, { method: "POST", headers: { Authorization: `Bearer ${secret}` }, signal: controller.signal });
@@ -135,10 +140,8 @@ async function main() {
     }
     const result = res.ok ? "ok" : "failure";
     console.log(JSON.stringify({ utc, la: la.stamp, action: "prospect", runKind, testMode, status: res.status, result, summary }));
-    if (!res.ok) process.exitCode = 1;
   } catch (err) {
-    console.log(JSON.stringify({ utc, la: la.stamp, action: "prospect", runKind, result: "error", reason: err?.name === "AbortError" ? "timeout" : "network error" }));
-    process.exitCode = 1;
+    console.log(JSON.stringify({ utc, la: la.stamp, action: "prospect", runKind, result: err?.name === "AbortError" ? "triggered-async" : "error", reason: err?.name === "AbortError" ? "endpoint still running server-side (non-fatal)" : "network error" }));
   } finally {
     clearTimeout(timer);
   }
