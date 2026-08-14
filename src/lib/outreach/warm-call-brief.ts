@@ -56,7 +56,7 @@ export interface WarmCallInput {
 const RX = {
   noAnswer: /\b(did ?n'?t answer|no answer|didn't pick|no pick ?up|went to voicemail|voicemail|left (a )?(message|vm|voicemail))\b/i,
   vmTextEmail: /voicemail.{0,40}(text|said|told|instruct).{0,40}(e-?mail|number)|(text|send).{0,20}(my |their |your )?e-?mail|text (them|it|us).{0,20}(and )?(they|we)|they('?d| would) (send|email)/i,
-  complied: /\bi texted|texted (them|it|my|your|over)|sent (them )?my e-?mail|followed (the |their )?(voicemail|instruction|steps)/i,
+  complied: /\bi text(ed)?\b[\s\S]{0,20}?(them|it|my|your|e-?mail)|so i text|texted (them|it|over|my|your)|sent (them )?my e-?mail|followed (the |their )?(voicemail|instruction|steps)|took (that|the|their) e-?mail (from )?(what )?they/i,
   responded: /they (sent|emailed|replied|responded|got back)|(sent|emailed) (me|us|over)|(we|i) (got|received)/i,
   reviewed: /looked (through|at|over|into)|reviewed|went through|read (through )?|had a (chance|look)|gone through|checked out/i,
   issue: /unreadable|hard to read|poorly|difficult|messy|confusing|unclear|clunky|not (great|good)|needs work|rough|jumbled|all over the place|couldn'?t (read|tell)/i,
@@ -91,8 +91,10 @@ export function deriveInteractionFacts(input: WarmCallInput): InteractionFacts {
   const responded = has(RX.responded) || (input.inboundClassifications?.length ?? 0) > 0;
   const materialsMatch = note.match(MATERIAL);
   const sentMaterials = responded && !!materialsMatch;
-  const reviewed = has(RX.reviewed) && sentMaterials;
   const issue = has(RX.issue);
+  // The operator "reviewed" the materials if they said so OR if they sent materials and the note
+  // critiques them — you can't call something unreadable without having looked at it.
+  const reviewed = sentMaterials && (has(RX.reviewed) || issue);
   // The AREA is the noun right next to the issue ("the scheduling email was unreadable") — extract
   // the pair so we don't grab an unrelated earlier word like "text my email".
   const pair = note.match(ISSUE_PAIR);
