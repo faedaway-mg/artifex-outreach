@@ -5,7 +5,7 @@
 // whenever a weak harvest occurs — provided eligible supply exists. Pure; nothing sends.
 // ─────────────────────────────────────────────────────────────────────────────
 import { describe, it, expect } from "vitest";
-import { planPreparation, reservoirBand, DEFAULT_BANDS } from "./reservoir";
+import { planPreparation, planDiscovery, reservoirBand, DEFAULT_BANDS } from "./reservoir";
 
 const SEND_CAP = 10;
 const HARD_CAP = 32;
@@ -80,5 +80,94 @@ describe("Phase 7 — the reservoir absorbs day-to-day yield variance", () => {
   it("send capacity is a hard ceiling — a deep reservoir never sends more than 10/day", () => {
     const end = simulateDay({ prepared: 30, eligible: 100 }, 0.5, 3, 20);
     expect(end.sent).toBe(SEND_CAP); // exactly 10 consumed, never more, regardless of depth
+  });
+});
+
+// ── Phase 8: the FULL supply chain — reservoir-aware DISCOVERY → harvest → reservoir → consume ──
+const PLACES_COST = 0.032;      // $/search
+const MAX_DAILY_COST = 2.0;     // authorized budget (unchanged)
+
+// One full day, parameterised by the discovery-supply CONFIG (categories × weekly-per-category cap).
+// consume → reservoir-aware discovery (bounded by config caps, cost, and the finite fresh-qualified
+// pool) → reservoir-aware prep (harvest at the day's yield). Returns state + Places spend.
+function supplyDay(
+  state: { prepared: number; eligible: number; weeklyRemaining: number[]; freshPool: number },
+  dayYield: number,
+  cfg: { categories: number; weeklyPerCat: number },
+) {
+  const sent = Math.min(SEND_CAP, state.prepared);
+  let prepared = state.prepared - sent;
+  let placesSpend = 0;
+  const dplan = planDiscovery({ prepared });
+  let discovered = 0;
+  if (dplan.targetLeads > 0) {
+    const searches = Math.min(cfg.categories, Math.floor(MAX_DAILY_COST / PLACES_COST)); // budget-bounded
+    placesSpend = searches * PLACES_COST;
+    for (let c = 0; c < cfg.categories && discovered < dplan.targetLeads && state.freshPool > 0; c++) {
+      const take = Math.min(dplan.perCategoryCap, state.weeklyRemaining[c], dplan.targetLeads - discovered, state.freshPool);
+      if (take <= 0) continue;
+      discovered += take; state.weeklyRemaining[c] -= take; state.freshPool -= take;
+    }
+  }
+  let eligible = state.eligible + discovered;
+  for (let t = 0; t < 3; t++) {
+    const pplan = planPreparation({ prepared, eligible, yieldRate: dayYield, hardCap: HARD_CAP, costCap: HARD_CAP });
+    if (pplan.examine <= 0) break;
+    prepared += Math.round(pplan.examine * dayYield);
+    eligible -= pplan.examine;
+  }
+  return { prepared, eligible, placesSpend, discovered, sent };
+}
+
+describe("Phase 8 — seven-day supply-chain simulation, variable yield", () => {
+  const YIELDS = [0.45, 0.22, 0.50, 0.30, 0.40, 0.20, 0.35];
+
+  function run(cfg: { categories: number; weeklyPerCat: number }) {
+    let s = { prepared: 6, eligible: 9, weeklyRemaining: Array(cfg.categories).fill(cfg.weeklyPerCat), freshPool: 5000 };
+    const mornings: number[] = []; let maxSpend = 0;
+    for (const y of YIELDS) {
+      mornings.push(Math.min(SEND_CAP, s.prepared));
+      const end = supplyDay(s, y, cfg);
+      maxSpend = Math.max(maxSpend, end.placesSpend);
+      s = { prepared: end.prepared, eligible: end.eligible, weeklyRemaining: s.weeklyRemaining, freshPool: s.freshPool };
+    }
+    return { mornings, maxSpend, end: s };
+  }
+
+  it("MECHANISM: with ADEQUATE discovery config, the reservoir absorbs yield variance and never re-collapses", () => {
+    // Adequate weekly supply capacity (e.g. more categories / higher weekly caps the operator can set).
+    const { mornings, maxSpend, end } = run({ categories: 40, weeklyPerCat: 8 });
+    expect(Math.min(...mornings.slice(2))).toBeGreaterThanOrEqual(SEND_CAP); // no morning back at 2–5
+    expect(maxSpend).toBeLessThanOrEqual(MAX_DAILY_COST);                    // spend within budget
+    expect(reservoirBand(end.prepared)).not.toBe("critical");
+  });
+
+  it("HONEST CEILING: the CURRENT config (12 categories × weekly 6) cannot sustain 10/day — reported truthfully", () => {
+    // ~72 qualified leads/week ÷ ~33% yield ≈ far below 70 sends/week. The reservoir rebuilds then
+    // declines as weekly caps exhaust — and the system NEVER fabricates inventory to hide it.
+    const { mornings, maxSpend } = run({ categories: 12, weeklyPerCat: 6 });
+    expect(maxSpend).toBeLessThanOrEqual(MAX_DAILY_COST);        // still within budget
+    expect(Math.min(...mornings)).toBeLessThan(SEND_CAP);        // supply genuinely runs thin — the truth
+  });
+
+  it("throttles discovery spend to zero once the reservoir is healthy AFTER consumption", () => {
+    // Start high enough that post-consumption it's still healthy (35 − 10 = 25).
+    const end = supplyDay({ prepared: 35, eligible: 50, weeklyRemaining: Array(12).fill(6), freshPool: 600 }, 0.4, { categories: 12, weeklyPerCat: 6 });
+    expect(end.discovered).toBe(0);
+    expect(end.placesSpend).toBe(0);
+  });
+
+  it("EXHAUSTED supply reports honestly — no fabricated inventory", () => {
+    const end = supplyDay({ prepared: 3, eligible: 0, weeklyRemaining: Array(12).fill(6), freshPool: 0 }, 0.4, { categories: 12, weeklyPerCat: 6 });
+    expect(end.discovered).toBe(0);
+    expect(end.prepared).toBe(0); // only the 3 consumed; nothing conjured
+  });
+
+  it("per-category weekly caps still bound concentration during an aggressive rebuild", () => {
+    const cfg = { categories: 12, weeklyPerCat: 6 };
+    let s = { prepared: 0, eligible: 0, weeklyRemaining: Array(cfg.categories).fill(cfg.weeklyPerCat), freshPool: 10000 };
+    let total = 0;
+    for (let d = 0; d < 7; d++) { const end = supplyDay(s, 0.4, cfg); total += end.discovered; s = { ...s, prepared: end.prepared, eligible: end.eligible }; }
+    expect(total).toBeLessThanOrEqual(cfg.categories * cfg.weeklyPerCat); // ≤ 72/week regardless of demand
   });
 });

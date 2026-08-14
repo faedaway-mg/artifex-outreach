@@ -18,6 +18,7 @@ import {
   insertProspectingRun,
   updateProspectingRun,
   listLeads,
+  allTasks,
 } from "./repo";
 import { normalizeName, domainFromUrl, nowIso } from "./store";
 import { searchPlaces, placesMode, type PlaceResult } from "./providers/places";
@@ -26,7 +27,8 @@ import type { ProspectingRun, Lead, Settings, Tier, ProspectCategoryTarget, Arti
 import { discoverInputSchema } from "./schemas";
 import { categoryGroupOf } from "./categories";
 import { assignNewLead } from "./operators/distribute";
-import { channelReadiness, channelDeficits, DEFAULT_CALL_TARGET, DEFAULT_EMAIL_TARGET, DEFAULT_VIDEO_TARGET, type ChannelReadiness } from "./work-queue";
+import { channelReadiness, channelDeficits, emailInventory, DEFAULT_CALL_TARGET, DEFAULT_EMAIL_TARGET, DEFAULT_VIDEO_TARGET, type ChannelReadiness } from "./work-queue";
+import { planDiscovery } from "./acquisition/reservoir";
 import { effectiveTerritories } from "./geo-pools";
 
 export const PLACES_COST_PER_REQUEST = 0.032;
@@ -137,11 +139,25 @@ export async function runProspecting(req: ProspectRequest): Promise<ProspectingR
   // signal-triggered escalation (a reply, a warm/high-value opportunity) — never a 3/3 quota, so
   // we never manufacture prospects merely to fill video capacity. Video supply follows real signals.
   const totalDeficit = deficits.email;
-  const supplyGoal = Math.max(p.dailyQueueSize - currentTodayCount, totalDeficit);
-  const target = Math.min(req.count ?? Math.max(0, supplyGoal), p.maxNewLeadsPerRun);
+  const boardFloor = Math.max(p.dailyQueueSize - currentTodayCount, totalDeficit);
+
+  // DEMAND-AWARE DISCOVERY: size supply from RESERVOIR health, not just the board's email deficit.
+  // Production evidence showed each run finds ~120 qualified businesses but adds only 8 (rejecting
+  // ~100 already-paid candidates) while spending 16% of the Places budget. So when the reservoir is
+  // low/critical we CAPTURE more of the top-scored candidates the same searches already returned
+  // (no extra Places cost, quality unchanged — highest-fit-first); when healthy we THROTTLE so we
+  // never pay to find businesses we don't need. `req.count` (explicit manual asks) still wins.
+  const openReviewTasks = (await allTasks()).filter((t) => t.status === "open");
+  const preparedReservoir = emailInventory({ leads: existing, tasks: openReviewTasks, emailsSentToday: 0, sendTarget: targets.email }).prepared;
+  const discovery = planDiscovery({ prepared: preparedReservoir, floorLeads: boardFloor });
+  const target = Math.max(0, req.count ?? discovery.targetLeads);
+  // Reservoir-aware per-run bounds (override the conservative fixed caps; examining returned places
+  // is free, and picks remain highest-fit-first through the existing gates).
+  const perCategoryCap = req.count ? p.maxPerCategoryPerRun : discovery.perCategoryCap;
+  const examineCap = req.count ? p.maxExaminedPerRun : Math.max(p.maxExaminedPerRun, discovery.examineCap);
   if (target <= 0) {
     await updateSettings({ prospecting: { ...p, lastRunAt: nowIso() } });
-    return finalize({ stopReason: "queue-full" });
+    return finalize({ stopReason: preparedReservoir >= 20 ? "reservoir-healthy" : "queue-full" });
   }
 
   // ── Rotation: score + select a diverse, budget-bounded category set ─────────
@@ -156,9 +172,13 @@ export async function runProspecting(req: ProspectRequest): Promise<ProspectingR
     .map((c) => ({ c, w: categoryWeight(c, pipelineByCat, todayByCat, totalLeads) }))
     .sort((a, b) => b.w - a.w);
 
-  // Cost budget → how many categories (1 territory each) we can search.
+  // Cost budget → how many categories (1 territory each) we can search. When REBUILDING the
+  // reservoir we search more categories (more diverse candidates), but NEVER beyond the existing
+  // authorized cost budget (byCost = maxDailyCostUsd / cost-per-request). Healthy → the economical
+  // legacy cap. This uses more of the ALREADY-authorized $ budget; it does not raise it.
   const byCost = Math.floor(p.maxDailyCostUsd / PLACES_COST_PER_REQUEST);
-  const requestCap = Math.max(1, Math.min(p.maxCategoriesPerRun, p.dailyRequestBudget, byCost));
+  const categoryCap = req.count ? p.maxCategoriesPerRun : Math.max(p.maxCategoriesPerRun, Math.min(discovery.targetLeads, byCost, eligible.length));
+  const requestCap = Math.max(1, Math.min(categoryCap, p.dailyRequestBudget, byCost));
 
   // Select ACROSS GROUPS (round-robin) so the search set spans many groups rather
   // than clustering in whichever group has the most high-priority categories.
@@ -202,7 +222,7 @@ export async function runProspecting(req: ProspectRequest): Promise<ProspectingR
   let stopReason: string | null = null;
 
   for (let i = 0; i < selected.length; i++) {
-    if (examined >= p.maxExaminedPerRun) { stopReason = "max-examined"; break; }
+    if (examined >= examineCap) { stopReason = "max-examined"; break; }
     if (requests >= p.dailyRequestBudget) { stopReason = "request-budget"; break; }
     const cat = selected[i].c;
     selectionReasons[cat.label] = reasonFor(cat, pipelineByCat[cat.normalizedCategory] ?? 0, totalLeads);
@@ -242,8 +262,16 @@ export async function runProspecting(req: ProspectRequest): Promise<ProspectingR
   }
 
   // ── Diversified fill: cap per category, aim for distinct categories ─────────
-  const capFor = (c: ProspectCategoryTarget) =>
-    Math.min(p.maxPerCategoryPerRun, c.dailyNewLeadCap, Math.max(0, c.weeklyNewLeadCap - c.leadsFoundThisWeek));
+  // Per-category cap is reservoir-aware: when REBUILDING we lift the conservative per-run DAILY cap
+  // (which was sized for the old add-8/day model) so the target fills from candidates already found,
+  // but the per-category WEEKLY cap STILL bounds it — the anti-concentration protection is untouched.
+  // A manual request (req.count) respects the operator's exact configured caps.
+  const capFor = (c: ProspectCategoryTarget) => {
+    const weeklyRemaining = Math.max(0, c.weeklyNewLeadCap - c.leadsFoundThisWeek);
+    return req.count
+      ? Math.min(perCategoryCap, c.dailyNewLeadCap, weeklyRemaining)
+      : Math.min(perCategoryCap, weeklyRemaining);
+  };
   const { picked: picks, rejectedByCap } = pickDiverse(
     candidates.map((c) => ({ item: c, category: c.cat.normalizedCategory, score: c.score.total })),
     { target, capFor: (key) => capFor(candidates.find((c) => c.cat.normalizedCategory === key)!.cat) },

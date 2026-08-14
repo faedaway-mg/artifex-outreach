@@ -100,6 +100,53 @@ export function planPreparation(input: PrepPlanInput): PrepPlan {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Demand-aware DISCOVERY plan — the reservoir drives upstream supply too.
+//
+// Production evidence: each discovery run examines ~120 qualified businesses but ADDS only 8,
+// rejecting ~100 already-paid-for candidates (rejectedByCap), while spending just 16% of the
+// Places budget. So the fix is NOT more money — it is capturing more of what we already find,
+// sized by reservoir health: throttle when healthy (don't pay to find more), replenish when low,
+// replenish aggressively when critical. Places COST is unchanged (same searches); we simply keep
+// more of the top-scored candidates the searches already returned. Quality is untouched — picks
+// are still highest-fit-first through the existing gates.
+// ─────────────────────────────────────────────────────────────────────────────
+export interface DiscoveryPlan {
+  /** Target NEW qualified leads to add this run (overrides the conservative per-run cap). 0 = throttle. */
+  targetLeads: number;
+  /** Per-category cap so the target can be filled diversely from the run's candidates. */
+  perCategoryCap: number;
+  /** How many returned places to evaluate (free — they come with the searches already paid for). */
+  examineCap: number;
+  band: ReservoirBand;
+  reason: string;
+}
+
+/** Size discovery from reservoir health. `floorLeads` keeps the board's own minimum (e.g. queue
+ *  refill) so this never REDUCES supply below the existing behaviour. Bounded, deterministic. */
+export function planDiscovery(input: { prepared: number; floorLeads?: number; bands?: ReservoirBands }): DiscoveryPlan {
+  const bands = input.bands ?? DEFAULT_BANDS;
+  const band = reservoirBand(input.prepared, bands);
+  const floor = Math.max(0, input.floorLeads ?? 0);
+  // Reservoir-aware ceilings. All within the SAME searches (no extra Places cost); picks stay
+  // highest-fit-first. Healthy/enough → throttle so we don't pay to find businesses we don't need.
+  const table: Record<ReservoirBand, { targetLeads: number; perCategoryCap: number; examineCap: number }> = {
+    critical: { targetLeads: 40, perCategoryCap: 6, examineCap: 400 },
+    low: { targetLeads: 20, perCategoryCap: 4, examineCap: 300 },
+    healthy: { targetLeads: 0, perCategoryCap: 2, examineCap: 200 },
+    enough: { targetLeads: 0, perCategoryCap: 2, examineCap: 200 },
+  };
+  const t = table[band];
+  const targetLeads = Math.max(floor, t.targetLeads);
+  return {
+    targetLeads,
+    perCategoryCap: t.perCategoryCap,
+    examineCap: t.examineCap,
+    band,
+    reason: `reservoir ${band} (${input.prepared} prepared) → target ${targetLeads} qualified leads, ≤${t.perCategoryCap}/category (same searches, same Places cost)`,
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Observed email-discovery yield — measured, not assumed. Derived from accumulated prep
 // summaries (examined vs. produced-a-valid-email). Used to size preparation honestly.
 // ─────────────────────────────────────────────────────────────────────────────

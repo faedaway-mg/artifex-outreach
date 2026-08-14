@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { reservoirBand, reservoirLabel, planPreparation, observedYield, DEFAULT_BANDS } from "./reservoir";
+import { reservoirBand, reservoirLabel, planPreparation, planDiscovery, observedYield, DEFAULT_BANDS } from "./reservoir";
 
 describe("reservoir bands — a healthy inventory range, not a quota", () => {
   it("maps prepared counts to bands (0–9 critical, 10–19 low, 20–30 healthy, 31+ enough)", () => {
@@ -59,6 +59,26 @@ describe("planPreparation — reservoir-aware, yield-sized, cost-bounded", () =>
     const p = planPreparation({ ...base, prepared: 0, yieldRate: 0, hardCap: 1000, costCap: 1000, eligible: 1000 });
     expect(Number.isFinite(p.examine)).toBe(true);
     expect(p.examine).toBeGreaterThan(0);
+  });
+});
+
+describe("planDiscovery — reservoir drives upstream supply (demand-aware), never more cost", () => {
+  it("THROTTLES discovery when the reservoir is healthy (don't pay to find what we don't need)", () => {
+    expect(planDiscovery({ prepared: 22 }).targetLeads).toBe(0);
+    expect(planDiscovery({ prepared: 35 }).targetLeads).toBe(0);
+  });
+  it("replenishes when low and aggressively when critical", () => {
+    const low = planDiscovery({ prepared: 15 });
+    const critical = planDiscovery({ prepared: 3 });
+    expect(low.targetLeads).toBeGreaterThan(0);
+    expect(critical.targetLeads).toBeGreaterThan(low.targetLeads);
+  });
+  it("never drops below the board's own floor (never reduces existing supply)", () => {
+    // Even 'healthy' honours an explicit board floor so this can't starve the queue.
+    expect(planDiscovery({ prepared: 25, floorLeads: 8 }).targetLeads).toBe(8);
+  });
+  it("raises per-category cap only while rebuilding (anti-concentration relaxes, then restores)", () => {
+    expect(planDiscovery({ prepared: 3 }).perCategoryCap).toBeGreaterThan(planDiscovery({ prepared: 25, floorLeads: 1 }).perCategoryCap);
   });
 });
 
