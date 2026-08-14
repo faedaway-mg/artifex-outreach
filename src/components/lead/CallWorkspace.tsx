@@ -12,6 +12,7 @@ import { ConvertToSendButton } from "@/components/lead/ConvertToSendButton";
 import { WebsiteLink } from "@/components/WebsiteLink";
 import { PhoneCopyButton } from "@/components/PhoneCopyButton";
 import type { CallScript } from "@/lib/outreach/contact-strategy";
+import type { WarmCallBrief } from "@/lib/outreach/warm-call-brief";
 import { openingForLead } from "@/lib/outreach/call-opening";
 import type { CallLeadState } from "@/lib/outreach/call-state";
 import { deslug } from "@/lib/utils";
@@ -48,6 +49,7 @@ function Identity({ lead, reason }: { lead: Lead; reason: string }) {
 export function CallWorkspace({
   lead,
   script,
+  warmBrief,
   reason,
   state,
   continuation,
@@ -57,6 +59,9 @@ export function CallWorkspace({
 }: {
   lead: Lead;
   script: CallScript;
+  /** Note-grounded warm-call brief (context + what to say + next action) derived from this lead's
+   *  own notes/history. When warm, it leads the workspace; the generic script stays as the fallback. */
+  warmBrief?: WarmCallBrief;
   reason: string;
   state: CallLeadState;
   /** The strongest concrete thing we noticed — it makes the offer real on the phone. */
@@ -107,6 +112,27 @@ export function CallWorkspace({
     <div className="space-y-5">
       {/* 1 · COMPACT IDENTITY — name, category, city, phone, website status, one reason. */}
       <Identity lead={lead} reason={reason} />
+
+      {/* 1.5 · NOTE-GROUNDED WARM BRIEF — what actually happened, what to say, and the next action,
+          synthesized from Jordan's own notes. Raw notes stay in "Lead history" below (auditable). */}
+      {warmBrief && (warmBrief.tier === "warm" || warmBrief.tier === "high-value-cold") && (
+        <section className={`card p-5 ${warmBrief.tier === "warm" ? "border-teal-400/25 bg-teal-400/[0.04]" : "border-amber-400/20 bg-amber-400/[0.03]"}`}>
+          {warmBrief.tier === "high-value-cold" ? (
+            <p className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-amber-300/90">High-value · no prior interaction</p>
+          ) : (
+            <p className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-teal-300/90">Warm — you've been in touch</p>
+          )}
+          {warmBrief.warmContext && (
+            <>
+              <p className="mt-2.5 text-[11px] font-medium uppercase tracking-wide text-chalk-500">What happened</p>
+              <p className="mt-1 text-[13.5px] leading-relaxed text-chalk-200">{warmBrief.warmContext}</p>
+            </>
+          )}
+          <p className="mt-3 text-[11px] font-medium uppercase tracking-wide text-chalk-500">What to say</p>
+          <p className="mt-1 text-[15px] leading-relaxed text-chalk-50">“{warmBrief.whatToSay}”</p>
+          <p className="mt-3 inline-flex items-center gap-1.5 text-[12px] text-chalk-400"><Target size={13} className="text-teal-300" /> Next: <span className="text-chalk-200">{warmBrief.nextAction}</span></p>
+        </section>
+      )}
 
       {/* If an attempt is already logged, say so plainly and name the next attempt —
           the one action is still "call", just now framed as calling again. */}

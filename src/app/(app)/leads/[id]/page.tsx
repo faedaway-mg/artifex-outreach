@@ -54,6 +54,8 @@ import type { OutreachKit } from "@/lib/outreach/types";
 import { NextBestActionCard } from "@/components/lead/NextBestActionCard";
 import { OutreachKitPanel } from "@/components/lead/OutreachKitPanel";
 import { determineContactStrategy, buildCallBrief, buildCallScript, findInstagram } from "@/lib/outreach/contact-strategy";
+import { warmCallBrief } from "@/lib/outreach/warm-call-brief";
+import { hasPriorContext } from "@/lib/outreach/call-priority";
 import { ContactStrategyPanel } from "@/components/lead/ContactStrategyPanel";
 import { CallWorkspace } from "@/components/lead/CallWorkspace";
 import { WebsiteLink } from "@/components/WebsiteLink";
@@ -337,6 +339,17 @@ export default async function LeadPage({ params, searchParams }: { params: { id:
     const script = buildCallScript(lead, { strongestObservation: stoodOut[0] ?? null });
     const callState = deriveCallLeadState(lead);
     const history = (lead.note ?? "").split("\n").map((l) => l.trim()).filter(Boolean);
+    // Note-grounded warm-call brief: turn Jordan's OWN notes + this lead's interaction history into
+    // the first 15–20 seconds. Deterministic + per-lead; the generic script is the safe fallback.
+    const warmBrief = warmCallBrief({
+      note: lead.note,
+      inboundClassifications: inbound.map((m) => m.classification ?? "").filter(Boolean),
+      reviewSent: leadSends.some((s) => !!s.sentAt),
+      hadPriorContact: hasPriorContext(lead),
+      fitScore: lead.leadScore,
+      businessName: lead.businessName,
+      genericScript: script.opening,
+    });
     // An email already collected on a call (lives on a conversation contact) while the
     // lead still has no send route — enables the one-tap outcome correction.
     const collectedEmail = contacts
@@ -349,7 +362,7 @@ export default async function LeadPage({ params, searchParams }: { params: { id:
         </Link>
 
         {/* The one workspace responsible for the current action. */}
-        <CallWorkspace lead={lead} script={script} reason={callStrategy.reason} state={callState} observation={stoodOut[0] ?? null} continuation={continuation} collectedEmail={collectedEmail} priorEmailSent={leadSends.some((s) => !!s.sentAt)} />
+        <CallWorkspace lead={lead} script={script} warmBrief={warmBrief} reason={callStrategy.reason} state={callState} observation={stoodOut[0] ?? null} continuation={continuation} collectedEmail={collectedEmail} priorEmailSent={leadSends.some((s) => !!s.sentAt)} />
 
         {/* More about this business — the full lifecycle & intelligence, collapsed. */}
         <details className="group scroll-mt-4">

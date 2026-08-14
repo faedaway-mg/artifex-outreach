@@ -42,6 +42,24 @@ export async function POST(req: NextRequest) {
   // Match the Today queue's own window so a single morning tick covers the whole
   // day. Pass ?horizon=now to restrict this to steps already past their instant.
   const horizon = req.nextUrl.searchParams.get("horizon") === "now" ? "now" : "end-of-day";
+
+  // Read-only warm-call preview (?warmLead=<name substring>): returns the REAL stored operator note
+  // for a lead + the note-grounded brief Jordan would see. No writes; verification only.
+  const warmLeadQuery = req.nextUrl.searchParams.get("warmLead");
+  if (warmLeadQuery) {
+    const { listLeads, inboundForLead, emailSendsForLead } = await import("@/lib/repo");
+    const { warmCallBrief } = await import("@/lib/outreach/warm-call-brief");
+    const { hasPriorContext } = await import("@/lib/outreach/call-priority");
+    const q = warmLeadQuery.toLowerCase();
+    const lead = (await listLeads()).find((l) => l.businessName.toLowerCase().includes(q));
+    if (!lead) return NextResponse.json({ ok: true, warmCallPreview: { found: false, query: warmLeadQuery } });
+    const [inbound, sends] = await Promise.all([inboundForLead(lead.id), emailSendsForLead(lead.id)]);
+    const brief = warmCallBrief({
+      note: lead.note, inboundClassifications: inbound.map((m) => m.classification ?? "").filter(Boolean),
+      reviewSent: sends.some((s) => !!s.sentAt), hadPriorContact: hasPriorContext(lead), fitScore: lead.leadScore, businessName: lead.businessName,
+    });
+    return NextResponse.json({ ok: true, warmCallPreview: { found: true, businessName: lead.businessName, city: lead.city, phone: lead.phone, note: lead.note, brief } });
+  }
   try {
     // Route understood businesses out of the "Needs attention"/understand placeholder and
     // into Calls / Emails / Videos before projecting sequence steps. Idempotent and I/O-free
