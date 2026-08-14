@@ -1,3 +1,71 @@
+# Content #001 — ARTIFEX / FIELD NOTE 001 · "We built the wrong workflow."
+
+> **FACELESS BY DEFAULT (locked).** The public identity is **Artifex Labs**, not Jordan's face.
+> Content #001 ships as a short technology/design **field note** — kinetic text + the Artifex
+> visual system — and must work **muted**. Jordan's face is never required. Three audio modes
+> below (his voice / Artifex company narration / silent). /review stays PRIVATE until Jordan
+> approves the final cut. The older personal talking-head framing is retained further down only as
+> an optional alternate; the faceless field note is the deliverable.
+
+## Series / identity
+- **Series:** `ARTIFEX / FIELD NOTE` — recurring lab field notes (this is 001).
+- **Title:** **We built the wrong workflow.**  (alt: *We accidentally built a cold-calling machine.*)
+- **Format:** 9:16 vertical, 60–75s, kinetic text over the Quiet Horizon palette + constellation mark.
+- **Perspective:** "**We** built…", never "Hi, I'm Jordan."
+
+## Generated assets (READY — in the repo)
+Deterministic SVGs (1080×1920), reuse the brand mark + tokens; **0 prospect data, 0 screenshots**.
+Regenerate anytime: `node scripts/build-field-note-001.mjs`.
+- `public/content/field-note-001/01-hook.svg` — hook
+- `public/content/field-note-001/02-wrong-work.svg` — the wrong work
+- `public/content/field-note-001/03-discovery.svg` — the discovery
+- `public/content/field-note-001/04-redesign.svg` — the redesign flow
+- `public/content/field-note-001/05-principle.svg` — the principle
+- `public/content/field-note-001/06-cta.svg` — the CTA
+- `public/content/field-note-001/07-cover.svg` — cover / thumbnail
+
+## Storyboard (map assets → time)
+| # | Asset | On screen | ~secs |
+| - | ----- | --------- | ----- |
+| 1 | 01-hook | "We built software to help us find clients. Then we realized we built the wrong workflow." | 0–12 |
+| 2 | 02-wrong-work | SOFTWARE → COLD CALL → human creates interest from zero | 12–24 |
+| 3 | 03-discovery | WEBSITE → public email exists ✓ → the system wasn't using it → wrong human work | 24–40 |
+| 4 | 04-redesign | WEBSITE → understand → business email → personalized review → value first → warm conversation | 40–56 |
+| 5 | 05-principle | Software handles scale. Humans handle intent. | 56–64 |
+| 6 | 06-cta | "What is your business making humans do that software should handle?" → Request a Business Technology Review | 64–75 |
+
+## NARRATION — three modes (pick one at assembly)
+
+**Mode A — Jordan's voice, NO face (Voice Memo).** Read this naturally into your phone; we lay it
+over the slides. ~70s:
+> "We built software to help our company find clients. And pretty quickly we realized we'd basically
+> built ourselves a really efficient cold-calling machine — which is the last thing I wanted. It kept
+> handing me strangers to phone with no context. Then we found the actual problem: our system was
+> already reading these businesses' websites and could see they had an email — it just wasn't using
+> it. So it fell back to 'just call them.' A sales problem that was really a data problem. We changed
+> the workflow: read the business, find its email, send a genuinely useful one-page review first, and
+> only then have a warm conversation. The rule we follow now — software handles scale, humans handle
+> intent. If your business is making people do work that software should handle, that's exactly what
+> we look for. Request a Business Technology Review — no cost, nothing to sign."
+
+**Mode B — Artifex company narration (authorized synthetic/company voice; do NOT clone Jordan).**
+Same script, company tone, first line: *"At Artifex, we built software to help find our own clients —
+and realized it was pushing human attention to the wrong work."* Then beats 3→6 as above.
+
+**Mode C — Text / motion only (silent).** No voice. The on-slide copy (already in the assets) carries
+the story; add light kinetic emphasis + a subtle ambient track. Must be fully legible muted.
+
+## Text-only adaptation (LinkedIn / caption, free from the same source)
+> We built software to help our company find clients — and realized we'd built a very efficient
+> cold-calling machine. The real problem wasn't sales; it was data: our system already saw the email
+> on each business's website and wasn't using it, so it defaulted to "just call them." We changed the
+> workflow — read the business, find its email, send a useful one-page review first, then have a warm
+> conversation. Software handles scale; humans handle intent. If your business is making people do
+> what software should handle, request a Business Technology Review. (Link in comments.)
+
+---
+
+# (Alternate) Personal talking-head framing — OPTIONAL, not the default
 # Content #001 — "I accidentally built a cold-calling machine (and I hate cold calling)"
 
 **Status:** READY TO RECORD. Do NOT publish until Jordan approves the final cut. /review is NOT
