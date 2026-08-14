@@ -1,0 +1,147 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+/* FIELD NOTE 001 — V3 scene. Same visual system as V2; re-sequenced + narration-synced.
+   render(t seconds) reads window.TL (event start times, injected by the renderer; sensible
+   defaults below so it previews standalone). 1080x1920, faceless, synthetic data only. */
+:root{--ink0:#06080C;--ink1:#0C1220;--ink2:#101a2e;--chalk:#F6F8FC;--mute:#AEBBD0;--azure:#93B8FF;
+ --teal:#7FE3C7;--amber:#F5B95C;--faint:#5A6B85;--card:#141c2b;--line:#26334a;--red:#e0655a;}
+*{margin:0;box-sizing:border-box;-webkit-font-smoothing:antialiased}
+html,body{width:1080px;height:1920px;overflow:hidden}
+body{background:radial-gradient(1200px 900px at 50% 22%,#12203a 0%,var(--ink1) 42%,var(--ink0) 100%);
+ font-family:Inter,system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:var(--chalk)}
+.l{position:absolute;left:50%;top:0;transform:translateX(-50%);opacity:0;will-change:transform,opacity}
+.center{width:940px;text-align:center}
+.eyebrow{font-size:24px;font-weight:600;letter-spacing:6px;color:var(--azure)}
+.h1{font-size:74px;font-weight:800;line-height:1.06;letter-spacing:-1px}
+.h2{font-size:58px;font-weight:800;line-height:1.08}
+.sub{font-size:40px;font-weight:500;color:var(--mute);line-height:1.3}
+.tag{font-size:30px;font-weight:600;letter-spacing:3px;color:var(--faint)}
+.chip{display:inline-flex;align-items:center;gap:14px;font-size:34px;font-weight:800;border-radius:14px;padding:16px 26px}
+.chip.ok{color:var(--teal);border:1px solid #2b5f52;background:#10241f}
+.call{position:absolute;width:300px;height:80px;border-radius:16px;background:var(--card);border:1px solid var(--line);
+ display:flex;align-items:center;gap:14px;padding:0 22px;font-size:30px;font-weight:700;color:var(--mute)}
+.dot{width:38px;height:38px;border-radius:50%;background:#20304a;display:flex;align-items:center;justify-content:center;font-size:22px}
+.win{width:760px;border-radius:22px;background:var(--card);border:1px solid var(--line);overflow:hidden;box-shadow:0 30px 80px rgba(0,0,0,.45)}
+.bar{height:70px;background:#0f1826;display:flex;align-items:center;gap:14px;padding:0 26px;border-bottom:1px solid var(--line)}
+.tl{width:18px;height:18px;border-radius:50%}
+.addr{margin-left:14px;font-size:26px;color:var(--faint)}
+.wc{padding:34px 40px;position:relative}
+.wl{height:22px;border-radius:6px;background:#1d2740;margin:18px 0}
+.mail{display:inline-flex;align-items:center;gap:14px;font-size:32px;color:var(--teal);font-weight:700;border:1px solid #2b5f52;background:#10241f;border-radius:12px;padding:12px 20px}
+.scan{position:absolute;left:0;right:0;height:5px;background:linear-gradient(90deg,transparent,var(--teal),transparent);opacity:.9;filter:blur(1px)}
+.pill{font-size:34px;font-weight:700;color:var(--chalk);background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 26px;display:inline-block}
+.arw{color:var(--azure);font-size:38px}
+.doc{width:720px;border-radius:20px;background:linear-gradient(180deg,#f7f9fc,#eef2f8);color:#0c1220;box-shadow:0 40px 100px rgba(0,0,0,.5);overflow:hidden;border:1px solid #cdd6e6}
+.dhead{display:flex;align-items:center;gap:24px;padding:34px 40px 22px}
+.logo{width:84px;height:84px;border-radius:16px;background:linear-gradient(135deg,#2c5ac4,#7fe3c7);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:40px}
+.dco{font-size:40px;font-weight:800;color:#0c1220;line-height:1.1}
+.dtag{font-size:22px;font-weight:700;letter-spacing:2px;color:#5a6b85;margin-top:4px}
+.drule{height:1px;background:#dbe2ee;margin:0 40px}
+.sec{padding:18px 40px}
+.sh{font-size:22px;font-weight:800;letter-spacing:2px;color:#2c5ac4}
+.sb{height:16px;border-radius:5px;background:#dfe6f1;margin-top:12px}
+.env{width:120px;height:88px;border-radius:14px;border:2px solid var(--azure);position:relative;background:#101a2e}
+.env:before{content:"";position:absolute;inset:0;border-top:44px solid transparent;border-left:60px solid rgba(147,184,255,.25);border-right:60px solid rgba(147,184,255,.25)}
+.ctacard{width:820px;border-radius:22px;border:1px solid #3a4straw;padding:0}
+</style></head><body>
+  <div class="l" id="meta" style="top:150px"><span style="display:inline-flex;align-items:center;gap:16px">
+    <svg width="52" height="52" viewBox="0 0 32 32"><path d="M16 4 L27 27 M16 4 L5 27 M9.5 19 L22.5 19" fill="none" stroke="#F7F6F4" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/><circle cx="16" cy="4" r="2.7" fill="#F7F6F4"/><circle cx="5" cy="27" r="2.5" fill="#F7F6F4"/><circle cx="27" cy="27" r="2.5" fill="#F5B95C"/></svg>
+    <span class="eyebrow">ARTIFEX / FIELD NOTE 001</span></span></div>
+
+  <div class="l center h1" id="head" style="top:600px">We built software<br>to find clients.</div>
+  <div class="l chip ok" id="opt" style="top:900px">✓ Optimized</div>
+
+  <!-- CALL flood (8 cards, grid) -->
+  <div id="calls"></div>
+
+  <!-- website + scan + reveal -->
+  <div class="l" id="win" style="top:560px"><div class="win">
+    <div class="bar"><span class="tl" style="background:var(--red)"></span><span class="tl" style="background:#e8b25a"></span><span class="tl" style="background:#5ac07a"></span><span class="addr">meridiandental.com</span></div>
+    <div class="wc"><div class="wl" style="width:70%"></div><div class="wl" style="width:88%"></div><div class="wl" style="width:52%"></div>
+      <div style="margin-top:26px"><span class="mail" id="mailrow">✉ hello@meridiandental.com</span></div>
+      <div class="wl" style="width:60%;margin-top:26px"></div><div class="scan" id="scan" style="top:70px"></div></div></div></div>
+  <div class="l chip ok" id="found" style="top:1230px">✓ Contact found</div>
+  <div class="l center h2" id="reveal" style="top:1360px">The email was<br>already there.</div>
+
+  <!-- rebuilt workflow -->
+  <div class="l" id="flow" style="top:470px;width:940px;text-align:center">
+    <span class="pill">WEBSITE</span> <span class="arw">→</span> <span class="pill">UNDERSTAND</span> <span class="arw">→</span> <span class="pill">EMAIL</span></div>
+  <div class="l" id="doc" style="top:640px"><div class="doc">
+    <div class="dhead"><div class="logo">N</div><div><div class="dco">Northstar Hospitality</div><div class="dtag">BUSINESS TECHNOLOGY REVIEW</div></div></div>
+    <div class="drule"></div>
+    <div class="sec" id="s1"><div class="sh">WHAT STOOD OUT</div><div class="sb" style="width:82%"></div></div>
+    <div class="sec" id="s2"><div class="sh">WHY IT MATTERS</div><div class="sb" style="width:90%"></div><div class="sb" style="width:64%"></div></div>
+    <div class="sec" id="s3"><div class="sh">WHAT WE'D PRIORITIZE</div><div class="sb" style="width:74%"></div></div>
+    <div style="height:34px"></div></div></div>
+
+  <!-- send / value / warm -->
+  <div class="l" id="env" style="top:900px"><div class="env"></div></div>
+  <div class="l chip ok" id="valuefirst" style="top:1080px">✓ Value first</div>
+  <div class="l" id="warm" style="top:1220px"><span class="pill" style="border-color:#2b5f52;color:var(--teal)">WARM FOLLOW-UP</span></div>
+
+  <!-- principle + CTA -->
+  <div class="l center h2" id="principle" style="top:720px">Software handles scale.<br><span style="color:var(--azure)">Humans handle intent.</span></div>
+  <div class="l tag" id="brand" style="top:980px">ARTIFEX LABS</div>
+  <div class="l center" id="cta" style="top:1120px">
+    <div style="font-size:50px;font-weight:800;color:var(--amber);line-height:1.15">Request a Business<br>Technology Review</div>
+    <div style="margin-top:22px;font-size:32px;font-weight:600;letter-spacing:2px;color:var(--mute)">NO COST · NOTHING TO SIGN</div></div>
+<script>
+// call flood cards, 2 cols x 4 rows, centered around x=540
+(function(){const c=document.getElementById('calls');for(let i=0;i<8;i++){const col=i%2,row=(i/2)|0;
+ const d=document.createElement('div');d.className='call';d.id='call'+i;
+ d.style.left=(540-310+col*320)+'px';d.style.top=(880+row*96)+'px';
+ d.innerHTML='<span class="dot">📞</span> CALL';c.appendChild(d);}})();
+
+const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));const inv=(t,a,b)=>clamp((t-a)/((b-a)||1e-6),0,1);
+const eo=x=>1-Math.pow(1-x,3);const eio=x=>x<.5?4*x*x*x:1-Math.pow(-2*x+2,3)/2;
+function win(t,a,b,fi=.3,fo=.3){if(t<a||t>b)return 0;return Math.min(eo(inv(t,a,a+fi)),eo(1-inv(t,b-fo,b)));}
+function S(id,o,x=0,y=0,s=1){const e=document.getElementById(id);if(!e)return;e.style.opacity=o;e.style.transform=`translateX(-50%) translate(${x}px,${y}px) scale(${s})`;}
+function P(id,o,x,y,s=1){const e=document.getElementById(id);if(!e)return;e.style.opacity=o;e.style.transform=`translate(${x}px,${y}px) scale(${s})`;}
+
+// default timeline (seconds) — overridden by window.TL from the renderer
+const D={b1:0,opt:2.98,calls:4.35,freeze:8.69,site:11.25,reveal:15.13,flow:18.71,doc:20.57,send:26.31,principle:28.04,brand:33.5,cta:35.2,end:38.2};
+function render(t){
+ const T=window.TL||D;
+ document.getElementById('meta').style.opacity=t<0.8?0:t<1.8?eo(inv(t,0.8,1.8))*0.55:0.55;
+
+ // A) built software → optimized → CALL flood → freeze
+ S('head', win(t,T.b1+0.05,T.calls+1.2,0.25,0.5), 0, (t>T.calls?-eo(inv(t,T.calls,T.calls+0.8))*120:0));
+ S('opt', win(t,T.opt,T.calls+0.4,0.25,0.4), 0, 0, t<T.opt+0.4?0.9+eo(inv(t,T.opt,T.opt+0.4))*0.1:1);
+ // flood: accelerating arrival between calls..freeze
+ const floodEnd=T.freeze+1.4;
+ for(let i=0;i<8;i++){const st=T.calls+0.2+i*((T.freeze-T.calls-0.2)/8);
+   const o=win(t,st,floodEnd,0.12,0.4);const app=eo(inv(t,st,st+0.25));
+   const away=eo(inv(t,T.site-0.3,T.site+0.7));
+   P('call'+i,o*(1-away), (1-app)*30 - away*(i%2?420:-420), 0, 0.7+app*0.3);}
+
+ // B) website + scan + reveal
+ S('win', win(t,T.site,T.reveal+2.6,0.35,0.5), 0, (1-eo(inv(t,T.site,T.site+0.7)))*40, 0.9+eo(inv(t,T.site,T.site+0.7))*0.1);
+ {const p=inv(t,T.site+0.6,T.site+2.4),sc=document.getElementById('scan');sc.style.top=(70+eio(p)*300)+'px';sc.style.opacity=(t>T.site+0.5&&t<T.site+2.6?0.9:0);}
+ document.getElementById('mailrow').style.boxShadow=(t>T.site+2.1&&t<T.reveal+2.6?'0 0 0 3px rgba(127,227,199,.6)':'none');
+ S('found', win(t,T.site+2.3,T.reveal+2.6,0.25,0.4));
+ S('reveal', win(t,T.reveal,T.reveal+3.0,0.28,0.5), 0, (t<T.reveal+0.5?(1-eo(inv(t,T.reveal,T.reveal+0.5)))*24:0), t<T.reveal+0.4?1.04-eo(inv(t,T.reveal,T.reveal+0.4))*0.04:1);
+
+ // C) workflow + REVIEW assembles (hero)
+ S('flow', win(t,T.flow,T.send-0.3,0.4,0.5), 0, (1-eo(inv(t,T.flow,T.flow+0.6)))*20);
+ let dOn=win(t,T.doc,T.send+0.3,0.4,0.5), dY=(1-eo(inv(t,T.doc,T.doc+0.8)))*90, dS=0.9+eo(inv(t,T.doc,T.doc+0.8))*0.06;
+ const s7span=T.send-T.doc;
+ if(t>T.doc+s7span*0.72){const back=eo(inv(t,T.doc+s7span*0.72,T.send));dY=-back*24;dS=0.96-back*0.10;}
+ const rev=(id,a)=>{const e=document.getElementById(id);const p=eo(inv(t,a,a+0.7));e.style.opacity=(t<T.doc?0:p);e.style.transform=`translateY(${(1-p)*22}px)`;};
+ rev('s1',T.doc+1.4);rev('s2',T.doc+2.6);rev('s3',T.doc+3.8);
+ {const g=t>T.doc+s7span*0.7?eio(inv(t,T.doc+s7span*0.7,T.doc+s7span*0.9)):0;document.querySelector('#doc .doc').style.boxShadow=`0 40px 100px rgba(0,0,0,.5),0 0 ${g*70}px rgba(127,227,199,${g*0.4})`;}
+
+ // D) send / value / warm
+ if(t>=T.send){const p=eio(inv(t,T.send,T.send+1.2));dOn=(1-p)*win(t,T.doc,T.send+1.5,0.4,2);dY=-p*280;dS=Math.max(0.34,dS-p*0.5);}
+ S('doc', dOn, 0, dY, dS);
+ S('env', win(t,T.send+0.5,T.principle,0.3,0.4), 0, -40);
+ S('valuefirst', win(t,T.send+1.0,T.principle,0.25,0.4));
+ S('warm', win(t,T.send+2.4,T.principle+0.1,0.25,0.4));
+
+ // E) principle + brand + CTA
+ S('principle', win(t,T.principle,T.cta+0.2,0.35,0.5), 0, t<T.principle+0.7?(1-eo(inv(t,T.principle,T.principle+0.7)))*30:0);
+ S('brand', win(t,T.brand,T.cta+0.2,0.3,0.4)*0.9);
+ S('cta', win(t,T.cta,T.end,0.35,0.6), 0, t<T.cta+0.6?(1-eo(inv(t,T.cta,T.cta+0.6)))*18:0);
+}
+const q=new URLSearchParams(location.search);const t=parseFloat(q.get('t')||'0');
+function go(){render(t);}
+if(document.readyState!=='loading')go();else document.addEventListener('DOMContentLoaded',go);
+</script></body></html>
