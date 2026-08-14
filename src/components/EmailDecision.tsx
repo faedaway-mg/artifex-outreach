@@ -197,7 +197,7 @@ export function EmailDecision(p: EmailDecisionProps) {
 
       {/* Primary actions — always visible, no scrolling to reach them. Focus mode has no
           bottom nav, so the sticky bar sits just above the viewport edge. */}
-      <div className="sticky bottom-4 z-10 space-y-2 md:static md:bottom-auto">
+      <div className="sticky bottom-[calc(env(safe-area-inset-bottom)_+_1rem)] z-10 space-y-2 md:static md:bottom-auto">
         <button onClick={approveSend} disabled={pending || p.reviewReady === false} className="btn-primary w-full justify-center !py-3 text-[15px] disabled:opacity-50">
           <Check size={17} /> {p.reviewReady === false ? "Review needs attention" : pending ? "Sending…" : note ? "Try send again" : edited ? "Approve & send edited" : "Approve & send"} <ArrowRight size={16} />
         </button>

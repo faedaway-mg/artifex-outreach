@@ -92,7 +92,11 @@ export function Shell({ children }: { children: React.ReactNode }) {
   if (focus) {
     return (
       <div className="min-h-screen">
-        <main className="mx-auto w-full max-w-container px-4 py-6 md:py-10">{children}</main>
+        {/* Focus/batch runner (e.g. "Emails to send"): its own ✕ + progress rail is the top chrome,
+            so honour the iOS safe-area here. viewport-fit=cover draws under the status bar / Dynamic
+            Island; add env(safe-area-inset-top) to the normal 1.5rem so the header isn't crowded in
+            Home-Screen standalone. On desktop the inset resolves to 0 and md:py-10 governs (unchanged). */}
+        <main className="mx-auto w-full max-w-container px-4 pt-[calc(env(safe-area-inset-top)_+_1.5rem)] pb-6 md:py-10">{children}</main>
         <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
       </div>
     );
@@ -180,8 +184,9 @@ export function Shell({ children }: { children: React.ReactNode }) {
           </div>
         </header>
 
-        {/* Mobile top bar */}
-        <header className="sticky top-0 z-30 flex items-center gap-2 glass-1 px-4 py-2.5 md:hidden">
+        {/* Mobile top bar — the shared top chrome for non-focus screens. Same iOS safe-area treatment
+            so the sticky header clears the status bar / Dynamic Island in Home-Screen standalone. */}
+        <header className="sticky top-0 z-30 flex items-center gap-2 glass-1 px-4 pt-[calc(env(safe-area-inset-top)_+_0.625rem)] pb-2.5 md:hidden">
           <Link href="/" aria-label="Home"><BrandMark size={32} rounded="rounded-lg" /></Link>
           <span className="text-sm font-semibold text-chalk-100">{title}</span>
           <button onClick={() => setPaletteOpen(true)} className="ml-auto rounded-lg border border-white/10 p-2 text-chalk-400"><Search size={16} /></button>
