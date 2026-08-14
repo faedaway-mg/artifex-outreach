@@ -29,7 +29,7 @@ import { assignNewLead } from "./operators/distribute";
 import { channelReadiness, channelDeficits, DEFAULT_CALL_TARGET, DEFAULT_EMAIL_TARGET, DEFAULT_VIDEO_TARGET, type ChannelReadiness } from "./work-queue";
 import { effectiveTerritories } from "./geo-pools";
 
-const PLACES_COST_PER_REQUEST = 0.032;
+export const PLACES_COST_PER_REQUEST = 0.032;
 
 // Category group → primary/secondary Artifex service (evidence still refines it,
 // but the group gives a sensible default match for every new category).

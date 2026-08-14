@@ -142,6 +142,20 @@ export async function POST(req: NextRequest) {
         reservoir: { band, label: reservoirLabel(band), observedYield: Math.round(yieldRate * 100) / 100, wouldExamineNextTick: plan.examine, planReason: plan.reason },
         emailPrepEligible: prepEligible, // leads with a site + no email, not yet analyzed → prep can harvest an email
         funnel: { leads: dLeads.length, withWebsite, analyzed: analyzedLeadIds.size, emailFirst, preparedReviews: inv.prepared, sent: sentCount, replied: repliedLeadIds.size },
+        // Discovery economics (read-only) — config caps + recent run funnel, so we can size supply
+        // from real evidence and see whether the Places budget is actually being used.
+        discovery: await (async () => {
+          const { listProspectingRuns } = await import("@/lib/repo");
+          const { PLACES_COST_PER_REQUEST } = await import("@/lib/prospecting");
+          const pp = dSettings.prospecting;
+          const runs = (await listProspectingRuns(12)).filter((r) => r.providerMode === "google");
+          const costPerReq = PLACES_COST_PER_REQUEST;
+          const requestCap = Math.max(1, Math.min(pp.maxCategoriesPerRun, pp.dailyRequestBudget, Math.floor(pp.maxDailyCostUsd / costPerReq)));
+          return {
+            config: { dailyRequestBudget: pp.dailyRequestBudget, maxNewLeadsPerRun: pp.maxNewLeadsPerRun, maxCategoriesPerRun: pp.maxCategoriesPerRun, maxDailyCostUsd: pp.maxDailyCostUsd, maxExaminedPerRun: pp.maxExaminedPerRun, placesCostPerRequest: costPerReq, effectiveRequestCap: requestCap, budgetHeadroomRequests: Math.floor(pp.maxDailyCostUsd / costPerReq) },
+            recentRuns: runs.slice(0, 8).map((r: any) => ({ at: r.startedAt, trigger: r.trigger, searches: r.searchesPerformed, requests: r.placesRequests, examined: r.examined, excluded: r.excluded, dupes: r.duplicatesRemoved, added: r.addedToToday, rejectedByCap: r.rejectedByCap, estCostUsd: r.estimatedCostUsd, stopReason: r.stopReason })),
+          };
+        })(),
         // Recent run trail — so "what did the last cron actually do?" is answerable without DB access.
         recentRuns: audRows
           .filter((a) => a.action === "email.prep.sample" || a.action === "comms.tasks_materialized")
