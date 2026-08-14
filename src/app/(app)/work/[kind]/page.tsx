@@ -196,6 +196,11 @@ export default async function BatchPage({ params, searchParams }: { params: { ki
       <div className="mx-auto max-w-lg space-y-5">
         {Header}
         <EmailDecision
+          // Remount per business: batch advance changes only the ?i= searchParam on this same
+          // route, so without a key React would REUSE this client instance and its useState-held
+          // subject/body would keep the PREVIOUS business's text. The key guarantees the preview
+          // can never show one business's content bound to another. (Server also fails closed.)
+          key={lead.id}
           leadId={lead.id} mode={kind === "follow-up" ? "followup" : "intro"}
           business={lead.businessName} industry={deslug(lead.industry)} contact={emailProps.contact}
           recipient={lead.publicEmail ?? ""}

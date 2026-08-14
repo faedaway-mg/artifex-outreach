@@ -59,6 +59,10 @@ export function EmailDecision(p: EmailDecisionProps) {
   const [subject, setSubject] = useState(p.subject);
   const [body, setBody] = useState(p.fullParagraphs.join("\n\n"));
   const edited = subject !== p.subject || body !== p.fullParagraphs.join("\n\n");
+  // The business this editor was mounted for. Captured at mount alongside the draft state, so if
+  // this instance were ever reused across a business switch (stale render), the id travels with
+  // the stale subject/body and the SERVER fails the send closed rather than mixing businesses.
+  const [previewBusinessId] = useState(p.leadId);
 
   const advance = (complete: boolean) =>
     start(async () => {
@@ -69,7 +73,7 @@ export function EmailDecision(p: EmailDecisionProps) {
   const approveSend = () =>
     start(async () => {
       if (pending) return; // a double-tap can't fire a second send (also idempotent server-side)
-      const override = { subject, body };
+      const override = { subject, body, previewBusinessId };
       const res = p.mode === "followup"
         ? await sendFollowUpAction(p.leadId, override)
         : await sendIntroductionAction(p.leadId, null, override);

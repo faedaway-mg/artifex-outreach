@@ -12,7 +12,7 @@
 // is refused once one has been accepted; a follow-up is refused until the intro
 // has been sent (and refused if already sent).
 // ─────────────────────────────────────────────────────────────────────────────
-import { getLead, updateLead, getBusinessIntelligence, getSettings, contactsForLead, plansForLead, stepsForPlan, getPlan, updateStep, emailSendsForLead, allTasks, insertTask } from "../repo";
+import { getLead, updateLead, getBusinessIntelligence, getSettings, contactsForLead, plansForLead, stepsForPlan, getPlan, updateStep, emailSendsForLead, allTasks, insertTask, updateTask, appendAudit } from "../repo";
 import { isCallablePhone } from "./contact-strategy";
 import type { Lead } from "../types";
 import { prepareAcquisitionPlanAction, approvePlanAction } from "../acquisition-actions";
@@ -29,6 +29,10 @@ import type { VeedVideo, IntroSendResult, OutreachEmail } from "./types";
 export interface EmailOverride {
   subject?: string;
   body?: string;
+  /** The business id the operator was PREVIEWING when they approved. The server fails closed if
+   *  it does not match the lead being sent — proving preview == approve == dispatch belong to the
+   *  same business (defense-in-depth even if a client render ever went stale). */
+  previewBusinessId?: string;
 }
 
 /** Fold operator edits onto the generated email. Blank fields fall back to the draft, so
@@ -77,6 +81,15 @@ async function sendNext(leadId: string, mode: "intro" | "followup", veed?: VeedV
   const lead = await getLead(leadId);
   if (!lead) return { outcome: "blocked", reason: "Lead not found." };
   if (!lead.publicEmail) return { outcome: "blocked", reason: "No email address on file — use the phone guide to find a route first." };
+
+  // HARD PRE-SEND BUSINESS ISOLATION (fail closed). If the client tells us which business it was
+  // previewing and it disagrees with the lead being sent, refuse — never dispatch a possibly
+  // cross-business payload. Audited, no send. (When the client omits it, server-derived recipient
+  // and Review attachment are still bound to leadId; this closes the operator-edited-body gap.)
+  if (override?.previewBusinessId && override.previewBusinessId !== leadId) {
+    await appendAudit({ action: "email.send.blocked", actor: "operator", targetType: "lead", targetId: leadId, meta: { reason: "preview-business-mismatch", previewBusinessId: override.previewBusinessId, mode }, ip: null });
+    return { outcome: "blocked", reason: "This email was prepared for a different business — refresh the page and review it again before sending." };
+  }
 
   // Deliberate safety gate: live sending stays off until the operator enables it
   // (after the controlled internal delivery test). Review, preview, and workflow
@@ -157,7 +170,14 @@ async function sendNext(leadId: string, mode: "intro" | "followup", veed?: VeedV
       // Value-first: once the review has actually gone out, the phone call FOLLOWS it with
       // context for every callable lead — schedule one warm follow-up call a couple business
       // days later ("I sent over a quick review…"), never a cold pitch.
-      if (mode === "intro") await scheduleFollowUpCallAfterEmail(leadId, lead, email.subject);
+      if (mode === "intro") {
+        await scheduleFollowUpCallAfterEmail(leadId, lead, email.subject);
+        // The Review has been sent — complete the open review_and_send task so the business leaves
+        // "Emails to send" immediately (no waiting for the next reconcile tick). Idempotent.
+        for (const t of (await allTasks()).filter((t) => t.leadId === leadId && t.status === "open" && t.type === "review_and_send")) {
+          await updateTask(t.id, { status: "done" });
+        }
+      }
       return { outcome: "sent", providerMessageId: res.providerMessageId ?? null, stepId: step.id };
     case "skipped":
       return /suppress/i.test(res.reason ?? "")

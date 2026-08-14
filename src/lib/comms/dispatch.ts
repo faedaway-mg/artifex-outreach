@@ -12,8 +12,9 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import {
   getStep, getPlan, getLead, getSettings, updateStep, updatePlan, stepsForPlan, isSuppressed,
-  insertEmailSendIfAbsent, casEmailSendStatus, updateEmailSend, getBusinessIntelligence,
+  insertEmailSendIfAbsent, casEmailSendStatus, updateEmailSend, getBusinessIntelligence, updateLead, appendAudit,
 } from "../repo";
+import { sha256, SEND_RECEIPT_ACTION, type SendReceiptMeta } from "./receipt";
 import { validEmail } from "../acquisition/compliance";
 import { stopPlansForLead } from "../acquisition/stop";
 import { getEmailProvider } from "./provider";
@@ -161,6 +162,10 @@ export async function dispatchStep(stepId: string, opts: { now?: Date } = {}): P
   // refuses a send here. The blocking "initial email needs its review" invariant lives upstream
   // in sendNext (the operator send path), which cannot proceed until the review is ready.
   let attachments: EmailMessage["attachments"] | undefined;
+  // Captured for the immutable receipt: exactly which Review PDF (by filename + content hash)
+  // was attached to THIS send. Answers "which exact Review did Business X receive?".
+  let attachmentFilename: string | null = null;
+  let attachmentSha256: string | null = null;
   if (!isFollowUp) {
     let review: import("../outreach/quick-review").QuickReview | null = null;
     try {
@@ -177,7 +182,9 @@ export async function dispatchStep(stepId: string, opts: { now?: Date } = {}): P
       try {
         const dateStr = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
         const pdf = await renderQuickReviewPdf(review, dateStr);
-        attachments = [{ filename: quickReviewFilename(lead.businessName), content: pdf.toString("base64"), contentType: "application/pdf" }];
+        attachmentFilename = quickReviewFilename(lead.businessName);
+        attachmentSha256 = sha256(pdf); // immutable fingerprint of the exact bytes attached
+        attachments = [{ filename: attachmentFilename, content: pdf.toString("base64"), contentType: "application/pdf" }];
       } catch {
         // A real initial email must not go out CLAIMING a review it couldn't attach. Fail the
         // send (before any provider call) rather than send it bare. Internal test is exempt.
@@ -196,6 +203,24 @@ export async function dispatchStep(stepId: string, opts: { now?: Date } = {}): P
     await updateEmailSend(sendRow.id, { status: "sent", providerMessageId: res.providerMessageId, sentAt: nowIso, nextAttemptAt: null, lastError: null, lastErrorCode: null });
     await updateStep(step.id, { sentAt: nowIso, providerMessageId: res.providerMessageId, deliveryStatus: "sent" });
     await advancePlan(plan, step);
+
+    // IMMUTABLE RECEIPT — the exact final payload that left Artifex, bound to ONE business.
+    // Append-only; hashed so a later draft regeneration can never rewrite what was sent.
+    const receipt: SendReceiptMeta = {
+      leadId: lead.id, businessName: lead.businessName,
+      toAddr: msg.to, fromAddr: from, replyTo,
+      subject, bodyText: text, bodySha256: sha256(text),
+      attachmentFilename, attachmentSha256,
+      providerMessageId: res.providerMessageId ?? null, sentAt: nowIso,
+      stepId: step.id, planId: plan.id, isFollowUp, sendId: sendRow.id,
+    };
+    await appendAudit({ action: SEND_RECEIPT_ACTION, actor: "system", targetType: "lead", targetId: lead.id, meta: receipt as unknown as Record<string, unknown>, ip: null });
+
+    // PIPELINE VISIBILITY — an emailed business must not look untouched. Stamp lastContactAt and
+    // advance a pre-contact stage to "Contacted" (never downgrade a further-along lifecycle).
+    const PRE_CONTACT = new Set(["Discovered", "Qualified", "Analysis Ready", "Deliverable Ready"]);
+    await updateLead(lead.id, { lastContactAt: nowIso, ...(PRE_CONTACT.has(lead.pipelineStage) ? { pipelineStage: "Contacted" as const } : {}) });
+
     return { stepId, outcome: "sent", providerMessageId: res.providerMessageId, sendId: sendRow.id };
   }
 

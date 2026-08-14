@@ -1,9 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   insertLead, insertPlan, insertStep, getStep, stepsForPlan, addSuppression,
-  emailSendsForPlan, getEmailSendByKey, updatePlan,
+  emailSendsForPlan, getEmailSendByKey, updatePlan, getLead, listAudit,
 } from "../repo";
 import { dispatchStep } from "./dispatch";
+import { sha256, SEND_RECEIPT_ACTION } from "./receipt";
 import { resetEmailProvider } from "./provider";
 import { __resetStoreForTests } from "../store";
 import type { Lead, AcquisitionPlan, AcquisitionStep } from "../types";
@@ -74,6 +75,45 @@ describe("dispatchStep — idempotent sending (Phase 2)", () => {
     const after = await getStep(step.id);
     expect(after!.sentAt).toBeTruthy();
     expect(after!.providerMessageId).toBe("m1");
+  });
+
+  it("writes an immutable receipt bound to the business, and marks the lead contacted", async () => {
+    global.fetch = vi.fn(() => Promise.resolve(okResponse("m1"))) as unknown as typeof fetch;
+    const lead = await seedLead();
+    const { step } = await seedApprovedPlan(lead.id);
+    await dispatchStep(step.id);
+
+    const receipts = (await listAudit(50)).filter((a) => a.action === SEND_RECEIPT_ACTION && a.targetId === lead.id);
+    expect(receipts).toHaveLength(1);
+    const m = receipts[0].meta as { leadId: string; subject: string; bodyText: string; bodySha256: string; providerMessageId: string };
+    expect(m.leadId).toBe(lead.id);
+    expect(m.subject).toBeTruthy();
+    expect(m.bodySha256).toBe(sha256(m.bodyText)); // body hash matches the recorded body
+    expect(m.providerMessageId).toBe("m1");
+
+    // Pipeline visibility: the emailed business is no longer indistinguishable from an untouched one.
+    const after = await getLead(lead.id);
+    expect(after!.lastContactAt).toBeTruthy();
+    expect(after!.pipelineStage).toBe("Contacted");
+  });
+
+  it("a FAILED send writes NO receipt and does not mark the lead contacted", async () => {
+    global.fetch = vi.fn(() => Promise.resolve(errResponse(400))) as unknown as typeof fetch; // permanent
+    const lead = await seedLead();
+    const { step } = await seedApprovedPlan(lead.id);
+    const r = await dispatchStep(step.id);
+    expect(r.outcome).toBe("failed");
+    expect((await listAudit(50)).filter((a) => a.action === SEND_RECEIPT_ACTION)).toHaveLength(0);
+    expect((await getLead(lead.id))!.lastContactAt).toBeNull(); // no false "contacted"
+  });
+
+  it("an idempotent retry does not write a second receipt", async () => {
+    global.fetch = vi.fn(() => Promise.resolve(okResponse("m1"))) as unknown as typeof fetch;
+    const lead = await seedLead();
+    const { step } = await seedApprovedPlan(lead.id);
+    await dispatchStep(step.id);
+    await dispatchStep(step.id); // deduped
+    expect((await listAudit(50)).filter((a) => a.action === SEND_RECEIPT_ACTION && a.targetId === lead.id)).toHaveLength(1);
   });
 
   it("never sends twice — a second dispatch is deduped, no second provider call", async () => {
