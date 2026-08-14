@@ -162,7 +162,7 @@ export interface InboundLike { leadId: string; classification: string | null; re
 
 // Classifications that are genuine human responses needing attention. Auto-replies (Out Of
 // Office) and Bounce are explicitly NOT here — they are not someone choosing to respond.
-const HUMAN_REPLY = new Set(["Interested", "Meeting Requested", "Question", "Not Now", "Already Working With Someone", "Wrong Contact", "Unsubscribe", "Unknown"]);
+const HUMAN_REPLY = new Set(["Interested", "Meeting Requested", "Question", "Referral", "Not Now", "Already Working With Someone", "Wrong Contact", "Unsubscribe", "Unknown"]);
 
 /** Build the "Replies & inbound" card from unhandled human replies. Pure. Returns null when
  *  none exist. `href` points at the surface where the operator reads/handles the reply. */
