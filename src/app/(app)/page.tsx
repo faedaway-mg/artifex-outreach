@@ -1,6 +1,6 @@
 import Link from "next/link";
 import {
-  todaysTasks, listLeads, allMeetings, allProposals, getSettings, allPlans, allBusinessIntelligence, allFindings, allTasks, allSteps, listOperators, allEmailSends,
+  todaysTasks, listLeads, allMeetings, allProposals, getSettings, allPlans, allBusinessIntelligence, allFindings, allTasks, allSteps, listOperators, allEmailSends, allInbound,
 } from "@/lib/repo";
 import { emailsSentOn } from "@/lib/outreach/send-capacity";
 import { currentOperatorId } from "@/lib/auth";
@@ -17,7 +17,8 @@ import { TodayControls } from "@/components/TodayControls";
 import { MorningWarming } from "@/components/MorningWarming";
 import { WorkQueue } from "@/components/WorkQueue";
 import { DailyMission } from "@/components/DailyMission";
-import { buildWorkQueue, buildDailyMission, surfaceTodaysTasks, channelCapacity, channelOf, workKindForTask, channelReadiness, emailInventory } from "@/lib/work-queue";
+import { buildWorkQueue, buildDailyMission, buildReplyCard, surfaceTodaysTasks, channelCapacity, channelOf, workKindForTask, channelReadiness, emailInventory } from "@/lib/work-queue";
+import { orderEmailProspects } from "@/lib/acquisition/email-ordering";
 import { auditQueue } from "@/lib/outreach/inventory-prep";
 import { accountQueue } from "@/lib/queue-accounting";
 import { accountSequences } from "@/lib/comms/task-projection";
@@ -52,8 +53,8 @@ export default async function TodayPage({ searchParams }: { searchParams?: { vie
   const queueSize = settings.prospecting.dailyQueueSize;
   // The queue is fetched UNCAPPED and scoped to the operator before slicing —
   // capping first would hide an operator's work behind someone else's.
-  const [dueTasks, leads, meetings, proposals, plans, bi, findings, everyTask, allAcquisitionSteps, operators, emailSends] = await Promise.all([
-    todaysTasks(), listLeads(), allMeetings(), allProposals(), allPlans(), allBusinessIntelligence(), allFindings(), allTasks(), allSteps(), listOperators(), allEmailSends(),
+  const [dueTasks, leads, meetings, proposals, plans, bi, findings, everyTask, allAcquisitionSteps, operators, emailSends, inbound] = await Promise.all([
+    todaysTasks(), listLeads(), allMeetings(), allProposals(), allPlans(), allBusinessIntelligence(), allFindings(), allTasks(), allSteps(), listOperators(), allEmailSends(), allInbound(),
   ]);
 
   const now = new Date();
@@ -77,7 +78,11 @@ export default async function TodayPage({ searchParams }: { searchParams?: { vie
     emailsSentToday,
   });
   const scopedDue = tasksInScope(dueTasks, scopedLeadIds);
-  const tasks = surfaceTodaysTasks({ tasks: scopedDue, leads: leadMap, capacity, now });
+  // "Needs attention" (review-type) tasks are NOT founder work — software owns routing and genuine
+  // exceptions live in Queue health below. Drop them from the primary board so they never compete
+  // for attention. The underlying tasks/records are untouched (auditability preserved).
+  const surfaced = surfaceTodaysTasks({ tasks: scopedDue, leads: leadMap, capacity, now });
+  const tasks = surfaced.filter((t) => t.type !== "review");
   const biByLead = new Map<string, StoredBusinessIntelligence>(bi.map((b) => [b.leadId, b]));
   const oppScoreOf = (l: Lead) => biByLead.get(l.id)?.improvementScore ?? l.leadScore ?? 0;
   const om = opportunityMetrics(leads, bi);
@@ -131,12 +136,27 @@ export default async function TodayPage({ searchParams }: { searchParams?: { vie
     if (l && !seenQueue.has(l.id)) { seenQueue.add(l.id); todaysBusinesses.push({ id: l.id, name: l.businessName, warm: biByLead.has(l.id) }); }
   }
 
+  // ── Email ordering: wire receptivity/fit into the send list so the best intersection of
+  //    fit + established + observed evidence surfaces first (fit foundational, receptivity a
+  //    bounded nudge — never predicted intent). Also yields the per-lead "Why now" evidence.
+  const emailRanking = orderEmailProspects({
+    leads: [...leadMap.values()],
+    biByLead: new Map([...biByLead].map(([id, b]) => [id, { businessProfile: b.profile?.businessProfile, generatedAt: b.generatedAt }])),
+  });
+
   // ── Today's work, grouped into batches, already prioritized ─────────────────
   const workQueue = buildWorkQueue({
     tasks,
     meetingsToday: meetingsToday.map((m) => ({ leadId: m.leadId, scheduledAt: m.scheduledAt })),
     leads: leadMap,
+    emailOrder: emailRanking.order,
   });
+  // Replies & inbound lead the board — the people who came to you, above all proactive work.
+  const replyCard = buildReplyCard({ inbound: inbound.filter((m) => scopedLeadIds.has(m.leadId)), leads: leadMap });
+  if (replyCard) workQueue.unshift(replyCard);
+  // "Why now" for the top email prospect — the business's own observed evidence (provenance on expand).
+  const topEmailLeadId = workQueue.find((c) => c.kind === "email")?.leadIds[0];
+  const topEmailWhyNow = topEmailLeadId ? emailRanking.ranks.get(topEmailLeadId)?.whyNow ?? null : null;
 
   // Businesses moved today (tasks completed today) → the mission's progress. Only real
   // outreach counts as a "conversation": resolving a Needs-attention item, or the system
@@ -148,9 +168,8 @@ export default async function TodayPage({ searchParams }: { searchParams?: { vie
   // Board composition reflects the value-first model, NOT quotas:
   //  • Emails: PREPARED inventory (deep) is distinct from what's send-safe TODAY.
   //  • Calls: "warm/high-value ready" — never an "x/10 cold-call quota" (cold ones are withheld).
-  //  • Videos: a small capacity, reserved for the best opportunities.
+  //  • Videos: signal-triggered only — no quota; zero is a healthy morning.
   const emailTarget = Math.max(0, settings.prospecting.emailDailyTarget ?? 10);
-  const videoTarget = Math.max(0, settings.prospecting.videoDailyTarget ?? 3);
   const ready = channelReadiness(tasks, leadMap);
   const scopedOpen = everyTask.filter((t) => scopedLeadIds.has(t.leadId));
   const inventory = emailInventory({ leads: leadMap, tasks: scopedOpen, emailsSentToday, sendTarget: emailTarget });
@@ -197,8 +216,15 @@ export default async function TodayPage({ searchParams }: { searchParams?: { vie
           <p className="mt-2.5 text-[12px] text-chalk-500">
             Emails ready to send today: <span className="text-chalk-300">{inventory.readyToday}</span>
             {inventory.beyondToday > 0 && <span className="text-chalk-600"> · {inventory.beyondToday} more Review{inventory.beyondToday === 1 ? "" : "s"} prepared</span>}
-            {" · "}Warm calls ready: <span className="text-chalk-300">{ready.call}</span>
-            {" · "}Videos: <span className="text-chalk-300">{ready.video}</span>/{videoTarget}
+            {/* No quota on calls or videos — both are signal-triggered; zero is a healthy morning. */}
+            {ready.call > 0 && <>{" · "}Warm calls: <span className="text-chalk-300">{ready.call}</span></>}
+            {ready.video > 0 && <>{" · "}Videos: <span className="text-chalk-300">{ready.video}</span></>}
+          </p>
+        )}
+        {/* Why now — the top email prospect's own observed evidence (never predicted intent). */}
+        {topEmailWhyNow && (
+          <p className="mt-1 text-[12px] text-chalk-500">
+            <span className="text-chalk-400">Why now:</span> <span className="text-chalk-300">{topEmailWhyNow}</span>
           </p>
         )}
         {/* Queue ledger — where everything else is, so "where did my leads go?" is

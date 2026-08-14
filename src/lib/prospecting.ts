@@ -133,7 +133,10 @@ export async function runProspecting(req: ProspectRequest): Promise<ProspectingR
     video: Math.max(0, p.videoDailyTarget ?? DEFAULT_VIDEO_TARGET),
   };
   const deficits = channelDeficits(ready, targets);
-  const totalDeficit = deficits.email + deficits.video; // calls deliberately excluded (no cold-call quota)
+  // Only the EMAIL reservoir pulls discovery. Calls have no cold-call quota, and VIDEO is now a
+  // signal-triggered escalation (a reply, a warm/high-value opportunity) — never a 3/3 quota, so
+  // we never manufacture prospects merely to fill video capacity. Video supply follows real signals.
+  const totalDeficit = deficits.email;
   const supplyGoal = Math.max(p.dailyQueueSize - currentTodayCount, totalDeficit);
   const target = Math.min(req.count ?? Math.max(0, supplyGoal), p.maxNewLeadsPerRun);
   if (target <= 0) {

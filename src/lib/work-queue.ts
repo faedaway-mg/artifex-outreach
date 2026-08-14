@@ -18,11 +18,11 @@ export function callWithheld(lead: Lead, now: Date): boolean {
   return knownClosedNow(lead, now) || predictablyClosedForWeekend(lead, now) || isOrdinaryColdPhoneFirst(lead);
 }
 
-export type WorkKind = "discovery" | "follow-up" | "email" | "report" | "call" | "contact-form" | "instagram-dm" | "video" | "understand";
+export type WorkKind = "reply" | "discovery" | "follow-up" | "email" | "report" | "call" | "contact-form" | "instagram-dm" | "video" | "understand";
 
 /** Every kind, for anywhere an operator has to choose from them. Display order. */
 export const WORK_KINDS: readonly WorkKind[] = [
-  "discovery", "follow-up", "email", "report", "call", "contact-form", "instagram-dm", "video", "understand",
+  "reply", "discovery", "email", "follow-up", "call", "video", "report", "contact-form", "instagram-dm", "understand",
 ] as const;
 
 export interface WorkCategory {
@@ -41,22 +41,26 @@ export interface WorkCategory {
 
 interface KindMeta { title: string; blurb: string; perMinutes: number; cta: string; urgency: number; timeBound?: boolean }
 
-// Ordering reflects the operator's day: scheduled conversations first, then the
-// MORNING/computer block (calls, then videos), then ANYTIME/mobile work (emails,
-// follow-ups) and the rest. It is triage, not a lock — every batch is openable anytime.
+// Ordering reflects the ACTUAL operating model: first the people who came to YOU (replies /
+// inbound), then booked conversations, then the primary proactive acquisition action — EMAIL —
+// then warm follow-ups, then signal-triggered calls/videos, then the rest. Email leads because
+// the founder's job is to approve excellent Reviews and send them; cold synchronous work never
+// competes with that. It is triage, not a lock — every batch is openable anytime.
 const META: Record<WorkKind, KindMeta> = {
+  // Someone responded — the strongest signal there is. Always first, only when it exists.
+  reply: { title: "Replies & inbound", blurb: "People who responded — deal with them first.", perMinutes: 5, cta: "Open", urgency: -1 },
   discovery: { title: "Discovery calls today", blurb: "Conversations on the calendar — walk in ready.", perMinutes: 10, cta: "Prepare", urgency: 0, timeBound: true },
-  call: { title: "Calls to make", blurb: "Warm & high-value calls worth a synchronous conversation — cold strangers wait in the ledger.", perMinutes: 6, cta: "Start calling", urgency: 1 },
-  video: { title: "Videos to record", blurb: "Morning work — record personal walkthroughs at your computer.", perMinutes: 8, cta: "Start video batch", urgency: 1.5 },
-  "follow-up": { title: "Follow-ups due", blurb: "Open threads ready for the next touch.", perMinutes: 2, cta: "Review follow-ups", urgency: 2 },
-  email: { title: "Emails to send", blurb: "Anytime — review, approve, and send from your phone.", perMinutes: 3, cta: "Start sending", urgency: 2.5 },
-  report: { title: "Reports waiting", blurb: "Business Technology Reviews ready for approval.", perMinutes: 5, cta: "Review reports", urgency: 3 },
-  "contact-form": { title: "Contact forms to submit", blurb: "Reach out through their contact form.", perMinutes: 4, cta: "Start forms", urgency: 4.4 },
-  "instagram-dm": { title: "Instagram DMs to send", blurb: "Instagram is the live channel — open with a warm DM.", perMinutes: 3, cta: "Start DMs", urgency: 4.6 },
-  // The system understands and routes new businesses automatically; this queue is now the
-  // EXCEPTION path — leads it genuinely could not resolve safely (no verifiable channel,
-  // conflicting identity). It surfaces only when such a case exists, and asks a real question.
-  understand: { title: "Needs attention", blurb: "Businesses the system couldn't route on its own — a quick human call.", perMinutes: 4, cta: "Resolve", urgency: 3.2 },
+  email: { title: "Emails to send", blurb: "Your primary first touch — review, approve, and send excellent Reviews.", perMinutes: 3, cta: "Start sending", urgency: 1 },
+  "follow-up": { title: "Follow-ups due", blurb: "Open threads where earlier contact gives you context.", perMinutes: 2, cta: "Review follow-ups", urgency: 2 },
+  call: { title: "Warm & high-value calls", blurb: "Calls worth a synchronous conversation — no quota; cold strangers wait in the ledger.", perMinutes: 6, cta: "Start calling", urgency: 3 },
+  video: { title: "Videos", blurb: "Signal-triggered walkthroughs for warm or high-value opportunities — no quota.", perMinutes: 8, cta: "Start video batch", urgency: 4 },
+  report: { title: "Reports waiting", blurb: "Business Technology Reviews ready for approval.", perMinutes: 5, cta: "Review reports", urgency: 5 },
+  "contact-form": { title: "Contact forms to submit", blurb: "Reach out through their contact form.", perMinutes: 4, cta: "Start forms", urgency: 6 },
+  "instagram-dm": { title: "Instagram DMs to send", blurb: "Instagram is the live channel — open with a warm DM.", perMinutes: 3, cta: "Start DMs", urgency: 7 },
+  // NOT a Today card. Software owns routing; genuinely unroutable records live quietly in
+  // Queue health / the business record, never as a recurring founder chore. buildWorkQueue
+  // never emits this kind — kept in META only so titles/labels resolve for legacy references.
+  understand: { title: "Needs attention", blurb: "Handled by the system — see Queue health.", perMinutes: 4, cta: "Resolve", urgency: 99 },
 };
 
 const TASK_TO_KIND: Record<TaskType, WorkKind> = {
@@ -92,6 +96,9 @@ export function buildWorkQueue(input: {
   leads: Map<string, Lead>;
   /** For business-hours-aware call filtering. Injected in tests; defaults to real time. */
   now?: Date;
+  /** Optional leadId → rank (higher = earlier) for the EMAIL batch — wires prospectPriority
+   *  into the operator's send order. Absent for non-email streams and back-compatible. */
+  emailOrder?: Map<string, number>;
 }): WorkCategory[] {
   const { tasks, meetingsToday, leads } = input;
   const now = input.now ?? new Date();
@@ -99,6 +106,9 @@ export function buildWorkQueue(input: {
   const push = (kind: WorkKind, leadId: string) => {
     const lead = leads.get(leadId);
     if (!lead) return;
+    // "Needs attention" (understand) is NOT a founder chore — software owns routing and genuine
+    // exceptions live in Queue health. It never becomes a Today card.
+    if (kind === "understand") return;
     // A PHONE-call task is withheld from the active board when it would waste the operator's
     // scarce synchronous attention: a locked door (known closed now), a predictably-out
     // professional office on a weekend, or an ordinary completely-cold phone-first lead
@@ -118,6 +128,15 @@ export function buildWorkQueue(input: {
   // its type-based kind, so email-first businesses behave exactly as before.
   for (const t of tasks) push(workKindForTask(t, leads.get(t.leadId)), t.leadId);
 
+  // Wire receptivity/fit into the EMAIL batch: order the send list by prospectPriority so the
+  // best intersection of fit + established + observed evidence surfaces first. Fit is foundational
+  // (it dominates the value); receptivity only reorders genuine near-ties. Deterministic tie-break.
+  const emailLeadIds = byKind.get("email");
+  if (emailLeadIds && input.emailOrder) {
+    const rank = input.emailOrder;
+    emailLeadIds.sort((a, b) => (rank.get(b) ?? 0) - (rank.get(a) ?? 0) || (a < b ? -1 : a > b ? 1 : 0));
+  }
+
   const cats: WorkCategory[] = [];
   for (const [kind, leadIds] of byKind) {
     if (leadIds.length === 0) continue;
@@ -130,6 +149,40 @@ export function buildWorkQueue(input: {
     });
   }
   return cats.sort((a, b) => a.urgency - b.urgency);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Replies & inbound — the people who came to you. This is a SIGNAL card, not a task batch:
+// it is built from genuine inbound human replies (classified, not auto-replies/bounces) that
+// the operator has not yet handled. It sorts above every proactive batch so a response is
+// never buried under routine outbound. Zero replies → no card (correct; nothing needs you).
+// ─────────────────────────────────────────────────────────────────────────────
+/** A minimal shape of an inbound reply — matches InboundMessage without importing it. */
+export interface InboundLike { leadId: string; classification: string | null; reviewedAt: string | null }
+
+// Classifications that are genuine human responses needing attention. Auto-replies (Out Of
+// Office) and Bounce are explicitly NOT here — they are not someone choosing to respond.
+const HUMAN_REPLY = new Set(["Interested", "Meeting Requested", "Question", "Not Now", "Already Working With Someone", "Wrong Contact", "Unsubscribe", "Unknown"]);
+
+/** Build the "Replies & inbound" card from unhandled human replies. Pure. Returns null when
+ *  none exist. `href` points at the surface where the operator reads/handles the reply. */
+export function buildReplyCard(input: { inbound: InboundLike[]; leads: Map<string, Lead>; href?: string }): WorkCategory | null {
+  const leadIds: string[] = [];
+  const seen = new Set<string>();
+  for (const m of input.inbound) {
+    if (m.reviewedAt) continue; // already handled
+    if (!HUMAN_REPLY.has(m.classification ?? "")) continue; // auto-reply / bounce — not a person responding
+    if (!input.leads.has(m.leadId) || seen.has(m.leadId)) continue;
+    seen.add(m.leadId);
+    leadIds.push(m.leadId);
+  }
+  if (leadIds.length === 0) return null;
+  const m = META.reply;
+  return {
+    kind: "reply", title: m.title, blurb: m.blurb, count: leadIds.length,
+    estMinutes: leadIds.length * m.perMinutes, ctaLabel: m.cta,
+    href: input.href ?? "/pipeline", leadIds, urgency: m.urgency, timeBound: false,
+  };
 }
 
 /** The ordered lead list for one batch (for the batch runner). */

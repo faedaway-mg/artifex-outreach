@@ -80,7 +80,13 @@ export async function resolveNextLead(
     ordered = idx >= 0 ? carried.slice(idx + 1) : carried;
   } else {
     const byKind = opts.kind ? batchLeadIds(queue, opts.kind) : [];
-    ordered = byKind.length > 0 ? byKind : Array.from(new Set(queue.flatMap((c) => c.leadIds)));
+    // Board cards first (urgency order), then any surfaced-but-uncarded actionable lead — e.g. a
+    // no-channel "Needs attention" lead the operator is resolving. Those are no longer a Today
+    // CARD (software owns routing), but the operator loop must still walk them so the find-contact
+    // resolution flow can advance from one exception to the next.
+    const cardLeads = Array.from(new Set(queue.flatMap((c) => c.leadIds)));
+    const extra = Array.from(new Set(tasks.map((t) => t.leadId))).filter((id) => !cardLeads.includes(id));
+    ordered = byKind.length > 0 ? byKind : [...cardLeads, ...extra];
   }
 
   const actionable = (id: string): boolean => {

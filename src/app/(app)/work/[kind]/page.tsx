@@ -35,11 +35,14 @@ import { ContactStrategyPanel } from "@/components/lead/ContactStrategyPanel";
 
 export const dynamic = "force-dynamic";
 
-const KINDS: WorkKind[] = ["discovery", "follow-up", "email", "report", "call", "contact-form", "instagram-dm", "video", "understand"];
-const ICON: Record<WorkKind, typeof Video> = { discovery: CalendarClock, "follow-up": RotateCcw, email: Mail, report: FileText, call: Phone, "contact-form": FileText, "instagram-dm": Instagram, video: Video, understand: Compass };
+// "reply"/"understand" have no batch runner — the reply card links to the conversation surface
+// and understand is handled by the system (Queue health), so neither is a valid /work/<kind>.
+const KINDS: WorkKind[] = ["discovery", "follow-up", "email", "report", "call", "contact-form", "instagram-dm", "video"];
+const ICON: Record<WorkKind, typeof Video> = { reply: Mail, discovery: CalendarClock, "follow-up": RotateCcw, email: Mail, report: FileText, call: Phone, "contact-form": FileText, "instagram-dm": Instagram, video: Video, understand: Compass };
 
 // Per-kind primary action + how to frame the step.
 const ACTION: Record<WorkKind, { verb: string; label: string; href: (id: string) => string }> = {
+  reply: { verb: "Respond to", label: "Open the conversation", href: (id) => `/conversation/${id}` },
   discovery: { verb: "Talk with", label: "Open conversation mode", href: (id) => `/conversation/${id}` },
   "follow-up": { verb: "Follow up with", label: "Review the follow-up", href: (id) => `/leads/${id}/send` },
   email: { verb: "Approve the email to", label: "Review & approve", href: (id) => `/leads/${id}/send` },

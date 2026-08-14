@@ -73,6 +73,36 @@ export async function POST(req: NextRequest) {
 
     const summary = await materializeDueSteps({ apply: !dryRun, horizon });
 
+    // ── Inventory diagnostic (read-only) ──────────────────────────────────────
+    // Answers "why is the email reservoir only N?" from live data, without a second analytics
+    // system: a queue-state breakdown (who owns each off-board business) + the email-prep
+    // eligibility count + prepared-vs-send-capacity. Computed on dryRun (safe, no writes) so an
+    // operator can curl this and SEE where inventory is constrained instead of guessing.
+    let inventory: unknown = null;
+    if (dryRun) {
+      const { listLeads, allTasks, allBusinessIntelligence, getSettings } = await import("@/lib/repo");
+      const { auditQueue } = await import("@/lib/outreach/inventory-prep");
+      const { emailInventory } = await import("@/lib/work-queue");
+      const { isValidEmail } = await import("@/lib/outreach/contact-strategy");
+      const [dLeads, dTasks, dBi, dSettings] = await Promise.all([listLeads(), allTasks(), allBusinessIntelligence(), getSettings()]);
+      const analyzedLeadIds = new Set(dBi.map((b) => b.leadId));
+      const openTasks = dTasks.filter((t) => t.status === "open");
+      const audit = auditQueue({ leads: dLeads, tasks: openTasks, analyzedLeadIds });
+      const inv = emailInventory({ leads: dLeads, tasks: openTasks, emailsSentToday: 0, sendTarget: dSettings.prospecting.emailDailyTarget ?? 10 });
+      const TERMINAL = new Set(["Won", "Lost", "Disqualified"]);
+      const prepEligible = dLeads.filter(
+        (l) => !TERMINAL.has(l.pipelineStage) && l.acquisitionStrategy !== "Do Not Contact" &&
+               !!l.website && !isValidEmail(l.publicEmail) && !analyzedLeadIds.has(l.id),
+      ).length;
+      inventory = {
+        totals: { leads: dLeads.length, openTasks: openTasks.length, analyzed: analyzedLeadIds.size },
+        email: { prepared: inv.prepared, sendCapacity: inv.sendCapacity, readyToday: inv.readyToday, beyondToday: inv.beyondToday },
+        emailPrepEligible: prepEligible, // leads with a site + no email, not yet analyzed → prep can harvest an email
+        queueByReason: audit.byReason,
+        queueByOwner: audit.byOwner, // software-research / defect self-heal; human = genuine exceptions
+      };
+    }
+
     // Phase 2 runs after projection so it sees today's real workload, not
     // yesterday's. Ordering matters: distributing first would balance against a
     // backlog that is about to change.
@@ -109,6 +139,8 @@ export async function POST(req: NextRequest) {
       sent: 0, // this route never sends — stated explicitly so monitoring can assert it
       routed: routing, // understand-placeholder → execution-stream materialization (null on dryRun)
       emailPrep: prep, // bounded email-inventory preparation (null unless EMAIL_PREP_ENABLED=1)
+      inventory, // read-only reservoir + queue-state diagnostic (dryRun only) — why is readyToday what it is
+
       ranAt: summary.ranAt,
       considered: summary.considered,
       created: summary.created,
