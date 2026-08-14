@@ -14,6 +14,7 @@ import {
   getStep, stepsForPlan, allPlans, listOperators, allEmailSends, emailSendsForLead,
 } from "@/lib/repo";
 import { emailsSentOn } from "@/lib/outreach/send-capacity";
+import { isInternalLead } from "@/lib/operators/assignment";
 import { panelForWorkKind } from "@/lib/outreach/call-routing";
 import { deriveCallLeadState } from "@/lib/outreach/call-state";
 import { CallWorkspace } from "@/components/lead/CallWorkspace";
@@ -80,7 +81,7 @@ export default async function BatchPage({ params, searchParams }: { params: { ki
     emailTarget: settings.prospecting.emailDailyTarget,
     videoTarget: settings.prospecting.videoDailyTarget,
     otherBudget: settings.prospecting.dailyQueueSize,
-    emailsSentToday: emailsSentOn(emailSends, now),
+    emailsSentToday: emailsSentOn(emailSends, now, { excludeLeadIds: new Set(leads.filter(isInternalLead).map((l) => l.id)) }),
   });
   const tasks = surfaceTodaysTasks({ tasks: tasksInScope(dueTasks, scopedLeadIds), leads: leadMap, capacity, now });
 

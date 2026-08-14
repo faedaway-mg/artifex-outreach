@@ -110,10 +110,17 @@ export async function POST(req: NextRequest) {
       const { auditQueue } = await import("@/lib/outreach/inventory-prep");
       const { emailInventory } = await import("@/lib/work-queue");
       const { isValidEmail } = await import("@/lib/outreach/contact-strategy");
-      const [dLeads, dTasks, dBi, dSettings, dSends, dInbound] = await Promise.all([listLeads(), allTasks(), allBusinessIntelligence(), getSettings(), allEmailSends(), allInbound()]);
+      const { isInternalLead } = await import("@/lib/operators/assignment");
+      const [allLeads, dTasks, dBi, dSettings, allSends2, allInbound2] = await Promise.all([listLeads(), allTasks(), allBusinessIntelligence(), getSettings(), allEmailSends(), allInbound()]);
+      // Supply/funnel describe REAL acquisition — exclude internal/test rows (consistent with the
+      // board). The queue-state audit below stays on ALL leads (technical diagnostic).
+      const dLeads = allLeads.filter((l) => !isInternalLead(l));
+      const internalIds = new Set(allLeads.filter(isInternalLead).map((l) => l.id));
+      const dSends = allSends2.filter((s) => !(s.leadId && internalIds.has(s.leadId)));
+      const dInbound = allInbound2.filter((m) => !(m.leadId && internalIds.has(m.leadId)));
       const analyzedLeadIds = new Set(dBi.map((b) => b.leadId));
       const openTasks = dTasks.filter((t) => t.status === "open");
-      const audit = auditQueue({ leads: dLeads, tasks: openTasks, analyzedLeadIds });
+      const audit = auditQueue({ leads: allLeads, tasks: openTasks, analyzedLeadIds }); // technical: all leads
       const inv = emailInventory({ leads: dLeads, tasks: openTasks, emailsSentToday: 0, sendTarget: dSettings.prospecting.emailDailyTarget ?? 10 });
       const TERMINAL = new Set(["Won", "Lost", "Disqualified"]);
       const prepEligible = dLeads.filter(

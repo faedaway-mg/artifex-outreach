@@ -8,6 +8,7 @@
 import { todaysTasks, listLeads, allMeetings, getSettings, allEmailSends } from "@/lib/repo";
 import { buildWorkQueue, batchLeadIds, surfaceTodaysTasks, channelCapacity } from "@/lib/work-queue";
 import { emailsSentOn } from "@/lib/outreach/send-capacity";
+import { isInternalLead } from "@/lib/operators/assignment";
 import type { Lead } from "@/lib/types";
 
 export interface NextLeadResult {
@@ -49,7 +50,10 @@ export async function resolveNextLead(
     allMeetings(),
     allEmailSends(),
   ]);
-  const leadMap = new Map(leads.map((l) => [l.id, l]));
+  // Internal/test rows are never operational — exclude them from the operator loop and from the
+  // real send-capacity count (a test send must not consume one of the 10 real slots).
+  const internalLeadIds = new Set(leads.filter(isInternalLead).map((l) => l.id));
+  const leadMap = new Map(leads.filter((l) => !isInternalLead(l)).map((l) => [l.id, l]));
 
   // Same channel-aware surfacing Today and the batch runner use, so "Next lead" walks
   // the exact set the operator sees — calls and emails as parallel streams, not one
@@ -58,7 +62,7 @@ export async function resolveNextLead(
     callTarget: settings.prospecting.callDailyTarget,
     emailTarget: settings.prospecting.emailDailyTarget,
     otherBudget: settings.prospecting.dailyQueueSize,
-    emailsSentToday: emailsSentOn(sends, now),
+    emailsSentToday: emailsSentOn(sends, now, { excludeLeadIds: internalLeadIds }),
   });
   const tasks = surfaceTodaysTasks({ tasks: dueTasks, leads: leadMap, capacity, now });
 

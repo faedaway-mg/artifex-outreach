@@ -3,6 +3,7 @@ import {
   todaysTasks, listLeads, allMeetings, allProposals, getSettings, allPlans, allBusinessIntelligence, allFindings, allTasks, allSteps, listOperators, allEmailSends, allInbound,
 } from "@/lib/repo";
 import { emailsSentOn } from "@/lib/outreach/send-capacity";
+import { isInternalLead } from "@/lib/operators/assignment";
 import { currentOperatorId } from "@/lib/auth";
 import { parseScope, leadIdsInScope, tasksInScope, scopeOptions, scopeLabel, scopeMeaning, scopeToParam } from "@/lib/operators/scope";
 import { QueueScopeSwitcher } from "@/components/QueueScopeSwitcher";
@@ -70,7 +71,9 @@ export default async function TodayPage({ searchParams }: { searchParams?: { vie
   // Calls and emails are PARALLEL streams, each with its own daily capacity, instead
   // of a single combined cap that let calls crowd out email-first leads. Email capacity
   // is the warm-up-safe daily ceiling minus what has already gone out today.
-  const emailsSentToday = emailsSentOn(emailSends, now);
+  // Real send capacity only — internal/test sends never consume one of the 10 real daily slots.
+  const internalLeadIds = new Set(leads.filter(isInternalLead).map((l) => l.id));
+  const emailsSentToday = emailsSentOn(emailSends, now, { excludeLeadIds: internalLeadIds });
   const capacity = channelCapacity({
     callTarget: settings.prospecting.callDailyTarget,
     emailTarget: settings.prospecting.emailDailyTarget,

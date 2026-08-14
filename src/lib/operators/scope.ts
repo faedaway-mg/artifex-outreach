@@ -17,6 +17,7 @@ import { canReceiveNewWork, shortName } from "./model";
 import {
   isActiveConversation,
   idleBusinessDays,
+  isInternalLead,
   DEFAULT_POLICY,
   TERMINAL_STAGES,
   type DistributionContext,
@@ -128,6 +129,10 @@ export function leadIdsInScope(input: {
   const { scope, viewerId, leads, operators, ctx, now } = input;
   const out = new Set<string>();
   for (const lead of leads) {
+    // Internal/test rows are never operational work — they must never enter any operator queue
+    // (Today, /work batches, next-lead). They remain stored + auditable; they are just invisible
+    // to the real operating experience. This is THE canonical operational chokepoint.
+    if (isInternalLead(lead)) continue;
     let include = false;
     switch (scope.kind) {
       case "all": include = true; break;

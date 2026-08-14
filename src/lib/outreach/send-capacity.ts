@@ -22,7 +22,11 @@ function sameDay(iso: string | null, ref: Date): boolean {
  * Count emails that have actually left the system today. A row counts once it has a
  * `sentAt` stamp (dispatch sets it on a successful send) — queued/failed rows do not,
  * so a bounce or a retry never wrongly consumes the day's send capacity.
+ *
+ * `excludeLeadIds` removes internal/test sends so a test send never consumes one of the operator's
+ * 10 REAL daily send slots — the capacity ceiling is measured against real outreach only.
  */
-export function emailsSentOn(sends: EmailSend[], now: Date): number {
-  return sends.filter((s) => sameDay(s.sentAt, now)).length;
+export function emailsSentOn(sends: EmailSend[], now: Date, opts: { excludeLeadIds?: Set<string> } = {}): number {
+  const exclude = opts.excludeLeadIds;
+  return sends.filter((s) => sameDay(s.sentAt, now) && !(exclude && s.leadId && exclude.has(s.leadId))).length;
 }

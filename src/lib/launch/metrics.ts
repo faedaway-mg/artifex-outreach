@@ -25,6 +25,7 @@ import {
   allShares,
   listProspectingRuns,
 } from "@/lib/repo";
+import { isInternalLead } from "@/lib/operators/assignment";
 import { levelOrdinal } from "@/lib/intelligence";
 import { estimateRelationshipValue } from "@/lib/pricing";
 import { categoryPerformance } from "@/lib/analytics";
@@ -141,10 +142,12 @@ export async function launchMetrics(now: Date = new Date()): Promise<LaunchMetri
     allEmailSends(), allInbound(), allShares(), listProspectingRuns(50), commsMetrics({ now }),
   ]);
 
+  // Real acquisition performance only — internal/test rows never inflate the launch dashboard.
+  const internalLeadIds = new Set(leads.filter(isInternalLead).map((l) => l.id));
   return {
     generatedAt: now.toISOString(),
     acquisition: acquisitionSection(leads, plans, bi, runs),
-    outreach: outreachSection(steps, outreach, emailSends, inbound, deliverables, videos, shares, suppressions, comms),
+    outreach: outreachSection(steps, outreach, emailSends, inbound, deliverables, videos, shares, suppressions, comms, internalLeadIds),
     discovery: discoverySection(meetings, bi),
     commercial: commercialSection(leads, proposals),
     intelligenceQuality: intelligenceQualitySection(leads, bi, outreach, meetings, proposals),
@@ -213,7 +216,16 @@ function outreachSection(
   shares: Awaited<ReturnType<typeof allShares>>,
   suppressions: Awaited<ReturnType<typeof listSuppressions>>,
   comms: CommsMetrics,
+  internalLeadIds: Set<string> = new Set(),
 ): OutreachMetrics {
+  // Drop internal/test rows so this business dashboard reflects REAL outreach only. `comms` is
+  // already real-only (computed in commsMetrics). Kept off the lead-linked inputs here.
+  const notInternal = (leadId: string | null | undefined) => !(leadId && internalLeadIds.has(leadId));
+  // The lead-linked activity inputs (sends, inbound replies, legacy outreach) drop internal/test
+  // rows. Steps are plan-linked (no direct leadId) and only feed prepared/approved counts.
+  outreach = outreach.filter((o) => notInternal(o.leadId));
+  emailSends = emailSends.filter((s) => notInternal(s.leadId));
+  inbound = inbound.filter((m) => notInternal(m.leadId));
   // The live send-ledger (emailSends) and the legacy outreach table are disjoint:
   // production writes only the ledger; seeded demos populate the legacy table.
   // Summing therefore reflects total activity without double-counting.

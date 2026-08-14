@@ -8,6 +8,7 @@
 // aggregates (noted as the scaling path).
 // ─────────────────────────────────────────────────────────────────────────────
 import { allEmailSends, listLeads, inboundForLead, getSettings } from "../repo";
+import { isInternalLead } from "../operators/assignment";
 import { getEmailProvider } from "./provider";
 import { withinSendingWindow, dueStepIds } from "./scheduler";
 import { MAX_ATTEMPTS } from "./state";
@@ -33,10 +34,16 @@ export interface CommsMetrics {
 
 export async function commsMetrics(opts: { now?: Date; includeProviderHealth?: boolean } = {}): Promise<CommsMetrics> {
   const now = opts.now ?? new Date();
-  const [sends, settings, leads] = await Promise.all([allEmailSends(), getSettings(), listLeads()]);
+  const [allSends, settings, leads] = await Promise.all([allEmailSends(), getSettings(), listLeads()]);
   const window = settings.sendingWindow ?? { timezone: "America/Los_Angeles", startHour: 8, endHour: 17, weekdays: [1, 2, 3, 4, 5] };
   const tz = window.timezone;
   const todayKey = laDateKey(now.toISOString(), tz);
+
+  // Business-PERFORMANCE numbers (volume, delivery/open/reply rates) describe REAL outreach, so they
+  // exclude internal/test sends. Technical queue/retry/provider health (below) intentionally sees ALL
+  // sends — test activity is useful there. `sends` = real; `allSends` = everything.
+  const internalLeadIds = new Set(leads.filter(isInternalLead).map((l) => l.id));
+  const sends = allSends.filter((s) => !(s.leadId && internalLeadIds.has(s.leadId)));
 
   const has = (s: EmailSend, f: keyof EmailSend) => s[f] != null;
   const sentTotal = sends.filter((s) => has(s, "sentAt")).length;
@@ -46,12 +53,13 @@ export async function commsMetrics(opts: { now?: Date; includeProviderHealth?: b
   const bounced = sends.filter((s) => has(s, "bouncedAt")).length;
   const complained = sends.filter((s) => has(s, "complainedAt")).length;
   const unsubscribed = sends.filter((s) => has(s, "unsubscribedAt")).length;
-  const failedTotal = sends.filter((s) => s.status === "failed").length;
-  const sending = sends.filter((s) => s.status === "sending").length;
-  const queued = sends.filter((s) => s.status === "queued").length;
+  // Queue/retry are technical infrastructure signals — count across ALL sends (incl. test).
+  const failedTotal = allSends.filter((s) => s.status === "failed").length;
+  const sending = allSends.filter((s) => s.status === "sending").length;
+  const queued = allSends.filter((s) => s.status === "queued").length;
   const sentToday = sends.filter((s) => s.sentAt && laDateKey(s.sentAt, tz) === todayKey).length;
 
-  const retryRows = sends.filter((s) => s.status === "queued").sort((a, b) => (a.nextAttemptAt ?? "").localeCompare(b.nextAttemptAt ?? ""));
+  const retryRows = allSends.filter((s) => s.status === "queued").sort((a, b) => (a.nextAttemptAt ?? "").localeCompare(b.nextAttemptAt ?? ""));
   const nextRetryAt = retryRows.find((r) => r.nextAttemptAt)?.nextAttemptAt ?? null;
 
   // Average reply latency: for each lead with human replies, time from its first
@@ -65,6 +73,7 @@ export async function commsMetrics(opts: { now?: Date; includeProviderHealth?: b
   let replyTotal = 0;
   const latencies: number[] = [];
   for (const lead of leads) {
+    if (isInternalLead(lead)) continue; // real reply performance only
     const inbound = await inboundForLead(lead.id);
     const human = inbound.filter((m) => m.classification !== "Out Of Office" && m.classification !== "Bounce");
     replyTotal += human.length;
