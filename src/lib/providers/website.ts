@@ -15,8 +15,14 @@
 import type { Lead } from "../types";
 import type { WebsiteSignals } from "../scoring";
 import type { FindingResult } from "../schemas";
+import { extractEmailsFromHtml, pickBusinessEmail, isSameSiteEmail } from "../intelligence/providers/website-intelligence";
+import { extractLinks, pageImportanceScore } from "../intelligence/crawler";
 
 export type AnalyzedFinding = FindingResult & { sourceUrl: string | null };
+
+/** How/where a usable public business email was found — provenance for the audit trail. */
+export type EmailHarvestMethod = "homepage" | "contact-page" | "none";
+export interface EmailProvenance { email: string; page: string; method: EmailHarvestMethod }
 
 export interface WebsiteAnalysis {
   signals: WebsiteSignals;
@@ -26,9 +32,46 @@ export interface WebsiteAnalysis {
   /**
    * Raw page content fetched during analysis, exposed so the Business Intelligence
    * engine can reuse it (Website Intelligence provider) WITHOUT a duplicate crawl.
-   * Empty in mock/offline modes.
+   * Empty in mock/offline modes. Includes any bounded contact/about pages fetched
+   * when the homepage exposed no usable business email.
    */
   pages: Array<{ url: string; html: string }>;
+  /** Where a usable same-domain business email was found (homepage vs a contact page), or none. */
+  emailProvenance: EmailProvenance;
+  /** How many EXTRA public pages were fetched beyond the homepage (bounded). */
+  extraPagesFetched: number;
+}
+
+// Bounded deeper public-email harvest. Public pages only, same-origin only, hard-capped, stops on
+// the first usable business email — reuses the existing extractor + same-domain gate (no new scraper).
+const MAX_EXTRA_PAGES = 3;
+const CONTACT_PATH_RE = /(contact|about|team|reach|connect|company|impressum)/i;
+
+async function harvestContactPages(
+  homeHtml: string,
+  finalUrl: string,
+  websiteDomain: string | null,
+): Promise<{ pages: Array<{ url: string; html: string }>; provenance: { email: string; page: string } | null }> {
+  const out: Array<{ url: string; html: string }> = [];
+  let origin: string;
+  try { origin = new URL(finalUrl).origin; } catch { return { pages: out, provenance: null }; }
+  // Same-origin links discovered FROM the homepage, narrowed to likely contact/about paths, and
+  // ordered by importance (/contact > /about > …). We never follow external or unrelated links.
+  const links = extractLinks(homeHtml, finalUrl)
+    .filter((u) => { try { return new URL(u).origin === origin && CONTACT_PATH_RE.test(new URL(u).pathname); } catch { return false; } })
+    .sort((a, b) => pageImportanceScore(b) - pageImportanceScore(a));
+  const seen = new Set<string>([finalUrl]);
+  for (const link of links) {
+    if (out.length >= MAX_EXTRA_PAGES) break;
+    if (seen.has(link)) continue;
+    seen.add(link);
+    const p = await fetchText(link);
+    if (!p.ok || !p.html) continue;
+    out.push({ url: p.finalUrl || link, html: p.html });
+    const email = pickBusinessEmail(extractEmailsFromHtml(p.html), p.finalUrl || link);
+    if (email && isSameSiteEmail(email, websiteDomain)) return { pages: out, provenance: { email, page: p.finalUrl || link } };
+  }
+  return { pages: out, provenance: null };
 }
 
 function placeholder(label: string, viewport: "mobile" | "desktop") {
@@ -103,6 +146,8 @@ export async function analyzeWebsite(lead: Lead): Promise<WebsiteAnalysis> {
       screenshots: [],
       performedWith: "mock",
       pages: [],
+      emailProvenance: { email: "", page: "", method: "none" },
+      extraPagesFetched: 0,
     };
   }
 
@@ -111,11 +156,26 @@ export async function analyzeWebsite(lead: Lead): Promise<WebsiteAnalysis> {
   const findings: AnalyzedFinding[] = [];
   let performedWith: WebsiteAnalysis["performedWith"] = "mock";
   const pages: Array<{ url: string; html: string }> = [];
+  let emailProvenance: EmailProvenance = { email: "", page: "", method: "none" };
+  let extraPagesFetched = 0;
 
   let signals: WebsiteSignals;
   if (page.ok && page.html) {
     performedWith = "live-fetch";
     pages.push({ url: page.finalUrl || url, html: page.html });
+
+    // Bounded deeper public-email harvest: prefer the homepage; only if it exposes no usable
+    // same-domain business email do we fetch a few likely contact/about pages (public, same-origin,
+    // hard-capped, stops on first hit). This raises email yield without a parallel scraper.
+    const homeEmail = pickBusinessEmail(extractEmailsFromHtml(page.html), page.finalUrl || url);
+    if (homeEmail && isSameSiteEmail(homeEmail, lead.websiteDomain)) {
+      emailProvenance = { email: homeEmail, page: page.finalUrl || url, method: "homepage" };
+    } else {
+      const deeper = await harvestContactPages(page.html, page.finalUrl || url, lead.websiteDomain);
+      pages.push(...deeper.pages);
+      extraPagesFetched = deeper.pages.length;
+      if (deeper.provenance) emailProvenance = { ...deeper.provenance, method: "contact-page" };
+    }
     const html = page.html.toLowerCase();
     const httpsOk = page.finalUrl.startsWith("https://");
     const hasViewport = /<meta[^>]+name=["']viewport["']/i.test(page.html);
@@ -159,7 +219,7 @@ export async function analyzeWebsite(lead: Lead): Promise<WebsiteAnalysis> {
   const screenshots = await captureScreenshots(lead);
 
   // Cap to 3 primary findings for a focused brief.
-  return { signals, findings: findings.slice(0, 3), screenshots, performedWith, pages };
+  return { signals, findings: findings.slice(0, 3), screenshots, performedWith, pages, emailProvenance, extraPagesFetched };
 }
 
 function fnd(

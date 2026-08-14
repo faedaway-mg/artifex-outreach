@@ -141,6 +141,17 @@ export async function POST(req: NextRequest) {
         email: { prepared: inv.prepared, sendCapacity: inv.sendCapacity, readyToday: inv.readyToday, beyondToday: inv.beyondToday },
         reservoir: { band, label: reservoirLabel(band), observedYield: Math.round(yieldRate * 100) / 100, wouldExamineNextTick: plan.examine, planReason: plan.reason },
         emailPrepEligible: prepEligible, // leads with a site + no email, not yet analyzed → prep can harvest an email
+        // Harvest yield by source (Phase 4): homepage vs bounded contact/about page vs none. Lets us
+        // measure whether the deeper crawl actually lifts email yield — from real production data.
+        harvest: (() => {
+          const rows = audRows.filter((a) => a.action === "lead.email.harvest" && a.meta && typeof a.meta === "object");
+          const by = { homepage: 0, "contact-page": 0, none: 0 } as Record<string, number>;
+          let extraPages = 0;
+          for (const r of rows) { const m = r.meta as any; if (m.method in by) by[m.method] += 1; extraPages += Number(m.extraPagesFetched ?? 0); }
+          const found = by.homepage + by["contact-page"];
+          const total = found + by.none;
+          return { sampled: total, homepage: by.homepage, contactPage: by["contact-page"], none: by.none, extraPagesFetched: extraPages, yield: total ? Math.round((found / total) * 100) / 100 : null, contactPageLift: found ? Math.round((by["contact-page"] / found) * 100) / 100 : null };
+        })(),
         funnel: { leads: dLeads.length, withWebsite, analyzed: analyzedLeadIds.size, emailFirst, preparedReviews: inv.prepared, sent: sentCount, replied: repliedLeadIds.size },
         // Discovery economics (read-only) — config caps + recent run funnel, so we can size supply
         // from real evidence and see whether the Places budget is actually being used.

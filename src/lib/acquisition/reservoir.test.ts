@@ -80,6 +80,16 @@ describe("planDiscovery — reservoir drives upstream supply (demand-aware), nev
   it("raises per-category cap only while rebuilding (anti-concentration relaxes, then restores)", () => {
     expect(planDiscovery({ prepared: 3 }).perCategoryCap).toBeGreaterThan(planDiscovery({ prepared: 25, floorLeads: 1 }).perCategoryCap);
   });
+  it("scales the WEEKLY per-category cap with need but keeps it diversity-safe (bounded per category)", () => {
+    const healthy = planDiscovery({ prepared: 25, floorLeads: 1 });
+    const low = planDiscovery({ prepared: 15 });
+    const critical = planDiscovery({ prepared: 3 });
+    expect(healthy.weeklyCap).toBe(6);        // conservative when full
+    expect(low.weeklyCap).toBeGreaterThan(healthy.weeklyCap);
+    expect(critical.weeklyCap).toBeGreaterThan(low.weeklyCap);
+    // Diversity guard: even critical stays a modest share — across ~12 categories, ≤~8%/category/week.
+    expect(critical.weeklyCap).toBeLessThanOrEqual(15);
+  });
 });
 
 describe("observedYield — measured from prep samples with a conservative prior", () => {

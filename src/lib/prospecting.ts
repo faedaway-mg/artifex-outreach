@@ -167,7 +167,12 @@ export async function runProspecting(req: ProspectRequest): Promise<ProspectingR
   const todayByCat = concentration(existing.filter((l) => todayLeadIds.has(l.id)).map((l) => l.normalizedCategory));
   const totalLeads = Math.max(1, existing.length);
 
-  const eligible = categories.filter((c) => c.enabled && !isPaused(c) && c.leadsFoundThisWeek < c.weeklyNewLeadCap);
+  // Effective per-category WEEKLY retention cap: reservoir-aware (diversity-safe) — it can exceed the
+  // conservative configured cap when rebuilding so we KEEP more of the excellent supply we already
+  // find, but a category is still bounded per week (no monopoly). A manual req.count respects the
+  // operator's exact configured cap. Never below the configured value.
+  const weeklyCapFor = (c: ProspectCategoryTarget) => req.count ? c.weeklyNewLeadCap : Math.max(c.weeklyNewLeadCap, discovery.weeklyCap);
+  const eligible = categories.filter((c) => c.enabled && !isPaused(c) && c.leadsFoundThisWeek < weeklyCapFor(c));
   const ranked = eligible
     .map((c) => ({ c, w: categoryWeight(c, pipelineByCat, todayByCat, totalLeads) }))
     .sort((a, b) => b.w - a.w);
@@ -267,7 +272,7 @@ export async function runProspecting(req: ProspectRequest): Promise<ProspectingR
   // but the per-category WEEKLY cap STILL bounds it — the anti-concentration protection is untouched.
   // A manual request (req.count) respects the operator's exact configured caps.
   const capFor = (c: ProspectCategoryTarget) => {
-    const weeklyRemaining = Math.max(0, c.weeklyNewLeadCap - c.leadsFoundThisWeek);
+    const weeklyRemaining = Math.max(0, weeklyCapFor(c) - c.leadsFoundThisWeek);
     return req.count
       ? Math.min(perCategoryCap, c.dailyNewLeadCap, weeklyRemaining)
       : Math.min(perCategoryCap, weeklyRemaining);

@@ -366,6 +366,13 @@ export async function runWebsiteAnalysisAction(leadId: string): Promise<void> {
   }
 
   await audit("lead.analyze", "lead", leadId, { performedWith: analysis.performedWith, findings: analysis.findings.length });
+  // Harvest provenance — where a usable public business email was found (homepage vs a bounded
+  // contact/about page), and how many extra pages we fetched. Powers the harvest-yield diagnostic.
+  await audit("lead.email.harvest", "lead", leadId, {
+    method: analysis.emailProvenance.method,
+    page: analysis.emailProvenance.page || null,
+    extraPagesFetched: analysis.extraPagesFetched,
+  });
   await touch(leadId);
 }
 

@@ -113,33 +113,47 @@ export function planPreparation(input: PrepPlanInput): PrepPlan {
 export interface DiscoveryPlan {
   /** Target NEW qualified leads to add this run (overrides the conservative per-run cap). 0 = throttle. */
   targetLeads: number;
-  /** Per-category cap so the target can be filled diversely from the run's candidates. */
+  /** Per-category cap FOR THIS RUN — preserves within-run diversity (no category dominates a run). */
   perCategoryCap: number;
+  /** Per-category WEEKLY retention cap — reservoir-aware, replacing the flat weekly ceiling. Bounds
+   *  a category's share of the WEEK so no single category can monopolise the pipeline over time. */
+  weeklyCap: number;
   /** How many returned places to evaluate (free — they come with the searches already paid for). */
   examineCap: number;
   band: ReservoirBand;
   reason: string;
 }
 
-/** Size discovery from reservoir health. `floorLeads` keeps the board's own minimum (e.g. queue
- *  refill) so this never REDUCES supply below the existing behaviour. Bounded, deterministic. */
+/**
+ * Size discovery from reservoir health — the diversity-safe retention policy. Both the per-RUN and
+ * per-WEEK per-category caps scale with need, so the reservoir decides HOW MUCH of the excellent
+ * supply we already find to KEEP — while the per-category ceilings (and the caller's distinct-
+ * category diversity target) prevent any one category from dominating. `floorLeads` keeps the
+ * board's own minimum so this never reduces supply below existing behaviour. Deterministic.
+ *
+ * Weekly caps are sized backward from the goal: to sustain ~10 sends/day (≈50–60/week) at the
+ * observed ~33% harvest yield needs ≈150–180 retained qualified/week. Across ~12 categories that is
+ * ≈13–15/category/week when CRITICAL — so a category is still ≤~8% of the week (diverse), never a
+ * flat unconditional number. Healthy → conservative (normal replacement only).
+ */
 export function planDiscovery(input: { prepared: number; floorLeads?: number; bands?: ReservoirBands }): DiscoveryPlan {
   const bands = input.bands ?? DEFAULT_BANDS;
   const band = reservoirBand(input.prepared, bands);
   const floor = Math.max(0, input.floorLeads ?? 0);
-  // Reservoir-aware ceilings. All within the SAME searches (no extra Places cost); picks stay
-  // highest-fit-first. Healthy/enough → throttle so we don't pay to find businesses we don't need.
-  const table: Record<ReservoirBand, { targetLeads: number; perCategoryCap: number; examineCap: number }> = {
-    critical: { targetLeads: 40, perCategoryCap: 6, examineCap: 400 },
-    low: { targetLeads: 20, perCategoryCap: 4, examineCap: 300 },
-    healthy: { targetLeads: 0, perCategoryCap: 2, examineCap: 200 },
-    enough: { targetLeads: 0, perCategoryCap: 2, examineCap: 200 },
+  // Reservoir-aware ceilings. Searches (Places cost) are unchanged; picks stay highest-fit-first.
+  // Healthy/enough → throttle so we don't pay to find businesses we don't need.
+  const table: Record<ReservoirBand, { targetLeads: number; perCategoryCap: number; weeklyCap: number; examineCap: number }> = {
+    critical: { targetLeads: 40, perCategoryCap: 6, weeklyCap: 15, examineCap: 400 },
+    low: { targetLeads: 20, perCategoryCap: 4, weeklyCap: 10, examineCap: 300 },
+    healthy: { targetLeads: 0, perCategoryCap: 2, weeklyCap: 6, examineCap: 200 },
+    enough: { targetLeads: 0, perCategoryCap: 2, weeklyCap: 6, examineCap: 200 },
   };
   const t = table[band];
   const targetLeads = Math.max(floor, t.targetLeads);
   return {
     targetLeads,
     perCategoryCap: t.perCategoryCap,
+    weeklyCap: t.weeklyCap,
     examineCap: t.examineCap,
     band,
     reason: `reservoir ${band} (${input.prepared} prepared) → target ${targetLeads} qualified leads, ≤${t.perCategoryCap}/category (same searches, same Places cost)`,
