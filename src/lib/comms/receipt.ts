@@ -36,6 +36,13 @@ export interface SendReceiptMeta {
   isFollowUp: boolean;
   /** The email_sends ledger row this receipt corresponds to. */
   sendId: string;
+  // ── Acquisition context captured at send time (the learning loop). Optional/back-compatible.
+  //    Lets us later correlate WHICH market tiers and receptivity signals actually predict replies
+  //    and meetings — without a second analytics system.
+  marketTier?: string;
+  fitScore?: number | null;
+  receptivityScore?: number;
+  receptivitySignalTypes?: string[];
 }
 
 /** SHA-256 hex of a string or buffer — the immutable fingerprint of body/attachment bytes. */

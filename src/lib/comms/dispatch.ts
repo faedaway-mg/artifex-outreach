@@ -25,6 +25,8 @@ import type { BusinessProfile } from "../business-intelligence/types";
 import { isSent, backoffMs, MAX_ATTEMPTS, STUCK_SENDING_MS } from "./state";
 import { unsubscribeUrlFor, listUnsubscribeHeaders } from "./unsubscribe";
 import { threadingHeaders, priorEmailSteps, reSubject, domainFromAddress } from "./threading";
+import { receptivitySignalsFrom, receptivityScore } from "../acquisition/receptivity";
+import { marketTierOf } from "../geo-market";
 import type { EmailMessage } from "./provider";
 import type { AcquisitionPlan, AcquisitionStep, EmailSend } from "../types";
 
@@ -166,12 +168,19 @@ export async function dispatchStep(stepId: string, opts: { now?: Date } = {}): P
   // was attached to THIS send. Answers "which exact Review did Business X receive?".
   let attachmentFilename: string | null = null;
   let attachmentSha256: string | null = null;
+  // Learning-loop context recorded on the receipt (why + observed signals). Cheap: reuses the BI
+  // already fetched for the attachment; market tier + fit come straight off the lead.
+  let receptivitySignalTypes: string[] = [];
+  let receptivityScoreVal = 0;
   if (!isFollowUp) {
     let review: import("../outreach/quick-review").QuickReview | null = null;
     try {
       const bi = await getBusinessIntelligence(lead.id);
       const profile = (bi?.profile?.businessProfile as BusinessProfile | undefined) ?? null;
       if (profile) {
+        const signals = receptivitySignalsFrom({ opportunities: profile.opportunities, generatedAt: bi?.generatedAt ?? null });
+        receptivitySignalTypes = [...new Set(signals.map((s) => s.type))];
+        receptivityScoreVal = receptivityScore(signals);
         const brand = await resolveLeadBrand(lead);
         review = buildQuickReview(lead, profile, brand);
       }
@@ -213,6 +222,9 @@ export async function dispatchStep(stepId: string, opts: { now?: Date } = {}): P
       attachmentFilename, attachmentSha256,
       providerMessageId: res.providerMessageId ?? null, sentAt: nowIso,
       stepId: step.id, planId: plan.id, isFollowUp, sendId: sendRow.id,
+      // Learning-loop context: market tier + fit + observed receptivity signals at send time.
+      marketTier: marketTierOf(lead), fitScore: lead.leadScore ?? null,
+      receptivityScore: receptivityScoreVal, receptivitySignalTypes,
     };
     await appendAudit({ action: SEND_RECEIPT_ACTION, actor: "system", targetType: "lead", targetId: lead.id, meta: receipt as unknown as Record<string, unknown>, ip: null });
 
