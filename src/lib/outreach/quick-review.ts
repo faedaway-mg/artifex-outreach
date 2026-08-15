@@ -13,7 +13,8 @@ import type { BusinessProfile } from "../business-intelligence/types";
 import { deslug } from "../utils";
 import { discoverLogoCandidates, type LogoSourceType } from "../brand/logo-extractor";
 import { getBusinessIntelligence, upsertBusinessIntelligence } from "../repo";
-import { selectReviewFindings, reviewStatus, startHere, displayUrl, isAttachable, type ReviewFinding, type ReviewStatus } from "./review-evidence";
+import { selectReviewFindings, reviewStatus, startHere, displayUrl, isAttachable, validateReviewEditorial, type ReviewFinding, type ReviewStatus, type StartingPoint } from "./review-evidence";
+import { presentFindings, openingHook, type FindingPresentation } from "./review-hooks";
 
 export interface ResolvedBrand {
   logoUrl: string;
@@ -29,8 +30,13 @@ export interface QuickReview {
   brand: ResolvedBrand | null;
   /** Evidence-backed findings (0–3), strongest first. THE canonical content of the review. */
   findings: ReviewFinding[];
-  /** The single recommended starting point — demonstrates prioritization. Null when no findings. */
-  start: { label: string; why: string } | null;
+  /** Per-finding presentation (text + visual hook), same order/length as findings. Evidence-derived. */
+  presentations: FindingPresentation[];
+  /** The primary opening curiosity hook (strongest finding's hook — not mechanically Finding 01). */
+  openingHook: string | null;
+  /** The single recommended starting point — demonstrates prioritization. Null when no findings.
+   *  Its label, intervention, and rationale all derive from one source finding (internally coherent). */
+  start: StartingPoint | null;
   /** Sendability: SENDABLE (≥2 strong) · NEEDS_REVIEW (1) · INSUFFICIENT_EVIDENCE (0). */
   status: ReviewStatus;
   /** Back-compat views derived from findings (older consumers/tests). */
@@ -58,6 +64,11 @@ const MIN_LOGO_CONFIDENCE = 0.75;
 export function buildQuickReview(lead: Lead, profile: BusinessProfile | null, brand: ResolvedBrand | null, opts: BuildReviewOptions = {}): QuickReview {
   const findings = selectReviewFindings(profile?.opportunities ?? [], 3, { website: lead.website, observedAt: opts.observedAt ?? null });
   const status = reviewStatus(findings);
+  const start = startHere(findings);
+  // Editorial fail-safe: a structurally-malformed artifact (duplicate titles, an impact statement
+  // where an action belongs, an incoherent starting point) must never silently attach. This does not
+  // loosen M2 sendability — it can only WITHHOLD attachment; the status itself is unchanged.
+  const editoriallyOk = validateReviewEditorial(findings, start).length === 0;
   return {
     businessName: lead.businessName,
     industryLabel: deslug(lead.industry) || "",
@@ -65,12 +76,14 @@ export function buildQuickReview(lead: Lead, profile: BusinessProfile | null, br
     website: displayUrl(lead.website),
     brand,
     findings,
-    start: startHere(findings),
+    presentations: presentFindings(findings),
+    openingHook: openingHook(findings),
+    start,
     status,
     observations: findings.map((f) => f.observation),
     whyItMatters: findings[0]?.whyItMatters || profile?.executiveSummary || "",
     recommendations: findings.map((f) => f.whatWedDo).filter(Boolean),
-    ready: isAttachable(status, opts.approved ?? false),
+    ready: isAttachable(status, opts.approved ?? false) && editoriallyOk,
   };
 }
 

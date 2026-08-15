@@ -5,7 +5,7 @@
 // construction. Includes the Urban Americana regression case (no company-specific hard-coding).
 // ─────────────────────────────────────────────────────────────────────────────
 import { describe, it, expect } from "vitest";
-import { selectReviewFindings, reviewStatus, startHere, displayUrl, isAttachable } from "./review-evidence";
+import { selectReviewFindings, reviewStatus, startHere, displayUrl, isAttachable, validateReviewEditorial } from "./review-evidence";
 import type { ModernizationOpportunity, OpportunityCategory } from "../business-intelligence/types";
 
 let n = 0;
@@ -115,7 +115,8 @@ describe("startHere — one prioritized starting point from the top finding", ()
     const f = selectReviewFindings([opp({ category: "Customer Acquisition", observation: "The catalog is split across obsolete collections that make browsing harder than it should be." })]);
     const s = startHere(f);
     expect(s).not.toBeNull();
-    expect(s!.label).toMatch(/information-architecture|audit|cleanup|QA/i);
+    expect(s!.label).toMatch(/catalog|discovery|navigation|pass|cleanup/i);
+    expect(s!.sourceFindingId).toBe(f[0].id);           // coherence anchor
     expect(startHere([])).toBeNull();
   });
 });
@@ -142,6 +143,60 @@ describe("Urban Americana regression — specific observable findings, boilerpla
     expect(text).not.toMatch(/dashboard|operational reporting|look developing|little sign|measuring what/i); // boilerplate gone
     for (const f of findings) expect(["Observed", "Reported"]).toContain(f.evidence.confidence);
     expect(reviewStatus(findings)).toBe("SENDABLE");
-    expect(startHere(findings)!.label).toMatch(/information-architecture/i);
+    // Top finding is the catalog one (longest/most specific) → catalog-coherent start label.
+    expect(startHere(findings)!.label).toMatch(/catalog|discovery|navigation/i);
+  });
+});
+
+// ── M3.1 editorial integrity — the four last-mile defects, by construction ─────────────────────────
+describe("M3.1 — finding titles are unique and observation-specific (defect 1)", () => {
+  it("mobile + catalog + reviews (all Customer Acquisition-ish) get THREE distinct titles", () => {
+    const findings = selectReviewFindings([
+      opp({ category: "Brand Experience", observation: "On mobile the primary 'Shop' action sits below three stacked banners, so it's off-screen on first load." }),
+      opp({ category: "Customer Acquisition", observation: "The storefront exposes 19 customer-facing collections, but there is no filtering or faceted browsing to narrow a big catalog." }),
+      opp({ category: "Customer Retention", observation: "The business has 950+ reviews at 4.8 stars externally, but none are surfaced on the site.", confidence: { label: "Reported", score: 0.7 }, basis: ["Google Business Profile"] }),
+    ]);
+    const titles = findings.map((f) => f.title);
+    expect(new Set(titles.map((t) => t.toLowerCase())).size).toBe(titles.length); // all unique
+    // No generic consulting fallback reused across unrelated findings.
+    for (const t of titles) expect(t).not.toMatch(/own more of what customers|improve the website|improve conversion|strengthen customer experience/i);
+    // Quantitative context strengthens the specific titles.
+    expect(titles.join(" | ")).toMatch(/19 collections/i);
+    expect(titles.join(" | ")).toMatch(/950\+ customer reviews/i);
+  });
+});
+
+describe("M3.1 — semantic roles are separated (defect 2)", () => {
+  it("whatWedDo is an ACTION, never a repeat impact statement — even when the engine's rationale is impact-shaped", () => {
+    // Mimics the real mobile rule: rationale is an IMPACT sentence, not an action.
+    const mobile = opp({ category: "Customer Acquisition", observation: "On mobile the primary action is pushed off-screen below stacked banners.", whyItMatters: "Most first visits happen on a phone; a site that struggles there loses customers before they make contact.", estimatedImpact: { level: "High", rationale: "Mobile experience directly gates how many visitors convert." } });
+    const f = selectReviewFindings([mobile, opp({ category: "Customer Retention", observation: "950+ reviews at 4.8 stars are not surfaced on the site.", confidence: { label: "Reported", score: 0.7 }, basis: ["Google Business Profile"] })])[0];
+    expect(f.whatWedDo).not.toBe("Mobile experience directly gates how many visitors convert."); // not the impact line
+    expect(f.whatWedDo).toMatch(/\b(rework|audit|surface|simplify|add|remove|choose|standardi|replace|consolidate|prioriti|profile|cut|map|restructure|rebuild|test|instrument|redirect|redesign|clarify)\b/i);
+    expect(f.whyItMatters).toMatch(/loses customers|first visits/i); // consequence stays in whyItMatters
+  });
+});
+
+describe("M3.1 — the starting point is internally coherent (defect 3)", () => {
+  it("when catalog outranks mobile, the start LABEL and RATIONALE both come from the catalog finding", () => {
+    const findings = selectReviewFindings([
+      opp({ category: "Customer Acquisition", observation: "The storefront exposes 19 customer-facing collections, but there is no filtering or faceted browsing to help narrow a big catalog." }),
+      opp({ category: "Brand Experience", observation: "On mobile the primary action is off-screen below banners." }),
+    ]);
+    expect(findings[0].topic).toBe("catalog"); // catalog ranks first (longer/more specific)
+    const s = startHere(findings)!;
+    expect(s.sourceFindingId).toBe(findings[0].id);
+    expect(s.label).toMatch(/catalog|discovery|navigation/i);      // label is catalog-flavored
+    expect(s.why).not.toMatch(/phone|mobile/i);                     // rationale is NOT from the mobile finding
+    expect(s.intervention).toBe(findings[0].whatWedDo);             // same-finding intervention
+    expect(validateReviewEditorial(findings, s)).toHaveLength(0);   // structurally coherent
+  });
+  it("validator flags an incoherent hand-built starting point", () => {
+    const findings = selectReviewFindings([
+      opp({ category: "Customer Acquisition", observation: "The storefront exposes 19 collections with no filtering to narrow the catalog." }),
+      opp({ category: "Brand Experience", observation: "On mobile the primary action is off-screen below banners." }),
+    ]);
+    const bad = { sourceFindingId: findings[0].id, label: "Mobile conversion pass", intervention: "something else", why: "x", proofReference: "x.com" };
+    expect(validateReviewEditorial(findings, bad).length).toBeGreaterThan(0);
   });
 });

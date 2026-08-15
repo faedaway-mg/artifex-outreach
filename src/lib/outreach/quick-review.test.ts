@@ -31,7 +31,9 @@ describe("buildQuickReview — deterministic, business-specific, never fabricate
     expect(r.observations).toHaveLength(2);
     expect(r.observations[0]).toMatch(/No owned website/);
     expect(r.whyItMatters).toMatch(/can't book/);
-    expect(r.recommendations[0]).toMatch(/booking page/);
+    // whatWedDo is now the topic-specific intervention (M3.1), not the raw seed rationale — the
+    // "owned website / Google listing" observation maps to the owned-presence intervention.
+    expect(r.recommendations[0]).toMatch(/owned website|home base/i);
     expect(r.ready).toBe(true);
   });
 
@@ -52,7 +54,15 @@ describe("buildQuickReview — deterministic, business-specific, never fabricate
   });
 
   it("caps at three observations", () => {
-    const many = Array.from({ length: 6 }, (_, i) => ({ observation: `Obs ${i}`, whyItMatters: `Why ${i}`, rationale: `Rec ${i}` }));
+    // Six DISTINCT-topic observations (dedupe is by topic) — the cap, not dedupe, must limit to three.
+    const many = [
+      { observation: "The catalog exposes 40 collections with no filtering to narrow them.", whyItMatters: "w", rationale: "r" },
+      { observation: "On mobile the primary action is off-screen below stacked banners.", whyItMatters: "w", rationale: "r" },
+      { observation: "The homepage has no clear primary call to action for a first-time visitor.", whyItMatters: "w", rationale: "r" },
+      { observation: "The site has no online booking; reservations require calling.", whyItMatters: "w", rationale: "r" },
+      { observation: "Strong reviews live on Google but none are surfaced on the site.", whyItMatters: "w", rationale: "r" },
+      { observation: "The primary navigation exposes 14 top-level destinations.", whyItMatters: "w", rationale: "r" },
+    ];
     expect(buildQuickReview(lead(), profile(many), null).observations).toHaveLength(3);
   });
 
