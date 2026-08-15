@@ -26,6 +26,8 @@ import { buildOperatorBriefing, type OperatorBriefing } from "./operator-briefin
 import { buildKnowledgeGraph, type KnowledgeGraph } from "./knowledge-graph";
 import type { LearningStore } from "./learning";
 import { buildBusinessProfile, type BusinessProfile } from "../business-intelligence";
+import { extractPublicObservations, observationsToOpportunities } from "./public-observations";
+import type { ModernizationOpportunity } from "../business-intelligence/types";
 
 export interface BusinessIntelligence {
   leadId: string;
@@ -141,7 +143,18 @@ export async function analyzeBusiness(input: AnalyzeInput): Promise<BusinessInte
   // 10) Business Intelligence Profile — organize everything above into the single
   //     structured profile every downstream system consumes. Reuses presence,
   //     evidence, maturity, and improvement; it does not re-analyze anything.
-  const businessProfile = buildBusinessProfile({ lead, presence: snapshot.presence, evidence, websiteSignals: signals ?? null, maturity, improvement });
+  const baseProfile = buildBusinessProfile({ lead, presence: snapshot.presence, evidence, websiteSignals: signals ?? null, maturity, improvement });
+
+  // 10b) Deep public-site observation layer (M3) — structure-aware findings from the pages we already
+  //      crawled, WITHOUT a new crawler. Aggregated, evidence-first, quantitative, and confined to what
+  //      is directly observable in the public HTML. Merge as Observed opportunities and re-rank so the
+  //      strongest surface first; downstream selection (review-evidence) handles topic dedupe.
+  const observations = extractPublicObservations(input.pages ?? [], lead);
+  const observationOpps = observationsToOpportunities(observations);
+  const mergedOpps = dedupeById([...baseProfile.opportunities, ...observationOpps]).sort(
+    (a, b) => b.confidence.score - a.confidence.score,
+  );
+  const businessProfile: BusinessProfile = { ...baseProfile, opportunities: mergedOpps };
 
   return {
     leadId: lead.id,
@@ -163,4 +176,13 @@ export async function analyzeBusiness(input: AnalyzeInput): Promise<BusinessInte
     // A provider "contributes" only when it actually produced evidence.
     providerCoverage: { contributing: results.filter((r) => r.ok && r.evidence.length > 0).map((r) => r.providerId), evidenceCount: evidence.length },
   };
+}
+
+/** Keep the first opportunity per id (base-profile opportunities win ties with observation-derived
+ *  ones sharing an id — though ids are disjoint in practice: observation ids are `obs-*`). */
+function dedupeById(opps: ModernizationOpportunity[]): ModernizationOpportunity[] {
+  const seen = new Set<string>();
+  const out: ModernizationOpportunity[] = [];
+  for (const o of opps) { if (seen.has(o.id)) continue; seen.add(o.id); out.push(o); }
+  return out;
 }
