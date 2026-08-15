@@ -38,6 +38,20 @@ const s = StyleSheet.create({
   itemText: { flex: 1, fontSize: 11, color: C.ink, lineHeight: 1.45 },
   why: { marginTop: 7, fontSize: 11, color: "#3A342B", lineHeight: 1.5 },
   close: { marginTop: 22, fontSize: 11, color: C.ink, fontFamily: "Helvetica-Oblique" },
+  // Evidence-first finding blocks
+  finding: { marginTop: 15, paddingTop: 13, borderTopWidth: 1, borderTopColor: C.hair },
+  findingHead: { flexDirection: "row", alignItems: "baseline", gap: 8 },
+  findingNo: { fontFamily: "Helvetica-Bold", fontSize: 9, letterSpacing: 1, color: C.goldLink },
+  findingTitle: { flex: 1, fontFamily: "Helvetica-Bold", fontSize: 12.5, color: C.ink, lineHeight: 1.2 },
+  subLabel: { fontSize: 7.5, letterSpacing: 1, color: C.faint, textTransform: "uppercase", marginTop: 7 },
+  subText: { fontSize: 10.5, color: C.ink, lineHeight: 1.45, marginTop: 2 },
+  evidenceRow: { marginTop: 6, flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "#F3EFE6", borderRadius: 5, paddingVertical: 5, paddingHorizontal: 8 },
+  evidenceText: { flex: 1, fontSize: 8.5, color: C.mute, lineHeight: 1.35 },
+  evidenceTag: { fontSize: 7.5, fontFamily: "Helvetica-Bold", color: C.goldLink, letterSpacing: 0.5, textTransform: "uppercase" },
+  startBox: { marginTop: 18, borderRadius: 8, backgroundColor: C.tile, paddingVertical: 13, paddingHorizontal: 15 },
+  startLabel: { fontSize: 8, letterSpacing: 1.4, color: C.gold, textTransform: "uppercase" },
+  startTitle: { fontFamily: "Helvetica-Bold", fontSize: 13, color: "#FBF7EF", marginTop: 4 },
+  startWhy: { fontSize: 9.5, color: "#CFC7B6", marginTop: 4, lineHeight: 1.45 },
   footer: { position: "absolute", left: 48, right: 48, bottom: 30, flexDirection: "row", justifyContent: "space-between", borderTopWidth: 1, borderTopColor: C.hair, paddingTop: 8 },
   footerText: { fontSize: 8.5, color: C.mute },
 });
@@ -53,6 +67,13 @@ function ArtifexMark() {
       </Svg>
     </View>
   );
+}
+
+// Honest, dynamic headline — never claims more findings than the evidence supports.
+function countLabel(n: number): string {
+  if (n <= 0) return "A quick review of your public presence";
+  if (n === 1) return "1 opportunity we found";
+  return `${n} opportunities we found`;
 }
 
 export function QuickReviewDocument({ review, dateStr }: { review: QuickReview; dateStr: string }) {
@@ -84,38 +105,35 @@ export function QuickReviewDocument({ review, dateStr }: { review: QuickReview; 
         <View style={s.rule} />
 
         <Text style={s.eyebrow}>Quick Review</Text>
-        <Text style={s.title}>Quick Review for {review.businessName}</Text>
-        {meta ? <Text style={s.titleMeta}>{meta}{review.website ? `  ·  ${review.website}` : ""}</Text> : null}
+        <Text style={s.title}>{countLabel(review.findings.length)}</Text>
+        {meta ? <Text style={s.titleMeta}>For {review.businessName}  ·  {meta}{review.website ? `  ·  ${review.website}` : ""}</Text> : null}
 
-        {/* Visual-evidence slot (kept minimal until Increment C provides real screenshots). */}
-        <View style={s.evidenceSlot}>
-          <Text style={s.evidenceCaption}>Prepared for {review.businessName} from a review of your public online presence.</Text>
-        </View>
+        {/* Evidence-first findings — each backed by public evidence we can point to. */}
+        {review.findings.map((f, i) => (
+          <View key={i} style={s.finding} wrap={false}>
+            <View style={s.findingHead}>
+              <Text style={s.findingNo}>FINDING {String(i + 1).padStart(2, "0")}</Text>
+              <Text style={s.findingTitle}>{f.title}</Text>
+            </View>
+            <Text style={s.subLabel}>What we found</Text>
+            <Text style={s.subText}>{f.observation}</Text>
+            <View style={s.evidenceRow}>
+              <Text style={s.evidenceTag}>{f.evidence.confidence === "Observed" ? "Observed" : "Reported"}</Text>
+              <Text style={s.evidenceText}>{f.evidence.source}</Text>
+            </View>
+            <Text style={s.subLabel}>Why it matters</Text>
+            <Text style={s.subText}>{f.whyItMatters}</Text>
+            {f.whatWedDo ? (<><Text style={s.subLabel}>What we'd do</Text><Text style={s.subText}>{f.whatWedDo}</Text></>) : null}
+          </View>
+        ))}
 
-        <View style={s.section}>
-          <Text style={s.sectionLabel}>What stood out</Text>
-          {review.observations.map((o, i) => (
-            <View key={i} style={s.item}><Text style={s.bullet}>›</Text><Text style={s.itemText}>{o}</Text></View>
-          ))}
-        </View>
-
-        {review.whyItMatters ? (
-          <View style={s.section}>
-            <Text style={s.sectionLabel}>Why it matters</Text>
-            <Text style={s.why}>{review.whyItMatters}</Text>
+        {review.start ? (
+          <View style={s.startBox} wrap={false}>
+            <Text style={s.startLabel}>Where we'd start</Text>
+            <Text style={s.startTitle}>{review.start.label}</Text>
+            <Text style={s.startWhy}>{review.start.why}</Text>
           </View>
         ) : null}
-
-        {review.recommendations.length > 0 ? (
-          <View style={s.section}>
-            <Text style={s.sectionLabel}>What we'd prioritize</Text>
-            {review.recommendations.map((r, i) => (
-              <View key={i} style={s.item}><Text style={s.bullet}>›</Text><Text style={s.itemText}>{r}</Text></View>
-            ))}
-          </View>
-        ) : null}
-
-        <Text style={s.close}>If useful, I'd be happy to walk through what I'd prioritize first.</Text>
 
         <View style={s.footer}>
           <Text style={s.footerText}>Artifex Labs · artifexlabs.tech</Text>

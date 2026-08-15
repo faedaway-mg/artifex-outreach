@@ -13,6 +13,7 @@ import type { BusinessProfile } from "../business-intelligence/types";
 import { deslug } from "../utils";
 import { discoverLogoCandidates, type LogoSourceType } from "../brand/logo-extractor";
 import { getBusinessIntelligence, upsertBusinessIntelligence } from "../repo";
+import { selectReviewFindings, reviewStatus, startHere, displayUrl, type ReviewFinding, type ReviewStatus } from "./review-evidence";
 
 export interface ResolvedBrand {
   logoUrl: string;
@@ -26,36 +27,44 @@ export interface QuickReview {
   location: string;
   website: string | null;
   brand: ResolvedBrand | null;
-  /** "What stood out" — real observations, strongest first (1–3). */
+  /** Evidence-backed findings (0–3), strongest first. THE canonical content of the review. */
+  findings: ReviewFinding[];
+  /** The single recommended starting point — demonstrates prioritization. Null when no findings. */
+  start: { label: string; why: string } | null;
+  /** Sendability: SENDABLE (≥2 strong) · NEEDS_REVIEW (1) · INSUFFICIENT_EVIDENCE (0). */
+  status: ReviewStatus;
+  /** Back-compat views derived from findings (older consumers/tests). */
   observations: string[];
-  /** "Why it matters" — the consequence for the business. */
   whyItMatters: string;
-  /** "What we'd prioritize" — grounded impact rationales (1–3). */
   recommendations: string[];
-  /** False when there is no credible observation — the review is not send-ready. */
+  /** False only when there is NO evidence-backed finding — a speculative-only BI can never attach. */
   ready: boolean;
 }
 
 const MIN_LOGO_CONFIDENCE = 0.75;
 
-/** Build the deterministic Quick Review from stored lead + BI. `brand` is the already-resolved
- *  (cached) logo, or null. Never invents findings — an empty BI yields ready=false. */
+/**
+ * Build the deterministic Quick Review from stored lead + BI. Evidence-first: only findings we can
+ * point to public evidence for survive (see review-evidence.ts); speculative/inferred/internal
+ * claims are dropped. A speculative-only profile yields status=INSUFFICIENT_EVIDENCE and ready=false
+ * — it can never silently become a sendable attachment.
+ */
 export function buildQuickReview(lead: Lead, profile: BusinessProfile | null, brand: ResolvedBrand | null): QuickReview {
-  const opps = profile?.opportunities ?? [];
-  const top = opps.slice(0, 3);
-  const observations = top.map((o) => o.observation).filter(Boolean);
-  const whyItMatters = top[0]?.whyItMatters || profile?.executiveSummary || "";
-  const recommendations = top.map((o) => o.estimatedImpact?.rationale).filter(Boolean) as string[];
+  const findings = selectReviewFindings(profile?.opportunities ?? [], 3);
+  const status = reviewStatus(findings);
   return {
     businessName: lead.businessName,
     industryLabel: deslug(lead.industry) || "",
     location: [lead.city, lead.state].filter(Boolean).join(", "),
-    website: lead.website ? lead.website.replace(/^https?:\/\//, "").replace(/\/$/, "") : null,
+    website: displayUrl(lead.website),
     brand,
-    observations,
-    whyItMatters,
-    recommendations,
-    ready: observations.length > 0,
+    findings,
+    start: startHere(findings),
+    status,
+    observations: findings.map((f) => f.observation),
+    whyItMatters: findings[0]?.whyItMatters || profile?.executiveSummary || "",
+    recommendations: findings.map((f) => f.whatWedDo).filter(Boolean),
+    ready: status !== "INSUFFICIENT_EVIDENCE",
   };
 }
 

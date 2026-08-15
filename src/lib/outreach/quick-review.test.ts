@@ -7,12 +7,16 @@ import type { BusinessProfile } from "../business-intelligence/types";
 const lead = (over: Partial<Lead> = {}): Lead =>
   ({ id: "l1", businessName: "Villa Brasil Motel", industry: "motel", city: "Los Angeles", state: "CA", website: "https://villabrasil.example", ...over }) as Lead;
 
-const profile = (opps: Array<{ observation: string; whyItMatters: string; rationale: string }>): BusinessProfile =>
+// An evidence-backed opportunity (Observed/Reported + non-empty basis) — the kind that survives.
+type OppSeed = { category?: string; observation: string; whyItMatters: string; rationale: string; confidence?: "Observed" | "Reported" | "Likely" | "Inferred"; basis?: string[] };
+const CATS = ["Customer Acquisition", "Scheduling", "Communication", "Customer Retention", "Brand Experience"];
+const profile = (opps: OppSeed[]): BusinessProfile =>
   ({
     executiveSummary: "A well-reviewed motel whose bookings run through third parties.",
     opportunities: opps.map((o, i) => ({
-      id: `o${i}`, category: "conversion", observation: o.observation, whyItMatters: o.whyItMatters,
-      estimatedImpact: { level: "high", rationale: o.rationale }, confidence: "Likely", basis: [],
+      id: `o${i}`, category: o.category ?? CATS[i % CATS.length], observation: o.observation, whyItMatters: o.whyItMatters,
+      estimatedImpact: { level: "High", rationale: o.rationale },
+      confidence: { label: o.confidence ?? "Observed", score: 0.9 }, basis: o.basis ?? ["public website HTML"],
     })),
   } as unknown as BusinessProfile);
 
