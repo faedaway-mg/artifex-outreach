@@ -7,6 +7,10 @@
 import type { ReviewVideoPlan, VideoScene } from "./plan";
 import type { QuickReview } from "../../outreach/quick-review";
 import type { SceneWindow } from "./motion";
+import { parseStat, type CountSpec } from "./count";
+
+/** How much the surface is dimmed for legibility (M2.2). Evidence stays bright; only backdrops darken. */
+export type SurfaceTreatment = "EVIDENCE_SURFACE" | "ATMOSPHERIC_SURFACE" | "BACKGROUND_SURFACE";
 
 export interface PageSurface {
   src: string;
@@ -20,6 +24,18 @@ export interface PageSurface {
   focusStart: number;
   originX: number;
   originY: number;
+  /** M2.2 legibility treatment — evidence bright, atmospheric medium, backdrop dim. */
+  treatment: SurfaceTreatment;
+}
+
+/** The staged 3-beat proof scene (M2.2): review volume → rating → the underused-proof contrast. */
+export interface ReviewProof {
+  count: CountSpec | null;   // 0 → 950+
+  countLabel: string;
+  rating: CountSpec | null;  // 0.0 → 4.8 (rendered with ★)
+  ratingLabel: string;
+  zero: string;              // "0" — supporting contrast, NOT counted, revealed last
+  zeroLabel: string;
 }
 export interface PageScene {
   id: string;
@@ -30,7 +46,10 @@ export interface PageScene {
   hook?: { l1: string; l2: string };
   value?: string | null;
   label?: string | null;
-  cmp?: { left: string; leftLabel: string; right: string; rightLabel: string } | null;
+  /** Count-up spec for the stat number (M2.2) — animates 0 → value, exact endpoint. */
+  count?: CountSpec | null;
+  /** Staged proof data (M2.2) — replaces the simultaneous comparison. */
+  review?: ReviewProof | null;
   why?: string | null;
   proof?: string | null;
   surface?: PageSurface | null;
@@ -67,9 +86,17 @@ export function buildScenePlan(
       case "OPENING_HOOK":
         return { ...base, businessName: review.businessName, hook: splitHook(s.headline) };
       case "STRUCTURE": case "STAT_REVEAL":
-        return { ...base, value: s.primaryValue, label: (s.primaryLabel ?? "").toUpperCase(), hook: splitHook(s.headline) };
-      case "COMPARISON":
-        return { ...base, cmp: s.comparison ? { left: s.comparison.left, leftLabel: s.comparison.leftLabel.toUpperCase(), right: s.comparison.right, rightLabel: s.comparison.rightLabel.toUpperCase() } : null, hook: splitHook(s.headline) };
+        return { ...base, value: s.primaryValue, label: (s.primaryLabel ?? "").toUpperCase(), count: s.primaryValue ? parseStat(s.primaryValue) : null, hook: splitHook(s.headline) };
+      case "COMPARISON": {
+        const c = s.comparison;
+        const ratingStr = c?.leftLabel.match(/(\d(?:\.\d)?)\s*(?:★|stars?)/i)?.[1] ?? null;
+        const countLabel = (c?.leftLabel.replace(/·?\s*\d(?:\.\d)?\s*(?:★|stars?).*/i, "").replace(/·/g, "").trim().toUpperCase()) || "CUSTOMER REVIEWS";
+        return { ...base, hook: splitHook(s.headline), review: c ? {
+          count: parseStat(c.left), countLabel,
+          rating: ratingStr ? parseStat(ratingStr) : null, ratingLabel: "AVERAGE RATING",
+          zero: c.right, zeroLabel: c.rightLabel.toUpperCase(),
+        } : null };
+      }
       case "STARTING_POINT":
         return { ...base, label: s.headline, why: s.subline, proof: s.evidence ? `Proof · ${s.evidence.sourceLabel}` : null };
       case "CLOSE":

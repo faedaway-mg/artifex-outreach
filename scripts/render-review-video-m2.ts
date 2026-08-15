@@ -17,6 +17,7 @@ import { buildSchedule, totalDuration } from "../src/lib/content/review-video/mo
 import { buildScenePlan, type PageSurface } from "../src/lib/content/review-video/scene-plan";
 import { selectSceneSurface, focalCenter, businessSurfaceCoverage, type EvidenceAsset, type FocalRegion } from "../src/lib/content/review-video/assets";
 import { planFraming, type FramingMode, type Rect } from "../src/lib/content/review-video/framing";
+import { deriveSoundEvents, sfxRecipe } from "../src/lib/content/review-video/sound";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const W = 1080, H = 1920, FPS = 24, PORT = 9247;
@@ -74,7 +75,9 @@ async function main() {
     const mode = modeFor(s.type);
     const focal: Rect | null = sel.focalRegion ? { x: sel.focalRegion.x, y: sel.focalRegion.y, width: sel.focalRegion.width, height: sel.focalRegion.height } : null;
     const fr = planFraming(mode, focal, mode === "EVIDENCE_FRAME" ? EVIDENCE_BOUNDS : null);
-    surfaces[s.id] = { src: `file://${sel.localPath}`, kind: sel.type === "mobile-capture" ? "mobile" : "desktop", focalY: focalCenter(sel.focalRegion).cy, mode: fr.mode, scaleStart: fr.scaleStart, scaleEnd: fr.scaleEnd, focusStart: fr.focusStart, originX: fr.originX, originY: fr.originY };
+    // M2.2 legibility: evidence surfaces stay bright; the opening is atmospheric; the proof backdrop dims.
+    const treatment = mode === "EVIDENCE_FRAME" ? "EVIDENCE_SURFACE" : s.type === "COMPARISON" ? "BACKGROUND_SURFACE" : "ATMOSPHERIC_SURFACE";
+    surfaces[s.id] = { src: `file://${sel.localPath}`, kind: sel.type === "mobile-capture" ? "mobile" : "desktop", focalY: focalCenter(sel.focalRegion).cy, mode: fr.mode, scaleStart: fr.scaleStart, scaleEnd: fr.scaleEnd, focusStart: fr.focusStart, originX: fr.originX, originY: fr.originY, treatment };
   });
 
   // 4) Timeline. Provisional word-share pacing by default; when a real Lucas MP3 is supplied via
@@ -130,25 +133,39 @@ async function main() {
   const preview = join(OUT, "review-video-visual-preview-m2.1.mp4");
   ff(["-framerate", String(FPS), "-i", join(TMP, "f_%05d.png"), "-c:v", "libx264", "-preset", "medium", "-crf", "20", "-pix_fmt", "yuv420p", "-movflags", "+faststart", preview]);
   const qa: Record<string, number> = {
-    "qa-m2.1-opening": atFrac(schedule, "opening", 0.4),
-    "qa-m2.1-mobile-context": atFrac(schedule, "finding-01", 0.28), "qa-m2.1-mobile-focus": atFrac(schedule, "finding-01", 0.9),
-    "qa-m2.1-catalog-context": atFrac(schedule, "finding-02", 0.28), "qa-m2.1-catalog-focus": atFrac(schedule, "finding-02", 0.9),
-    "qa-m2.1-proof-context": atFrac(schedule, "finding-03", 0.3), "qa-m2.1-proof-focus": atFrac(schedule, "finding-03", 0.9),
-    "qa-m2.1-start": atFrac(schedule, "starting-point", 0.5), "qa-m2.1-close": atFrac(schedule, "close", 0.5),
+    "qa-m2.2-mobile": atFrac(schedule, "finding-01", 0.55),
+    "qa-m2.2-catalog-count-mid": atFrac(schedule, "finding-02", 0.32), "qa-m2.2-catalog-count-final": atFrac(schedule, "finding-02", 0.6),
+    "qa-m2.2-review-950": atFrac(schedule, "finding-03", 0.34), "qa-m2.2-review-48": atFrac(schedule, "finding-03", 0.62),
+    "qa-m2.2-review-site-transition": atFrac(schedule, "finding-03", 0.76), "qa-m2.2-review-zero": atFrac(schedule, "finding-03", 0.9),
+    "qa-m2.2-start": atFrac(schedule, "starting-point", 0.5), "qa-m2.2-close": atFrac(schedule, "close", 0.5),
   };
   const qaPaths: Record<string, string> = {};
   for (const [name, t] of Object.entries(qa)) { const p = join(OUT, `${name}.png`); ff(["-ss", t.toFixed(2), "-i", preview, "-frames:v", "1", p]); qaPaths[name] = p; }
 
-  // 8) Final voiced cut — only when a real Lucas MP3 is supplied. Video is the master container; the
-  //    audio ends slightly before the CLOSE tail (no -shortest → the outro plays over silence).
-  let finalPath: string | null = null, finalStatus = "VOICE_REQUIRED — real Lucas MP3 needed for a sendable final render.";
+  // 8) Final voiced cut (M2.2) — only with a real Lucas MP3. Build a restrained SYNTHESIZED SFX bed from
+  //    the derived sound events, then mix it UNDER Lucas (normalize=0 keeps the voice dominant; alimiter
+  //    prevents clipping). SFX are locally generated (ffmpeg lavfi) — no packs, no license risk.
+  let finalPath: string | null = null, sfxPath: string | null = null, finalStatus = "VOICE_REQUIRED — real Lucas MP3 needed for a sendable final render.";
+  const events = deriveSoundEvents(pagePlan.scenes, schedule);
   if (audioArg && audioDur) {
-    finalPath = join(OUT, "review-video-final.mp4");
-    ff(["-i", preview, "-i", audioArg, "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", finalPath]);
-    finalStatus = `VOICED FINAL — Lucas ${round2(audioDur)}s (~${Math.round((plan.narration.words / audioDur) * 60)} wpm), audio-master timing.`;
+    // Synthesize each event as a short low-gain clip.
+    const clips: string[] = [];
+    events.forEach((e, i) => { const r = sfxRecipe(e.type); const clip = join(TMP, `sfx_${i}.wav`); ff(["-f", "lavfi", "-i", r.src, "-af", `${r.filter},volume=${e.gain.toFixed(3)}`, "-ar", "44100", "-ac", "1", clip]); clips.push(clip); });
+    // Place each at its time (adelay) and mix into one bed the length of the video.
+    sfxPath = join(OUT, "review-video-sfx.wav");
+    if (events.length) {
+      const inputs: string[] = []; events.forEach((_, i) => inputs.push("-i", clips[i]));
+      const delays = events.map((e, i) => `[${i}:a]adelay=${Math.round(e.at * 1000)}:all=1[d${i}]`).join(";");
+      const mix = events.map((_, i) => `[d${i}]`).join("") + `amix=inputs=${events.length}:normalize=0:duration=longest,apad,atrim=0:${total.toFixed(3)}[sfx]`;
+      ff([...inputs, "-filter_complex", `${delays};${mix}`, "-map", "[sfx]", "-ar", "44100", "-ac", "1", sfxPath]);
+    } else { ff(["-f", "lavfi", "-i", `anullsrc=r=44100:cl=mono`, "-t", total.toFixed(3), sfxPath]); }
+    // Final mix: Lucas + SFX under it, limited; muxed onto the silent preview video.
+    finalPath = join(OUT, "review-video-final-m2.2.mp4");
+    ff(["-i", preview, "-i", audioArg, "-i", sfxPath, "-filter_complex", "[1:a]aformat=channel_layouts=mono[v];[2:a]aformat=channel_layouts=mono[s];[v][s]amix=inputs=2:normalize=0:duration=longest,alimiter=limit=0.95:level=disabled[a]", "-map", "0:v", "-map", "[a]", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-ar", "44100", "-movflags", "+faststart", finalPath]);
+    finalStatus = `VOICED FINAL (M2.2) — Lucas ${round2(audioDur)}s (~${Math.round((plan.narration.words / audioDur) * 60)} wpm) + ${events.length} SFX events, audio-master timing.`;
   }
 
-  console.log(JSON.stringify({ status: review.status, openingHook: plan.openingHook, scenes: pagePlan.scenes.map((s) => `${s.id}:${s.type}${s.surface ? " [surface]" : ""}`), captures: { desktop: hasDesktop, mobile: hasMobile }, coverage, previewSeconds: round2(probe(preview)), previewPath: preview, lucasWpm: audioDur ? Math.round((plan.narration.words / audioDur) * 60) : null, final: finalStatus, finalPath, qaFrames: qaPaths }, null, 2));
+  console.log(JSON.stringify({ status: review.status, openingHook: plan.openingHook, scenes: pagePlan.scenes.map((s) => `${s.id}:${s.type}${s.surface ? " [surface]" : ""}`), captures: { desktop: hasDesktop, mobile: hasMobile }, coverage, previewSeconds: round2(probe(preview)), previewPath: preview, lucasWpm: audioDur ? Math.round((plan.narration.words / audioDur) * 60) : null, soundEvents: events.length, final: finalStatus, finalPath, sfxPath, qaFrames: qaPaths }, null, 2));
 }
 function atFrac(schedule: ReturnType<typeof buildSchedule>, id: string, frac: number): number { const w = schedule.find((x) => x.id === id); return w ? w.startSec + Math.min(0.98, Math.max(0.05, frac)) * w.durSec : 0; }
 function round2(n: number): number { return Math.round(n * 100) / 100; }

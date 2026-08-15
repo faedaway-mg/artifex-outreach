@@ -43,8 +43,12 @@
   .surface img{display:block;width:100%;height:auto}
   .surface.bleed{border-radius:0;border:none;box-shadow:none}
   .surface.bleed img{width:1080px;height:1920px;object-fit:cover;object-position:50% 12%}
-  .surface.bleed .scrim{background:linear-gradient(180deg,rgba(6,8,12,0.80) 0%,rgba(6,8,12,0.62) 45%,rgba(6,8,12,0.86) 100%)}
-  .scrim{position:absolute;inset:0;background:linear-gradient(180deg,rgba(6,8,12,0.62) 0%,rgba(6,8,12,0.12) 30%,rgba(6,8,12,0.55) 100%)}
+  .scrim{position:absolute;inset:0}
+  /* M2.2 role-aware treatment: EVIDENCE stays BRIGHT (only local scrims behind the top/bottom type);
+     ATMOSPHERIC dims moderately; BACKGROUND (proof backdrop) dims strongly. */
+  .surface.t-evidence .scrim{background:linear-gradient(180deg,rgba(6,8,12,0.55) 0%,rgba(6,8,12,0.0) 15%,rgba(6,8,12,0.0) 82%,rgba(6,8,12,0.60) 100%)}
+  .surface.t-atmos .scrim{background:linear-gradient(180deg,rgba(6,8,12,0.55) 0%,rgba(6,8,12,0.14) 34%,rgba(6,8,12,0.55) 100%)}
+  .surface.t-bg .scrim{background:linear-gradient(180deg,rgba(6,8,12,0.82) 0%,rgba(6,8,12,0.66) 45%,rgba(6,8,12,0.88) 100%)}
   .ring{position:absolute;border:3px solid var(--teal);border-radius:10px;box-shadow:0 0 26px rgba(127,227,199,0.35);opacity:0}
   .rule{position:absolute;left:50%;transform:translateX(-50%);height:5px;width:120px;background:var(--gold);opacity:0}
 </style>
@@ -65,6 +69,8 @@ const eo=x=>1-Math.pow(1-x,3);                 // easeOutCubic — reveals/settl
 const eio=x=>x<.5?4*x*x*x:1-Math.pow(-2*x+2,3)/2; // easeInOutCubic — scans/exits
 function win(t,a,b,fi=.3,fo=.4){ if(t<a||t>b) return 0; return Math.min(eo(inv(t,a,a+fi)), eo(1-inv(t,b-fo,b))); }
 const px=v=>v.toFixed(2)+'px';
+// Count-up: animate 0 → to on eo easing, exact endpoint, no overshoot. Suffix ("+","★") never counted.
+function countStr(spec,t,cStart,cEnd,extraSuffix){ if(!spec)return ''; let v; if(t<=cStart)v=spec.from; else if(t>=cEnd)v=spec.to; else v=spec.from+(spec.to-spec.from)*eo(inv(t,cStart,cEnd)); const s=(spec.decimals>0)?v.toFixed(spec.decimals):String(Math.round(v)); return (spec.prefix||'')+s+(spec.suffix||'')+(extraSuffix||''); }
 
 // Seeded constellation (deterministic — same every render).
 function rng(a){return function(){a|=0;a=a+0x6D2B79F5|0;let x=Math.imul(a^a>>>15,1|a);x=x+Math.imul(x^x>>>7,61|x)^x;return((x^x>>>14)>>>0)/4294967296;};}
@@ -99,6 +105,7 @@ window.init=function(){
       if(s.surface.kind==='mobile'){ Object.assign(wrap.style,{width:'430px',top:'360px'}); }
       else if(s.type==='COMPARISON'){ Object.assign(wrap.style,{width:'1080px',top:'0px',height:'1920px',borderRadius:'0',border:'none'}); wrap.classList.add('bleed'); }
       else { Object.assign(wrap.style,{width:'900px',top:s.type==='OPENING_HOOK'?'520px':'640px'}); }
+      wrap.classList.add('t-'+({EVIDENCE_SURFACE:'evidence',ATMOSPHERIC_SURFACE:'atmos',BACKGROUND_SURFACE:'bg'}[s.surface.treatment]||'atmos'));
       const scrim=el('scrim'); wrap.appendChild(scrim);
       root.appendChild(wrap); parts.els.surface=wrap; parts.els.img=img;
     }
@@ -114,12 +121,17 @@ window.init=function(){
       parts.els.hook=el('l center','<div class="h1">'+(s.hook.l1||'')+'</div>'+(s.hook.l2?'<div class="h1 a">'+s.hook.l2+'</div>':''),{top:'1420px'});
       root.append(parts.els.stat,parts.els.label,parts.els.rule,parts.els.hook);
     } else if(s.type==='COMPARISON'){
-      parts.els.big=el('l center','<div class="cmpbig">'+(s.cmp.left||'')+'</div>',{top:'250px'});
-      parts.els.blabel=el('l center','<div class="cmplabel">'+(s.cmp.leftLabel||'')+'</div>',{top:'500px'});
-      parts.els.rbig=el('l center','<div class="cmpbig mute">'+(s.cmp.right||'')+'</div>',{top:'640px'});
-      parts.els.rlabel=el('l center','<div class="cmplabel">'+(s.cmp.rightLabel||'')+'</div>',{top:'880px'});
+      // Staged proof (M2.2): beat 1 review volume (count-up), beat 2 rating (count-up), beat 3 the site
+      // contrast + the underused-proof hook + a supporting 0. One hero number at a time — never a dashboard.
+      const rv=s.review||{};
+      parts.els.rvCount=el('l center','<div class="cmpbig">—</div>',{top:'330px'});
+      parts.els.rvCountL=el('l center','<div class="cmplabel">'+(rv.countLabel||'CUSTOMER REVIEWS')+'</div>',{top:'600px'});
+      parts.els.rvRating=el('l center','<div class="cmpbig" style="font-size:170px">—</div>',{top:'340px'});
+      parts.els.rvRatingL=el('l center','<div class="cmplabel">'+(rv.ratingLabel||'AVERAGE RATING')+'</div>',{top:'560px'});
+      parts.els.rvZero=el('l center','<div class="cmpbig mute" style="font-size:150px">'+(rv.zero||'0')+'</div>',{top:'300px'});
+      parts.els.rvZeroL=el('l center','<div class="cmplabel">'+(rv.zeroLabel||'')+'</div>',{top:'520px'});
       parts.els.hook=el('l center','<div class="h1">'+(s.hook.l1||'')+'</div>'+(s.hook.l2?'<div class="h1 a">'+s.hook.l2+'</div>':''),{top:'1440px'});
-      root.append(parts.els.big,parts.els.blabel,parts.els.rbig,parts.els.rlabel,parts.els.hook);
+      root.append(parts.els.rvCount,parts.els.rvCountL,parts.els.rvRating,parts.els.rvRatingL,parts.els.rvZero,parts.els.rvZeroL,parts.els.hook);
     } else if(s.type==='STARTING_POINT'){
       parts.els.rule=el('rule',null,{top:'520px'});
       parts.els.eye=el('l center','<div class="eyebrow">Where we’d start</div>',{top:'580px'});
@@ -160,7 +172,12 @@ window.render=function(t){
     if(p.els.surface){
       const fr=s.surface; const pr=inv(t,a,b);
       const so=win(t,a-0.2,b+0.1,0.6,0.5);
-      const sOpac = s.type==='OPENING_HOOK'?0.9 : s.type==='COMPARISON'?0.5 : 0.85;
+      // M2.2 role-aware brightness: evidence stays bright; atmospheric moderate; the proof BACKDROP is
+      // dim early and brightens as the story "moves to the site" for the contrast beat.
+      let sOpac;
+      if(fr.treatment==='EVIDENCE_SURFACE') sOpac=1.0;
+      else if(fr.treatment==='BACKGROUND_SURFACE') sOpac=0.30+0.22*eo(inv(t,a+0.6*(b-a),a+0.82*(b-a)));
+      else sOpac=0.92;
       p.els.surface.style.opacity=(so*sOpac).toFixed(3);
       // Purpose-aware framing (M2.1): EVIDENCE_FRAME holds full context (scale 1.0) until focusStart, then
       // eases toward the focal detail — so headings/labels are never clipped early. Others Ken-Burns.
@@ -178,13 +195,17 @@ window.render=function(t){
     // Type reveals (each element a win + rise; numbers get an overshoot settle).
     const E=p.els;
     if(E.biz) setL(E.biz, win(t,a+0.1,b-0.2,0.35,0.4), 0, (1-eo(inv(t,a+0.1,a+0.7)))*14, 1);
-    if(E.hook){ const ho=win(t,a+0.5,b,0.4,0.45); setL(E.hook, ho, 0, (1-eo(inv(t,a+0.5,a+1.2)))*26, 1); }
-    if(E.stat){ const o=win(t,a+0.15,b-0.15,0.28,0.4); const sc=1.06-eo(inv(t,a+0.15,a+0.75))*0.06; setL(E.stat,o,0,(1-eo(inv(t,a+0.15,a+0.8)))*10,sc); }
+    if(E.hook){ const hS=(s.type==='COMPARISON')?(a+0.74*(b-a)):(a+0.5); const ho=win(t,hS,b,0.4,0.45); setL(E.hook, ho, 0, (1-eo(inv(t,hS,hS+0.7)))*26, 1); }
+    if(E.stat){ const o=win(t,a+0.15,b-0.15,0.28,0.4); const cS=a+0.2, cE=a+0.2+Math.min(1.3,0.5*(b-a)); const sc=1.06-eo(inv(t,cS,cE))*0.06; if(s.count) E.stat.querySelector('.stat').textContent=countStr(s.count,t,cS,cE); setL(E.stat,o,0,(1-eo(inv(t,a+0.15,a+0.8)))*10,sc); }
     if(E.label) setL(E.label, win(t,a+0.5,b-0.15,0.3,0.4), 0, (1-eo(inv(t,a+0.5,a+1.0)))*12, 1);
     if(E.rule){ E.rule.style.opacity=win(t,a+0.45,b-0.15,0.3,0.4).toFixed(3); E.rule.style.width=px(40+eo(inv(t,a+0.45,a+1.1))*80); }
-    if(E.big){ const o=win(t,a+0.15,b-0.15,0.28,0.4); const sc=1.06-eo(inv(t,a+0.15,a+0.75))*0.06; setL(E.big,o,0,(1-eo(inv(t,a+0.15,a+0.8)))*10,sc); }
-    if(E.blabel) setL(E.blabel, win(t,a+0.45,b-0.15,0.3,0.4),0,0,1);
-    if(E.rbig){ const o=win(t,a+0.9,b-0.15,0.3,0.4); const sc=1.05-eo(inv(t,a+0.9,a+1.5))*0.05; setL(E.rbig,o,0,0,sc); }
+    // ── Staged proof (M2.2): 950+ count (beat 1) → 4.8★ count (beat 2) → 0 contrast + hook (beat 3) ──
+    if(E.rvCount){ const D=b-a; const o=win(t,a+0.1,a+0.46*D,0.3,0.35); const cS=a+0.14,cE=a+0.32*D; const sc=1.05-eo(inv(t,cS,cE))*0.05; if(s.review&&s.review.count) E.rvCount.querySelector('.cmpbig').textContent=countStr(s.review.count,t,cS,cE); setL(E.rvCount,o,0,0,sc); }
+    if(E.rvCountL) setL(E.rvCountL, win(t,a+0.3,a+0.46*(b-a),0.3,0.35),0,0,1);
+    if(E.rvRating){ const D=b-a; const o=win(t,a+0.42*D,a+0.72*D,0.3,0.35); const cS=a+0.44*D,cE=a+0.6*D; const sc=1.05-eo(inv(t,cS,cE))*0.05; if(s.review&&s.review.rating) E.rvRating.querySelector('.cmpbig').textContent=countStr(s.review.rating,t,cS,cE,' ★'); setL(E.rvRating,o,0,0,sc); }
+    if(E.rvRatingL) setL(E.rvRatingL, win(t,a+0.5*(b-a),a+0.72*(b-a),0.3,0.35),0,0,1);
+    if(E.rvZero){ const D=b-a; const o=win(t,a+0.74*D,b,0.35,0.35); const sc=1.05-eo(inv(t,a+0.74*D,a+0.86*D))*0.05; setL(E.rvZero,o,0,(1-eo(inv(t,a+0.74*D,a+0.9*D)))*10,sc); }
+    if(E.rvZeroL) setL(E.rvZeroL, win(t,a+0.8*(b-a),b,0.4,0.35),0,0,1);
     if(E.rlabel) setL(E.rlabel, win(t,a+1.2,b-0.15,0.3,0.4),0,0,1);
     if(E.eye) setL(E.eye, win(t,a+0.2,b,0.4,0.4),0,(1-eo(inv(t,a+0.2,a+0.9)))*16,1);
     if(E.why) setL(E.why, win(t,a+0.6,b,0.45,0.4),0,(1-eo(inv(t,a+0.6,a+1.4)))*16,1);

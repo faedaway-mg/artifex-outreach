@@ -35,7 +35,7 @@ describe("splitHook — two-line editorial statements", () => {
 describe("buildScenePlan — content-grade scene projection", () => {
   const plan = buildReviewVideoPlan(review, { reviewId: "rv", leadId: "lead_A", targetSeconds: 60 });
   const schedule = buildSchedule(plan.scenes.map((s) => s.id), plan.scenes.map((s) => Math.max(2.6, s.provisionalSec)));
-  const sf = (src: string, kind: "desktop" | "mobile", focalY: number, mode: PageSurface["mode"]): PageSurface => ({ src, kind, focalY, mode, scaleStart: mode === "EVIDENCE_FRAME" ? 1.0 : 1.03, scaleEnd: mode === "EVIDENCE_FRAME" ? 1.16 : 1.08, focusStart: mode === "EVIDENCE_FRAME" ? 0.55 : 0, originX: 0.5, originY: focalY });
+  const sf = (src: string, kind: "desktop" | "mobile", focalY: number, mode: PageSurface["mode"]): PageSurface => ({ src, kind, focalY, mode, scaleStart: mode === "EVIDENCE_FRAME" ? 1.0 : 1.03, scaleEnd: mode === "EVIDENCE_FRAME" ? 1.16 : 1.08, focusStart: mode === "EVIDENCE_FRAME" ? 0.55 : 0, originX: 0.5, originY: focalY, treatment: mode === "EVIDENCE_FRAME" ? "EVIDENCE_SURFACE" : "ATMOSPHERIC_SURFACE" });
   const surfaces: Record<string, PageSurface> = { opening: sf("file:///d.png", "desktop", 0.25, "CINEMATIC_CROP"), "finding-01": sf("file:///m.png", "mobile", 0.3, "EVIDENCE_FRAME"), "finding-02": sf("file:///d.png", "desktop", 0.6, "EVIDENCE_FRAME") };
   const page = buildScenePlan(review, plan, schedule, surfaces);
 
@@ -52,11 +52,13 @@ describe("buildScenePlan — content-grade scene projection", () => {
     expect(c.label).toBe("CUSTOMER-FACING COLLECTIONS");
     expect(c.surface?.focalY).toBeCloseTo(0.6);
   });
-  it("the proof scene carries both comparison sides", () => {
+  it("the proof scene is staged (M2.2): count-up review volume, rating, and the 0 contrast", () => {
     const p = page.scenes.find((s) => s.id === "finding-03")!;
     expect(p.type).toBe("COMPARISON");
-    expect(p.cmp?.left).toBe("950+");
-    expect(p.cmp?.right).toBe("0");
+    expect(p.review?.count?.to).toBe(950);          // 0 → 950+
+    expect(p.review?.count?.suffix).toBe("+");
+    expect(p.review?.rating?.to).toBeCloseTo(4.8);   // 0.0 → 4.8, parsed from the label
+    expect(p.review?.zero).toBe("0");                // supporting contrast, not counted
   });
   it("the starting point is a quiet payoff with label + why + proof, no surface", () => {
     const sp = page.scenes.find((s) => s.type === "STARTING_POINT")!;
