@@ -436,6 +436,41 @@ export interface Video {
   updatedAt: string;
 }
 
+// ── Review Video batch pilot (operational, not creative) ─────────────────────
+export type ReviewVideoJobStatus =
+  | "NOT_STARTED" | "PLANNING" | "RENDERING_VISUAL" | "LUCAS_REQUIRED" | "AUDIO_IMPORTED"
+  | "RENDERING_FINAL" | "READY_FOR_REVIEW" | "APPROVED_PRIVATE" | "DELIVERY_READY" | "FAILED";
+
+/** One personalized review-video production for a lead. Every asset stays PRIVATE_ONLY and carries the
+ *  lead + review ids so audio/finals can never cross leads. Durable (lives in the store, not /tmp). */
+export interface ReviewVideoJob {
+  id: string;
+  leadId: string;
+  reviewId: string;
+  batchId: string | null;
+  status: ReviewVideoJobStatus;
+  rightsState: "PRIVATE_ONLY";
+  targetSeconds: number;
+  narrationWords: number;
+  /** The filename the operator's exported Lucas audio should have — carries the job id for safe matching. */
+  expectedAudioFilename: string;
+  /** Where produced assets live (durable keys/paths; /tmp only in dev). */
+  planKey: string | null;
+  narrationKey: string | null;
+  captionsKey: string | null;
+  previewKey: string | null;
+  audioKey: string | null;
+  audioDurationSeconds: number | null;
+  finalKey: string | null;
+  finalDurationSeconds: number | null;
+  /** Findings preserved for the finding-reaction feedback loop. */
+  findingIds: string[];
+  approvedAt: string | null;
+  failure: { stage: string; message: string } | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface Outreach {
   id: string;
   leadId: string;

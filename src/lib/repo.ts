@@ -22,6 +22,7 @@ import type {
   Screenshot,
   Deliverable,
   Video,
+  ReviewVideoJob,
   Outreach,
   Task,
   Meeting,
@@ -292,6 +293,17 @@ export async function insertVideo(v: Omit<Video, "id" | "createdAt" | "updatedAt
   return Videos.insert({ ...v, id: newId("video"), createdAt: nowIso(), updatedAt: nowIso() } as Video);
 }
 export const updateVideo = (id: string, patch: Partial<Video>) => Videos.update(id, patch);
+
+// Review Video batch pilot jobs — durable (store-backed; a DB table/migration is the only step left
+// for the DB-mode path, which the pilot does not require).
+const ReviewVideoJobs = collection<ReviewVideoJob>((t as any).reviewVideoJobs, () => mem().reviewVideoJobs);
+export const reviewVideoJobsForLead = (leadId: string) => ReviewVideoJobs.byLead(leadId);
+export const getReviewVideoJob = (id: string) => ReviewVideoJobs.byId(id);
+export const allReviewVideoJobs = () => ReviewVideoJobs.all();
+export async function insertReviewVideoJob(j: Omit<ReviewVideoJob, "id" | "createdAt" | "updatedAt">): Promise<ReviewVideoJob> {
+  return ReviewVideoJobs.insert({ ...j, id: newId("rvjob"), createdAt: nowIso(), updatedAt: nowIso() } as ReviewVideoJob);
+}
+export const updateReviewVideoJob = (id: string, patch: Partial<ReviewVideoJob>) => ReviewVideoJobs.update(id, patch);
 
 // ── Outreach ─────────────────────────────────────────────────────────────────
 export const outreachForLead = (leadId: string) => Outreaches.byLead(leadId);

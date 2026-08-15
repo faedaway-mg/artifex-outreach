@@ -17,6 +17,7 @@ import type {
   Screenshot,
   Deliverable,
   Video,
+  ReviewVideoJob,
   Outreach,
   Task,
   Meeting,
@@ -56,6 +57,7 @@ export interface Collections {
   roadmapProgress: RoadmapProgressItem[];
   outcomeReviews: OutcomeReviewItem[];
   engagementSnapshots: EngagementSnapshotItem[];
+  reviewVideoJobs: ReviewVideoJob[];
   settings: Settings;
   seeded: boolean;
 }
@@ -84,6 +86,7 @@ function createEmpty(): Collections {
     roadmapProgress: [],
     outcomeReviews: [],
     engagementSnapshots: [],
+    reviewVideoJobs: [],
     settings: defaultSettings(),
     seeded: false,
   };
