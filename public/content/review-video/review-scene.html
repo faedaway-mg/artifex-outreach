@@ -1,0 +1,192 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<!--
+  Artifex Quick Review — video scene (M2). SAME motion grammar as the Field Note content videos:
+  a pure render(t) (no CSS @keyframes), a win() trapezoid-opacity primitive, eo/eio cubic easings,
+  centered free composition on a seeded living-constellation canvas. Data-driven by window.PLAN (scenes,
+  real business surfaces, beat times) injected over CDP; the renderer sets render(i/FPS) per frame and
+  screenshots. Real prospect surfaces are B-roll (Ken-Burns + mask reveal), Artifex type frames them.
+-->
+<style>
+  :root{ --ink0:#06080C; --ink1:#0C1220; --ink2:#101a2e;
+    --chalk:#F6F8FC; --mute:#AEBBD0; --azure:#93B8FF; --teal:#7FE3C7; --amber:#F5B95C; --faint:#5A6B85; --gold:#E8B25A; }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:1080px;height:1920px;overflow:hidden;background:var(--ink0)}
+  body{position:relative;font-family:Inter,system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased;
+    background:radial-gradient(1200px 900px at 50% 22%,#12203a 0%,var(--ink1) 42%,var(--ink0) 100%);}
+  #bg{position:absolute;inset:0;z-index:0}
+  #stage{position:absolute;inset:0;z-index:2}
+  /* Masthead — persistent, faint, tracked (matches content videos). */
+  #masthead{position:absolute;top:70px;left:0;right:0;z-index:3;display:flex;align-items:center;justify-content:center;gap:14px;opacity:0}
+  #masthead svg{width:34px;height:34px}
+  #masthead .wm{font-size:24px;font-weight:700;letter-spacing:6px;color:var(--mute)}
+  .scene{position:absolute;inset:0}
+  .l{position:absolute;left:50%;top:0;transform:translateX(-50%);opacity:0;will-change:transform,opacity}
+  .center{width:940px;left:50%;text-align:center}
+  .eyebrow{font-size:26px;font-weight:600;letter-spacing:6px;color:var(--azure);text-transform:uppercase}
+  .h1{font-size:76px;font-weight:800;letter-spacing:-1px;color:var(--chalk);line-height:1.08}
+  .h1.a{color:var(--azure)}
+  .h2{font-size:56px;font-weight:800;color:var(--chalk);line-height:1.1}
+  .sub{font-size:38px;font-weight:500;color:var(--mute);line-height:1.34}
+  .tag{font-size:26px;font-weight:600;letter-spacing:3px;color:var(--faint);text-transform:uppercase}
+  .stat{font-size:300px;font-weight:800;letter-spacing:-4px;color:var(--gold);line-height:0.9}
+  .statlabel{font-size:30px;font-weight:600;letter-spacing:4px;color:var(--chalk);text-transform:uppercase}
+  .cmpbig{font-size:210px;font-weight:800;color:var(--chalk);line-height:0.9;letter-spacing:-2px}
+  .cmpbig.mute{color:var(--faint)}
+  .cmplabel{font-size:26px;font-weight:600;letter-spacing:2px;color:var(--mute);text-transform:uppercase}
+  /* Surface (real business capture) — B-roll behind/within the composition. */
+  .surface{position:absolute;left:50%;transform:translateX(-50%);overflow:hidden;border-radius:18px;
+    border:1px solid rgba(174,187,208,0.14);box-shadow:0 40px 120px rgba(0,0,0,0.55);opacity:0}
+  .surface img{display:block;width:100%;height:auto}
+  .surface.bleed{border-radius:0;border:none;box-shadow:none}
+  .surface.bleed img{width:1080px;height:1920px;object-fit:cover;object-position:50% 12%}
+  .surface.bleed .scrim{background:linear-gradient(180deg,rgba(6,8,12,0.80) 0%,rgba(6,8,12,0.62) 45%,rgba(6,8,12,0.86) 100%)}
+  .scrim{position:absolute;inset:0;background:linear-gradient(180deg,rgba(6,8,12,0.62) 0%,rgba(6,8,12,0.12) 30%,rgba(6,8,12,0.55) 100%)}
+  .ring{position:absolute;border:3px solid var(--teal);border-radius:10px;box-shadow:0 0 26px rgba(127,227,199,0.35);opacity:0}
+  .rule{position:absolute;left:50%;transform:translateX(-50%);height:5px;width:120px;background:var(--gold);opacity:0}
+</style>
+</head>
+<body>
+<canvas id="bg" width="1080" height="1920"></canvas>
+<div id="masthead">
+  <svg viewBox="0 0 32 32"><path d="M16 4 L27 27 M16 4 L5 27 M9.5 19 L22.5 19" fill="none" stroke="#F6F8FC" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/><circle cx="16" cy="4" r="2.7" fill="#F6F8FC"/><circle cx="5" cy="27" r="2.4" fill="#F6F8FC"/><circle cx="27" cy="27" r="2.4" fill="#E8B25A"/></svg>
+  <div class="wm" id="wm">ARTIFEX / QUICK REVIEW</div>
+</div>
+<div id="stage"></div>
+
+<script>
+// ── Shared easing/window grammar (ported verbatim from the content system) ──────────────────────
+const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
+const inv=(t,a,b)=>clamp((t-a)/((b-a)||1e-6),0,1);
+const eo=x=>1-Math.pow(1-x,3);                 // easeOutCubic — reveals/settles
+const eio=x=>x<.5?4*x*x*x:1-Math.pow(-2*x+2,3)/2; // easeInOutCubic — scans/exits
+function win(t,a,b,fi=.3,fo=.4){ if(t<a||t>b) return 0; return Math.min(eo(inv(t,a,a+fi)), eo(1-inv(t,b-fo,b))); }
+const px=v=>v.toFixed(2)+'px';
+
+// Seeded constellation (deterministic — same every render).
+function rng(a){return function(){a|=0;a=a+0x6D2B79F5|0;let x=Math.imul(a^a>>>15,1|a);x=x+Math.imul(x^x>>>7,61|x)^x;return((x^x>>>14)>>>0)/4294967296;};}
+const R=rng(20260101); const bg=document.getElementById('bg'); const ctx=bg.getContext('2d');
+const LAYERS=[{n:22,sp:0.06,amp:10,rad:2.0,al:0.05},{n:18,sp:0.12,amp:14,rad:2.6,al:0.09},{n:8,sp:0.22,amp:20,rad:3.0,al:0.13}];
+const NODES=[]; LAYERS.forEach((L,z)=>{for(let i=0;i<L.n;i++)NODES.push({bx:R()*1080,by:R()*1920,ph:R()*6.28,ph2:R()*6.28,sp:L.sp*(0.7+R()*0.6),amp:L.amp,rad:L.rad,al:L.al,z});});
+function pos(n,t){return[n.bx+Math.sin(t*n.sp+n.ph)*n.amp, n.by+Math.cos(t*n.sp*0.8+n.ph2)*n.amp];}
+function drawBg(t,dim){
+  ctx.clearRect(0,0,1080,1920);
+  const gA=(1-dim*0.55);
+  for(let i=0;i<NODES.length;i++){const a=NODES[i]; if(a.z<1)continue; const[ax,ay]=pos(a,t);
+    for(let j=i+1;j<NODES.length;j++){const b=NODES[j]; if(b.z<1)continue; const[bx,by]=pos(b,t);
+      const dx=ax-bx,dy=ay-by,d=Math.hypot(dx,dy); if(d<300){ const la=(1-d/300)*0.06*gA;
+        ctx.strokeStyle='rgba(147,184,255,'+la.toFixed(3)+')'; ctx.lineWidth=1.2; ctx.beginPath(); ctx.moveTo(ax,ay); ctx.lineTo(bx,by); ctx.stroke(); }}}
+  for(const n of NODES){const[x,y]=pos(n,t); const tw=0.6+0.4*Math.sin(t*n.sp*1.7+n.ph);
+    ctx.fillStyle='rgba(174,187,208,'+(n.al*gA*tw).toFixed(3)+')'; ctx.beginPath(); ctx.arc(x,y,n.rad,0,6.2832); ctx.fill();}
+}
+
+// ── DOM builder + render(t), driven by window.PLAN ──────────────────────────────────────────────
+let SCENES=[]; const stage=document.getElementById('stage');
+function el(cls,html,style){const d=document.createElement('div'); d.className=cls; if(html!=null)d.innerHTML=html; if(style)Object.assign(d.style,style); return d;}
+
+window.init=function(){
+  const P=window.PLAN; document.getElementById('wm').textContent=P.masthead||'ARTIFEX / QUICK REVIEW';
+  stage.innerHTML=''; SCENES=[];
+  for(const s of P.scenes){
+    const root=el('scene'); const parts={root,s,els:{}};
+    // Surface B-roll (real capture) — positioned per scene type.
+    if(s.surface){
+      const wrap=el('surface'); const img=document.createElement('img'); img.src=s.surface.src;
+      wrap.appendChild(img);
+      if(s.surface.kind==='mobile'){ Object.assign(wrap.style,{width:'430px',top:'360px'}); }
+      else if(s.type==='COMPARISON'){ Object.assign(wrap.style,{width:'1080px',top:'0px',height:'1920px',borderRadius:'0',border:'none'}); wrap.classList.add('bleed'); }
+      else { Object.assign(wrap.style,{width:'900px',top:s.type==='OPENING_HOOK'?'520px':'640px'}); }
+      const scrim=el('scrim'); wrap.appendChild(scrim);
+      root.appendChild(wrap); parts.els.surface=wrap; parts.els.img=img;
+    }
+    // Type layers per scene type.
+    if(s.type==='OPENING_HOOK'){
+      parts.els.hook=el('l center',(s.hook.l1?('<div class="h1">'+s.hook.l1+'</div>'):'')+(s.hook.l2?('<div class="h1 a">'+s.hook.l2+'</div>'):''),{top:'1360px'});
+      parts.els.biz=el('l center','<div class="tag">'+(s.businessName||'')+'</div>',{top:'250px'});
+      root.append(parts.els.biz,parts.els.hook);
+    } else if(s.type==='STRUCTURE'||s.type==='STAT_REVEAL'){
+      parts.els.stat=el('l center','<div class="stat">'+(s.value||'')+'</div>',{top:'250px'});
+      parts.els.label=el('l center','<div class="statlabel">'+(s.label||'')+'</div>',{top:'600px'});
+      parts.els.rule=el('rule',null,{top:'680px'});
+      parts.els.hook=el('l center','<div class="h1">'+(s.hook.l1||'')+'</div>'+(s.hook.l2?'<div class="h1 a">'+s.hook.l2+'</div>':''),{top:'1420px'});
+      root.append(parts.els.stat,parts.els.label,parts.els.rule,parts.els.hook);
+    } else if(s.type==='COMPARISON'){
+      parts.els.big=el('l center','<div class="cmpbig">'+(s.cmp.left||'')+'</div>',{top:'250px'});
+      parts.els.blabel=el('l center','<div class="cmplabel">'+(s.cmp.leftLabel||'')+'</div>',{top:'500px'});
+      parts.els.rbig=el('l center','<div class="cmpbig mute">'+(s.cmp.right||'')+'</div>',{top:'640px'});
+      parts.els.rlabel=el('l center','<div class="cmplabel">'+(s.cmp.rightLabel||'')+'</div>',{top:'880px'});
+      parts.els.hook=el('l center','<div class="h1">'+(s.hook.l1||'')+'</div>'+(s.hook.l2?'<div class="h1 a">'+s.hook.l2+'</div>':''),{top:'1440px'});
+      root.append(parts.els.big,parts.els.blabel,parts.els.rbig,parts.els.rlabel,parts.els.hook);
+    } else if(s.type==='STARTING_POINT'){
+      parts.els.rule=el('rule',null,{top:'520px'});
+      parts.els.eye=el('l center','<div class="eyebrow">Where we’d start</div>',{top:'580px'});
+      parts.els.label=el('l center','<div class="h2">'+(s.label||'')+'</div>',{top:'660px'});
+      parts.els.why=el('l center','<div class="sub">'+(s.why||'')+'</div>',{top:'840px'});
+      parts.els.proof=el('l center','<div class="tag">'+(s.proof||'')+'</div>',{top:'1560px'});
+      root.append(parts.els.rule,parts.els.eye,parts.els.label,parts.els.why,parts.els.proof);
+    } else if(s.type==='CLOSE'){
+      parts.els.mark=el('l',' <svg viewBox="0 0 32 32" width="150" height="150"><path d="M16 4 L27 27 M16 4 L5 27 M9.5 19 L22.5 19" fill="none" stroke="#F6F8FC" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><circle cx="16" cy="4" r="2.4" fill="#F6F8FC"/><circle cx="5" cy="27" r="2.2" fill="#F6F8FC"/><circle cx="27" cy="27" r="2.2" fill="#E8B25A"/></svg>',{top:'820px'});
+      parts.els.wm=el('l center','<div class="h2" style="letter-spacing:10px;font-size:46px">ARTIFEX LABS</div>',{top:'1010px'});
+      parts.els.pv=el('l center','<div class="tag" style="letter-spacing:3px;font-size:22px">Private review · not for distribution</div>',{top:'1760px'});
+      root.append(parts.els.mark,parts.els.wm,parts.els.pv);
+    } else { // TEXT (e.g. mobile) — hook over the surface
+      parts.els.hook=el('l center','<div class="h1">'+(s.hook.l1||'')+'</div>'+(s.hook.l2?'<div class="h1 a">'+s.hook.l2+'</div>':''),{top:'1420px'});
+      root.appendChild(parts.els.hook);
+    }
+    stage.appendChild(root); SCENES.push(parts);
+  }
+};
+
+function setL(node,o,dx,dy,sc){ if(!node)return; node.style.opacity=o.toFixed(3); node.style.transform='translateX(-50%) translate('+px(dx||0)+','+px(dy||0)+') scale('+(sc==null?1:sc).toFixed(3)+')'; }
+
+window.render=function(t){
+  if(!window.PLAN){return;}
+  if(!SCENES.length) window.init();
+  // Background dims most where a scene is text-dense (stat/comparison/start); brightest at open/close.
+  let dim=0.15; const active=SCENES.find(p=>t>=p.s.start-0.4 && t<=p.s.end+0.1);
+  if(active){ const ty=active.s.type; dim = (ty==='STARTING_POINT')?0.55:(ty==='CLOSE')?0.0:(ty==='STAT_REVEAL'||ty==='STRUCTURE'||ty==='COMPARISON')?0.4:0.25; }
+  drawBg(t,dim);
+  document.getElementById('masthead').style.opacity=(0.55*win(t,0.6,(SCENES.length?SCENES[SCENES.length-1].s.start:9999),0.8,0.4)).toFixed(3);
+
+  for(const p of SCENES){
+    const s=p.s; const a=s.start, b=s.end; const sv=win(t,a-0.4,b+0.1,0.5,0.5); // scene envelope (crossfade overlap)
+    p.root.style.opacity=sv.toFixed(3);
+    if(sv<=0.001){continue;}
+    const lt=t-a; // local time
+    // Surface: fade in, slow Ken-Burns push, mask-reveal at entrance.
+    if(p.els.surface){
+      const so=win(t,a-0.2,b+0.1,0.6,0.5); const kb=1.04+eo(inv(t,a,b))*0.06; // 1.04→1.10 across the scene
+      const rev=eo(inv(t,a,a+0.7)); // clip reveal
+      const sOpac = s.type==='OPENING_HOOK'?0.9 : s.type==='COMPARISON'?0.5 : 0.82;
+      p.els.surface.style.opacity=(so*sOpac).toFixed(3);
+      p.els.img.style.transform='scale('+kb.toFixed(3)+')';
+      if(s.surface.focalY!=null && s.type!=='COMPARISON') p.els.img.style.transformOrigin='50% '+(s.surface.focalY*100).toFixed(0)+'%';
+      if(s.type!=='COMPARISON') p.els.surface.style.clipPath='inset('+((1-rev)*14).toFixed(2)+'% 0% 0% 0%)';
+    }
+    // Type reveals (each element a win + rise; numbers get an overshoot settle).
+    const E=p.els;
+    if(E.biz) setL(E.biz, win(t,a+0.1,b-0.2,0.35,0.4), 0, (1-eo(inv(t,a+0.1,a+0.7)))*14, 1);
+    if(E.hook){ const ho=win(t,a+0.5,b,0.4,0.45); setL(E.hook, ho, 0, (1-eo(inv(t,a+0.5,a+1.2)))*26, 1); }
+    if(E.stat){ const o=win(t,a+0.15,b-0.15,0.28,0.4); const sc=1.06-eo(inv(t,a+0.15,a+0.75))*0.06; setL(E.stat,o,0,(1-eo(inv(t,a+0.15,a+0.8)))*10,sc); }
+    if(E.label) setL(E.label, win(t,a+0.5,b-0.15,0.3,0.4), 0, (1-eo(inv(t,a+0.5,a+1.0)))*12, 1);
+    if(E.rule){ E.rule.style.opacity=win(t,a+0.45,b-0.15,0.3,0.4).toFixed(3); E.rule.style.width=px(40+eo(inv(t,a+0.45,a+1.1))*80); }
+    if(E.big){ const o=win(t,a+0.15,b-0.15,0.28,0.4); const sc=1.06-eo(inv(t,a+0.15,a+0.75))*0.06; setL(E.big,o,0,(1-eo(inv(t,a+0.15,a+0.8)))*10,sc); }
+    if(E.blabel) setL(E.blabel, win(t,a+0.45,b-0.15,0.3,0.4),0,0,1);
+    if(E.rbig){ const o=win(t,a+0.9,b-0.15,0.3,0.4); const sc=1.05-eo(inv(t,a+0.9,a+1.5))*0.05; setL(E.rbig,o,0,0,sc); }
+    if(E.rlabel) setL(E.rlabel, win(t,a+1.2,b-0.15,0.3,0.4),0,0,1);
+    if(E.eye) setL(E.eye, win(t,a+0.2,b,0.4,0.4),0,(1-eo(inv(t,a+0.2,a+0.9)))*16,1);
+    if(E.why) setL(E.why, win(t,a+0.6,b,0.45,0.4),0,(1-eo(inv(t,a+0.6,a+1.4)))*16,1);
+    if(E.proof) setL(E.proof, win(t,a+1.0,b,0.5,0.4),0,0,1);
+    if(E.mark){ const o=win(t,a+0.1,b,0.6,0.4); const sc=0.96+eo(inv(t,a+0.1,a+1.0))*0.04; setL(E.mark,o,0,0,sc); }
+    if(E.wm) setL(E.wm, win(t,a+0.4,b,0.55,0.4),0,0,1);
+    if(E.pv) setL(E.pv, win(t,a+0.8,b,0.6,0.4),0,0,1);
+  }
+};
+// Render a first frame so a standalone preview isn't blank.
+if(window.PLAN) window.render(0);
+</script>
+</body>
+</html>
