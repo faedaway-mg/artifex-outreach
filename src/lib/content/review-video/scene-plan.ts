@@ -8,7 +8,19 @@ import type { ReviewVideoPlan, VideoScene } from "./plan";
 import type { QuickReview } from "../../outreach/quick-review";
 import type { SceneWindow } from "./motion";
 
-export interface PageSurface { src: string; kind: "desktop" | "mobile"; focalY: number }
+export interface PageSurface {
+  src: string;
+  kind: "desktop" | "mobile";
+  focalY: number;
+  /** Purpose-aware framing (M2.1): mode + the eased focus-push params the renderer applies so evidence
+   *  is never clipped early. Computed from the surface's role via framing.planFraming(). */
+  mode: import("./framing").FramingMode;
+  scaleStart: number;
+  scaleEnd: number;
+  focusStart: number;
+  originX: number;
+  originY: number;
+}
 export interface PageScene {
   id: string;
   type: VideoScene["type"];

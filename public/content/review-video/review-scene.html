@@ -158,13 +158,22 @@ window.render=function(t){
     const lt=t-a; // local time
     // Surface: fade in, slow Ken-Burns push, mask-reveal at entrance.
     if(p.els.surface){
-      const so=win(t,a-0.2,b+0.1,0.6,0.5); const kb=1.04+eo(inv(t,a,b))*0.06; // 1.04→1.10 across the scene
-      const rev=eo(inv(t,a,a+0.7)); // clip reveal
-      const sOpac = s.type==='OPENING_HOOK'?0.9 : s.type==='COMPARISON'?0.5 : 0.82;
+      const fr=s.surface; const pr=inv(t,a,b);
+      const so=win(t,a-0.2,b+0.1,0.6,0.5);
+      const sOpac = s.type==='OPENING_HOOK'?0.9 : s.type==='COMPARISON'?0.5 : 0.85;
       p.els.surface.style.opacity=(so*sOpac).toFixed(3);
-      p.els.img.style.transform='scale('+kb.toFixed(3)+')';
-      if(s.surface.focalY!=null && s.type!=='COMPARISON') p.els.img.style.transformOrigin='50% '+(s.surface.focalY*100).toFixed(0)+'%';
-      if(s.type!=='COMPARISON') p.els.surface.style.clipPath='inset('+((1-rev)*14).toFixed(2)+'% 0% 0% 0%)';
+      // Purpose-aware framing (M2.1): EVIDENCE_FRAME holds full context (scale 1.0) until focusStart, then
+      // eases toward the focal detail — so headings/labels are never clipped early. Others Ken-Burns.
+      let sc;
+      const ss=(fr.scaleStart!=null?fr.scaleStart:1.04), se=(fr.scaleEnd!=null?fr.scaleEnd:1.10), fst=(fr.focusStart!=null?fr.focusStart:0);
+      if(fr.mode==='EVIDENCE_FRAME' && pr<=fst){ sc=ss; }
+      else if(fr.mode==='EVIDENCE_FRAME'){ sc=ss+(se-ss)*eo((pr-fst)/((1-fst)||1e-6)); }
+      else { sc=ss+(se-ss)*eo(pr); }
+      p.els.img.style.transform='scale('+sc.toFixed(3)+')';
+      p.els.img.style.transformOrigin=((fr.originX!=null?fr.originX:0.5)*100).toFixed(1)+'% '+((fr.originY!=null?fr.originY:0.14)*100).toFixed(1)+'%';
+      // Reveal: evidence fades in (never top-clipped); atmospheric surfaces keep a gentle top-clip reveal.
+      if(fr.mode==='EVIDENCE_FRAME'){ p.els.surface.style.clipPath='none'; }
+      else if(s.type!=='COMPARISON'){ const rev=eo(inv(t,a,a+0.7)); p.els.surface.style.clipPath='inset('+((1-rev)*14).toFixed(2)+'% 0% 0% 0%)'; }
     }
     // Type reveals (each element a win + rise; numbers get an overshoot settle).
     const E=p.els;

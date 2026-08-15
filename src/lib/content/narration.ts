@@ -27,10 +27,11 @@ export interface NarrationScript {
   estDurationSeconds: (wpm?: number) => number;
 }
 
-// Measured from Artifex content #001 (macOS `say` "Daniel" @ rate 172): ~143 effective wpm including
-// inter-line pauses. This is a CALIBRATION DEFAULT ONLY — it is NOT the Lucas voice. Replace with a
-// measured Lucas rate once a legitimate Lucas sample exists. A short per-segment pause is added on top.
-export const CALIBRATION_WPM = 143;
+// MEASURED from a real Lucas voice-over of this exact narration: 151 words / 57.77s ≈ 157 effective wpm
+// (Artifex Labs / Urban Americana VO, provided 2026). Supersedes the earlier provisional 143 (macOS
+// `say` "Daniel"). Used only for PROVISIONAL preview pacing — the FINAL render is timed to the imported
+// audio (audio is the master clock), so this default never governs a voiced cut.
+export const CALIBRATION_WPM = 157;
 const PAUSE_PER_SEGMENT_SEC = 0.35;
 
 function countWords(s: string): number { return s.split(/\s+/).filter((w) => /[a-z0-9]/i.test(w)).length; }

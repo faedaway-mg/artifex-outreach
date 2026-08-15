@@ -16,6 +16,7 @@ import { buildReviewVideoPlan } from "../src/lib/content/review-video/plan";
 import { buildSchedule, totalDuration } from "../src/lib/content/review-video/motion";
 import { buildScenePlan, type PageSurface } from "../src/lib/content/review-video/scene-plan";
 import { selectSceneSurface, focalCenter, businessSurfaceCoverage, type EvidenceAsset, type FocalRegion } from "../src/lib/content/review-video/assets";
+import { planFraming, type FramingMode, type Rect } from "../src/lib/content/review-video/framing";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const W = 1080, H = 1920, FPS = 24, PORT = 9247;
@@ -60,15 +61,34 @@ async function main() {
   if (hasDesktop) { assets.push(A("desktop-capture", desktopPng, null, { x: 0, y: 0, width: 1, height: 0.55 })); const ci2 = topics.indexOf("catalog"); if (ci2 >= 0) assets.push(A("desktop-capture", desktopPng, review.findings[ci2].id, { x: 0, y: 0.3, width: 1, height: 0.6 })); }
   if (hasMobile) { const mi = topics.indexOf("mobile"); if (mi >= 0) assets.push(A("mobile-capture", mobilePng, review.findings[mi].id, { x: 0, y: 0, width: 1, height: 0.6 })); }
 
+  // Framing mode by storytelling role: proof scenes get EVIDENCE_FRAME (full context first, focus
+  // later — never clipped early); atmospheric/recognition scenes get CINEMATIC_CROP.
+  const modeFor = (type: string): FramingMode => (type === "STRUCTURE" || type === "STAT_REVEAL" || type === "MOBILE_VIEW" || type === "TEXT") ? "EVIDENCE_FRAME" : "CINEMATIC_CROP";
+  // A generous evidence region (what must stay visible) per surface — separate from the focal detail.
+  const EVIDENCE_BOUNDS: Rect = { x: 0, y: 0, width: 1, height: 0.95 };
   const surfaces: Record<string, PageSurface> = {};
   plan.scenes.forEach((s) => {
     const fid = s.id.startsWith("finding-") ? plan.provenance.findingIds[Number(s.id.slice(-2)) - 1] ?? null : null;
     const sel = selectSceneSurface(s, fid, lead.id, assets);
-    if (sel) surfaces[s.id] = { src: `file://${sel.localPath}`, kind: sel.type === "mobile-capture" ? "mobile" : "desktop", focalY: focalCenter(sel.focalRegion).cy };
+    if (!sel) return;
+    const mode = modeFor(s.type);
+    const focal: Rect | null = sel.focalRegion ? { x: sel.focalRegion.x, y: sel.focalRegion.y, width: sel.focalRegion.width, height: sel.focalRegion.height } : null;
+    const fr = planFraming(mode, focal, mode === "EVIDENCE_FRAME" ? EVIDENCE_BOUNDS : null);
+    surfaces[s.id] = { src: `file://${sel.localPath}`, kind: sel.type === "mobile-capture" ? "mobile" : "desktop", focalY: focalCenter(sel.focalRegion).cy, mode: fr.mode, scaleStart: fr.scaleStart, scaleEnd: fr.scaleEnd, focusStart: fr.focusStart, originX: fr.originX, originY: fr.originY };
   });
 
-  // 4) Timeline (audio is master once Lucas exists; this is the provisional preview clock).
-  const durs = plan.scenes.map((s) => Math.max(2.6, s.provisionalSec));
+  // 4) Timeline. Provisional word-share pacing by default; when a real Lucas MP3 is supplied via
+  //    --audio, the AUDIO becomes the master clock: narration-bearing scenes are scaled to the audio
+  //    duration (by their word share) and the CLOSE gets a short silent tail.
+  const audioArg = process.argv.includes("--audio") ? process.argv[process.argv.indexOf("--audio") + 1] : null;
+  const audioDur = audioArg && existsSync(audioArg) ? probe(audioArg) : null;
+  let durs = plan.scenes.map((s) => Math.max(2.6, s.provisionalSec));
+  if (audioDur) {
+    const CLOSE_TAIL = 2.4;
+    const nonClose = plan.scenes.filter((s) => s.type !== "CLOSE");
+    const shareTotal = nonClose.reduce((a, s) => a + Math.max(2.6, s.provisionalSec), 0) || 1;
+    durs = plan.scenes.map((s) => s.type === "CLOSE" ? CLOSE_TAIL : (Math.max(2.6, s.provisionalSec) / shareTotal) * audioDur);
+  }
   const schedule = buildSchedule(plan.scenes.map((s) => s.id), durs);
   const total = totalDuration(schedule);
   const pagePlan = buildScenePlan(review, plan, schedule, surfaces);
@@ -78,7 +98,9 @@ async function main() {
   writeFileSync(join(OUT, "review-video-plan.json"), JSON.stringify({ ...plan, schedule }, null, 2));
   writeFileSync(join(OUT, "review-video-page-plan.json"), JSON.stringify(pagePlan, null, 2));
   writeFileSync(join(OUT, "review-video-narration.txt"), plan.narration.copyBlock + "\n");
-  writeFileSync(join(OUT, "review-video-assets.json"), JSON.stringify({ reviewId: plan.reviewId, businessId: plan.businessId, rightsState: plan.rightsState, coverage, assets }, null, 2));
+  // Framing debug metadata (M2.1) — per-scene mode + transform params, for diagnosing crop issues.
+  const framingDebug = plan.scenes.map((s) => ({ scene: s.id, type: s.type, framing: surfaces[s.id] ? { mode: surfaces[s.id].mode, scaleStart: surfaces[s.id].scaleStart, scaleEnd: surfaces[s.id].scaleEnd, focusStart: surfaces[s.id].focusStart, originX: surfaces[s.id].originX, originY: surfaces[s.id].originY } : null }));
+  writeFileSync(join(OUT, "review-video-assets.json"), JSON.stringify({ reviewId: plan.reviewId, businessId: plan.businessId, rightsState: plan.rightsState, coverage, framing: framingDebug, assets }, null, 2));
 
   // 6) Drive review-scene.html frame-by-frame over CDP (the content-video mechanism).
   const chrome = spawn(CHROME, ["--headless=new", "--disable-gpu", "--hide-scrollbars", "--no-first-run", "--no-default-browser-check", `--remote-debugging-port=${PORT}`, "--user-data-dir=/tmp/cr-rv-m2", "--force-device-scale-factor=1", `--window-size=${W},${H}`, `${SCENE}?t=0`], { stdio: "ignore" });
@@ -104,15 +126,30 @@ async function main() {
     if (readdirSync(TMP).filter((f) => f.endsWith(".png") && f.startsWith("f_")).length < N) throw new Error("missing frames");
   } finally { chrome.kill(); }
 
-  // 7) Assemble silent preview + QA frames.
-  const preview = join(OUT, "review-video-visual-preview-m2.mp4");
+  // 7) Assemble silent preview + context/focus QA frame pairs.
+  const preview = join(OUT, "review-video-visual-preview-m2.1.mp4");
   ff(["-framerate", String(FPS), "-i", join(TMP, "f_%05d.png"), "-c:v", "libx264", "-preset", "medium", "-crf", "20", "-pix_fmt", "yuv420p", "-movflags", "+faststart", preview]);
-  const qa: Record<string, number> = { "qa-m2-opening": schedule[0].startSec + 1.2, "qa-m2-mobile": at(schedule, "finding-01", 0.6), "qa-m2-catalog-a": at(schedule, "finding-02", 0.5), "qa-m2-catalog-b": at(schedule, "finding-02", 1.6), "qa-m2-proof-a": at(schedule, "finding-03", 0.6), "qa-m2-proof-b": at(schedule, "finding-03", 1.8), "qa-m2-start": at(schedule, "starting-point", 1.2), "qa-m2-close": at(schedule, "close", 1.0) };
+  const qa: Record<string, number> = {
+    "qa-m2.1-opening": atFrac(schedule, "opening", 0.4),
+    "qa-m2.1-mobile-context": atFrac(schedule, "finding-01", 0.28), "qa-m2.1-mobile-focus": atFrac(schedule, "finding-01", 0.9),
+    "qa-m2.1-catalog-context": atFrac(schedule, "finding-02", 0.28), "qa-m2.1-catalog-focus": atFrac(schedule, "finding-02", 0.9),
+    "qa-m2.1-proof-context": atFrac(schedule, "finding-03", 0.3), "qa-m2.1-proof-focus": atFrac(schedule, "finding-03", 0.9),
+    "qa-m2.1-start": atFrac(schedule, "starting-point", 0.5), "qa-m2.1-close": atFrac(schedule, "close", 0.5),
+  };
   const qaPaths: Record<string, string> = {};
   for (const [name, t] of Object.entries(qa)) { const p = join(OUT, `${name}.png`); ff(["-ss", t.toFixed(2), "-i", preview, "-frames:v", "1", p]); qaPaths[name] = p; }
 
-  console.log(JSON.stringify({ status: review.status, openingHook: plan.openingHook, scenes: pagePlan.scenes.map((s) => `${s.id}:${s.type}${s.surface ? " [surface]" : ""}`), captures: { desktop: hasDesktop, mobile: hasMobile }, coverage, previewSeconds: round2(probe(preview)), previewPath: preview, final: "VOICE_REQUIRED — real Lucas MP3 needed for a sendable final render.", qaFrames: qaPaths }, null, 2));
+  // 8) Final voiced cut — only when a real Lucas MP3 is supplied. Video is the master container; the
+  //    audio ends slightly before the CLOSE tail (no -shortest → the outro plays over silence).
+  let finalPath: string | null = null, finalStatus = "VOICE_REQUIRED — real Lucas MP3 needed for a sendable final render.";
+  if (audioArg && audioDur) {
+    finalPath = join(OUT, "review-video-final.mp4");
+    ff(["-i", preview, "-i", audioArg, "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", finalPath]);
+    finalStatus = `VOICED FINAL — Lucas ${round2(audioDur)}s (~${Math.round((plan.narration.words / audioDur) * 60)} wpm), audio-master timing.`;
+  }
+
+  console.log(JSON.stringify({ status: review.status, openingHook: plan.openingHook, scenes: pagePlan.scenes.map((s) => `${s.id}:${s.type}${s.surface ? " [surface]" : ""}`), captures: { desktop: hasDesktop, mobile: hasMobile }, coverage, previewSeconds: round2(probe(preview)), previewPath: preview, lucasWpm: audioDur ? Math.round((plan.narration.words / audioDur) * 60) : null, final: finalStatus, finalPath, qaFrames: qaPaths }, null, 2));
 }
-function at(schedule: ReturnType<typeof buildSchedule>, id: string, off: number): number { const w = schedule.find((x) => x.id === id); return w ? Math.min(w.endSec - 0.2, w.startSec + off) : 0; }
+function atFrac(schedule: ReturnType<typeof buildSchedule>, id: string, frac: number): number { const w = schedule.find((x) => x.id === id); return w ? w.startSec + Math.min(0.98, Math.max(0.05, frac)) * w.durSec : 0; }
 function round2(n: number): number { return Math.round(n * 100) / 100; }
 main().catch((e) => { console.error(e); process.exit(1); });

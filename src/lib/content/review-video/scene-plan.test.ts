@@ -35,7 +35,8 @@ describe("splitHook — two-line editorial statements", () => {
 describe("buildScenePlan — content-grade scene projection", () => {
   const plan = buildReviewVideoPlan(review, { reviewId: "rv", leadId: "lead_A", targetSeconds: 60 });
   const schedule = buildSchedule(plan.scenes.map((s) => s.id), plan.scenes.map((s) => Math.max(2.6, s.provisionalSec)));
-  const surfaces: Record<string, PageSurface> = { opening: { src: "file:///d.png", kind: "desktop", focalY: 0.25 }, "finding-01": { src: "file:///m.png", kind: "mobile", focalY: 0.3 }, "finding-02": { src: "file:///d.png", kind: "desktop", focalY: 0.6 } };
+  const sf = (src: string, kind: "desktop" | "mobile", focalY: number, mode: PageSurface["mode"]): PageSurface => ({ src, kind, focalY, mode, scaleStart: mode === "EVIDENCE_FRAME" ? 1.0 : 1.03, scaleEnd: mode === "EVIDENCE_FRAME" ? 1.16 : 1.08, focusStart: mode === "EVIDENCE_FRAME" ? 0.55 : 0, originX: 0.5, originY: focalY });
+  const surfaces: Record<string, PageSurface> = { opening: sf("file:///d.png", "desktop", 0.25, "CINEMATIC_CROP"), "finding-01": sf("file:///m.png", "mobile", 0.3, "EVIDENCE_FRAME"), "finding-02": sf("file:///d.png", "desktop", 0.6, "EVIDENCE_FRAME") };
   const page = buildScenePlan(review, plan, schedule, surfaces);
 
   it("opening carries the business name + a two-line hook + its surface", () => {

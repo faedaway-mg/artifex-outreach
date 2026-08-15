@@ -55,7 +55,7 @@ describe("narration script — VEED-ready one-block, segmented, TTS-clean", () =
     const secs = script.estDurationSeconds();
     expect(secs).toBeGreaterThan(20);
     expect(secs).toBeLessThan(90);
-    expect(withinDuration(script, 60, 20)).toBe(true); // within a generous window at calibration wpm
+    expect(withinDuration(script, 45, 25)).toBe(true); // fits a review-video window at the Lucas calibration
     expect(CALIBRATION_WPM).toBeGreaterThan(0);
   });
 });
