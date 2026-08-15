@@ -21,6 +21,7 @@ import { getEmailProvider } from "./provider";
 import { renderBody } from "./render";
 import { renderQuickReviewPdf } from "../pdf/render";
 import { buildQuickReview, resolveLeadBrand, quickReviewFilename } from "../outreach/quick-review";
+import { quickReviewApproved } from "../outreach/review-approval";
 import type { BusinessProfile } from "../business-intelligence/types";
 import { isSent, backoffMs, MAX_ATTEMPTS, STUCK_SENDING_MS } from "./state";
 import { unsubscribeUrlFor, listUnsubscribeHeaders } from "./unsubscribe";
@@ -182,7 +183,10 @@ export async function dispatchStep(stepId: string, opts: { now?: Date } = {}): P
         receptivitySignalTypes = [...new Set(signals.map((s) => s.type))];
         receptivityScoreVal = receptivityScore(signals);
         const brand = await resolveLeadBrand(lead);
-        review = buildQuickReview(lead, profile, brand);
+        // The PDF attaches only when the review is truly attachable: SENDABLE, or NEEDS_REVIEW that
+        // the operator explicitly approved. NEEDS_REVIEW without approval is never attached here.
+        const approved = await quickReviewApproved(lead.id);
+        review = buildQuickReview(lead, profile, brand, { approved, observedAt: bi?.generatedAt ?? null });
       }
     } catch {
       review = null; // no BI / resolution issue → nothing to attach (bare-lead flows are unaffected)

@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { getLead, getBusinessIntelligence } from "@/lib/repo";
 import { renderQuickReviewPdf } from "@/lib/pdf/render";
 import { buildQuickReview, resolveLeadBrand, quickReviewFilename } from "@/lib/outreach/quick-review";
+import { quickReviewApproved } from "@/lib/outreach/review-approval";
 import { contentDisposition } from "@/lib/http";
 import type { BusinessProfile } from "@/lib/business-intelligence/types";
 
@@ -19,8 +20,12 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     const bi = await getBusinessIntelligence(lead.id);
     const profile = (bi?.profile?.businessProfile as BusinessProfile | undefined) ?? null;
     const brand = await resolveLeadBrand(lead); // resolves + caches once; deterministic thereafter
-    const review = buildQuickReview(lead, profile, brand);
-    if (!review.ready) return text("Review needs attention — no credible findings yet.", 409);
+    const approved = await quickReviewApproved(lead.id);
+    const review = buildQuickReview(lead, profile, brand, { approved, observedAt: bi?.generatedAt ?? null });
+    // Preview is allowed for SENDABLE and NEEDS_REVIEW (so the operator can inspect before approving);
+    // only INSUFFICIENT_EVIDENCE (nothing credible to show) is blocked. Attachment/send is gated on
+    // approval elsewhere — previewing never sends.
+    if (review.status === "INSUFFICIENT_EVIDENCE") return text("Review needs attention — no credible findings yet.", 409);
 
     const dateStr = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
     const buffer = await renderQuickReviewPdf(review, dateStr);

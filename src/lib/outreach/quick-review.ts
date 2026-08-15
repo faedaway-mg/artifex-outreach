@@ -13,7 +13,7 @@ import type { BusinessProfile } from "../business-intelligence/types";
 import { deslug } from "../utils";
 import { discoverLogoCandidates, type LogoSourceType } from "../brand/logo-extractor";
 import { getBusinessIntelligence, upsertBusinessIntelligence } from "../repo";
-import { selectReviewFindings, reviewStatus, startHere, displayUrl, type ReviewFinding, type ReviewStatus } from "./review-evidence";
+import { selectReviewFindings, reviewStatus, startHere, displayUrl, isAttachable, type ReviewFinding, type ReviewStatus } from "./review-evidence";
 
 export interface ResolvedBrand {
   logoUrl: string;
@@ -37,20 +37,26 @@ export interface QuickReview {
   observations: string[];
   whyItMatters: string;
   recommendations: string[];
-  /** False only when there is NO evidence-backed finding — a speculative-only BI can never attach. */
+  /** ATTACHABLE gate. True only when the review may actually be attached/sent: SENDABLE always, or
+   *  NEEDS_REVIEW ONLY after an explicit operator approval (opts.approved). INSUFFICIENT never. */
   ready: boolean;
 }
+
+/** Options that affect the real attachment gate. `approved` reflects an explicit, auditable operator
+ *  approval of a NEEDS_REVIEW review; `observedAt` stamps evidence provenance (BI generatedAt). */
+export interface BuildReviewOptions { approved?: boolean; observedAt?: string | null }
 
 const MIN_LOGO_CONFIDENCE = 0.75;
 
 /**
  * Build the deterministic Quick Review from stored lead + BI. Evidence-first: only findings we can
  * point to public evidence for survive (see review-evidence.ts); speculative/inferred/internal
- * claims are dropped. A speculative-only profile yields status=INSUFFICIENT_EVIDENCE and ready=false
- * — it can never silently become a sendable attachment.
+ * claims are dropped. A speculative-only profile yields status=INSUFFICIENT_EVIDENCE and ready=false.
+ * NEEDS_REVIEW (one finding) is NOT ready unless the operator has explicitly approved it — it can
+ * never silently attach. Exact provenance (basis + source URL) survives into each finding.
  */
-export function buildQuickReview(lead: Lead, profile: BusinessProfile | null, brand: ResolvedBrand | null): QuickReview {
-  const findings = selectReviewFindings(profile?.opportunities ?? [], 3);
+export function buildQuickReview(lead: Lead, profile: BusinessProfile | null, brand: ResolvedBrand | null, opts: BuildReviewOptions = {}): QuickReview {
+  const findings = selectReviewFindings(profile?.opportunities ?? [], 3, { website: lead.website, observedAt: opts.observedAt ?? null });
   const status = reviewStatus(findings);
   return {
     businessName: lead.businessName,
@@ -64,7 +70,7 @@ export function buildQuickReview(lead: Lead, profile: BusinessProfile | null, br
     observations: findings.map((f) => f.observation),
     whyItMatters: findings[0]?.whyItMatters || profile?.executiveSummary || "",
     recommendations: findings.map((f) => f.whatWedDo).filter(Boolean),
-    ready: status !== "INSUFFICIENT_EVIDENCE",
+    ready: isAttachable(status, opts.approved ?? false),
   };
 }
 

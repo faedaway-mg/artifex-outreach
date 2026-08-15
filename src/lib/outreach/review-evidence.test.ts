@@ -5,7 +5,7 @@
 // construction. Includes the Urban Americana regression case (no company-specific hard-coding).
 // ─────────────────────────────────────────────────────────────────────────────
 import { describe, it, expect } from "vitest";
-import { selectReviewFindings, reviewStatus, startHere, displayUrl } from "./review-evidence";
+import { selectReviewFindings, reviewStatus, startHere, displayUrl, isAttachable } from "./review-evidence";
 import type { ModernizationOpportunity, OpportunityCategory } from "../business-intelligence/types";
 
 let n = 0;
@@ -39,10 +39,13 @@ describe("evidence invariants — no evidence, no finding", () => {
     }
   });
   it("a genuine OBSERVED, publicly-visible finding survives with its evidence", () => {
-    const f = selectReviewFindings([opp({ category: "Scheduling", observation: "The site has no online booking — reservations require a phone call during business hours.", basis: ["homepage HTML: no booking widget"] })]);
+    const f = selectReviewFindings([opp({ category: "Scheduling", observation: "The site has no online booking — reservations require a phone call during business hours.", basis: ["homepage HTML: no booking widget"] })], 3, { website: "https://acme.com", observedAt: "2026-08-14T00:00:00Z" });
     expect(f).toHaveLength(1);
     expect(f[0].evidence.confidence).toBe("Observed");
-    expect(f[0].evidence.source).toContain("booking widget");
+    expect(f[0].evidence.basis).toContain("homepage HTML: no booking widget"); // exact provenance retained
+    expect(f[0].evidence.sourceUrl).toBe("https://acme.com");                    // exact internal URL
+    expect(f[0].evidence.displayLabel).toBe("acme.com · Booking");               // clean client-facing
+    expect(f[0].evidence.observedAt).toBe("2026-08-14T00:00:00Z");
   });
 });
 
@@ -62,6 +65,40 @@ describe("quality — fewer is fine; never filler; no duplicates", () => {
     const two = selectReviewFindings([opp({ category: "Scheduling", observation: "No online booking on the site." }), opp({ category: "Brand Experience", observation: "The homepage has no clear primary call to action." })]);
     expect(reviewStatus(two)).toBe("SENDABLE");
     expect(reviewStatus([])).toBe("INSUFFICIENT_EVIDENCE");
+  });
+});
+
+describe("attachability gate — NEEDS_REVIEW can never silently attach", () => {
+  it("SENDABLE is attachable with or without approval", () => {
+    expect(isAttachable("SENDABLE", false)).toBe(true);
+    expect(isAttachable("SENDABLE", true)).toBe(true);
+  });
+  it("NEEDS_REVIEW attaches ONLY after explicit approval", () => {
+    expect(isAttachable("NEEDS_REVIEW", false)).toBe(false);
+    expect(isAttachable("NEEDS_REVIEW", true)).toBe(true);
+  });
+  it("INSUFFICIENT_EVIDENCE is never attachable, even if 'approved' is forced", () => {
+    expect(isAttachable("INSUFFICIENT_EVIDENCE", true)).toBe(false);
+  });
+});
+
+describe("provenance survives into the finding (exact, two-layer)", () => {
+  it("retains basis + exact source URL + observedAt, and a clean display label", () => {
+    const f = selectReviewFindings(
+      [opp({ category: "Customer Acquisition", observation: "The storefront lists 40+ collections, many empty or duplicated.", basis: ["storefront HTML: collection list", "sitemap.xml"] })],
+      3,
+      { website: "https://urbanamericana.com/collections?utm_source=x", observedAt: "2026-08-14T00:00:00Z" },
+    )[0];
+    expect(f.evidence.basis).toEqual(["storefront HTML: collection list", "sitemap.xml"]); // exact, internal
+    expect(f.evidence.sourceUrl).toBe("https://urbanamericana.com/collections?utm_source=x"); // exact, internal
+    expect(f.evidence.displayLabel).toBe("urbanamericana.com/collections · Catalog & navigation"); // clean, client-facing
+    expect(f.evidence.observedAt).toBe("2026-08-14T00:00:00Z");
+    expect(f.evidence.sourceType).toBe("website");
+  });
+  it("a reviews finding is sourced to the Google Business Profile", () => {
+    const f = selectReviewFindings([opp({ category: "Customer Retention", observation: "Google reviews are strong (4.8, 900+) but none are surfaced on the site.", confidence: { label: "Reported", score: 0.7 }, basis: ["Google Business Profile"] })])[0];
+    expect(f.evidence.sourceType).toBe("google-business");
+    expect(f.evidence.displayLabel).toBe("Google Business Profile");
   });
 });
 

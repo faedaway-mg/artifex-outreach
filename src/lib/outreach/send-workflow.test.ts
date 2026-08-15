@@ -3,6 +3,21 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 vi.mock("next/cache", () => ({ revalidatePath: () => {}, revalidateTag: () => {} }));
 import { insertLead, upsertBusinessIntelligence, emailSendsForLead, getLead, plansForLead, allTasks } from "../repo";
 import { analyzeBusiness } from "../intelligence/engine";
+// Give a seeded BI two evidence-backed (Observed) findings so its Quick Review is SENDABLE — these
+// tests exercise the SEND PIPELINE, not the evidence gate (which correctly blocks a weak review).
+function sendable<T extends { businessProfile: { opportunities: any[] } }>(bi: T): T {
+  const ev = (category: string, observation: string) => ({
+    id: category, category, observation, whyItMatters: "It affects how customers convert.",
+    estimatedImpact: { level: "High", rationale: "A concrete fix." }, confidence: { label: "Observed", score: 0.95 }, basis: ["public website HTML"],
+  });
+  bi.businessProfile.opportunities = [
+    ev("Scheduling", "The site has no online booking — reservations require a phone call during business hours."),
+    ev("Brand Experience", "The homepage has no clear primary call to action for a first-time visitor."),
+    ...bi.businessProfile.opportunities,
+  ];
+  return bi;
+}
+
 import { resetEmailProvider } from "../comms/provider";
 import { __resetStoreForTests } from "../store";
 import { sendIntroductionAction } from "./send-actions";
@@ -44,7 +59,7 @@ afterEach(() => { global.fetch = realFetch; resetEmailProvider(); vi.restoreAllM
 describe("v2 introduction — real send through the pipeline, then Waiting, no duplicate", () => {
   it("sends once, records the provider id, and blocks a second introduction", async () => {
     const lead = await seedQualifiedLead();
-    const bi = await analyzeBusiness({ lead, findings: [], contacts: [] });
+    const bi = sendable(await analyzeBusiness({ lead, findings: [], contacts: [] }));
     await upsertBusinessIntelligence({ leadId: lead.id, profile: bi, enrichmentDelta: null, generatedAt: "2026-07-22T00:00:00.000Z" });
 
     const r1 = await sendIntroductionAction(lead.id);
@@ -74,7 +89,7 @@ describe("v2 introduction — real send through the pipeline, then Waiting, no d
   it("the deliberate sending gate blocks dispatch and sends nothing when off", async () => {
     delete process.env.OUTREACH_SENDING_ENABLED;
     const lead = await seedQualifiedLead();
-    const bi = await analyzeBusiness({ lead, findings: [], contacts: [] });
+    const bi = sendable(await analyzeBusiness({ lead, findings: [], contacts: [] }));
     await upsertBusinessIntelligence({ leadId: lead.id, profile: bi, enrichmentDelta: null, generatedAt: "2026-07-22T00:00:00.000Z" });
     const r = await sendIntroductionAction(lead.id);
     expect(r.outcome).toBe("blocked");
@@ -88,7 +103,7 @@ describe("v2 introduction — real send through the pipeline, then Waiting, no d
 describe("operator edits are the actual send payload", () => {
   it("sends the edited subject and body, and stores them as the canonical sent copy", async () => {
     const lead = await seedQualifiedLead();
-    const bi = await analyzeBusiness({ lead, findings: [], contacts: [] });
+    const bi = sendable(await analyzeBusiness({ lead, findings: [], contacts: [] }));
     await upsertBusinessIntelligence({ leadId: lead.id, profile: bi, enrichmentDelta: null, generatedAt: "2026-07-22T00:00:00.000Z" });
 
     const override = { subject: "A subject I typed myself", body: "First edited paragraph.\n\nSecond edited paragraph." };
@@ -108,7 +123,7 @@ describe("operator edits are the actual send payload", () => {
   it("From and Reply-To both resolve to the monitored hello@ mailbox (replies land in Outlook)", async () => {
     // RESEND_FROM in this suite is "Jordan <hello@artifexlabs.tech>".
     const lead = await seedQualifiedLead();
-    const bi = await analyzeBusiness({ lead, findings: [], contacts: [] });
+    const bi = sendable(await analyzeBusiness({ lead, findings: [], contacts: [] }));
     await upsertBusinessIntelligence({ leadId: lead.id, profile: bi, enrichmentDelta: null, generatedAt: "2026-07-22T00:00:00.000Z" });
     const r = await sendIntroductionAction(lead.id);
     expect(r.outcome).toBe("sent");
@@ -120,7 +135,7 @@ describe("operator edits are the actual send payload", () => {
 
   it("an untouched send is unchanged (blank override falls back to the generated draft)", async () => {
     const lead = await seedQualifiedLead();
-    const bi = await analyzeBusiness({ lead, findings: [], contacts: [] });
+    const bi = sendable(await analyzeBusiness({ lead, findings: [], contacts: [] }));
     await upsertBusinessIntelligence({ leadId: lead.id, profile: bi, enrichmentDelta: null, generatedAt: "2026-07-22T00:00:00.000Z" });
     const r = await sendIntroductionAction(lead.id, null, { subject: "", body: "" });
     expect(r.outcome).toBe("sent");
@@ -138,7 +153,7 @@ describe("call-derived send without a scored acquisition strategy", () => {
     return insertLead({ ...rest, website: null, websiteDomain: null, acquisitionStrategy: null, ...over } as any);
   }
   async function withBI(lead: Lead) {
-    const bi = await analyzeBusiness({ lead, findings: [], contacts: [] });
+    const bi = sendable(await analyzeBusiness({ lead, findings: [], contacts: [] }));
     await upsertBusinessIntelligence({ leadId: lead.id, profile: bi, enrichmentDelta: null, generatedAt: "2026-07-22T00:00:00.000Z" });
   }
 
@@ -171,7 +186,7 @@ describe("call-derived send without a scored acquisition strategy", () => {
 describe("email → follow-up call for gatekeeper practices", () => {
   it("schedules one contextual follow-up call, a business day out, once the review is emailed", async () => {
     const lead = await seedQualifiedLead(); // dental (gatekeeper) + phone + email
-    const bi = await analyzeBusiness({ lead, findings: [], contacts: [] });
+    const bi = sendable(await analyzeBusiness({ lead, findings: [], contacts: [] }));
     await upsertBusinessIntelligence({ leadId: lead.id, profile: bi, enrichmentDelta: null, generatedAt: "2026-07-22T00:00:00.000Z" });
 
     const r = await sendIntroductionAction(lead.id);
@@ -188,7 +203,7 @@ describe("email → follow-up call for gatekeeper practices", () => {
 
   it("does not stack follow-up calls if one is already open (idempotent)", async () => {
     const lead = await seedQualifiedLead();
-    const bi = await analyzeBusiness({ lead, findings: [], contacts: [] });
+    const bi = sendable(await analyzeBusiness({ lead, findings: [], contacts: [] }));
     await upsertBusinessIntelligence({ leadId: lead.id, profile: bi, enrichmentDelta: null, generatedAt: "2026-07-22T00:00:00.000Z" });
     await sendIntroductionAction(lead.id);
     await sendIntroductionAction(lead.id); // blocked (already sent) — must not add a 2nd call
@@ -202,7 +217,7 @@ describe("initial email attaches the Quick Review PDF", () => {
     // A no-website lead reliably yields a real finding, so the review is send-ready.
     const base = await seedQualifiedLead();
     const lead = await insertLead({ ...(({ id, createdAt, updatedAt, ...rest }) => rest)(base as any), businessName: "Villa Brasil Motel", website: null, websiteDomain: null, publicEmail: "reviews@villabrasil.test" } as any);
-    const bi = await analyzeBusiness({ lead, findings: [], contacts: [] });
+    const bi = sendable(await analyzeBusiness({ lead, findings: [], contacts: [] }));
     await upsertBusinessIntelligence({ leadId: lead.id, profile: bi, enrichmentDelta: null, generatedAt: "2026-07-22T00:00:00.000Z" });
 
     const r = await sendIntroductionAction(lead.id);
@@ -226,7 +241,7 @@ describe("operator sends are independent of the automation send window", () => {
     vi.setSystemTime(new Date("2026-08-09T18:00:00Z")); // a Sunday
     try {
       const lead = await seedQualifiedLead();
-      const bi = await analyzeBusiness({ lead, findings: [], contacts: [] });
+      const bi = sendable(await analyzeBusiness({ lead, findings: [], contacts: [] }));
       await upsertBusinessIntelligence({ leadId: lead.id, profile: bi, enrichmentDelta: null, generatedAt: "2026-07-22T00:00:00.000Z" });
       const r = await sendIntroductionAction(lead.id);
       expect(r.outcome).toBe("sent"); // Sunday does not block a human-approved send
@@ -242,7 +257,7 @@ describe("failure semantics — a bad send is never recorded as sent", () => {
   it("a provider rejection returns failed, sends no success, and leaves the lead re-sendable", async () => {
     global.fetch = vi.fn(async () => ({ ok: false, status: 422, json: async () => ({}), text: async () => "invalid recipient" }) as unknown as Response) as any;
     const lead = await seedQualifiedLead();
-    const bi = await analyzeBusiness({ lead, findings: [], contacts: [] });
+    const bi = sendable(await analyzeBusiness({ lead, findings: [], contacts: [] }));
     await upsertBusinessIntelligence({ leadId: lead.id, profile: bi, enrichmentDelta: null, generatedAt: "2026-07-22T00:00:00.000Z" });
     const r = await sendIntroductionAction(lead.id);
     expect(r.outcome).not.toBe("sent");

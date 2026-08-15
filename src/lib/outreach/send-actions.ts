@@ -19,6 +19,7 @@ import { prepareAcquisitionPlanAction, approvePlanAction } from "../acquisition-
 import { dispatchStep } from "../comms/dispatch";
 import { buildOutreachKit } from "./kit";
 import { buildQuickReview, resolveLeadBrand } from "./quick-review";
+import { quickReviewApproved } from "./review-approval";
 import { renderPersonalEmailHtml, renderPersonalEmailText } from "./email-render";
 import type { VeedVideo, IntroSendResult, OutreachEmail } from "./types";
 
@@ -108,8 +109,14 @@ async function sendNext(leadId: string, mode: "intro" | "followup", veed?: VeedV
   // test lead is exempt so transport can always be verified.)
   if (mode === "intro" && lead.source !== "internal-test") {
     const brand = await resolveLeadBrand(lead); // resolves + caches the logo once (dispatch reuses it)
-    const review = buildQuickReview(lead, profile, brand);
-    if (!review.ready) return { outcome: "blocked", reason: "Quick Review needs attention — no credible findings yet, so there's nothing to attach." };
+    const approved = await quickReviewApproved(leadId);
+    const review = buildQuickReview(lead, profile, brand, { approved });
+    if (!review.ready) {
+      // NEEDS_REVIEW is a real state: it must be explicitly approved, never silently sent.
+      return review.status === "NEEDS_REVIEW"
+        ? { outcome: "blocked", reason: "Quick Review needs your approval — it has one evidence-backed finding; review and approve it before sending." }
+        : { outcome: "blocked", reason: "Quick Review needs attention — no credible findings yet, so there's nothing to attach." };
+    }
   }
 
   // Workflow guards keyed off provider-accepted sends (the ledger is the truth).
@@ -226,4 +233,19 @@ export async function fetchVeedMetadata(url: string): Promise<{ title: string | 
   } catch {
     return empty;
   }
+}
+
+// ── Explicit operator approval of a NEEDS_REVIEW Quick Review ──────────────────
+// A deliberate, auditable action: it records an append-only approval event so a one-finding review
+// can proceed to attachment. It NEVER sends anything and refuses INSUFFICIENT_EVIDENCE. Wired to a
+// visible button that only appears for a NEEDS_REVIEW review, so it cannot be triggered by accident.
+export async function approveQuickReviewAction(formData: FormData): Promise<void> {
+  const { revalidatePath } = await import("next/cache");
+  const { approveQuickReview } = await import("./review-approval");
+  const leadId = String(formData.get("leadId") ?? "");
+  const status = String(formData.get("status") ?? "");
+  if (!leadId) return;
+  await approveQuickReview(leadId, status);
+  revalidatePath("/work/email");
+  revalidatePath(`/leads/${leadId}`);
 }

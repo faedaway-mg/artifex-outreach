@@ -24,6 +24,8 @@ import { describeSequenceContext, type SequenceContext } from "@/lib/comms/task-
 import { buildWorkQueue, batchLeadIds, categoryTitle, kindOfTask, surfaceTodaysTasks, channelCapacity, type WorkKind } from "@/lib/work-queue";
 import { buildOutreachKit } from "@/lib/outreach/kit";
 import { buildQuickReview, quickReviewFilename } from "@/lib/outreach/quick-review";
+import { quickReviewApproved } from "@/lib/outreach/review-approval";
+import { approveQuickReviewAction } from "@/lib/outreach/send-actions";
 import { buildVideoScript } from "@/lib/outreach/content";
 import { renderPersonalEmailHtml } from "@/lib/outreach/email-render";
 import { readingSeconds } from "@/lib/outreach/voice-engine";
@@ -127,8 +129,12 @@ export default async function BatchPage({ params, searchParams }: { params: { ki
   const lead = leadMap.get(ids[i])!;
   const bi = await getBusinessIntelligence(lead.id);
   const profile = bi?.profile?.businessProfile ?? null;
-  // An initial email is send-ready only when its Quick Review has credible findings to attach.
-  const reviewReady = kind === "email" ? buildQuickReview(lead, profile, null).ready : true;
+  // An initial email is attachable only when its Quick Review is SENDABLE, or NEEDS_REVIEW that the
+  // operator has explicitly approved. Approving is an explicit, auditable act (see below).
+  const reviewApprovedNow = kind === "email" ? await quickReviewApproved(lead.id) : false;
+  const emailReview = kind === "email" ? buildQuickReview(lead, profile, null, { approved: reviewApprovedNow }) : null;
+  const reviewReady = kind === "email" ? (emailReview?.ready ?? true) : true;
+  const reviewStatus = emailReview?.status ?? null;
 
   // ── A concise, kind-appropriate brief — only what helps do THIS work ────────
   const why = (lead.recommendationReason?.trim()) || bi?.profile?.briefing?.whyItMatters || "Worth a thoughtful touch today.";
@@ -199,6 +205,22 @@ export default async function BatchPage({ params, searchParams }: { params: { ki
     return (
       <div className="mx-auto max-w-lg space-y-5">
         {Header}
+        {/* NEEDS_REVIEW gate: one evidence-backed finding is below the SENDABLE threshold — it can't
+            attach until the operator explicitly approves it here. Explicit, visible, auditable. */}
+        {kind === "email" && reviewStatus === "NEEDS_REVIEW" && !reviewApprovedNow && (
+          <div className="card border-amber-400/25 bg-amber-400/[0.05] p-4">
+            <p className="text-[13px] font-semibold text-amber-200">This Quick Review needs your approval</p>
+            <p className="mt-1 text-[12.5px] text-chalk-400">It has one evidence-backed finding — below our two-finding send bar. Preview it, and if it's strong enough, approve it to attach. Nothing sends until you approve.</p>
+            <div className="mt-3 flex items-center gap-3">
+              <a href={`/api/quick-review/${lead.id}/pdf`} target="_blank" rel="noreferrer" className="btn-secondary !px-3 !py-1.5 text-xs">Preview review</a>
+              <form action={approveQuickReviewAction}>
+                <input type="hidden" name="leadId" value={lead.id} />
+                <input type="hidden" name="status" value={reviewStatus} />
+                <button type="submit" className="btn-primary !px-3 !py-1.5 text-xs">Approve for attachment</button>
+              </form>
+            </div>
+          </div>
+        )}
         <EmailDecision
           // Remount per business: batch advance changes only the ?i= searchParam on this same
           // route, so without a key React would REUSE this client instance and its useState-held

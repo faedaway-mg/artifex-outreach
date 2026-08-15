@@ -35,6 +35,16 @@ describe("buildQuickReview — deterministic, business-specific, never fabricate
     expect(r.ready).toBe(true);
   });
 
+  it("NEEDS_REVIEW (one finding) is NOT ready without approval, and ready once approved", () => {
+    const p = profile([{ observation: "The site has no online booking; reservations need a phone call.", whyItMatters: "After-hours demand slips away.", rationale: "Add online booking." }]);
+    expect(buildQuickReview(lead(), p, null).status).toBe("NEEDS_REVIEW");
+    expect(buildQuickReview(lead(), p, null).ready).toBe(false);              // can't silently attach
+    expect(buildQuickReview(lead(), p, null, { approved: true }).ready).toBe(true); // explicit approval
+    // A speculative-only profile is INSUFFICIENT and can never be waved through.
+    const spec = profile([{ observation: "Operational systems look developing.", whyItMatters: "x", rationale: "y", confidence: "Inferred" }]);
+    expect(buildQuickReview(lead(), spec, null, { approved: true }).ready).toBe(false);
+  });
+
   it("is NOT ready when there are no credible findings (no fabrication)", () => {
     const r = buildQuickReview(lead(), profile([]), null);
     expect(r.observations).toHaveLength(0);
