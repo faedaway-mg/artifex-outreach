@@ -3,11 +3,13 @@
 // audio safety, pilot events, and the hard rule that NOTHING is sent.
 import { describe, it, expect, beforeEach } from "vitest";
 import { __resetStoreForTests } from "../store";
+import { __resetRenderQueueForTests } from "./queue";
 import { insertLead, upsertBusinessIntelligence, reviewVideoJobsForLead, getReviewVideoJob, auditForTarget } from "../repo";
 import { analyzeBusiness } from "../intelligence/engine";
 import { makeLead } from "../test-lead";
 import { prepareReviewVideoBatch, markVisualRendered, importJobAudio, markFinalRendered, approveReviewVideo, markDeliveryReady, failJob, retryJob } from "./batch";
 import { jobEvents } from "./measurement";
+import { listReviewVideoCandidates, reviewVideoBoard } from "./board";
 
 const CI = ["furniture", "lighting", "decor", "rugs", "art", "mirrors", "seating", "tables", "storage", "textiles", "glassware", "ceramics", "vintage-signs", "records", "books", "jewelry", "clothing", "lighting-fixtures"].map((s) => `<a href="/collections/${s}">${s === "lighting-fixtures" ? "Lighting" : s}</a>`).join("");
 const RICH_HTML = `<body><h1>Urban Americana</h1><h2>Shop Our Collections</h2>${CI}<a href="/collections/test-old-home">t</a></body>`;
@@ -30,7 +32,7 @@ async function seedOneFindingLead(name: string) {
   return lead;
 }
 
-beforeEach(() => __resetStoreForTests());
+beforeEach(() => { __resetStoreForTests(); __resetRenderQueueForTests(); });
 
 describe("batch preparation — eligibility, idempotency, failure isolation", () => {
   it("creates jobs for strong leads and refuses a thin one, in one batch (no poison)", async () => {
@@ -112,6 +114,23 @@ describe("job lifecycle — render → Lucas → final → review → approve �
   });
 });
 
+describe("operator board data", () => {
+  it("lists candidates by readiness and reflects live job status after prepare", async () => {
+    const strong = await seedLead("Urban Americana", RICH_HTML);
+    const weak = await seedOneFindingLead("Corner Cafe");
+    const candidates = await listReviewVideoCandidates();
+    const byLead = Object.fromEntries(candidates.map((c) => [c.leadId, c]));
+    expect(["STRONG", "READY"]).toContain(byLead[strong.id].readiness.readiness);
+    expect(byLead[weak.id].readiness.readiness).toBe("NEEDS_REVIEW");
+    expect(candidates[0].readiness.readiness).toBe(byLead[strong.id].readiness.readiness); // strongest first
+    await prepareReviewVideoBatch([strong.id]);
+    const board = await reviewVideoBoard();
+    expect(board.summary.PLANNING).toBe(1);
+    expect(board.rows[0].nextAction).toBeTruthy();
+    expect((await listReviewVideoCandidates()).find((c) => c.leadId === strong.id)!.hasJob).toBe(true);
+  });
+});
+
 describe("measurement + safety", () => {
   it("records pilot events on the audit log and NEVER a fabricated view/sent event", async () => {
     const lead = await seedLead("Urban Americana", RICH_HTML);
@@ -121,7 +140,7 @@ describe("measurement + safety", () => {
     await markFinalRendered(r.jobId!, { finalKey: "k", durationSeconds: 60 });
     await approveReviewVideo(r.jobId!);
     const events = (await jobEvents(r.jobId!)).map((e) => e.action);
-    expect(events).toEqual(expect.arrayContaining(["review-video.prepared", "review-video.voice-added", "review-video.rendered", "review-video.approved"]));
+    expect(events).toEqual(expect.arrayContaining(["review-video.prepared", "review-video.voice-added", "review-video.final-rendered", "review-video.approved"]));
     expect(events).not.toContain("review-video.sent");     // approval does NOT send
     expect(events).not.toContain("review-video.viewed");   // never fabricated
   });

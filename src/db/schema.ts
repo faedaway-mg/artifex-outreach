@@ -901,3 +901,42 @@ export const engagementSnapshots = pgTable(
     recIdx: index("engagement_snapshots_rec_idx").on(t.recommendationId),
   }),
 );
+
+// ── Review Video batch pilot jobs (operational; PRIVATE_ONLY) ─────────────────
+export const reviewVideoJobs = pgTable(
+  "review_video_jobs",
+  {
+    id: text("id").primaryKey(),
+    leadId: text("lead_id").notNull(),
+    reviewId: text("review_id").notNull(),
+    batchId: text("batch_id"),
+    status: text("status").notNull(),
+    rightsState: text("rights_state").notNull().default("PRIVATE_ONLY"),
+    targetSeconds: integer("target_seconds").notNull().default(60),
+    narrationWords: integer("narration_words").notNull().default(0),
+    expectedAudioFilename: text("expected_audio_filename").notNull().default(""),
+    planKey: text("plan_key"),
+    narrationKey: text("narration_key"),
+    captionsKey: text("captions_key"),
+    previewKey: text("preview_key"),
+    audioKey: text("audio_key"),
+    audioDurationSeconds: doublePrecision("audio_duration_seconds"),
+    finalKey: text("final_key"),
+    finalDurationSeconds: doublePrecision("final_duration_seconds"),
+    findingIds: jsonb("finding_ids").$type<string[]>().notNull().default([]),
+    approvedAt: ts("approved_at"),
+    failure: jsonb("failure").$type<{ stage: string; message: string } | null>(),
+    attemptCount: integer("attempt_count").notNull().default(0),
+    lastAttemptAt: ts("last_attempt_at"),
+    leaseUntil: ts("lease_until"),
+    renderVersion: text("render_version"),
+    approvedVersion: text("approved_version"),
+    createdAt: ts("created_at").notNull(),
+    updatedAt: ts("updated_at").notNull(),
+  },
+  (t) => ({
+    leadIdx: index("review_video_jobs_lead_idx").on(t.leadId),
+    statusIdx: index("review_video_jobs_status_idx").on(t.status),
+    batchIdx: index("review_video_jobs_batch_idx").on(t.batchId),
+  }),
+);

@@ -11,9 +11,10 @@ import { currentOperatorId } from "../auth";
 // Events the system can legitimately record. NOTE: "viewed" is intentionally ABSENT until real view
 // tracking exists — we never fabricate a view event.
 export const REVIEW_VIDEO_EVENTS = [
-  "review-video.prepared", "review-video.voice-added", "review-video.rendered",
-  "review-video.approved", "review-video.delivery-ready", "review-video.sent",
-  "review-video.reply", "review-video.positive-reply", "review-video.conversation",
+  "review-video.prepared", "review-video.visual-rendered", "review-video.voice-added",
+  "review-video.final-rendered", "review-video.rendered", "review-video.approved",
+  "review-video.delivery-ready", "review-video.failed", "review-video.retried",
+  "review-video.sent", "review-video.reply", "review-video.positive-reply", "review-video.conversation",
 ] as const;
 export type ReviewVideoEvent = (typeof REVIEW_VIDEO_EVENTS)[number];
 
@@ -52,7 +53,7 @@ export function summarizePilot(events: Array<{ action: string; meta?: any }>): P
     switch (e.action) {
       case "review-video.prepared": s.prepared++; break;
       case "review-video.voice-added": s.voiceAdded++; break;
-      case "review-video.rendered": s.rendered++; break;
+      case "review-video.final-rendered": case "review-video.rendered": s.rendered++; break;
       case "review-video.approved": s.approved++; break;
       case "review-video.delivery-ready": s.deliveryReady++; break;
       case "review-video.sent": { s.sent++; bump(s, cohort(e.meta), "sent"); break; }

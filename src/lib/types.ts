@@ -467,6 +467,14 @@ export interface ReviewVideoJob {
   findingIds: string[];
   approvedAt: string | null;
   failure: { stage: string; message: string } | null;
+  /** Queue/recovery bookkeeping. attemptCount + leaseUntil let a crashed worker's job be recovered. */
+  attemptCount: number;
+  lastAttemptAt: string | null;
+  leaseUntil: string | null;
+  /** Version of the inputs the CURRENT final was rendered from, and the version the operator APPROVED.
+   *  If a re-render changes renderVersion away from approvedVersion, approval is revoked (back to review). */
+  renderVersion: string | null;
+  approvedVersion: string | null;
   createdAt: string;
   updatedAt: string;
 }

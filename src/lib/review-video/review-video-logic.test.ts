@@ -69,7 +69,7 @@ describe("job state machine", () => {
 });
 
 describe("Lucas batch handoff — safe matching", () => {
-  const job = (id: string, status: ReviewVideoJob["status"], name = "Urban Americana"): ReviewVideoJob => ({ id, leadId: "l-" + id, reviewId: "rv-" + id, batchId: null, status, rightsState: "PRIVATE_ONLY", targetSeconds: 60, narrationWords: 150, expectedAudioFilename: expectedAudioFilename(name, id), planKey: null, narrationKey: null, captionsKey: null, previewKey: null, audioKey: null, audioDurationSeconds: null, finalKey: null, finalDurationSeconds: null, findingIds: [], approvedAt: null, failure: null, createdAt: "", updatedAt: "" });
+  const job = (id: string, status: ReviewVideoJob["status"], name = "Urban Americana"): ReviewVideoJob => ({ id, leadId: "l-" + id, reviewId: "rv-" + id, batchId: null, status, rightsState: "PRIVATE_ONLY", targetSeconds: 60, narrationWords: 150, expectedAudioFilename: expectedAudioFilename(name, id), planKey: null, narrationKey: null, captionsKey: null, previewKey: null, audioKey: null, audioDurationSeconds: null, finalKey: null, finalDurationSeconds: null, findingIds: [], approvedAt: null, failure: null, attemptCount: 0, lastAttemptAt: null, leaseUntil: null, renderVersion: null, approvedVersion: null, createdAt: "", updatedAt: "" });
 
   it("expected filenames embed the job id (unique across same-named businesses)", () => {
     expect(expectedAudioFilename("Urban Americana", "rvjob_A")).toContain("rvjob_A");
@@ -85,6 +85,12 @@ describe("Lucas batch handoff — safe matching", () => {
     expect(jobIdFromFilename("totally-wrong-name__B__lucas.mp3", ids)).toBe("B"); // id wins over name
     const r = matchAudioToJobs(["urban-americana__A__lucas.mp3", "other__B__lucas.mp3"], ids);
     expect(r.matched).toHaveLength(2); expect(r.ambiguous).toHaveLength(0); expect(r.unmatchedJobs).toHaveLength(0);
+  });
+  it("matches job ids that contain hyphens (nanoid) — not split on '-'", () => {
+    const ids = ["rvjob_DeW-3LG8Or", "rvjob_zisDYzX1t-"];
+    expect(jobIdFromFilename("wildflower-market__rvjob_DeW-3LG8Or__lucas.mp3", ids)).toBe("rvjob_DeW-3LG8Or");
+    const r = matchAudioToJobs(["a__rvjob_DeW-3LG8Or__lucas.mp3", "b__rvjob_zisDYzX1t-__lucas.mp3"], ids);
+    expect(r.matched).toHaveLength(2); expect(r.ambiguous).toHaveLength(0);
   });
   it("REFUSES ambiguous files (no id, or two files for one job) — never guesses the nearest lead", () => {
     const r = matchAudioToJobs(["random.mp3", "x__A__lucas.mp3", "y__A__lucas.mp3"], ["A", "B"]);

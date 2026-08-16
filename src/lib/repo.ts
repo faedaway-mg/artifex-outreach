@@ -296,7 +296,7 @@ export const updateVideo = (id: string, patch: Partial<Video>) => Videos.update(
 
 // Review Video batch pilot jobs — durable (store-backed; a DB table/migration is the only step left
 // for the DB-mode path, which the pilot does not require).
-const ReviewVideoJobs = collection<ReviewVideoJob>((t as any).reviewVideoJobs, () => mem().reviewVideoJobs);
+const ReviewVideoJobs = collection<ReviewVideoJob>(t.reviewVideoJobs, () => mem().reviewVideoJobs);
 export const reviewVideoJobsForLead = (leadId: string) => ReviewVideoJobs.byLead(leadId);
 export const getReviewVideoJob = (id: string) => ReviewVideoJobs.byId(id);
 export const allReviewVideoJobs = () => ReviewVideoJobs.all();

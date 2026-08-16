@@ -46,11 +46,12 @@ export function buildLucasBatch(items: Array<{ job: ReviewVideoJob; businessName
 export function jobIdFromFilename(filename: string, knownIds: string[]): string | null {
   const base = filename.replace(/^.*\//, "");
   const known = new Set(knownIds);
-  // Prefer the strict pattern, then fall back to any '__'/'-' token that IS a known id.
-  const strict = base.match(/__([A-Za-z0-9_]+)__lucas\.[a-z0-9]+$/i);
+  // Prefer the strict "…__<jobId>__lucas.ext" pattern (job ids may contain '_' and '-', e.g. nanoid).
+  const strict = base.match(/__([A-Za-z0-9_-]+)__lucas\.[a-z0-9]+$/i);
   if (strict && known.has(strict[1])) return strict[1];
-  for (const tok of base.split(/[^A-Za-z0-9_]+/)) if (known.has(tok)) return tok;
-  return null;
+  // Fallback: a known id embedded between the '__' delimiters, or present verbatim (ids are unique/long).
+  const matches = knownIds.filter((id) => base.includes(`__${id}__`) || base.includes(id));
+  return matches.length === 1 ? matches[0] : null; // >1 match = ambiguous, never guess
 }
 
 export interface AudioMatchResult {

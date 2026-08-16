@@ -15,6 +15,9 @@ import { reviewVideoReadiness, type ReviewVideoReadiness } from "./readiness";
 import { expectedAudioFilename, validateAudioDuration } from "./lucas-batch";
 import { transition } from "./job-state";
 import { recordVideoEvent } from "./measurement";
+import { getRenderQueue } from "./queue";
+
+const outputPrefix = (jobId: string) => `assets/reviewvideo/${jobId}`;
 
 export interface BatchPrepareResult {
   leadId: string;
@@ -57,10 +60,13 @@ export async function prepareReviewVideoBatch(leadIds: string[], opts: { allowOv
         planKey: null, narrationKey: null, captionsKey: null, previewKey: null,
         audioKey: null, audioDurationSeconds: null, finalKey: null, finalDurationSeconds: null,
         findingIds: review.findings.map((f) => f.id), approvedAt: null, failure: null,
+        attemptCount: 0, lastAttemptAt: null, leaseUntil: null, renderVersion: null, approvedVersion: null,
       });
       // Now that we have the id, stamp the expected Lucas filename (id-based → no cross-lead mixups).
       await updateReviewVideoJob(job.id, { expectedAudioFilename: expectedAudioFilename(lead.businessName, job.id) });
       await recordVideoEvent(job.id, "review-video.prepared", { leadId, readiness: readiness.readiness });
+      // Enqueue the visual render to run OUTSIDE the request lifecycle (the queue worker drains it).
+      getRenderQueue().enqueue({ jobId: job.id, mode: "visual", outputPrefix: outputPrefix(job.id) });
       results.push({ leadId, jobId: job.id, status: "PLANNING", readiness, created: true, blockers: [] });
     } catch (e) {
       results.push({ leadId, jobId: null, status: "NOT_ELIGIBLE", readiness: null, created: false, blockers: [`error: ${(e as Error).message}`] });
@@ -91,26 +97,41 @@ export async function importJobAudio(jobId: string, audio: { audioKey: string; d
   if (!v.ok) throw new Error(`audio rejected: ${v.reason}`);
   const res = await advance(jobId, "AUDIO_IMPORTED", { audioKey: audio.audioKey, audioDurationSeconds: audio.durationSeconds });
   await recordVideoEvent(jobId, "review-video.voice-added", { durationSeconds: audio.durationSeconds, warn: v.level === "warn" });
+  // Valid audio automatically continues to the final render (no separate "start" click needed).
+  getRenderQueue().enqueue({ jobId, mode: "final", outputPrefix: outputPrefix(jobId) });
   return res;
 }
 
-/** Final render finished → ready for the operator to review (NOT approved, NOT sent). */
-export async function markFinalRendered(jobId: string, final: { finalKey: string; durationSeconds: number }) {
+/** Final render finished → ready for the operator to review (NOT approved, NOT sent). Stamps the render
+ *  version so a later approval binds to THIS exact artifact. */
+export async function markFinalRendered(jobId: string, final: { finalKey: string; durationSeconds: number; renderVersion?: string }) {
   const job = await getReviewVideoJob(jobId);
   if (job && job.status === "AUDIO_IMPORTED") await updateReviewVideoJob(jobId, transition(job, "RENDERING_FINAL"));
-  const res = await advance(jobId, "READY_FOR_REVIEW", { finalKey: final.finalKey, finalDurationSeconds: final.durationSeconds });
-  await recordVideoEvent(jobId, "review-video.rendered", { durationSeconds: final.durationSeconds });
+  const res = await advance(jobId, "READY_FOR_REVIEW", { finalKey: final.finalKey, finalDurationSeconds: final.durationSeconds, renderVersion: final.renderVersion ?? `v-${Date.now()}` });
+  await recordVideoEvent(jobId, "review-video.final-rendered", { durationSeconds: final.durationSeconds });
   return res;
 }
 
-/** Explicit, idempotent operator approval of a rendered video. Approval does NOT send anything. */
+/** Explicit, idempotent operator approval of a rendered video. Binds the approval to the CURRENT render
+ *  version, so a regenerated final (different version) is NOT silently approved. Approval does NOT send. */
 export async function approveReviewVideo(jobId: string) {
   const job = await getReviewVideoJob(jobId);
   if (!job) throw new Error(`job not found: ${jobId}`);
-  if (job.status === "APPROVED_PRIVATE" || job.status === "DELIVERY_READY") return job; // idempotent
-  const res = await advance(jobId, "APPROVED_PRIVATE");
-  await recordVideoEvent(jobId, "review-video.approved", {});
+  if ((job.status === "APPROVED_PRIVATE" || job.status === "DELIVERY_READY") && job.approvedVersion === job.renderVersion) return job; // idempotent for the SAME version
+  const res = await advance(jobId, "APPROVED_PRIVATE", { approvedVersion: job.renderVersion });
+  await recordVideoEvent(jobId, "review-video.approved", { version: job.renderVersion });
   return res;
+}
+
+/** Re-render a new final (e.g. new Lucas take) — if the job was approved, revoke approval and return it
+ *  to READY_FOR_REVIEW because the artifact changed. The operator must re-approve the revision. */
+export async function replaceFinal(jobId: string, final: { finalKey: string; durationSeconds: number; renderVersion: string }) {
+  const job = await getReviewVideoJob(jobId);
+  if (!job) throw new Error(`job not found: ${jobId}`);
+  const patch: Partial<import("../types").ReviewVideoJob> = { finalKey: final.finalKey, finalDurationSeconds: final.durationSeconds, renderVersion: final.renderVersion };
+  if (job.status === "APPROVED_PRIVATE" || job.status === "DELIVERY_READY") { patch.status = "READY_FOR_REVIEW"; patch.approvedAt = null; patch.approvedVersion = null; }
+  await recordVideoEvent(jobId, "review-video.final-rendered", { durationSeconds: final.durationSeconds, replaced: true });
+  return updateReviewVideoJob(jobId, patch);
 }
 
 /** Mark an approved video ready for MANUAL delivery through the existing outreach gates. */
