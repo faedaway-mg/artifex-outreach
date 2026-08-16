@@ -264,6 +264,7 @@ export async function upsertBusinessIntelligence(row: {
   profile: StoredBusinessIntelligence["profile"];
   enrichmentDelta: StoredBusinessIntelligence["enrichmentDelta"];
   generatedAt: string;
+  surfacePackage?: StoredBusinessIntelligence["surfacePackage"];
 }): Promise<StoredBusinessIntelligence> {
   const existing = await getBusinessIntelligence(row.leadId);
   const scalars = {
@@ -271,8 +272,10 @@ export async function upsertBusinessIntelligence(row: {
     improvementScore: row.profile.improvement.score,
     treatment: row.profile.improvement.treatment,
   };
+  // Preserve a previously-persisted surface package when this write doesn't supply one.
+  const surfacePackage = row.surfacePackage ?? existing?.surfacePackage ?? null;
   if (existing) {
-    return (await BusinessIntel.update(existing.id, { profile: row.profile, enrichmentDelta: row.enrichmentDelta, generatedAt: row.generatedAt, ...scalars }))!;
+    return (await BusinessIntel.update(existing.id, { profile: row.profile, enrichmentDelta: row.enrichmentDelta, generatedAt: row.generatedAt, surfacePackage, ...scalars }))!;
   }
   return BusinessIntel.insert({
     id: newId("bi"),
@@ -280,6 +283,7 @@ export async function upsertBusinessIntelligence(row: {
     profile: row.profile,
     enrichmentDelta: row.enrichmentDelta,
     generatedAt: row.generatedAt,
+    surfacePackage,
     createdAt: nowIso(),
     updatedAt: nowIso(),
     ...scalars,

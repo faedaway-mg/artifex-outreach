@@ -1,0 +1,1 @@
+ALTER TABLE "business_intelligence" ADD COLUMN "surface_package" jsonb;

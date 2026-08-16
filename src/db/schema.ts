@@ -267,6 +267,7 @@ export const businessIntelligence = pgTable(
     evidenceConfidence: integer("evidence_confidence").notNull().default(0),
     improvementScore: integer("improvement_score").notNull().default(0),
     treatment: text("treatment").notNull().default(""),
+    surfacePackage: jsonb("surface_package"),
     generatedAt: ts("generated_at").notNull(),
     createdAt: ts("created_at").notNull(),
     updatedAt: ts("updated_at").notNull(),

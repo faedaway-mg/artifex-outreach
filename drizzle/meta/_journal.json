@@ -141,6 +141,13 @@
       "when": 1786843691589,
       "tag": "0019_silent_nomad",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1786871209298,
+      "tag": "0020_magical_queen_noir",
+      "breakpoints": true
     }
   ]
 }

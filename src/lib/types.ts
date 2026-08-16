@@ -1243,6 +1243,9 @@ export interface StoredBusinessIntelligence {
   evidenceConfidence: number;
   improvementScore: number;
   treatment: string;
+  /** Sanitized analyzed public surface (M1.1) — persisted so the review-video renderer shows the real
+   *  page WITHOUT re-crawling. Nullable/backward-compatible. See review-video/surface.ts. */
+  surfacePackage?: { pages: Array<{ url: string; html: string; role: string }>; capturedAt: string | null } | null;
   generatedAt: string;
   createdAt: string;
   updatedAt: string;

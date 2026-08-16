@@ -16,6 +16,7 @@ import { findingsForLead, contactsForLead, getBusinessIntelligence, upsertBusine
 import { isSameSiteEmail } from "./intelligence/providers/website-intelligence";
 import { isValidEmail } from "./outreach/contact-strategy";
 import { resolveCallWorkForEmail } from "./outreach/contact-route";
+import { buildSurfacePackage } from "./review-video/surface";
 
 /**
  * Value-first supply: the website crawler already fetched the HTML and (now) extracted the
@@ -65,7 +66,10 @@ export async function generateAndStoreBI(lead: Lead, opts: GenerateBIOptions = {
   const enrichmentDelta = prev ? diffIntelligence(prev.profile, profile) : null;
   const generatedAt = new Date().toISOString();
 
-  const stored = await upsertBusinessIntelligence({ leadId: lead.id, profile, enrichmentDelta, generatedAt });
+  // Persist a sanitized snapshot of the analyzed public surface so the review-video renderer can show
+  // the real page later WITHOUT re-crawling. Reuse the prior package when this run supplied no pages.
+  const surfacePackage = opts.pages?.length ? buildSurfacePackage(opts.pages, generatedAt) : (prev?.surfacePackage ?? null);
+  const stored = await upsertBusinessIntelligence({ leadId: lead.id, profile, enrichmentDelta, generatedAt, surfacePackage });
   // Value-first: adopt a same-domain published email as the send route so the review can be
   // emailed rather than the lead falling through to a cold call. Best-effort — never break BI.
   try { await promoteDiscoveredEmail(lead.id, profile); } catch { /* enrichment must not fail on this */ }
