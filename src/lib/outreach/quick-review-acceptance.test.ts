@@ -75,7 +75,9 @@ describe("Urban Americana — generalized engine path (M3)", () => {
     const bi = await analyzeBusiness({ lead, pages: [{ url: "https://urbanamericana.com", html: HTML }] });
     const review = buildQuickReview(lead, bi.businessProfile, null, { approved: true });
     expect(review.openingHook).toBeTruthy();
-    expect(review.openingHook).toMatch(/19|950/);              // led by a quantified finding, not a text-only one
+    // The opening is a SYNTHESIZING frame led by the strongest finding's topic — and, per the
+    // editorial-quality fix, NEVER a verbatim copy of any finding's own hook.
+    expect(review.presentations.map((p) => p.textHook)).not.toContain(review.openingHook);
     expect(review.presentations).toHaveLength(review.findings.length);
     for (const p of review.presentations) {
       expect(p.textHook.length).toBeGreaterThan(0);

@@ -15,6 +15,32 @@ import { discoverLogoCandidates, type LogoSourceType } from "../brand/logo-extra
 import { getBusinessIntelligence, upsertBusinessIntelligence } from "../repo";
 import { selectReviewFindings, reviewStatus, startHere, displayUrl, isAttachable, validateReviewEditorial, type ReviewFinding, type ReviewStatus, type StartingPoint } from "./review-evidence";
 import { presentFindings, openingHook, type FindingPresentation } from "./review-hooks";
+import { checkReview, editorialBlocks } from "./editorial-quality";
+
+// Friendly, client-facing category labels. The raw `industry` slug (e.g. "dentist") is an internal
+// key, not how a business is addressed. A short map keeps the review professional; anything unmapped
+// falls back to the de-slugged label. Extend as new verticals appear.
+const FRIENDLY_CATEGORY: Array<[RegExp, string]> = [
+  [/dent(ist|al)/i, "Dental practice"],
+  [/orthodont/i, "Orthodontic practice"],
+  [/(attorney|lawyer|\blaw\b|legal|solicitor)/i, "Law firm"],
+  [/(plumb|hvac)/i, "Home services company"],
+  [/roof/i, "Roofing company"],
+  [/electric/i, "Electrical company"],
+  [/(gym|fitness|pilates|yoga|crossfit)/i, "Fitness studio"],
+  [/(salon|barber|spa|beauty)/i, "Salon & spa"],
+  [/restaurant|cafe|coffee|bakery|eatery/i, "Restaurant"],
+  [/(chiro|physical therapy|physio)/i, "Chiropractic clinic"],
+  [/(realtor|real estate|realty)/i, "Real estate practice"],
+  [/(account|cpa|bookkeep)/i, "Accounting firm"],
+  [/(auto|mechanic|body shop)/i, "Auto services shop"],
+  [/(vet|veterinar)/i, "Veterinary practice"],
+];
+export function friendlyCategory(industry: string | null | undefined): string {
+  const raw = deslug(industry ?? "") || "";
+  for (const [re, label] of FRIENDLY_CATEGORY) if (re.test(industry ?? "") || re.test(raw)) return label;
+  return raw;
+}
 
 export interface ResolvedBrand {
   logoUrl: string;
@@ -65,25 +91,35 @@ export function buildQuickReview(lead: Lead, profile: BusinessProfile | null, br
   const findings = selectReviewFindings(profile?.opportunities ?? [], 3, { website: lead.website, observedAt: opts.observedAt ?? null });
   const status = reviewStatus(findings);
   const start = startHere(findings);
+  const presentations = presentFindings(findings);
+  const opening = openingHook(findings);
+  const industryLabel = friendlyCategory(lead.industry);
   // Editorial fail-safe: a structurally-malformed artifact (duplicate titles, an impact statement
   // where an action belongs, an incoherent starting point) must never silently attach. This does not
   // loosen M2 sendability — it can only WITHHOLD attachment; the status itself is unchanged.
-  const editoriallyOk = validateReviewEditorial(findings, start).length === 0;
+  const structuralOk = validateReviewEditorial(findings, start).length === 0;
+  // Editorial-REDUNDANCY gate (Phase 4): avoidable duplication across customer-facing surfaces
+  // (a hook copying a finding, a recommendation restating a finding) WITHHOLDS attachment. "Delivery
+  // ready" must mean editorially ready, not merely rendered. Shared metrics/names never false-block.
+  const editorialClean = editorialBlocks(checkReview({
+    businessName: lead.businessName, website: lead.website, industryLabel,
+    openingHook: opening, findings, presentations, start,
+  })).length === 0;
   return {
     businessName: lead.businessName,
-    industryLabel: deslug(lead.industry) || "",
+    industryLabel,
     location: [lead.city, lead.state].filter(Boolean).join(", "),
     website: displayUrl(lead.website),
     brand,
     findings,
-    presentations: presentFindings(findings),
-    openingHook: openingHook(findings),
+    presentations,
+    openingHook: opening,
     start,
     status,
     observations: findings.map((f) => f.observation),
     whyItMatters: findings[0]?.whyItMatters || profile?.executiveSummary || "",
     recommendations: findings.map((f) => f.whatWedDo).filter(Boolean),
-    ready: isAttachable(status, opts.approved ?? false) && editoriallyOk,
+    ready: isAttachable(status, opts.approved ?? false) && structuralOk && editorialClean,
   };
 }
 

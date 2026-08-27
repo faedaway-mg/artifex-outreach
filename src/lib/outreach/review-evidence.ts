@@ -324,12 +324,17 @@ export function startHere(findings: ReviewFinding[]): StartingPoint | null {
   const top = findings[0];
   if (!top) return null;
   const n = findings.length;
-  const firstReason = n > 1 ? `Of the ${n === 2 ? "two" : "three"} findings, it's the clearest to evidence and the fastest to show a result` : "It's the clearest to evidence and the fastest to show a result";
+  // The rationale is PURE PRIORITIZATION ("why this one first") — it must NOT restate the finding's
+  // consequence (whyItMatters) or its action (whatWedDo); those already appear in the finding and in
+  // `intervention`. Restating them was the first-batch defect where "Where we'd start" echoed a finding.
+  const why = n > 1
+    ? `Of the ${n === 2 ? "two" : "three"} findings, it's the clearest to evidence and the fastest to show a result — so it's where we'd start.`
+    : "It's the clearest to evidence and the fastest to show a result — so it's where we'd start.";
   return {
     sourceFindingId: top.id,
     label: TOPIC_START_LABEL[top.topic],
     intervention: top.whatWedDo,                                 // the concrete first action, same finding
-    why: `${top.whyItMatters.replace(/\.$/, "")}. ${firstReason}, so we'd start here.`,
+    why,
     proofReference: top.evidence.displayLabel,                   // the receipt, from the same finding
   };
 }

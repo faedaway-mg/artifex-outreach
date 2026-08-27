@@ -134,14 +134,38 @@ function hookStrength(f: ReviewFinding, v: VisualHook): number {
   return byType[v.type] + conf;
 }
 
+// ── Opening hooks — a SYNTHESIZING frame for the whole review, deliberately phrased DIFFERENTLY
+//    from any single finding's textHook so the masthead line never duplicates Finding 0N (the first
+//    live-batch defect: the opening hook was a verbatim copy of a finding's hook). Grounded in the
+//    same evidence; a broader framing, not the specific tension. Quantitative context when present. ──
+const TOPIC_OPENING: Record<TopicKey, (n: string | null) => string> = {
+  reviews: () => "Your reputation is stronger than your website currently shows.",
+  cta: () => "The homepage never quite tells a visitor what to do first.",
+  catalog: () => "A large catalog is harder to shop than it should be.",
+  mobile: () => "On a phone, the action that matters is hard to reach.",
+  booking: () => "New customers can't finish a booking on their own.",
+  trust: () => "The proof shows up only after the decision is made.",
+  navigation: () => "There are many ways in, but little sense of direction.",
+  "test-content": () => "Pages meant for internal eyes sit in public view.",
+  duplicate: () => "Shoppers get sent down the same path more than once.",
+  brand: () => "The business is introduced under more than one name.",
+  copy: () => "Draft-stage text is still live on public pages.",
+  speed: () => "Load time is quietly costing the first impression.",
+  contact: () => "Reaching the business takes more effort than it should.",
+  presence: () => "Right now the business lives on someone else's platform.",
+  general: () => "There's a clear, fixable gap in the public experience.",
+};
+
 /** The single strongest opening hook, chosen across all findings (most communicative truthful fact).
- *  Ties break by the finding's existing rank (order in `findings`). Null when there are no findings. */
+ *  Ties break by the finding's existing rank (order in `findings`). Null when there are no findings.
+ *  Uses a SYNTHESIZING opening template — never the finding's own textHook — so the masthead line is
+ *  editorially distinct from every finding (verified by the editorial-quality gate). */
 export function openingHook(findings: ReviewFinding[]): string | null {
   if (!findings.length) return null;
   const scored = findings.map((f) => ({ f, v: selectVisualHook(f), s: hookStrength(f, selectVisualHook(f)) }));
   let best = scored[0];
   for (const c of scored) if (c.s > best.s) best = c; // strict > keeps original order on ties
-  return TOPIC_HOOK[best.f.topic](firstNumber(best.f.observation));
+  return TOPIC_OPENING[best.f.topic](firstNumber(best.f.observation));
 }
 
 /** Guard used in tests: no hook may use manufactured financial/loss language. */

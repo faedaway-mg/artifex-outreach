@@ -83,7 +83,7 @@ function makeStyles(compact: boolean) {
     exLabel: { fontSize: 7.5, letterSpacing: 2, color: C.gold, textTransform: "uppercase", marginTop: 8 },
     exBox: { borderLeftWidth: 2.5, borderLeftColor: C.gold, paddingLeft: 6, marginTop: 4 },
     exText: { fontFamily: "Courier-Bold", fontSize: 10.5, color: C.ink, lineHeight: 1.25 },
-    railShot: { maxWidth: 104, maxHeight: 132, objectFit: "contain", borderWidth: 1, borderColor: C.hair, marginTop: 8 },
+    railShot: { maxWidth: 104, maxHeight: 176, objectFit: "contain", borderWidth: 1, borderColor: C.hair, marginTop: 8 },
 
     // Where we'd start — the PAYOFF. Heavy gold rule, large label, and the receipt it rests on.
     start: { marginTop: d.startTop },
@@ -256,7 +256,6 @@ export function QuickReviewDocument({ review, dateStr }: { review: QuickReview; 
             <Text style={s.startEyebrow}>Where we'd start</Text>
             <Text style={s.startLabel}>{review.start.label}</Text>
             <Text style={s.startWhy}>{review.start.why}</Text>
-            <Text style={s.startProof}>Proof · {review.start.proofReference}</Text>
           </View>
         ) : null}
 

@@ -6,13 +6,15 @@ import { analyzeBusiness } from "../intelligence/engine";
 // Give a seeded BI two evidence-backed (Observed) findings so its Quick Review is SENDABLE — these
 // tests exercise the SEND PIPELINE, not the evidence gate (which correctly blocks a weak review).
 function sendable<T extends { businessProfile: { opportunities: any[] } }>(bi: T): T {
-  const ev = (category: string, observation: string) => ({
-    id: category, category, observation, whyItMatters: "It affects how customers convert.",
+  // Distinct whyItMatters per opportunity — real BI never gives two findings the same consequence,
+  // and the editorial-quality gate (correctly) blocks a review that repeats itself.
+  const ev = (category: string, observation: string, why: string) => ({
+    id: category, category, observation, whyItMatters: why,
     estimatedImpact: { level: "High", rationale: "A concrete fix." }, confidence: { label: "Observed", score: 0.95 }, basis: ["public website HTML"],
   });
   bi.businessProfile.opportunities = [
-    ev("Scheduling", "The site has no online booking — reservations require a phone call during business hours."),
-    ev("Brand Experience", "The homepage has no clear primary call to action for a first-time visitor."),
+    ev("Scheduling", "The site has no online booking — reservations require a phone call during business hours.", "New customers who won't call during business hours quietly drop off before they ever reach the desk."),
+    ev("Brand Experience", "The homepage has no clear primary call to action for a first-time visitor.", "A first-time visitor with no obvious next move is the one most likely to leave without acting."),
     ...bi.businessProfile.opportunities,
   ];
   return bi;

@@ -13,7 +13,7 @@ import type { Lead, Deliverable, Settings } from "@/lib/types";
  */
 function sanitizeText(str: string): string {
   return str
-    .replace(/(\d(?:\.\d+)?)\s*[★⭐✦✪]/g, "$1 / 5")
+    .replace(/(\d(?:\.\d+)?)\s*[★⭐✦✪]/g, "$1/5")
     .replace(/[★☆⭐✦✪✔✓➔➜]/g, "")
     .replace(/[ \t]{2,}/g, " ");
 }
