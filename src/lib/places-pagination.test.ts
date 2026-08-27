@@ -112,6 +112,15 @@ describe("searchPlacesPaged — walking nextPageToken", () => {
     expect(r.results.length).toBeGreaterThanOrEqual(2);
   });
 
+  it("5b. maxPages=1 (PLACES_MAX_PAGES=1) fetches exactly one page even when a token exists", async () => {
+    (fetch as any).mockResolvedValue(res(true, 200, { places: [place()], nextPageToken: "tok" }));
+    const r = await searchPlacesPaged(input(), { maxPages: 1, sleep: noSleep });
+    expect(r.pagesFetched).toBe(1);
+    expect(r.requestsMade).toBe(1);
+    expect(r.results).toHaveLength(1);
+    expect(r.stopReason).toBe("max-pages"); // single-page behavior preserved; no continuation
+  });
+
   it("6. stop conditions: max-pages caps a never-ending token chain", async () => {
     (fetch as any).mockResolvedValue(res(true, 200, { places: [place()], nextPageToken: "tok" }));
     const r = await searchPlacesPaged(input(), { maxPages: 2, sleep: noSleep });
