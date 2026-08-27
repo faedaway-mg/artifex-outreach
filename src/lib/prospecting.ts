@@ -21,7 +21,7 @@ import {
   allTasks,
 } from "./repo";
 import { normalizeName, domainFromUrl, nowIso } from "./store";
-import { searchPlaces, placesMode, type PlaceResult } from "./providers/places";
+import { searchPlaces, searchPlacesPaged, placesMode, type PlaceResult } from "./providers/places";
 import { computeScore } from "./scoring";
 import type { ProspectingRun, Lead, Settings, Tier, ProspectCategoryTarget, ArtifexService, CategoryGroup } from "./types";
 import { discoverInputSchema } from "./schemas";
@@ -226,6 +226,16 @@ export async function runProspecting(req: ProspectRequest): Promise<ProspectingR
   const errors: string[] = [];
   let stopReason: string | null = null;
 
+  // ── Pagination: walk nextPageToken to raise raw supply per query when the reservoir is being
+  // rebuilt. This does NOT change eligibility, dedup, scoring, or picking — it only feeds more
+  // candidates into the SAME gates. It is bounded three ways so we never collect data without need:
+  //   1) the run already returned early above when the reservoir is healthy (target ≤ 0);
+  //   2) each page is a billable request counted against p.dailyRequestBudget;
+  //   3) per-query and per-run targets stop pagination as soon as target + reserve is satisfied.
+  const maxPagesCfg = Math.max(1, Math.floor(Number(process.env.PLACES_MAX_PAGES ?? 3)));
+  const pageDelayMs = Math.max(0, Number(process.env.PLACES_PAGE_DELAY_MS ?? 2000));
+  const reserve = Math.ceil(target * 0.5); // a reasonable next-day buffer above the run target
+
   for (let i = 0; i < selected.length; i++) {
     if (examined >= examineCap) { stopReason = "max-examined"; break; }
     if (requests >= p.dailyRequestBudget) { stopReason = "request-budget"; break; }
@@ -245,12 +255,19 @@ export async function runProspecting(req: ProspectRequest): Promise<ProspectingR
     });
     if (!parsed.success) continue;
     searches += 1;
-    const result = await searchPlaces(parsed.data);
-    if (result.provider === "google") requests += 1;
+    // Per-query page budget: never exceed the run's remaining request budget, and stop paginating
+    // this query once we have enough raw supply for the remaining need + reserve.
+    const remainingReqBudget = Math.max(1, p.dailyRequestBudget - requests);
+    const pagesThisQuery = Math.max(1, Math.min(maxPagesCfg, remainingReqBudget));
+    const remainingNeed = Math.max(1, (target + reserve) - candidates.length);
+    const perQueryTarget = Math.min(remainingNeed, 20 * pagesThisQuery);
+    const result = await searchPlacesPaged(parsed.data, { maxPages: pagesThisQuery, targetResults: perQueryTarget, pageDelayMs });
+    requests += result.requestsMade; // billable pages actually issued (0 for mock/disabled)
     if (!result.success) {
       if (result.error) errors.push(`${cat.label}: ${result.error.googleStatus ?? result.error.message}`);
       continue;
     }
+    if (result.partialError) errors.push(`${cat.label}: partial page failure (${result.partialError.googleStatus ?? result.partialError.httpStatus ?? "unknown"})`);
     for (const place of result.results) {
       examined += 1;
       byCategoryExamined[cat.label] = (byCategoryExamined[cat.label] ?? 0) + 1;
@@ -264,6 +281,8 @@ export async function runProspecting(req: ProspectRequest): Promise<ProspectingR
       const provisional = placeToLead(place, cat, territory);
       candidates.push({ place, score: computeScore(provisional), cat });
     }
+    // Reservoir target + reserve satisfied → stop collecting; don't fetch data we don't need.
+    if (candidates.length >= target + reserve) { stopReason = "target-and-reserve-met"; break; }
   }
 
   // ── Diversified fill: cap per category, aim for distinct categories ─────────
