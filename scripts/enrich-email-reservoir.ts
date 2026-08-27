@@ -61,10 +61,24 @@ async function main() {
     return;
   }
 
+  // runWebsiteAnalysisAction ends with touch()→revalidatePath, which only works inside a
+  // Next.js request context. In a batch script that call throws AFTER every DB write
+  // (findings, BI, same-domain email adoption, review-and-send task) has already persisted.
+  // Swallow ONLY that specific post-write invariant; re-throw anything real.
+  const analyze = async (id: string) => {
+    try {
+      await runWebsiteAnalysisAction(id);
+    } catch (e: any) {
+      const msg = String(e?.message ?? e);
+      if (/static generation store|revalidatePath|revalidateTag/i.test(msg)) return;
+      throw e;
+    }
+  };
+
   const summary = await prepareEmailInventory({
     leads,
     analyzedLeadIds,
-    analyze: (id) => runWebsiteAnalysisAction(id),
+    analyze,
     getEmailAfter: async (id) => (await getLead(id))?.publicEmail ?? null,
     max: MAX,
   });
