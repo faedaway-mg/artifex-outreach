@@ -107,17 +107,24 @@ export function auditQueue(input: { leads: Lead[]; tasks: Task[]; analyzedLeadId
 
 export interface PrepareEmailInventorySummary {
   eligible: number;
-  analyzed: number;
+  analyzed: number;      // EXPENSIVE analyses actually run
   adoptedEmail: number;
   capped: boolean;
+  checked?: number;       // cheap contact-checks run (gate active)
+  heldNoContact?: number; // reachable email not established → EXPENSIVE analysis skipped (the savings)
 }
+
+/** Minimal contact-check shape, injected so this module keeps zero I/O deps + stays offline in tests. */
+export interface ContactGateResult { outcome: string; email: string | null }
 
 /**
  * BOUNDED email-inventory preparation. Selects qualified, non-terminal businesses that have a
- * website but NO valid email and have not been analyzed yet, and runs the injected `analyze`
- * (the existing website-analysis action, which harvests + adopts a same-domain email). Only up
- * to `max` per run — preparation ahead of consumption, cost-bounded. Sends nothing; the analyze
- * step is read-only crawling, never contact. `analyze` is injected so tests stay offline.
+ * website but NO valid email and have not been analyzed yet.
+ *
+ * CONTACT-FIRST (when `checkContact` is provided): each eligible lead first gets a CHEAP email check;
+ * the EXPENSIVE `analyze` (deep BI/AI/PageSpeed) runs ONLY when a reachable email is established (and
+ * the cheaply-found email is adopted first). No email → analysis skipped = the cost saved. Without
+ * `checkContact` the legacy behaviour is unchanged (analyze every eligible lead). Sends nothing.
  */
 export async function prepareEmailInventory(input: {
   leads: Lead[];
@@ -125,6 +132,12 @@ export async function prepareEmailInventory(input: {
   analyze: (leadId: string) => Promise<void>;
   getEmailAfter: (leadId: string) => Promise<string | null>;
   max: number;
+  /** CHEAP contact-first gate. When present, gates the expensive analyze on an established email. */
+  checkContact?: (lead: Lead) => Promise<ContactGateResult>;
+  /** Persist a cheaply-found email before the deep analysis (never overwrites an existing address). */
+  adoptEmail?: (leadId: string, email: string, result: ContactGateResult) => Promise<void>;
+  /** Record every check outcome (for backoff + the pipeline UI hold-reason). */
+  recordOutcome?: (leadId: string, result: ContactGateResult) => Promise<void>;
 }): Promise<PrepareEmailInventorySummary> {
   const TERMINAL = new Set(["Won", "Lost", "Disqualified"]);
   const eligible = input.leads.filter(
@@ -136,7 +149,15 @@ export async function prepareEmailInventory(input: {
       !input.analyzedLeadIds.has(l.id),
   );
   const summary: PrepareEmailInventorySummary = { eligible: eligible.length, analyzed: 0, adoptedEmail: 0, capped: eligible.length > input.max };
+  if (input.checkContact) { summary.checked = 0; summary.heldNoContact = 0; }
   for (const lead of eligible.slice(0, Math.max(0, input.max))) {
+    if (input.checkContact) {
+      const r = await input.checkContact(lead);
+      summary.checked! += 1;
+      await input.recordOutcome?.(lead.id, r);
+      if (!(r.outcome === "found" && r.email && isValidEmail(r.email))) { summary.heldNoContact! += 1; continue; } // SKIP the expensive analyze
+      await input.adoptEmail?.(lead.id, r.email, r);
+    }
     await input.analyze(lead.id);
     summary.analyzed += 1;
     if (isValidEmail(await input.getEmailAfter(lead.id))) summary.adoptedEmail += 1;

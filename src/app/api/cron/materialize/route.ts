@@ -100,9 +100,25 @@ export async function POST(req: NextRequest) {
       const hardCap = Math.max(0, Number(process.env.EMAIL_PREP_MAX ?? 32));
       const plan = planPreparation({ prepared: preparedNow, eligible: eligibleNow, yieldRate, hardCap, costCap: hardCap, bands: DEFAULT_BANDS });
       if (plan.examine > 0) {
+        // Contact-first gate: a CHEAP published-email check runs before the EXPENSIVE website
+        // analysis, so deep BI/AI/PageSpeed is spent only on businesses reachable by email. Reuses
+        // the SSRF-safe fetcher; never sends; adopts only appropriate addresses; never overwrites one.
+        const { checkPublishedEmail } = await import("@/lib/acquisition/contact-check");
+        const { updateLead } = await import("@/lib/repo");
         const summary = await prepareEmailInventory({
           leads: pLeads,
           analyzedLeadIds: analyzedIds,
+          checkContact: async (lead) => {
+            const r = await checkPublishedEmail(lead.website);
+            return { outcome: r.outcome, email: r.email };
+          },
+          adoptEmail: async (id, email) => {
+            const cur = await getLead(id);
+            if (cur && !isValidEmail(cur.publicEmail)) await updateLead(id, { publicEmail: email });
+          },
+          recordOutcome: async (id, r) => {
+            await appendAudit({ action: "acq.contact-check", actor: "cron", targetType: "lead", targetId: id, meta: { outcome: r.outcome }, ip: null });
+          },
           analyze: (id) => runWebsiteAnalysisAction(id),
           getEmailAfter: async (id) => (await getLead(id))?.publicEmail ?? null,
           max: plan.examine,
