@@ -86,7 +86,9 @@ export function EmailDecision(p: EmailDecisionProps) {
     });
 
   return (
-    <div className="space-y-4">
+    // Bottom padding clears the mobile sticky action bar so the last lines of the message, the
+    // attachment controls, and inputs are never hidden behind it (incl. the iOS safe-area inset).
+    <div className="space-y-4 pb-[calc(9.5rem_+_env(safe-area-inset-bottom))] md:pb-0">
       <section className="card p-5 sm:p-6">
         <p className="text-[12px] text-chalk-500">{p.mode === "followup" ? "Follow up with" : "Approve the email to"}</p>
         <h1 className="mt-0.5 text-[1.35rem] font-semibold leading-tight tracking-[-0.01em] text-chalk-50">{p.business}</h1>
@@ -199,7 +201,7 @@ export function EmailDecision(p: EmailDecisionProps) {
           bottom nav, so the sticky bar sits just above the viewport edge. */}
       <div className="sticky bottom-[calc(env(safe-area-inset-bottom)_+_1rem)] z-10 space-y-2 md:static md:bottom-auto">
         <button onClick={approveSend} disabled={pending || p.reviewReady === false} className="btn-primary w-full justify-center !py-3 text-[15px] disabled:opacity-50">
-          <Check size={17} /> {p.reviewReady === false ? "Review needs attention" : pending ? "Sending…" : note ? "Try send again" : edited ? "Approve & send edited" : "Approve & send"} <ArrowRight size={16} />
+          <Check size={17} /> {p.reviewReady === false ? "Review needs attention" : pending ? "Sending…" : note ? "Try send again" : edited ? "Send edited email" : "Send email"} <ArrowRight size={16} />
         </button>
         <div className="flex gap-2">
           {note

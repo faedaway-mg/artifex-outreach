@@ -11,8 +11,11 @@ import { notFound } from "next/navigation";
 import { CheckCircle2, ArrowRight, ArrowLeft, X, Video, Mail, RotateCcw, FileText, Phone, CalendarClock, Compass, Clock, Instagram } from "lucide-react";
 import {
   todaysTasks, listLeads, allMeetings, getSettings, getBusinessIntelligence, contactsForLead, memoryForLead,
-  getStep, stepsForPlan, allPlans, listOperators, allEmailSends, emailSendsForLead,
+  getStep, stepsForPlan, allPlans, listOperators, allEmailSends, emailSendsForLead, isSuppressed,
 } from "@/lib/repo";
+import { emailQueueEligibility } from "@/lib/outreach/email-queue-eligibility";
+import { getEditorialState } from "@/lib/outreach/review-revisions";
+import { validEmail } from "@/lib/acquisition/compliance";
 import { emailsSentOn } from "@/lib/outreach/send-capacity";
 import { isInternalLead } from "@/lib/operators/assignment";
 import { panelForWorkKind } from "@/lib/outreach/call-routing";
@@ -97,7 +100,31 @@ export default async function BatchPage({ params, searchParams }: { params: { ki
   // The batch is fixed for its run (carried in the URL), so completing a step never
   // reshuffles the businesses under you. Fall back to a fresh batch on first entry.
   const carried = (searchParams.ids ?? "").split(",").map((s) => s.trim()).filter((id) => leadMap.has(id));
-  const ids = carried.length > 0 ? carried : batchLeadIds(queue, kind);
+  const candidateIds = carried.length > 0 ? carried : batchLeadIds(queue, kind);
+  // Honest "Emails to send": only fully-prepared, eligible packages belong in the queue. Ineligible
+  // email leads (insufficient evidence, no/invalid recipient, suppressed, held, no CTA) are pulled out
+  // to a "Not ready" list WITH A REASON — never shown as ready then blocked (the John's-Plumbing defect).
+  let ids = candidateIds;
+  const notReady: Array<{ id: string; name: string; detail: string }> = [];
+  if (kind === "email") {
+    const ready: string[] = [];
+    for (const id of candidateIds) {
+      const l = leadMap.get(id);
+      if (!l) continue;
+      const biE = await getBusinessIntelligence(id);
+      const rev = buildQuickReview(l, biE?.profile?.businessProfile ?? null, null, { approved: await quickReviewApproved(id) });
+      const est = await getEditorialState(id);
+      const elig = emailQueueEligibility({
+        review: rev,
+        recipientValid: validEmail(l.publicEmail),
+        suppressed: await isSuppressed({ email: l.publicEmail, domain: l.websiteDomain, phone: l.phone }),
+        held: !!est.held,
+      });
+      if (elig.ready) ready.push(id);
+      else notReady.push({ id, name: l.businessName, detail: elig.detail ?? "Not ready." });
+    }
+    ids = ready;
+  }
   const idsParam = ids.join(",");
   const total = ids.length;
   const title = categoryTitle(kind);
@@ -119,8 +146,24 @@ export default async function BatchPage({ params, searchParams }: { params: { ki
             <g key={`n${k}`}><circle cx={p[0]} cy={p[1]} r="6" fill="#F5BC63" opacity={litUp ? 0.16 : 0.05} /><circle cx={p[0]} cy={p[1]} r="3" fill={litUp ? "#F6CD88" : "#5B6472"} /></g>
           ))}
         </svg>
-        <h1 className="mt-3 text-xl font-semibold text-chalk-50">{total === 0 ? "Nothing here right now." : `${title} — done.`}</h1>
-        <p className="mt-1.5 text-[14px] text-chalk-400">{total === 0 ? "This batch is empty. One less thing." : `All ${total} done. That's the batch.`}</p>
+        <h1 className="mt-3 text-xl font-semibold text-chalk-50">{total === 0 ? (notReady.length ? "Nothing ready to send." : "Nothing here right now.") : `${title} — done.`}</h1>
+        <p className="mt-1.5 text-[14px] text-chalk-400">{total === 0 ? (notReady.length ? "Every candidate is still being prepared — see why below." : "This batch is empty. One less thing.") : `All ${total} done. That's the batch.`}</p>
+        {kind === "email" && notReady.length > 0 && (
+          <div className="mx-auto mt-6 max-w-md text-left">
+            <div className="text-[11px] font-semibold uppercase tracking-wide text-chalk-500">Not ready ({notReady.length})</div>
+            <ul className="mt-2 divide-y divide-white/5 rounded-lg border border-white/10">
+              {notReady.map((n) => (
+                <li key={n.id} className="flex items-center justify-between gap-3 px-3 py-2.5">
+                  <div className="min-w-0">
+                    <div className="truncate text-[14px] text-chalk-100">{n.name}</div>
+                    <div className="truncate text-[12px] text-chalk-500">{n.detail}</div>
+                  </div>
+                  <Link href={`/leads/${n.id}/operator-review`} className="shrink-0 text-[12px] text-gold-300 hover:underline">Review →</Link>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
         <Link href="/" className="btn-secondary mt-6 justify-center !py-2.5"><ArrowLeft size={16} /> Back to today's work</Link>
       </div>
     );
