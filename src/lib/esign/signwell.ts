@@ -65,13 +65,15 @@ export function createSignwellProvider(): EsignProvider {
       // SignWell "create document" payload. draft:false → sends immediately and
       // emails the signer. text_tags → detect {{sig_*}} anchors in the PDF.
       const recipients: Array<Record<string, unknown>> = [
-        { id: "client", name: input.signer.name, email: input.signer.email, order: 1 },
+        // Embedded signing suppresses the email (send_email defaults false when
+        // embedded_signing is on); the response carries an embedded_signing_url.
+        { id: "client", name: input.signer.name, email: input.signer.email, order: 1, ...(input.embedded ? { send_email: false } : {}) },
       ];
       const body: Record<string, unknown> = {
         test_mode: input.testMode,
         draft: false,
         with_signature_page: false,
-        embedded_signing: false,
+        embedded_signing: Boolean(input.embedded),
         allow_decline: true,
         text_tags: true,
         name: `Artifex Labs — Professional Services Agreement ${input.agreementNumber}`,

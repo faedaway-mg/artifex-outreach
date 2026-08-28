@@ -25,6 +25,10 @@ export interface CreateSignatureRequestInput {
   signer: EsignSigner;
   ccEmail?: string | null; // Artifex counter-signer / cc
   testMode: boolean; // SignWell test mode (no legal weight, free) — used for rehearsal
+  // Embedded signing: return a signing URL and DO NOT email the recipient
+  // (per-recipient send_email defaults false when embedded_signing is on). Used for
+  // the in-app / rehearsal signing flow. Default false = the emailed production flow.
+  embedded?: boolean;
   metadata?: Record<string, string>;
 }
 
