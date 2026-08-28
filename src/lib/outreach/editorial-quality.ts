@@ -244,7 +244,8 @@ export function reviewEditorialSurface(r: ReviewLike): EditorialSegment[] {
   if (r.start) {
     if (r.start.label) segs.push({ section: "where-we-start", role: "title", text: r.start.label });
     if (r.start.why) segs.push({ section: "where-we-start", role: "body", text: r.start.why });
-    if (r.start.proofReference) segs.push({ section: "where-we-start", role: "proof", text: r.start.proofReference });
+    // NOTE: start.proofReference is intentionally NOT part of the surface — the M1 template removed
+    // the "Proof ·" line, so it is no longer customer-facing and must not be compared.
   }
   if (r.closingLine) segs.push({ section: "closing", role: "proof", text: r.closingLine });
   return segs;
