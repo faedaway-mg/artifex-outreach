@@ -1172,6 +1172,10 @@ export interface Settings {
   outreachSigner?: "jordan" | "alex";
   // Business-hours window during which the scheduler is allowed to send.
   sendingWindow?: SendingWindow;
+  // Runtime kill-switch for automated outreach. DB-backed so it takes effect on the NEXT tick with
+  // no redeploy (env QR_OUTREACH_PAUSED is a secondary control that needs a restart). True = all
+  // automated sends held at the dispatch boundary. Set via setOutreachPaused (audited).
+  outreachPaused?: boolean;
   // ── Launch readiness sign-off ───────────────────────────────────────────────
   // The explicit human "would I send this to a real business owner today?"
   // confirmation. Stored so the checklist / validation stay green after sign-off.
