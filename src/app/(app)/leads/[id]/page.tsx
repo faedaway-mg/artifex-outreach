@@ -39,6 +39,10 @@ import { VideoPanel } from "@/components/lead/VideoPanel";
 import { OutreachPanel } from "@/components/lead/OutreachPanel";
 import { MeetingProposalPanel } from "@/components/lead/MeetingProposalPanel";
 import { AgreementPanel } from "@/components/lead/AgreementPanel";
+import { ClosingPanel } from "@/components/lead/ClosingPanel";
+import { invoicesForAgreement } from "@/lib/repo";
+import { buildClosingView } from "@/lib/billing/closing-view";
+import { acceptedKeysForAgreement } from "@/lib/billing/closing-actions";
 import { agreementSendingEnabled } from "@/lib/esign/gate";
 import { getEsignProvider } from "@/lib/esign/provider";
 import { stripeConfigured } from "@/lib/payments/stripe";
@@ -90,6 +94,23 @@ export default async function LeadPage({ params, searchParams }: { params: { id:
     agreementsForLead(lead.id),
     paymentsForLead(lead.id),
   ]);
+
+  // Closing view-model for the current (latest, non-superseded) agreement.
+  const currentAgreement = agreements.filter((a) => !a.supersededById).sort((a, b) => b.version - a.version)[0] ?? null;
+  let closingView = null;
+  if (currentAgreement) {
+    const [invoices, acceptedKeys] = await Promise.all([
+      invoicesForAgreement(currentAgreement.id),
+      acceptedKeysForAgreement(currentAgreement.id),
+    ]);
+    closingView = buildClosingView({
+      agreement: currentAgreement,
+      invoices,
+      payments: payments.filter((p) => p.agreementId === currentAgreement.id),
+      acceptedKeys,
+      sendingEnabled: agreementSendingEnabled(),
+    });
+  }
 
   const previews = (await previewsForLead(lead.id)).filter((p) => p.status !== "Archived");
   const activePreview = previews.sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt))[0] ?? null;
@@ -257,6 +278,11 @@ export default async function LeadPage({ params, searchParams }: { params: { id:
             stripeConfigured={stripeConfigured()}
           />
         </div>
+        {closingView && currentAgreement && (
+          <div id="closing">
+            <ClosingPanel view={closingView} agreementId={currentAgreement.id} />
+          </div>
+        )}
       </Disclosure>
 
       {/* Contacts, score & reference */}
