@@ -226,9 +226,80 @@ correct operator model is the lightweight preview→approve/skip flow over the 1
   they are reproducible from the deterministic builder, not durable artifacts. Do not treat their
   presence as evidence of a send.
 
+---
+
+## LAUNCH-VERIFICATION + EMAIL-FIRST/CTA PASS (this session)
+
+Deep verification (4 read-only investigations) corrected several claims and drove real fixes. All
+below is committed and tested; nothing deployed; autosend OFF.
+
+### VERIFIED RUNTIME FACTS (corrections to the prior package)
+- **The scheduler is NOT wired to any runner.** `railway.json` = ONE web service (`node server.js`,
+  replicas 1). The only recurring runner is `railway-functions/daily-prospecting.mjs`
+  (cron `30 12,13,17,20,23 * * *` UTC) which calls `/api/cron/materialize` + `/api/cron/prospect`
+  ONLY. A separate `/api/cron/send` (→ `runDueSends`, gated by `COMMS_AUTOSEND_ENABLED`, window
+  08:00–17:00 LA, NO cap) exists but the cron does NOT call it. `runScheduledOutreach` has ZERO
+  production callers. → Activation REQUIRES new wiring + a deploy (enumerated in the package).
+- **The daily cap was NOT concurrency-safe** (plain read-then-send; two ticks could both pass).
+  The ledger's unique idempotency key only prevents duplicate SAME-step sends.
+- **Pause was env-only** (`QR_OUTREACH_PAUSED`) → a Railway env change needs a redeploy (NOT instant).
+- **Recipient-local scheduling is dormant**: no per-lead timezone is stored (`inferZone` is derive-
+  only, never wired to the scheduler) → the active schedule is Mon–Fri 08:00–10:00 **America/Los_
+  Angeles for every recipient**. DST is correct (Intl, not offset math).
+- **Provider/reply infra confirmed**: Resend; From/Reply-To `hello@artifexlabs.tech` (reply-to = from,
+  → M365 inbox); List-Unsubscribe + one-click + CAN-SPAM footer with physical address; signed inbound
+  webhook (`/api/webhooks/inbound`, Svix, `RESEND_WEBHOOK_SECRET`) → classify → stop-sequence +
+  suppress, idempotent by provider event id. **One-hour reminder does NOT exist** (only a UI meetings
+  filter). Provider **permitted-use** for cold prospecting is a Resend-policy + console check (NOT
+  established by DNS/public-email alone) — a pre-launch operator action.
+
+### FIXES LANDED + TESTED
+- **Atomic shared daily cap** (`comms/send-quota.ts`, commit `1d070e0`). `reserveDailySlot()`
+  serializes count+insert per LA day behind a Postgres **advisory lock** over the SHARED `email_sends`
+  ledger (follow-ups + manual + automated draw one pool). Idempotent per (lead, day). release /
+  consume / countSlotsUsed. **Real-Postgres concurrency tests** (`send-quota.db.integration.test.ts`,
+  7): 2 workers racing final slot → exactly 1; 12 racing cap-5 → exactly 5; crash-after-reserve holds
+  1; LA-day boundary correct. Scheduler rewired to reserve→send→consume|release; ambiguous RETAINS
+  the slot; `already-sent` idempotency skip (no double-send). 12 mock scheduler tests.
+- **DB-backed runtime pause** (`outreach-pause.ts`). `setOutreachPaused` (audited) is observed on the
+  NEXT tick with NO redeploy; env `QR_OUTREACH_PAUSED` kept as a secondary control. Scheduler pause is
+  async + fresh each tick. Tested both paths.
+- **Clickable PDF CTA + aligned email + artifact integrity** (commit `114da6f`). Real `<Link>`
+  annotation "Book a conversation" → canonical `settings.calendarLink` (defaults/heals to
+  `ARTIFEX_IDENTITY.bookingUrl = https://cal.com/artifex-labs-ob2qbv/30min`, HTTP 200 verified) +
+  email-thread reply fallback (no mailto). The email offers the SAME destination (personal mode).
+  `TEMPLATE_VERSION qr-m2-1 → qr-m3-cta-1` and the CTA URL folded into `revisionFingerprint`: EVERY
+  prior approval/authorization is invalidated, and any later destination change fails closed at
+  dispatch. Tests: link annotation across 1/3-finding, long-name, operator-override, INSUFFICIENT-none;
+  email/PDF alignment; CTA-in-fingerprint invalidation.
+- **Email-first, calls-after-engagement** (`work-queue.callWithheld` + `call-priority.isEngaged`).
+  The queue now SURFACES a call only after ENGAGEMENT (booked / in-conversation stage) — never cold,
+  never off an unanswered email, never for a no-email lead, never for opt-out/lost. Numbers/history
+  preserved; operator can still initiate a call by hand. No "call-to-obtain-email" task generator
+  exists (confirmed). Tests: `email-first-policy.test.ts` (5) + updated call-priority/work-queue.
+
+### DELIVERABLE COUNT (unchanged)
+First-batch DELIVERABLE = **10** (content-SENDABLE + valid email + not suppressed), last measured
+against the real 96-lead pool. The CTA/template/policy changes do NOT alter sendability or email
+validity, so 10 stands; every one of the 10 now carries the booking CTA. The scheduler re-authorizes
+each candidate live at dispatch, so drift cannot cause an unsafe send.
+
+### NOT DONE THIS PASS (honest)
+- **Nationwide discovery expansion** — discovery already rotates national metros via `geo-pools`, but
+  a true nationwide crawl is a config + BUDGET decision the addendum says needs explicit authorization;
+  NOT run. Email-required is already enforced on the send side (no valid email → not authorized).
+- **Dashboard emphasis (metrics vs goal of 5)** — NOT built. Paying-client evidence would have to be
+  operator-recorded/labeled-unavailable (no verified billing signal exists to count from).
+- **Wiring `runScheduledOutreach` to a cron runner + a production transport that records to
+  `email_sends`** — deploy-scope; enumerated in the activation package, not performed here.
+
+### DURABLE LOCATIONS (updated)
+- Git-backed @ current HEAD: `src/lib/comms/send-quota.ts` (+`.db.integration.test.ts`),
+  `src/lib/outreach/{outreach-scheduler,outreach-pause,review-send-policy,review-revisions,
+  review-evidence,quick-review,call-priority}.ts`, `src/lib/pdf/QuickReviewDocument.tsx`,
+  `src/lib/outreach/email-render.ts`, `src/lib/work-queue.ts` + their tests.
+- **NOT git-backed (gitignored):** generated PDFs / `docs/artifacts/**`. Reproducible, not evidence.
+
 ### Exact next action
-Scheduler + dry run PASS. The activation package is presented to Jordan (base SHA `cc0edb3`,
-first-batch deliverable = 10, enable = `QR_AUTOSEND_ENABLED=1` + `QR_OUTREACH_PAUSED` unset,
-Mon–Fri 08:00–10:00 LA, cap 20/day, sender/reply-to hello@artifexlabs.tech). **Awaiting ONE explicit
-authorization.** Nothing deployed; autosend OFF; no real sends. The only open build item is the
-one-hour reminder (blocked as above) — not launch-critical.
+Present the corrected multi-step activation package (deploy-disabled → verify runner → enable). Await
+ONE explicit authorization. Nothing deployed; autosend OFF; no real sends.
