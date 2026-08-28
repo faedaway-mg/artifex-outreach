@@ -10,17 +10,22 @@ import path from "node:path";
 import type { RenderJob } from "./types";
 import { inputVersion, findActiveDuplicate } from "./job";
 import { catalogEntry, isRenderable } from "./catalog";
-import { listJobs, writeJob, latestUpload, REPO_ROOT } from "./store";
+import { listJobs, writeJob, latestUpload, REPO_ROOT, hasTemplate, loadTemplate } from "./store";
 import { audioSignature } from "./upload";
 
-export const TEMPLATE_VERSION = "fieldnote-thumbfirst-v1";
+export const TEMPLATE_VERSION = "fieldnote-thumbfirst-v2-datadriven";
 
-function scriptVersion(pieceId: string): string {
-  const e = catalogEntry(pieceId);
-  const raw = `${pieceId}|${e?.sceneBasename ?? ""}|${(e?.narration ?? []).join("¶")}`;
+function fnv(raw: string): string {
   let h = 0x811c9dc5;
   for (let i = 0; i < raw.length; i++) { h ^= raw.charCodeAt(i); h = Math.imul(h, 0x01000193); }
   return "s" + (h >>> 0).toString(16).padStart(8, "0");
+}
+
+async function scriptVersion(pieceId: string): Promise<string> {
+  const tpl = await loadTemplate(pieceId);
+  if (tpl) return fnv(`${pieceId}|template|${JSON.stringify(tpl.beats)}|${tpl.narration.join("¶")}`);
+  const e = catalogEntry(pieceId);
+  return fnv(`${pieceId}|${e?.sceneBasename ?? ""}|${(e?.narration ?? []).join("¶")}`);
 }
 
 export interface CreateResult {
@@ -31,10 +36,11 @@ export interface CreateResult {
 // Create (or reuse) a render job for a piece. `useUpload` picks the most recent uploaded VO; otherwise
 // the approved audio stream is reused byte-for-byte (only valid for #004–#006).
 export async function createRenderJob(pieceId: string, opts: { useUpload: boolean }): Promise<CreateResult> {
-  if (!isRenderable(pieceId)) {
+  const isTemplate = await hasTemplate(pieceId);
+  if (!isRenderable(pieceId) && !isTemplate) {
     throw new Error(
       `Piece #${pieceId} has no scene wired into the renderer. The render path is available for the ` +
-        `established Field Notes scenes (#004–#006); a new concept needs a scene template authored first.`,
+        `established Field Notes scenes (#004–#006) and any data-driven template piece.`,
     );
   }
 
@@ -43,7 +49,9 @@ export async function createRenderJob(pieceId: string, opts: { useUpload: boolea
   let audioLabel: string | null = null;
   let audioSig = "approved";
 
-  if (opts.useUpload) {
+  // Template pieces have no approved audio stem — they always render from an uploaded voiceover.
+  const useUpload = opts.useUpload || isTemplate;
+  if (useUpload) {
     const up = await latestUpload(pieceId);
     if (!up) throw new Error("No uploaded voiceover found for this piece. Upload an MP3 first.");
     mode = "uploaded-vo";
@@ -52,7 +60,7 @@ export async function createRenderJob(pieceId: string, opts: { useUpload: boolea
     audioSig = audioSignature({ name: up.name, bytes: up.bytes, durationSeconds: up.durationSeconds });
   }
 
-  const version = inputVersion({ scriptVersion: scriptVersion(pieceId), audioSig, templateVersion: TEMPLATE_VERSION });
+  const version = inputVersion({ scriptVersion: await scriptVersion(pieceId), audioSig, templateVersion: TEMPLATE_VERSION });
   const jobs = await listJobs();
   const dup = findActiveDuplicate(jobs, pieceId, version);
   if (dup) return { job: dup, deduped: true };

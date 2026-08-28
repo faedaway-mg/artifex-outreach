@@ -1,0 +1,60 @@
+<!doctype html><html><head><meta charset="utf-8">
+<style>/* ARTIFEX — GENERIC data-driven cover. Reads window.THUMB (validated template.thumbnail).
+   Big headline + secondary + one bounded art. Text via textContent only — no HTML/JS from data. */
+:root{--ink0:#06080C;--ink1:#0C1220;--chalk:#F6F8FC;--mute:#AEBBD0;--azure:#93B8FF;--teal:#7FE3C7;
+ --amber:#F5B95C;--faint:#5A6B85;--card:#141c2b;--line:#26334a;--cell:#0f1826;--cardhi:#182338;}
+*{margin:0;box-sizing:border-box;-webkit-font-smoothing:antialiased}
+html,body{width:1080px;height:1920px;overflow:hidden}
+body{background:radial-gradient(1200px 900px at 50% 20%,#12203a 0%,var(--ink1) 44%,var(--ink0) 100%);
+ font-family:Inter,system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:var(--chalk);position:relative}
+.wrap{position:absolute;inset:0;padding:150px 96px;display:flex;flex-direction:column}
+.eyebrow{font-size:30px;font-weight:700;letter-spacing:8px;color:var(--azure)}
+.hl{font-size:118px;font-weight:800;line-height:1.02;letter-spacing:-2px;margin-top:34px}
+.sec{font-size:44px;font-weight:600;color:var(--mute);margin-top:34px;line-height:1.25}
+.art{margin-top:auto;margin-bottom:40px}
+.surface{width:100%;border-radius:24px;background:var(--card);border:1px solid var(--line);box-shadow:0 30px 80px rgba(0,0,0,.45);overflow:hidden}
+.sbar{height:82px;background:var(--cell);display:flex;align-items:center;gap:18px;padding:0 34px;border-bottom:1px solid var(--line);font-size:30px;font-weight:800;letter-spacing:1px}
+.ic{width:50px;height:50px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:28px;background:linear-gradient(135deg,#2c5ac4,#7fe3c7);color:#fff}
+.kind{margin-left:auto;font-size:24px;font-weight:800;letter-spacing:3px;color:var(--faint)}
+.sbody{padding:30px 38px}
+.frow{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:20px 2px;border-bottom:1px solid #1b2740}
+.frow:last-child{border-bottom:none}.fl{font-size:28px;color:var(--faint);font-weight:700;letter-spacing:1px}.fv{font-size:38px;font-weight:800}
+.cnode{display:inline-flex;align-items:center;justify-content:center;font-size:26px;font-weight:800;color:var(--chalk);background:var(--card);border:1px solid var(--line);border-radius:12px;padding:15px 20px}
+.cnode.on{border-color:#2b5f52;color:var(--teal);background:#10241f}.cnode.gap{border-style:dashed;border-color:#43506a;color:var(--faint);background:transparent}
+.cbar{display:inline-block;width:44px;height:3px;background:#33445f;border-radius:2px}
+.mini{border-radius:18px;background:var(--card);border:1px solid var(--line);overflow:hidden}
+.mini .sbar{height:60px;font-size:24px}.mbody{padding:20px 24px}.mname{font-size:28px;font-weight:800}.mline{font-size:22px;color:var(--faint);margin-top:6px}
+.searchcell{display:flex;align-items:center;gap:14px;background:var(--cell);border:1px solid var(--line);border-radius:12px;padding:18px 24px;font-size:30px;font-weight:700}
+.srow{display:flex;align-items:center;gap:16px;margin-top:16px}.srow .lab{font-size:24px;color:var(--faint);font-weight:700;width:240px}.srow .bar{height:14px;border-radius:5px;background:#1d2740;flex:1}
+.stmt{font-size:150px;font-weight:800;letter-spacing:-3px;color:#1b2740;line-height:.95}
+</style></head><body>
+  <div class="wrap">
+    <div class="eyebrow" id="eyebrow">ARTIFEX / FIELD NOTE</div>
+    <div class="hl" id="hl"></div>
+    <div class="sec" id="sec"></div>
+    <div class="art" id="art"></div>
+  </div>
+  <script>
+  function setText(node,txt){node.textContent='';String(txt).split('\n').forEach((l,i)=>{if(i)node.appendChild(document.createElement('br'));node.appendChild(document.createTextNode(l));});}
+  function el(cls,txt){const d=document.createElement('div');if(cls)d.className=cls;if(txt!=null)setText(d,txt);return d;}
+  const ART={
+    statement(t){const s=el('stmt',(t.headline||['']).join(' '));return s;},
+    statusCard(t){const s=el('surface');const bar=el('sbar');bar.appendChild(el('ic','•'));bar.appendChild(document.createTextNode(t.secondary||'STATUS'));const k=el('kind','FIELD NOTE');bar.appendChild(k);s.appendChild(bar);const body=el('sbody');(t.rows||[{label:'ITEM',value:'—'}]).forEach(r=>{const row=el('frow');row.appendChild(el('fl',r.label));row.appendChild(el('fv',r.value));body.appendChild(row);});s.appendChild(body);return s;},
+    cards(t){const g=document.createElement('div');g.style.cssText='display:grid;grid-template-columns:1fr 1fr;gap:26px';(t.items||[]).slice(0,4).forEach(it=>{const m=el('mini');const bar=el('sbar');bar.appendChild(el('ic',it.icon||'•'));bar.appendChild(document.createTextNode(it.label));m.appendChild(bar);const b=el('mbody');if(it.name)b.appendChild(el('mname',it.name));if(it.line)b.appendChild(el('mline',it.line));m.appendChild(b);g.appendChild(m);});return g;},
+    chain(t){const w=document.createElement('div');w.style.cssText='display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:0';(t.nodes||[]).forEach((n,i)=>{if(i){const b=el('cbar');b.style.margin='0 14px';w.appendChild(b);}w.appendChild(el('cnode'+(n.state==='on'?' on':n.state==='gap'?' gap':''),n.label));});return w;},
+    search(t){const s=el('surface');const bar=el('sbar');bar.appendChild(el('ic','🔎'));bar.appendChild(document.createTextNode('SEARCH'));bar.appendChild(el('kind','FINDING IT'));s.appendChild(bar);const body=el('sbody');const cell=el('searchcell');cell.appendChild(document.createTextNode('🔎  '+(t.query||'')));body.appendChild(cell);(t.rows||[]).forEach(r=>{const sr=el('srow');sr.appendChild(el('lab',r.label||r));sr.appendChild(el('bar'));body.appendChild(sr);});s.appendChild(body);return s;},
+    report(t){const s=el('surface');const bar=el('sbar');bar.appendChild(el('ic','▦'));bar.appendChild(document.createTextNode(t.secondary||'WEEKLY REPORT'));s.appendChild(bar);const body=el('sbody');(t.rows||[]).forEach((r,i)=>{const row=el('frow');row.appendChild(el('fl',r.label));const v=el('fv',r.value);v.style.color=i<2?'var(--chalk)':'var(--faint)';row.appendChild(v);body.appendChild(row);});s.appendChild(body);return s;},
+  };
+  function draw(t){
+    document.getElementById('eyebrow').textContent='ARTIFEX / FIELD NOTE '+String(t.id||'').toUpperCase();
+    setText(document.getElementById('hl'),(t.headline||['']).join('\n'));
+    setText(document.getElementById('sec'),t.secondary||'');
+    const fn=ART[t.art]||ART.statusCard; const node=fn(t); document.getElementById('art').appendChild(node);
+    if(t.art==='statement'){document.getElementById('hl').style.color='var(--chalk)';}
+    window.__thumbReady=true;
+  }
+  const q=new URLSearchParams(location.search);
+  if(window.THUMB) draw(window.THUMB);
+  else if(q.get('inline')) { /* rendered by injecting window.THUMB then calling window.__draw */ }
+  window.__draw=draw;
+  </script></body></html>

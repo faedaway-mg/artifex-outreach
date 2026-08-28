@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const DIR = join(ROOT, "public", "content", "thumbnails");
 const TPL = `file://${join(DIR, "thumbnail.html")}`;
-const CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+const CHROME = process.env.CHROME_PATH || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const PORT = 9288;
 const IDS = ["001", "002", "003", "004", "005", "006"];
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

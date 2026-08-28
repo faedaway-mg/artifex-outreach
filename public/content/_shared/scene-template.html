@@ -1,0 +1,81 @@
+<!doctype html><html><head><meta charset="utf-8">
+<style>/* ARTIFEX FIELD NOTES — GENERIC data-driven scene renderer.
+   Builds DOM from window.TEMPLATE (validated schema) using the approved visual vocabulary in
+   scene-lib.js. Text is inserted via textContent ONLY — no template-provided HTML/JS is executed.
+   One beat is centered on screen at a time; timing comes from window.TL (narration-driven). */
+.stagewrap{position:absolute;left:50%;top:0;transform:translateX(-50%);width:1000px;top:560px}
+.route{display:inline-flex;align-items:center;font-size:26px;font-weight:800;letter-spacing:1px;color:var(--mute);
+ background:var(--cardhi);border:1px solid #33445f;border-radius:12px;padding:12px 20px;box-shadow:0 10px 30px rgba(0,0,0,.35)}
+.arw{color:var(--azure);font-size:40px;vertical-align:middle;margin:0 14px}
+.mini{width:452px;border-radius:20px;background:var(--card);border:1px solid var(--line);box-shadow:0 24px 60px rgba(0,0,0,.4);overflow:hidden}
+.mini .sbar{height:64px;font-size:24px}
+.mini .mbody{padding:22px 26px}
+.mname{font-size:30px;font-weight:800;color:var(--chalk)}
+.mline{font-size:23px;color:var(--faint);margin-top:8px}
+.srow{display:flex;align-items:center;gap:16px;margin-top:14px}
+.srow .lab{font-size:23px;color:var(--faint);font-weight:700;letter-spacing:1px;width:230px}
+.srow .bar{height:14px;border-radius:5px;background:#1d2740;flex:1}
+.searchcell{display:flex;align-items:center;gap:14px;background:var(--cell);border:1px solid var(--line);border-radius:12px;padding:16px 22px;font-size:28px;color:var(--chalk);font-weight:700}
+.accent{color:var(--azure)}
+</style></head><body>
+  <canvas id="bg" width="1080" height="1920"></canvas>
+  <div class="l meta" id="meta"><span style="display:inline-flex;align-items:center;gap:16px" id="markwrap">
+    <span class="eyebrow" id="metaeyebrow">ARTIFEX / FIELD NOTE</span></span></div>
+  <div class="stagewrap" id="stage"></div>
+
+  <script src="../_shared/scene-lib.js"></script>
+  <script>
+  // ── safe DOM helpers (textContent only) ──────────────────────────────────────
+  function el(cls, txt){ const d=document.createElement('div'); if(cls)d.className=cls; if(txt!=null)setText(d,txt); return d; }
+  function setText(node, txt){ // supports \n → <br>, but never parses HTML
+    node.textContent=''; String(txt).split('\n').forEach((line,i)=>{ if(i)node.appendChild(document.createElement('br')); node.appendChild(document.createTextNode(line)); });
+  }
+  function withAccent(node, txt, accent){ // wrap an exact substring in .accent — still no HTML parsing
+    node.textContent='';
+    if(!accent || !txt.includes(accent)){ setText(node,txt); return; }
+    const [before, ...rest]=txt.split(accent); const after=rest.join(accent);
+    const add=(t)=>{ String(t).split('\n').forEach((l,i)=>{ if(i)node.appendChild(document.createElement('br')); node.appendChild(document.createTextNode(l)); }); };
+    add(before); const s=document.createElement('span'); s.className='accent'; s.textContent=accent; node.appendChild(s); add(after);
+  }
+
+  // ── beat builders → return an element to drop into the stage ──────────────────
+  const BUILD = {
+    title(b){ const w=el('center'); if(b.eyebrow)w.appendChild(el('eyebrow',b.eyebrow)); const h=el('h1'); setText(h,b.headline); h.style.marginTop=b.eyebrow?'18px':'0'; w.appendChild(h); if(b.sub){const s=el('sub',b.sub);s.style.marginTop='22px';w.appendChild(s);} return w; },
+    statement(b){ const w=el('center '+(b.size||'h2')); withAccent(w,b.text,b.accent); return w; },
+    surface(b){ const s=el('surface'); const bar=el('sbar'+(b.tone==='teal'?' teal':'')); const ic=el('ic',b.barIcon||'•'); bar.appendChild(ic); bar.appendChild(document.createTextNode(b.barLabel)); if(b.kind){const k=el('kind',b.kind);bar.appendChild(k);} s.appendChild(bar); const body=el('sbody'); b.rows.forEach(r=>{ const row=el('frow'); row.appendChild(el('fl',r.label)); const v=el('fv',r.value); if(r.tone)v.style.color='var(--'+(r.tone==='chalk'?'chalk':r.tone)+')'; body.appendChild(row); row.appendChild(v); }); s.appendChild(body); return s; },
+    cards(b){ const g=document.createElement('div'); g.style.cssText='display:grid;grid-template-columns:452px 452px;gap:28px;justify-content:center'; b.items.forEach(it=>{ const m=el('mini'); const bar=el('sbar'); bar.style.gap='14px'; bar.appendChild(el('ic',it.icon||'•')); bar.appendChild(document.createTextNode(it.label)); m.appendChild(bar); const body=el('mbody'); if(it.name)body.appendChild(el('mname',it.name)); if(it.line)body.appendChild(el('mline',it.line)); m.appendChild(body); g.appendChild(m); }); return g; },
+    chain(b){ const w=el('center'); if(b.caption){const c=el('eyebrow',b.caption);c.style.color='var(--teal)';c.style.marginBottom='26px';w.appendChild(c);} const row=document.createElement('div'); row.style.cssText='display:flex;align-items:center;justify-content:center;flex-wrap:nowrap'; b.nodes.forEach((n,i)=>{ if(i){const bar=el('cbar');row.appendChild(bar);} const d=el('cnode'+(n.state==='on'?' on':n.state==='gap'?' gap':''),n.label); row.appendChild(d); }); w.appendChild(row); return w; },
+    routes(b){ const w=document.createElement('div'); w.style.cssText='display:flex;gap:0;justify-content:center;align-items:center;flex-wrap:wrap'; b.items.forEach((it,i)=>{ if(i){const a=el('arw');a.textContent='→';w.appendChild(a);} w.appendChild(el('route',it)); }); const c=el('center'); c.appendChild(w); return c; },
+    search(b){ const s=el('surface'); const bar=el('sbar'); bar.appendChild(el('ic','🔎')); bar.appendChild(document.createTextNode('SEARCH')); const k=el('kind','FINDING IT'); bar.appendChild(k); s.appendChild(bar); const body=el('sbody'); const cell=el('searchcell'); cell.appendChild(document.createTextNode('🔎  '+b.query)); body.appendChild(cell); const wrap=document.createElement('div'); wrap.style.marginTop='18px'; b.rows.forEach(r=>{ const sr=el('srow'); sr.appendChild(el('lab',r)); sr.appendChild(el('bar')); wrap.appendChild(sr); }); body.appendChild(wrap); if(b.chips&&b.chips.length){const ch=document.createElement('div');ch.style.cssText='margin-top:20px;display:flex;gap:14px';b.chips.forEach(c=>ch.appendChild(el('chip neutral',c)));body.appendChild(ch);} s.appendChild(body); return s; },
+    report(b){ const s=el('surface'); const bar=el('sbar'); bar.appendChild(el('ic','▦')); bar.appendChild(document.createTextNode(b.barLabel)); if(b.kind){bar.appendChild(el('kind',b.kind));} s.appendChild(bar); const body=el('sbody'); b.rows.forEach(r=>{ const row=el('frow'); row.appendChild(el('fl',r.label)); const v=el('fv',r.value); v.style.color=r.filled?'var(--chalk)':'var(--faint)'; body.appendChild(row); row.appendChild(v); }); s.appendChild(body); return s; },
+    brand(b){ const w=el('center'); const m=document.createElement('span'); m.innerHTML=MARK_SVG.replace('class="mark"','class="mark" style="display:block;margin:0 auto"'); w.appendChild(m); const wm=el('tag','ARTIFEX LABS'); wm.style.cssText='color:var(--chalk);font-size:56px;letter-spacing:8px;margin-top:26px'; w.appendChild(wm); const tg=el('sub',b.tagline||'Business technology that works together.'); tg.style.cssText='margin-top:22px;color:var(--mute)'; w.appendChild(tg); return w; },
+  };
+
+  let BEATS=[], drawBg=null, TURN=1e9, built=false;
+  function build(tpl){
+    document.getElementById('metaeyebrow').textContent='ARTIFEX / FIELD NOTE '+String(tpl.id).toUpperCase();
+    document.getElementById('markwrap').insertAdjacentHTML('afterbegin', MARK_SVG.replace('class="mark"','class="mark" style="width:52px;height:52px"'));
+    const stage=document.getElementById('stage');
+    tpl.beats.forEach((b,i)=>{ const c=el('l'); c.id='beat'+i; c.style.opacity='0'; const inner=BUILD[b.type](b); inner.style.margin='0 auto'; c.appendChild(inner); stage.appendChild(c); if((b.mood==='turn'||b.mood==='resolve')&&i<TURN)TURN=i; });
+    drawBg=makeBg(tpl.seed||20260107);
+    built=true;
+  }
+
+  window.render=function(t){
+    const tpl=window.TEMPLATE; if(!tpl){return;} if(!built)build(tpl);
+    const TL=window.TL; const starts=TL.starts, end=TL.end, n=BEATS.length||tpl.beats.length;
+    // background: busy during problem, orders after the turn beat begins
+    const turnStart = starts[TURN]!=null?starts[TURN]:end;
+    let I = t<turnStart?0.6 : 0.6-0.28*eio(inv(t,turnStart,end));
+    const ordered = t>=turnStart?0.85:0.4;
+    drawBg(t, 0.6+0.4*I, ordered);
+    document.getElementById('meta').style.opacity = t<0.8?0 : t<1.8?eo(inv(t,0.8,1.8))*0.5 : (t>=turnStart?Math.max(0,0.5-eo(inv(t,turnStart,turnStart+0.6))*0.5):0.5);
+    for(let i=0;i<n;i++){
+      const a=starts[i], b=(i+1<n?starts[i+1]:end);
+      const w=win(t,a,b,0.34,0.34);
+      const rise=(1-eo(inv(t,a,a+0.6)))*26;
+      S('beat'+i, w, 0, w?rise:0, 1);
+    }
+  };
+  __bootScene();
+  </script></body></html>

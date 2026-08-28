@@ -138,9 +138,11 @@ export function recommendedCandidates(id: string): string[] {
       `field-note-${id}/field-note-${id}.mp4`,
     ];
   }
-  // 004–006
+  // 004–006 (approved-audio pieces) + template pieces (#007+, output -final.mp4)
   return [
+    `field-note-${id}/field-note-${id}-final.mp4`,
     `field-note-${id}/field-note-${id}-final-vo-thumb.mp4`,
+    `field-note-${id}/field-note-${id}-final-vo-custom.mp4`,
     `field-note-${id}/field-note-${id}-final-vo-fixed-bottom.mp4`,
     `field-note-${id}/field-note-${id}-final-vo.mp4`,
   ];

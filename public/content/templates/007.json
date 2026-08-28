@@ -1,0 +1,52 @@
+{
+  "version": 1,
+  "id": "007",
+  "title": "Which number is right?",
+  "concept": "Two systems. Two answers. No single source of truth.",
+  "seed": 20260107,
+  "narration": [
+    "The sales report says one number.",
+    "The accounting system says another.",
+    "Same month, same company — two different answers.",
+    "So someone spends an afternoon reconciling them by hand.",
+    "The data isn't wrong. It's just kept in two places that never agree.",
+    "One source of truth: entered once, and every report reads from it.",
+    "When the numbers come from one place, they can't disagree.",
+    "You shouldn't have to guess which system to believe."
+  ],
+  "beats": [
+    { "type": "title", "eyebrow": "FIELD NOTE", "headline": "Which number\nis right?", "sub": "The same month. Two systems.", "lines": [0], "mood": "problem" },
+    { "type": "cards", "items": [
+      { "icon": "▦", "label": "SALES CRM", "name": "$128,400", "line": "Revenue · March" },
+      { "icon": "$", "label": "ACCOUNTING", "name": "$121,950", "line": "Revenue · March" }
+    ], "lines": [1], "mood": "problem" },
+    { "type": "statement", "text": "Same month. Same company.\nTwo different answers.", "size": "h2", "lines": [2], "mood": "problem" },
+    { "type": "surface", "barLabel": "MANUAL RECONCILIATION", "barIcon": "↻", "kind": "AN AFTERNOON", "tone": "amber", "rows": [
+      { "label": "OWNER", "value": "Someone", "tone": "faint" },
+      { "label": "STATUS", "value": "Reconciling by hand", "tone": "amber" },
+      { "label": "SOURCE OF TRUTH", "value": "?", "tone": "amber" }
+    ], "lines": [3], "mood": "problem" },
+    { "type": "statement", "text": "The data isn't wrong —\nit's kept in two places\nthat never agree.", "size": "h2", "accent": "two places", "lines": [4], "mood": "problem" },
+    { "type": "chain", "caption": "ONE SOURCE OF TRUTH", "nodes": [
+      { "label": "ENTERED ONCE", "state": "on" },
+      { "label": "LEDGER", "state": "on" },
+      { "label": "SALES", "state": "on" },
+      { "label": "REPORTS", "state": "on" }
+    ], "lines": [5], "mood": "turn" },
+    { "type": "statement", "text": "When the numbers come from\none place, they can't disagree.", "size": "h2", "accent": "one place", "lines": [6], "mood": "resolve" },
+    { "type": "brand", "tagline": "Business technology that works together.", "lines": [7], "mood": "resolve" }
+  ],
+  "thumbnail": {
+    "headline": ["Which number", "is right?"],
+    "secondary": "Two systems. Two answers.",
+    "art": "cards",
+    "items": [
+      { "icon": "▦", "label": "SALES CRM", "name": "$128,400" },
+      { "icon": "$", "label": "ACCOUNTING", "name": "$121,950" }
+    ]
+  },
+  "captions": {
+    "ig": "Your sales report says one number. Accounting says another. Same month, same company — two different answers.\n\nSo someone loses an afternoon reconciling them by hand. The data isn't wrong; it just lives in two places that never agree.\n\nOne source of truth: entered once, every report reads from it. When the numbers come from one place, they can't disagree.",
+    "li": "Two systems, two numbers, one very familiar afternoon.\n\nThe sales report says $128k. Accounting says $121k. Same month, same company. Nobody's data is \"wrong\" — it's just kept in two places that were never designed to agree, so someone reconciles them by hand and everyone quietly picks the number they trust.\n\nThe fix isn't a better spreadsheet. It's a single source of truth: the figure is entered once, and every report — sales, finance, the board deck — reads from that one place. When the numbers come from one system, they can't disagree.\n\nYou shouldn't have to guess which system to believe.\n\nArtifex Labs — business technology that works together."
+  }
+}

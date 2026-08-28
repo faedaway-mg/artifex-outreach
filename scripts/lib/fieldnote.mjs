@@ -6,7 +6,9 @@ import { spawn, execFileSync, execSync } from "node:child_process";
 import { mkdirSync, rmSync, writeFileSync, readdirSync, existsSync } from "node:fs";
 import { join } from "node:path";
 
-const CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+// CHROME_PATH lets the identical renderer run on Linux/Railway (Chromium in the worker image); falls
+// back to the macOS Chrome for local dev.
+const CHROME = process.env.CHROME_PATH || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const FPS = 24;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 export const dur = (f) => parseFloat(execSync(`ffprobe -v error -show_entries format=duration -of default=nk=1:nw=1 "${f}"`).toString().trim());
@@ -48,7 +50,7 @@ export function mixBed(placements, endSec, outWav) {
 }
 
 // Render every frame of sceneFile (injecting window.TL) via one persistent headless Chrome.
-export async function renderFrames({ sceneFile, sceneBasename, TL, port, framesDir, onProgress }) {
+export async function renderFrames({ sceneFile, sceneBasename, TL, port, framesDir, onProgress, globals }) {
   rmSync(framesDir, { recursive: true, force: true }); mkdirSync(framesDir, { recursive: true });
   const SCENE = `file://${sceneFile}`;
   const chrome = spawn(CHROME, ["--headless=new", "--disable-gpu", "--hide-scrollbars", "--no-first-run",
@@ -66,6 +68,9 @@ export async function renderFrames({ sceneFile, sceneBasename, TL, port, framesD
   // bottom (headless --window-size left the viewport ~87px short → a white strip). Root-cause fix.
   await c2("Emulation.setDeviceMetricsOverride", { width: 1080, height: 1920, deviceScaleFactor: 1, mobile: false });
   for (let i = 0; i < 60; i++) { const r = await c2("Runtime.evaluate", { expression: "document.readyState==='complete'&&typeof render==='function'", returnByValue: true }); if (r.result.value) break; await sleep(100); }
+  // Inject any extra globals (e.g. window.TEMPLATE for the data-driven renderer) BEFORE window.TL, so a
+  // scene that lazily builds on first render() sees its data. Values are JSON — never executed as code.
+  if (globals) for (const [k, v] of Object.entries(globals)) await c2("Runtime.evaluate", { expression: `window[${JSON.stringify(k)}]=${JSON.stringify(v)};true`, returnByValue: true });
   await c2("Runtime.evaluate", { expression: `window.TL=${JSON.stringify(TL)};true`, returnByValue: true });
   const N = Math.ceil(TL.end * FPS);
   console.log(`Rendering ${N} frames…`);

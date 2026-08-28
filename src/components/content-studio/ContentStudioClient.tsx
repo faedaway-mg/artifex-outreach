@@ -80,6 +80,8 @@ export function ContentStudioClient({ initialItems }: { initialItems: StudioItem
         </p>
       </div>
 
+      <ClientVideosPanel onPrepared={refetch} onSelect={setSelectedId} />
+
       <div className="grid gap-5 lg:grid-cols-[340px_1fr]">
         {/* ── Piece list ─────────────────────────────────────────────── */}
         <div className="space-y-2">
@@ -93,6 +95,78 @@ export function ContentStudioClient({ initialItems }: { initialItems: StudioItem
       </div>
 
       {creating && <NewPieceModal onClose={() => setCreating(false)} onCreated={async () => { setCreating(false); await refetch(); }} />}
+    </div>
+  );
+}
+
+function ClientVideosPanel({ onPrepared, onSelect }: { onPrepared: () => Promise<void>; onSelect: (id: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [cands, setCands] = useState<any[] | null>(null);
+  const [leadId, setLeadId] = useState("");
+  const [msg, setMsg] = useState<{ tone: "ok" | "err"; text: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(async () => {
+    const r = await fetch("/api/content-studio/client/candidates", { cache: "no-store" });
+    if (r.ok) { const d = await r.json(); setCands(d.candidates ?? []); }
+  }, []);
+  useEffect(() => { if (open && cands === null) load(); }, [open, cands, load]);
+
+  const prepare = async (id: string, allowOverride = false) => {
+    setBusy(true); setMsg(null);
+    try {
+      const r = await fetch("/api/content-studio/client/prepare", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ leadId: id, allowOverride }) });
+      const d = await r.json();
+      if (!r.ok) setMsg({ tone: "err", text: d.error + (d.blockers?.length ? " (" + d.blockers.join("; ") + ")" : "") });
+      else { setMsg({ tone: "ok", text: `Prepared for ${d.businessName ?? id}. ${d.narrationNote ?? ""} Upload a voiceover, then Generate.` }); await onPrepared(); onSelect(d.pieceId); }
+    } catch (e: any) { setMsg({ tone: "err", text: String(e?.message ?? e) }); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <div className="card p-4">
+      <button onClick={() => setOpen((o) => !o)} className="flex w-full items-center gap-2 text-left">
+        <span className="grid h-8 w-8 place-items-center rounded-lg border border-white/[0.07] bg-white/[0.03] text-teal-300"><Users size={16} /></span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-sm font-semibold text-chalk-100">Client videos <span className="ml-1 rounded-md border border-teal-400/25 bg-teal-400/10 px-1.5 py-0.5 text-[10px] text-teal-300">evidence-backed</span></span>
+          <span className="block text-xs text-chalk-500">Prepare a review video from a business's evidence — same engine, bound to the business.</span>
+        </span>
+        <span className="text-chalk-500">{open ? "▾" : "▸"}</span>
+      </button>
+
+      {open && (
+        <div className="mt-3 space-y-3 border-t border-white/[0.06] pt-3">
+          {msg && <p className={`text-xs ${msg.tone === "ok" ? "text-teal-300" : "text-coral-300"}`}>{msg.text}</p>}
+          {cands === null ? (
+            <p className="text-xs text-chalk-500">Loading eligible businesses…</p>
+          ) : cands.length === 0 ? (
+            <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-3 text-xs leading-relaxed text-chalk-500">
+              No businesses with stored evidence in this local store. Businesses live in the Acquisition OS database — connected to real data, eligible prospects appear here ranked by the review-video readiness gate. You can also prepare one directly by business ID below.
+            </div>
+          ) : (
+            <div className="space-y-1.5">
+              {cands.map((c) => (
+                <div key={c.leadId} className="flex items-center gap-2 rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2 text-xs">
+                  <span className="min-w-0 flex-1 truncate text-chalk-200">{c.businessName}</span>
+                  <span className={`rounded-full border px-1.5 py-0.5 text-[10px] ${c.eligible ? "border-teal-400/25 bg-teal-400/10 text-teal-300" : "border-white/10 text-chalk-400"}`}>{c.readiness}</span>
+                  {c.eligible ? (
+                    <button disabled={busy} onClick={() => prepare(c.leadId)} className="btn-secondary text-[11px]">Prepare</button>
+                  ) : c.overridable ? (
+                    <button disabled={busy} onClick={() => prepare(c.leadId, true)} className="btn-ghost text-[11px]" title={c.blockers?.join("; ")}>Override</button>
+                  ) : (
+                    <span className="text-[10px] text-chalk-600" title={c.blockers?.join("; ")}>blocked</span>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="flex items-center gap-2">
+            <input value={leadId} onChange={(e) => setLeadId(e.target.value)} placeholder="business / lead ID" className="input text-xs" />
+            <button disabled={busy || !leadId.trim()} onClick={() => prepare(leadId.trim())} className="btn-secondary flex items-center gap-1.5 text-xs disabled:opacity-50">{busy ? <Loader2 size={13} className="animate-spin" /> : <Clapperboard size={13} />} Prepare</button>
+          </div>
+          <p className="text-[11px] text-chalk-600">The readiness gate is unchanged — insufficient-evidence businesses stay blocked with reasons. Prepared videos are bound to their business and appear in the list above.</p>
+        </div>
+      )}
     </div>
   );
 }
@@ -375,7 +449,8 @@ function NewPieceModal({ onClose, onCreated }: { onClose: () => void; onCreated:
   const submit = async () => {
     setBusy(true); setErr(null);
     try {
-      const r = await fetch("/api/content-studio/pieces", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title, concept, narration }) });
+      // Creates a RENDERABLE data-driven template (script auto-laid-out onto the approved grammar).
+      const r = await fetch("/api/content-studio/templates", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title, concept, narration }) });
       const data = await r.json();
       if (!r.ok) setErr(data.error || "Could not save.");
       else await onCreated();
@@ -396,11 +471,11 @@ function NewPieceModal({ onClose, onCreated }: { onClose: () => void; onCreated:
           <div><label className="field-label">Concept (secondary line)</label><input className="input" value={concept} onChange={(e) => setConcept(e.target.value)} placeholder="One line describing the story." /></div>
           <div><label className="field-label">Narration (one line per row)</label><textarea className="input min-h-[120px]" value={narration} onChange={(e) => setNarration(e.target.value)} placeholder={"Line one.\nLine two.\n…"} /></div>
           {err && <p className="text-xs text-coral-300">{err}</p>}
-          <p className="text-[11px] leading-relaxed text-chalk-500">Saves a draft with your script. A scene template must be authored before a new concept can be rendered by the engine — the established scenes (#004–#006) render today.</p>
+          <p className="text-[11px] leading-relaxed text-chalk-500">Creates a <span className="text-chalk-300">renderable</span> piece: your script is laid out on the approved motion + typography automatically (no design step). Upload a voiceover and Generate. Richer layouts (cards, chains, surfaces) come from the full template grammar — see #007.</p>
         </div>
         <div className="mt-4 flex justify-end gap-2">
           <button onClick={onClose} className="btn-ghost text-sm">Cancel</button>
-          <button disabled={busy || !title.trim()} onClick={submit} className="btn-primary flex items-center gap-1.5 text-sm disabled:opacity-50">{busy ? <Loader2 size={15} className="animate-spin" /> : <Plus size={15} />} Save draft</button>
+          <button disabled={busy || !title.trim()} onClick={submit} className="btn-primary flex items-center gap-1.5 text-sm disabled:opacity-50">{busy ? <Loader2 size={15} className="animate-spin" /> : <Plus size={15} />} Create video</button>
         </div>
       </div>
     </div>

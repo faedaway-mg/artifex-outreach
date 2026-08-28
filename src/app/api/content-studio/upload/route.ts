@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { isAuthenticated } from "@/lib/auth";
-import { uploadsDirFor, writeUploadMeta } from "@/lib/content-studio/store";
+import { uploadsDirFor, writeUploadMeta, hasTemplate } from "@/lib/content-studio/store";
 import { validateAudioMeta, AUDIO_MAX_BYTES } from "@/lib/content-studio/upload";
 import { catalogEntry } from "@/lib/content-studio/catalog";
 import type { AudioUpload } from "@/lib/content-studio/types";
@@ -18,7 +18,8 @@ export async function POST(req: NextRequest) {
   try { form = await req.formData(); } catch { return NextResponse.json({ error: "expected multipart/form-data" }, { status: 400 }); }
 
   const pieceId = String(form.get("pieceId") ?? "").trim();
-  if (!pieceId || !catalogEntry(pieceId)) return NextResponse.json({ error: "unknown piece" }, { status: 400 });
+  const known = pieceId && (catalogEntry(pieceId) || (await hasTemplate(pieceId)));
+  if (!known) return NextResponse.json({ error: "unknown piece" }, { status: 400 });
   const file = form.get("file");
   if (!(file instanceof File)) return NextResponse.json({ error: "no file" }, { status: 400 });
 

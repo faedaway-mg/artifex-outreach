@@ -11,14 +11,20 @@ import path from "node:path";
 import type { AudioUpload, Piece, RenderJob } from "./types";
 import { CATALOG, baseCatalogPiece, recommendedCandidates } from "./catalog";
 import { jobsForPiece, latestReadyJob } from "./job";
+import type { ContentTemplate } from "./template-schema";
 
 export const REPO_ROOT = process.cwd();
 export const PUBLIC_DIR = path.join(REPO_ROOT, "public");
-const DATA_DIR = path.join(REPO_ROOT, ".data", "content-studio");
+// Data dir is overridable so tests (and an isolated persistent store) don't touch the app's real state.
+const DATA_DIR = process.env.CONTENT_STUDIO_DATA_DIR
+  ? path.resolve(process.env.CONTENT_STUDIO_DATA_DIR)
+  : path.join(REPO_ROOT, ".data", "content-studio");
 const JOBS_DIR = path.join(DATA_DIR, "jobs");
 const UPLOADS_DIR = path.join(DATA_DIR, "uploads");
 const POSTED_FILE = path.join(DATA_DIR, "posted.json");
 const DRAFTS_FILE = path.join(DATA_DIR, "drafts.json");
+const TEMPLATES_DATA = path.join(DATA_DIR, "templates"); // UI-created (private)
+const TEMPLATES_PUBLIC = path.join(PUBLIC_DIR, "content", "templates"); // committed (e.g. #007)
 
 function ensureDirs() {
   for (const d of [DATA_DIR, JOBS_DIR, UPLOADS_DIR]) if (!existsSync(d)) mkdirSync(d, { recursive: true });
@@ -40,9 +46,12 @@ export function publicRel(abs: string | null): string | null {
   return "/" + rel.split(path.sep).join("/");
 }
 
+let writeSeq = 0;
 async function writeAtomic(file: string, data: string) {
   ensureDirs();
-  const tmp = file + ".tmp-" + process.pid;
+  // Unique temp name per call (pid + monotonic counter) so concurrent writes to the same target — a
+  // separate worker and the poll reconcile, or two in-process writes — never collide on rename.
+  const tmp = `${file}.tmp-${process.pid}-${writeSeq++}`;
   await fs.writeFile(tmp, data, "utf8");
   await fs.rename(tmp, file);
 }
@@ -105,6 +114,39 @@ export async function latestUpload(pieceId: string): Promise<AudioUpload | null>
   return ups[0] ?? null;
 }
 
+// ── Templates (data-driven pieces, e.g. #007) ────────────────────────────────
+export function templatePath(id: string): string | null {
+  const safe = id.replace(/[^0-9a-z_-]/gi, "_");
+  for (const dir of [TEMPLATES_DATA, TEMPLATES_PUBLIC]) {
+    const p = path.join(dir, `${safe}.json`);
+    if (existsSync(p)) return p;
+  }
+  return null;
+}
+export async function loadTemplate(id: string): Promise<ContentTemplate | null> {
+  const p = templatePath(id);
+  if (!p) return null;
+  try { return JSON.parse(await fs.readFile(p, "utf8")) as ContentTemplate; } catch { return null; }
+}
+export async function saveTemplate(t: ContentTemplate): Promise<string> {
+  ensureDirs();
+  if (!existsSync(TEMPLATES_DATA)) mkdirSync(TEMPLATES_DATA, { recursive: true });
+  const file = path.join(TEMPLATES_DATA, `${t.id}.json`);
+  await writeAtomic(file, JSON.stringify(t, null, 2));
+  return file;
+}
+export function listTemplateIds(): string[] {
+  const ids = new Set<string>();
+  for (const dir of [TEMPLATES_PUBLIC, TEMPLATES_DATA]) {
+    if (!existsSync(dir)) continue;
+    for (const f of require("node:fs").readdirSync(dir)) if (f.endsWith(".json")) ids.add(f.replace(/\.json$/, ""));
+  }
+  return [...ids];
+}
+export async function hasTemplate(id: string): Promise<boolean> {
+  return templatePath(id) != null;
+}
+
 // ── Draft pieces (operator-created new concepts) ─────────────────────────────
 export interface DraftPiece { id: string; title: string; concept: string; narration: string[]; createdAt: string; }
 export async function readDrafts(): Promise<DraftPiece[]> {
@@ -150,7 +192,25 @@ export async function getPieces(): Promise<Piece[]> {
     }
     return { ...base, recommendedRel, hasThumbnailFirst } as Piece;
   });
-  return [...catalogPieces, ...drafts.map(draftToPiece)];
+  // Template (data-driven) pieces — rendered by the generic engine, so they are renderable.
+  const templateIds = listTemplateIds().filter((id) => !CATALOG.some((c) => c.id === id));
+  const templatePieces: Piece[] = [];
+  for (const id of templateIds) {
+    const t = await loadTemplate(id);
+    if (!t) continue;
+    const ready = latestReadyJob(jobs, id);
+    let recommendedRel: string | null = null;
+    let hasThumbnailFirst = false;
+    if (ready?.outputRel) { recommendedRel = ready.outputRel; hasThumbnailFirst = true; }
+    else { recommendedRel = firstExisting(recommendedCandidates(id)); hasThumbnailFirst = Boolean(recommendedRel); }
+    templatePieces.push({
+      id, title: t.title, concept: t.concept, narration: t.narration,
+      captionIG: t.captions?.ig ?? null, captionLI: t.captions?.li ?? null,
+      sceneBasename: "scene-template.html", renderable: true, targetSeconds: null,
+      thumbRel: `/content/thumbnails/field-note-${id}-thumbnail.png`, recommendedRel, hasThumbnailFirst,
+    });
+  }
+  return [...catalogPieces, ...templatePieces, ...drafts.map(draftToPiece)];
 }
 
 export async function studioSnapshot() {
