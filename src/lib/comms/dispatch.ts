@@ -161,10 +161,10 @@ export async function dispatchStep(stepId: string, opts: { now?: Date } = {}): P
 
   // The INITIAL outreach email carries the personalized one-page Artifex Quick Review as a
   // PDF attachment (follow-ups do not re-attach it), rendered deterministically from the SAME
-  // stored review the operator previewed (WYSIWYS). This is BEST-EFFORT at the dispatch layer:
-  // dispatch is the shared send-once core (also used by sequences/recovery/tests), so it never
-  // refuses a send here. The blocking "initial email needs its review" invariant lives upstream
-  // in sendNext (the operator send path), which cannot proceed until the review is ready.
+  // stored review the operator previewed (WYSIWYS). The operator send path (sendNext) blocks
+  // upstream until the review is ready; AND — as of M2 Gate 7 — this dispatch layer now ALSO fails
+  // closed for any review-bearing initial send whose PDF is not attachable (edited OR legacy), so no
+  // path can send a bare email in place of the review. internal-test rehearsals remain exempt.
   let attachments: EmailMessage["attachments"] | undefined;
   // Captured for the immutable receipt: exactly which Review PDF (by filename + content hash)
   // was attached to THIS send. Answers "which exact Review did Business X receive?".
@@ -229,6 +229,17 @@ export async function dispatchStep(stepId: string, opts: { now?: Date } = {}): P
           }
         }
       }
+    }
+    // M2 Gate 7 — UNIVERSAL delivery protection. An initial, review-bearing outreach (a lead with a
+    // BI profile) must ship its Quick Review PDF or be BLOCKED — never sent bare in place of the
+    // review. This closes the legacy bypass: an unedited/legacy review that fails to render or isn't
+    // attachable no longer slips through with no attachment merely because it lacks an operator
+    // overlay. The version-bound gate above already fails an EDITED-but-unready review; this catches
+    // the LEGACY path symmetrically. (internal-test rehearsals are exempt so the controlled test can
+    // proceed without a live review.)
+    if (profile && !attachments && lead.source !== "internal-test") {
+      await updateEmailSend(sendRow.id, { status: "failed", failedAt: nowIso, lastError: "quick review not delivery-ready — refusing to send bare", lastErrorCode: "review_not_ready" });
+      return { stepId, outcome: "failed", reason: "The Quick Review for this business is not delivery-ready, so the introduction was blocked (never sent without its review).", sendId: sendRow.id };
     }
   }
 

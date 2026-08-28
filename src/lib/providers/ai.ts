@@ -112,6 +112,31 @@ async function generate<T>(opts: {
   return { data: opts.mock(), meta: meta(opts.promptVersion, [...opts.refs, "fallback:mock"], "mock") };
 }
 
+/**
+ * Single-string generation over the SAME provider infra as everything else (provider selection,
+ * schema validation, 2-attempt retry, mock fallback, cost logging, and honest `meta.provider`).
+ * The returned `meta.provider` is "mock" whenever the deterministic offline path produced the text
+ * (default OR fallback) — so a caller can never present canned copy as live model output.
+ */
+export async function generateConstrainedText(opts: {
+  system?: string;
+  user: string;
+  promptVersion: string;
+  refs: string[];
+  mock: () => string;
+}): Promise<{ text: string; meta: AiMeta }> {
+  const schema = z.object({ text: z.string().min(1) });
+  const r = await generate<{ text: string }>({
+    system: opts.system ?? BASE_SYSTEM,
+    user: `${opts.user}\n\nReturn ONLY a JSON object of the shape { "text": string }.`,
+    schema,
+    promptVersion: opts.promptVersion,
+    refs: opts.refs,
+    mock: () => ({ text: opts.mock() }),
+  });
+  return { text: r.data.text, meta: r.meta };
+}
+
 function logCost(provider: string, promptVersion: string, usage: { input: number; output: number } | null) {
   if (!usage) return;
   // Lightweight cost/token log. A durable ledger would persist this per run.

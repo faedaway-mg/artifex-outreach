@@ -18,7 +18,8 @@ import type { Lead } from "../types";
 import type { BusinessProfile } from "../business-intelligence/types";
 import { buildQuickReview, type QuickReview, type ResolvedBrand } from "./quick-review";
 import { checkReview, editorialBlocks, reviewEditorialSurface, type EditorialIssue } from "./editorial-quality";
-import { getBusinessIntelligence, upsertBusinessIntelligence, getLead, appendAudit } from "../repo";
+import { getBusinessIntelligence, getLead, appendAudit, commitReviewEditorial } from "../repo";
+import type { AuditEntry } from "../types";
 import { currentActor } from "../auth";
 
 /** The renderer/template contract version. Bump when the PDF layout or field semantics change so
@@ -64,9 +65,13 @@ export interface ReviewEditorialState {
   approval: ApprovalBinding | null;
   /** Operator "skip / hold unsent" — excluded from delivery without deleting the prospect. */
   held: HeldState | null;
+  /** Monotonic storage version for DB-level compare-and-swap (Gate 6). Every persisted mutation
+   *  bumps it; a write only lands if the stored rev still equals the rev the caller read. Distinct
+   *  from the CONTENT fingerprint (`revisionId`) — preview/approve bump rev without changing content. */
+  rev: number;
 }
 
-export const EMPTY_STATE: ReviewEditorialState = { draft: {}, history: [], previewedRevisionId: null, checkedRevisionId: null, approval: null, held: null };
+export const EMPTY_STATE: ReviewEditorialState = { draft: {}, history: [], previewedRevisionId: null, checkedRevisionId: null, approval: null, held: null, rev: 0 };
 
 // ── Audit actions ───────────────────────────────────────────────────────────────────────────
 export const A = {
@@ -195,21 +200,26 @@ type BIProfileWithEditorial = BusinessProfile & { reviewEditorial?: ReviewEditor
 export async function getEditorialState(leadId: string): Promise<ReviewEditorialState> {
   const bi = await getBusinessIntelligence(leadId);
   const bp = bi?.profile?.businessProfile as BIProfileWithEditorial | undefined;
-  return bp?.reviewEditorial ? { ...EMPTY_STATE, ...bp.reviewEditorial } : { ...EMPTY_STATE };
+  return bp?.reviewEditorial ? { ...EMPTY_STATE, ...bp.reviewEditorial, rev: bp.reviewEditorial.rev ?? 0 } : { ...EMPTY_STATE };
 }
 
-async function writeEditorialState(leadId: string, state: ReviewEditorialState): Promise<void> {
-  const bi = await getBusinessIntelligence(leadId);
-  if (!bi) throw new Error("no BI to attach editorial state");
-  const wrapper: any = bi.profile;
-  const bp = wrapper.businessProfile as BIProfileWithEditorial;
-  await upsertBusinessIntelligence({
-    leadId,
-    profile: { ...wrapper, businessProfile: { ...bp, reviewEditorial: state } },
-    enrichmentDelta: bi.enrichmentDelta ?? null,
-    generatedAt: bi.generatedAt,
-  });
+/** Persist a mutation of the editorial state atomically against the rev the caller read, recording
+ *  its audit event in the SAME transaction. `prev` is the state read at the start of the operation;
+ *  `next` is the new state MINUS its rev (this helper stamps rev = prev.rev + 1). Returns a conflict
+ *  when another writer moved the rev first — the caller must surface a reload-and-retry to the operator
+ *  and MUST NOT report the operation as successful. */
+type NextState = Omit<ReviewEditorialState, "rev">;
+async function commitState(
+  leadId: string,
+  prev: ReviewEditorialState,
+  next: NextState,
+  audit: Omit<AuditEntry, "id" | "createdAt">,
+): Promise<{ ok: boolean; conflict: boolean }> {
+  const expectedRev = prev.rev ?? 0;
+  const nextEditorial: ReviewEditorialState = { ...next, rev: expectedRev + 1 };
+  return commitReviewEditorial({ leadId, expectedRev, nextEditorial, audit });
 }
+const STALE_MSG = "the review changed since you loaded it — reload and reapply";
 
 // ── Build the EFFECTIVE (overlay-applied) review for a lead ─────────────────────────────────────
 export async function effectiveReviewFor(leadId: string, opts: { brand?: ResolvedBrand | null } = {}): Promise<{ lead: Lead; review: QuickReview; state: ReviewEditorialState } | null> {
@@ -299,7 +309,7 @@ export async function saveDraft(leadId: string, overlay: ReviewOverlay, opts: { 
   const nextReview = applyOverlay(base, merged);
   const newId = revisionFingerprint(nextReview);
   const evidenceProblems = validateOverlayClaims(base, merged);
-  const next: ReviewEditorialState = {
+  const next: NextState = {
     draft: merged,
     history: [...state.history, { id: newId, overlay: merged, editedBy: actor, editedAt: nowIso() }].slice(-50),
     // ANY content change invalidates preview, check, and approval bound to the old revision.
@@ -308,8 +318,8 @@ export async function saveDraft(leadId: string, overlay: ReviewOverlay, opts: { 
     approval: null,
     held: state.held ?? null, // editing a held review keeps it held until explicitly revisited
   };
-  await writeEditorialState(leadId, next);
-  await appendAudit({ action: A.saved, actor, targetType: "lead", targetId: leadId, meta: { revisionId: newId, priorRevisionId: currentId, fields: changedFields(overlay), evidenceProblems: evidenceProblems.length }, ip: null });
+  const c = await commitState(leadId, state, next, { action: A.saved, actor, targetType: "lead", targetId: leadId, meta: { revisionId: newId, priorRevisionId: currentId, fields: changedFields(overlay), evidenceProblems: evidenceProblems.length }, ip: null });
+  if (!c.ok) return { ok: false, reason: c.conflict ? STALE_MSG : "no review on file to save" };
   return { ok: true, revisionId: newId, evidenceProblems };
 }
 
@@ -317,8 +327,9 @@ export async function recordPreview(leadId: string, opts: { actor?: string } = {
   const eff = await effectiveReviewFor(leadId);
   if (!eff) return { ok: false };
   const revisionId = revisionFingerprint(eff.review);
-  await writeEditorialState(leadId, { ...eff.state, previewedRevisionId: revisionId });
-  await appendAudit({ action: A.previewed, actor: opts.actor ?? currentActor(), targetType: "lead", targetId: leadId, meta: { revisionId }, ip: null });
+  const { rev: _r, ...prevNoRev } = eff.state;
+  const c = await commitState(leadId, eff.state, { ...prevNoRev, previewedRevisionId: revisionId }, { action: A.previewed, actor: opts.actor ?? currentActor(), targetType: "lead", targetId: leadId, meta: { revisionId }, ip: null });
+  if (!c.ok) return { ok: false };
   return { ok: true, revisionId };
 }
 
@@ -330,8 +341,9 @@ export async function runEditorialCheck(leadId: string, opts: { actor?: string }
   const biNow = await getBusinessIntelligence(leadId);
   const base = buildQuickReview(eff.lead, biNow?.profile?.businessProfile as BusinessProfile ?? null, null, { approved: true, observedAt: biNow?.generatedAt ?? null });
   const evidenceProblems = validateOverlayClaims(base, eff.state.draft);
-  await writeEditorialState(leadId, { ...eff.state, checkedRevisionId: revisionId });
-  await appendAudit({ action: A.checked, actor: opts.actor ?? currentActor(), targetType: "lead", targetId: leadId, meta: { revisionId, blocks: editorialBlocks(issues).length, evidenceProblems: evidenceProblems.length }, ip: null });
+  const { rev: _r, ...prevNoRev } = eff.state;
+  const c = await commitState(leadId, eff.state, { ...prevNoRev, checkedRevisionId: revisionId }, { action: A.checked, actor: opts.actor ?? currentActor(), targetType: "lead", targetId: leadId, meta: { revisionId, blocks: editorialBlocks(issues).length, evidenceProblems: evidenceProblems.length }, ip: null });
+  if (!c.ok) return { ok: false };
   return { ok: true, revisionId, issues, evidenceProblems };
 }
 
@@ -349,8 +361,11 @@ export async function approveRevision(leadId: string, opts: { authorized: boolea
   if (!c.previewedCurrent) return { ok: false, reason: "open the current preview before approving" };
   const actor = opts.actor ?? currentActor();
   const eff = await effectiveReviewFor(leadId);
-  await writeEditorialState(leadId, { ...eff!.state, approval: { revisionId, approvedBy: actor, approvedAt: nowIso() } });
-  await appendAudit({ action: A.approved, actor, targetType: "lead", targetId: leadId, meta: { revisionId }, ip: null });
+  const { rev: _r, ...prevNoRev } = eff!.state;
+  // Approval state + its audit event commit in ONE transaction: we never report approval success
+  // when its durable audit record would be lost, and a concurrent writer cannot approve a moved rev.
+  const committed = await commitState(leadId, eff!.state, { ...prevNoRev, approval: { revisionId, approvedBy: actor, approvedAt: nowIso() } }, { action: A.approved, actor, targetType: "lead", targetId: leadId, meta: { revisionId }, ip: null });
+  if (!committed.ok) return { ok: false, reason: committed.conflict ? STALE_MSG : "lead or review not found" };
   return { ok: true, revisionId };
 }
 
@@ -364,24 +379,14 @@ export async function reviewForSend(leadId: string): Promise<{ review: QuickRevi
   return { review: eff!.review, ready: true, revisionId: readiness.revisionId };
 }
 
-// ── Targeted regeneration (deterministic MOCK — no paid provider call this milestone) ────────────
+// ── Targeted regeneration (production adapter in review-regen-provider.ts; NO SPEND by default) ───
 export type RegenField = { findingId: string; part: "title" | "whyItMatters" | "whatWedDo" | "textHook" } | { part: "openingHook" | "start.why" };
 
 export interface RegenProposal { current: string; proposed: string; baseRevisionId: string; field: RegenField; }
 
-/** Deterministic mock generator: produces an alternative phrasing grounded in the finding's evidence
- *  and any operator direction. NEVER introduces a number/absence claim absent from the evidence. */
-function mockRegenerate(current: string, evidenceContext: string, direction?: string): string {
-  // Only numbers PRESENT in the evidence may appear; strip any figure the operator's direction
-  // introduces that the evidence can't support (regeneration must never invent an unsupported claim).
-  const allowed = new Set(digitsOf(evidenceContext));
-  const cleanDir = (direction ?? "")
-    .replace(NUM_RX, (m) => (allowed.has(m.replace(/[,+]/g, "")) ? m : ""))
-    .replace(/\s+/g, " ")
-    .trim()
-    .replace(/[.]+$/, "");
-  const base = current.replace(/\s+/g, " ").trim().replace(/[.]+$/, "");
-  return cleanDir ? `${cleanDir} — ${base}.` : `${base}.`;
+function fieldLabelFor(field: RegenField): string {
+  if ("findingId" in field) return field.part === "textHook" ? "finding hook" : field.part === "whyItMatters" ? "why-it-matters line" : field.part === "whatWedDo" ? "recommended action" : "finding title";
+  return field.part === "openingHook" ? "opening hook" : "starting-point rationale";
 }
 
 export async function proposeRegeneration(leadId: string, field: RegenField, direction: string | undefined, opts: { actor?: string } = {}): Promise<{ ok: boolean; reason?: string; proposal?: RegenProposal }> {
@@ -393,9 +398,16 @@ export async function proposeRegeneration(leadId: string, field: RegenField, dir
   const evidenceContext = "findingId" in field
     ? (() => { const f = eff.review.findings.find((x) => x.id === field.findingId); return f ? `${f.observation} ${f.evidence.basis.join(" ")}` : ""; })()
     : eff.review.findings.map((f) => f.observation).join(" ");
-  const proposed = mockRegenerate(cur, evidenceContext, direction);
-  await appendAudit({ action: A.regenProposed, actor: opts.actor ?? currentActor(), targetType: "lead", targetId: leadId, meta: { field, baseRevisionId, provider: "mock" }, ip: null });
-  return { ok: true, proposal: { current: cur, proposed, baseRevisionId, field } };
+  const { regenerateReviewCopy } = await import("./review-regen-provider");
+  const result = await regenerateReviewCopy({ current: cur, evidenceContext, direction, fieldLabel: fieldLabelFor(field) });
+  const actor = opts.actor ?? currentActor();
+  if (result.status !== "succeeded" || !result.text) {
+    await appendAudit({ action: A.regenFailed, actor, targetType: "lead", targetId: leadId, meta: { field, baseRevisionId, provider: result.provider, model: result.model, reason: result.reason ?? "failed" }, ip: null });
+    return { ok: false, reason: result.reason ?? "regeneration failed — try again or edit directly" };
+  }
+  // Record the ACTUAL provider (mock vs live) and model — never present canned copy as live output.
+  await appendAudit({ action: A.regenProposed, actor, targetType: "lead", targetId: leadId, meta: { field, baseRevisionId, provider: result.provider, model: result.model, promptVersion: result.promptVersion }, ip: null });
+  return { ok: true, proposal: { current: cur, proposed: result.text, baseRevisionId, field } };
 }
 
 export async function acceptRegeneration(leadId: string, proposal: RegenProposal, opts: { actor?: string } = {}): Promise<{ ok: boolean; reason?: string; revisionId?: string }> {
@@ -513,8 +525,9 @@ export async function skipReview(leadId: string, reason: string, opts: { actor?:
   const eff = await effectiveReviewFor(leadId);
   if (!eff) return { ok: false, reason: "lead or review not found" };
   const actor = opts.actor ?? currentActor();
-  await writeEditorialState(leadId, { ...eff.state, held: { reason: reason.trim(), by: actor, at: nowIso() } });
-  await appendAudit({ action: A.held, actor, targetType: "lead", targetId: leadId, meta: { reason: reason.trim() }, ip: null });
+  const { rev: _r, ...prevNoRev } = eff.state;
+  const c = await commitState(leadId, eff.state, { ...prevNoRev, held: { reason: reason.trim(), by: actor, at: nowIso() } }, { action: A.held, actor, targetType: "lead", targetId: leadId, meta: { reason: reason.trim() }, ip: null });
+  if (!c.ok) return { ok: false, reason: c.conflict ? STALE_MSG : "lead or review not found" };
   return { ok: true };
 }
 
@@ -522,7 +535,8 @@ export async function revisitReview(leadId: string, opts: { actor?: string } = {
   const eff = await effectiveReviewFor(leadId);
   if (!eff) return { ok: false, reason: "lead or review not found" };
   const actor = opts.actor ?? currentActor();
-  await writeEditorialState(leadId, { ...eff.state, held: null });
-  await appendAudit({ action: A.revisited, actor, targetType: "lead", targetId: leadId, meta: {}, ip: null });
+  const { rev: _r, ...prevNoRev } = eff.state;
+  const c = await commitState(leadId, eff.state, { ...prevNoRev, held: null }, { action: A.revisited, actor, targetType: "lead", targetId: leadId, meta: {}, ip: null });
+  if (!c.ok) return { ok: false, reason: c.conflict ? STALE_MSG : "lead or review not found" };
   return { ok: true };
 }

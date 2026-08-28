@@ -71,6 +71,53 @@ atomicity + production regeneration remain gated. Nothing deployed; autosend OFF
 
 ---
 
+## M2-SIMPLIFIED — completion pass (2026-08-27)
+
+**Verdict: ACCEPTED for the simplified scope, with two named gates left open (live-provider regen quality;
+UI live-browser visual). No production writes, no send, autosend OFF, nothing pushed/merged/deployed.**
+
+Start `a586d87` → work is uncommitted in worktree `~/artifex-outreach-qr` (branch `feat/quick-review-editorial`).
+Full editor stays DEFERRED. All prior M1/M2 backend work preserved.
+
+### Delivered this pass
+- **Gate 3 — Lightweight operator UI** (NEW files under `src/app/(app)/leads/[id]/operator-review/`): a
+  page + client panel with exactly the four controls (Preview → opens `/api/quick-review/[id]/pdf` after
+  recording the preview; Approve → version-bound, disabled until every readiness check passes; Regenerate
+  → propose/accept a new draft via the adapter, never auto-approve; Skip/Hold → reason-required, excludes
+  from delivery, Revisit to return). Reuses existing server actions; typecheck + lint clean; mobile-first.
+- **Gate 6 — Real DB-level atomicity + transactional audit** (`commitReviewEditorial` in `repo.ts`;
+  `review-revisions.ts` refactored so every mutation funnels through it): editorial state carries a
+  monotonic `rev`; each write is a conditional `UPDATE … WHERE rev = <read>` (true CAS under the row lock),
+  and the state write + its audit event commit in ONE transaction. **6 integration tests PASS on real
+  Postgres** (concurrent→one wins; stale/duplicate→conflict; loser writes no audit; unrelated data preserved).
+- **Gate 7 — Universal delivery protection** (`comms/dispatch.ts`): any review-bearing initial send whose
+  PDF isn't attachable now FAILS CLOSED (legacy/unedited included) — no bare email in place of the review;
+  internal-test exempt. **3 dispatch tests PASS**.
+- **Gate 4 — Regeneration adapter** (`outreach/review-regen-provider.ts` on the `providers/ai.ts` infra):
+  evidence-constrained, succeeded/failed states, server-authorized, audited with the ACTUAL provider (mock
+  never mislabeled as live). Live/paid path code-complete but GATED behind `REGEN_LIVE_ENABLED=1`; **no spend
+  this pass** → provider-tested = NO. **5 contract tests PASS**.
+- **Gate 8 — E2E acceptance on real Postgres**: **5 tests PASS** (clean approve→bytes+manifest; blocked
+  skip/hold; edit-invalidates-approval; concurrent-edit CAS; propose-not-replace).
+
+### Test posture
+- `npm test` (in-memory): **1595 passing**, the two `.db.integration` files SKIP by design. One known
+  environmental flake — `quick-review.test.ts` "renders a valid PDF WITH an embedded data-URI logo" — a
+  react-pdf render that times out only under heavy concurrent load; it PASSES in isolation (~36s).
+- Real-Postgres integration: **11/11 PASS** (Gate 6 + Gate 8). Isolated test DB `artifex_outreach_test`;
+  production never touched.
+
+### Open gates (honest)
+1. Live (paid) regeneration output quality — UNVERIFIED (no spend). Gate open behind `REGEN_LIVE_ENABLED=1`.
+2. UI live-browser + real-device visual verification — NOT run (typecheck + lint clean; PDF artifacts were
+   visually inspected in the earlier pass). Requires running app + operator session + browser tooling.
+3. Evidence validation depth — numeric + absence-scope heuristics only (qualitative/comparative/outcome
+   claims fail-closed at approval, not deep-semantically validated).
+
+Artifacts: `docs/artifacts/quick-review-m2/m2-simplified-results.md` + `db-integration-results.txt`.
+
+---
+
 ## SEND-READY YIELD DIAGNOSIS (Gates 5 + 6) — the readiness decision
 
 Harness `scripts/diagnose-yield.ts` (read-only, no new collection) over the frozen 20-record batch.

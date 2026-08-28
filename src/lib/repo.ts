@@ -9,7 +9,7 @@
 // callers now await. Rows map 1:1 to domain objects (schema uses camelCase JS keys
 // and string-mode timestamps), so the Postgres path needs almost no mapping.
 // ─────────────────────────────────────────────────────────────────────────────
-import { eq, and, inArray, lte, isNull } from "drizzle-orm";
+import { eq, and, inArray, lte, isNull, sql } from "drizzle-orm";
 import { hasDb, getDb } from "@/db/client";
 import * as t from "@/db/schema";
 import { db as mem, newId, nowIso, normalizeName, domainFromUrl, normalizePhone, defaultSettings, defaultProspecting } from "./store";
@@ -288,6 +288,60 @@ export async function upsertBusinessIntelligence(row: {
     updatedAt: nowIso(),
     ...scalars,
   } as StoredBusinessIntelligence);
+}
+
+// ── Atomic compare-and-swap for the Quick Review editorial subtree (M2 Gate 6) ──
+// True DB-level concurrency protection: the review's editorial state lives in the BI `profile`
+// jsonb at {businessProfile,reviewEditorial}. We version it with a monotonic `rev` and update it
+// ONLY when the stored rev still equals the rev the caller read (a conditional UPDATE — Postgres
+// re-evaluates the predicate against the latest committed row under the row lock, so two racing
+// writers cannot both win). The state write AND its audit event commit in ONE transaction, so an
+// approval is never reported successful when its durable audit event would be lost, and a losing
+// writer persists neither the state nor a misleading audit row.
+const CAS_CONFLICT = Symbol("cas-conflict");
+export async function commitReviewEditorial(args: {
+  leadId: string;
+  expectedRev: number;
+  nextEditorial: unknown; // ReviewEditorialState with rev = expectedRev + 1
+  audit: Omit<AuditEntry, "id" | "createdAt"> | null;
+}): Promise<{ ok: boolean; conflict: boolean }> {
+  const { leadId, expectedRev, nextEditorial } = args;
+  const auditRow: AuditEntry | null = args.audit ? { ...args.audit, id: newId("audit"), createdAt: nowIso() } : null;
+  if (hasDb()) {
+    const db = getDb();
+    try {
+      await db.transaction(async (tx) => {
+        // Conditional UPDATE on the newest BI row for this lead. rowCount 0 ⇒ someone moved the rev.
+        const res: any = await tx.execute(sql`
+          UPDATE business_intelligence
+          SET profile = jsonb_set(profile, '{businessProfile,reviewEditorial}', ${JSON.stringify(nextEditorial)}::jsonb, true),
+              updated_at = ${nowIso()}
+          WHERE id = (SELECT id FROM business_intelligence WHERE lead_id = ${leadId} ORDER BY generated_at DESC LIMIT 1)
+            AND COALESCE((profile #>> '{businessProfile,reviewEditorial,rev}')::int, 0) = ${expectedRev}
+          RETURNING id
+        `);
+        const affected = Array.isArray(res) ? res.length : (res?.rows?.length ?? res?.count ?? 0);
+        if (!affected) throw CAS_CONFLICT; // aborts the tx → no audit row written
+        if (auditRow) await tx.insert(t.auditLog).values(auditRow as any);
+      });
+      return { ok: true, conflict: false };
+    } catch (e) {
+      if (e === CAS_CONFLICT) return { ok: false, conflict: true };
+      throw e;
+    }
+  }
+  // In-memory backend (tests / local dev): read-compare-write happens SYNCHRONOUSLY with no await
+  // between the check and the mutation, so it is atomic even under Promise.all in a single JS thread.
+  const arr = (mem() as any).businessIntelligence as StoredBusinessIntelligence[];
+  const row = arr.filter((r) => r.leadId === leadId).sort((a, b) => +new Date(b.generatedAt) - +new Date(a.generatedAt))[0];
+  if (!row) return { ok: false, conflict: false }; // no BI to attach editorial state to
+  const bp: any = (row.profile as any)?.businessProfile;
+  const curRev = bp?.reviewEditorial?.rev ?? 0;
+  if (curRev !== expectedRev) return { ok: false, conflict: true };
+  bp.reviewEditorial = nextEditorial;
+  row.updatedAt = nowIso();
+  if (auditRow) (mem() as any).audit = [...(((mem() as any).audit) ?? []), auditRow];
+  return { ok: true, conflict: false };
 }
 
 // ── Videos ───────────────────────────────────────────────────────────────────
