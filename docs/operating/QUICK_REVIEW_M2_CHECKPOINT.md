@@ -187,16 +187,48 @@ correct operator model is the lightweight preview→approve/skip flow over the 1
   `QR_AUTOSEND_ENABLED=1`. `authorizationValidForDispatch` re-verifies via the deterministic revision
   fingerprint (drift → fail closed). 7 tests.
 
-### OUTSTANDING toward the dry run + activation (Gates 5–10) — NOT built this pass
-- **Gate 5 scheduler/quota**: weekday 08:00–10:00 (recipient tz; fallback America/Los_Angeles;
-  cap-accounting tz America/Los_Angeles), **20/weekday** total, atomic quota reservation across
-  workers, staggered, persisted, no weekend/catch-up burst, pause-all at the dispatch boundary.
-- **Gate 6/7 suppression + reply/reminder**: much EXISTS (suppression re-check at dispatch, dedup,
-  reply capture, follow-up stop). Needs: verify sender SPF/DKIM/DMARC (read-only), one-hour reminder
-  logic, inbox integration confirmation. NOT yet verified/built this pass.
-- **Gate 8 queue replenishment**, **Gate 9 non-delivering dry run**, **Gate 10 activation package**.
+- **Gate 5 (weekday scheduler + shared cap + pause) DONE + TESTED.** `outreach-scheduler.ts`
+  (`runScheduledOutreach`): processes candidate leadIds in order; at the dispatch boundary for EACH it
+  (1) checks pause-all (`QR_OUTREACH_PAUSED=1`), (2) re-counts the shared **20/LA-day** cap from the
+  `email_sends` ledger (`countSentToday()`, so follow-ups + manual + automated all draw the same pool;
+  re-counted before every dispatch so a burst/concurrent tick can't exceed it), (3) enforces the
+  **weekday 08:00–10:00** window in the recipient's tz (LA fallback when tz unknown; no weekend/
+  afternoon/overnight; no catch-up burst), (4) calls `authorizeForSend`, (5) re-verifies via
+  `authorizationValidForDispatch` (deterministic fingerprint), then hands the **exact authorized PDF
+  bytes** to an INJECTED transport. Cap-accounting tz = America/Los_Angeles. Pure helpers
+  (`laDayKey`, `withinMorningWindow`, `recipientWindowTz`, `outreachPaused`) unit-tested.
+- **Gate 6 (deliverable queue depth) MEASURED (read-only, real DB).** Full active pool = **96** real
+  leads; **30** are content-SENDABLE under the one-finding policy, but **20** SENDABLE have no valid
+  email and **0** are suppressed → **10 currently DELIVERABLE** (content-eligible + valid email + not
+  suppressed). That 10 is the honest first-batch size; the scheduler re-authorizes every candidate
+  live at each tick, so the count drifting between now and launch cannot produce an unsafe send.
+- **Gate 7 (non-delivering dry run) DONE.** `outreach-scheduler.test.ts` (10 tests, all green) drives
+  the full path with a NON-DELIVERING transport (pushes to `dispatched[]`, never a provider): strong
+  one-finding → sent; policy-off → held(disabled); weekend + afternoon → outside-window; **20-cap**
+  (base 19 → exactly 1 sent, 2 quota-reached); pause-all → paused; suppressed + held → both held;
+  ambiguous provider response → slot RETAINED, NOT counted sent (no double-send); idempotency (second
+  tick at cap → no resend). Zero real emails.
+- **Gate 8 (reply / reminder / sender readiness) VERIFIED (read-only).** Reply capture + follow-up
+  STOP + suppression already exist and are launch-critical-satisfied (`comms/reply.ts`; reply-to =
+  hello@artifexlabs.tech → Outlook MX). **Sender auth (DNS):** SPF includes outlook + amazonses;
+  DKIM (Resend selector) present; DMARC `p=quarantine` (relaxed); MX → Outlook. Final Resend-dashboard
+  "verified" is a pre-launch console check. **One-hour reminder = the single NARROWLY-BLOCKED item:**
+  it needs a signal that Jordan replied from Outlook (Resend handles OUTBOUND; the inbound webhook
+  captures INBOUND to hello@; detecting Jordan's own SENT reply is not confirmed available). Proposed
+  substitute: cancel the reminder on an explicit operator "handled" action instead of sent-items
+  polling. Nothing else blocks launch.
+
+### DURABLE LOCATIONS (Gate 8)
+- Code (git-backed @ `cc0edb3`): `src/lib/outreach/{outreach-scheduler,review-send-policy,
+  review-revisions,review-evidence}.ts` + their `.test.ts`.
+- Read-only harnesses: `scripts/{diagnose-yield,eval-generation,queue-accounting,morning-queue}.ts`.
+- **NOT git-backed (gitignored):** generated PDFs and `docs/artifacts/quick-review-m2/**` manifests —
+  they are reproducible from the deterministic builder, not durable artifacts. Do not treat their
+  presence as evidence of a send.
 
 ### Exact next action
-Build Gate 5 (scheduler + atomic quota + pause-all) wiring `authorizeForSend` → a persisted daily
-queue, then the non-delivering dry run (Gate 9). Activation package (Gate 10) is NOT ready until the
-scheduler + dry run pass. Nothing deployed; autosend OFF; no real sends.
+Scheduler + dry run PASS. The activation package is presented to Jordan (base SHA `cc0edb3`,
+first-batch deliverable = 10, enable = `QR_AUTOSEND_ENABLED=1` + `QR_OUTREACH_PAUSED` unset,
+Mon–Fri 08:00–10:00 LA, cap 20/day, sender/reply-to hello@artifexlabs.tech). **Awaiting ONE explicit
+authorization.** Nothing deployed; autosend OFF; no real sends. The only open build item is the
+one-hour reminder (blocked as above) — not launch-critical.
