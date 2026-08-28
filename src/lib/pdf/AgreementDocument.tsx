@@ -28,8 +28,12 @@ const s = StyleSheet.create({
   topbar: { position: "absolute", top: 22, left: page.marginX, right: page.marginX, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   topbarLabel: { ...LABEL, fontSize: 7, color: color.textFaint },
   topRule: { position: "absolute", top: 40, left: page.marginX, right: page.marginX, borderBottomWidth: HAIRLINE, borderBottomColor: color.hairline },
-  footer: { position: "absolute", bottom: 28, left: page.marginX, right: page.marginX, flexDirection: "row", justifyContent: "space-between", alignItems: "center", borderTopWidth: HAIRLINE, borderTopColor: color.hairline, paddingTop: 7 },
+  footer: { position: "absolute", bottom: 28, left: page.marginX, right: page.marginX, flexDirection: "row", alignItems: "center", borderTopWidth: HAIRLINE, borderTopColor: color.hairline, paddingTop: 7 },
   footerText: { ...ff("sans", 400), fontSize: 7.5, color: color.textMuted, letterSpacing: 0.2 },
+  // Left note flexes and truncates; the page counter owns a fixed, reserved area on
+  // the right that the note can never grow into — so no overlap even with long inputs.
+  footerNote: { flexShrink: 1, flexGrow: 1, marginRight: 12 },
+  footerPage: { flexShrink: 0, width: 78, textAlign: "right" as const },
 
   draftBanner: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "#FBEEDF", borderWidth: HAIRLINE, borderColor: color.heatSoft, borderRadius: radius.sm, paddingVertical: 7, paddingHorizontal: 10, marginBottom: space.lg },
   draftDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: color.heat },
@@ -118,8 +122,8 @@ function TopBar({ number }: { number: string }) {
 function Footer({ note, draft }: { note: string; draft: boolean }) {
   return (
     <View style={s.footer} fixed>
-      <Text style={s.footerText}>{draft ? "DRAFT — pending legal review · " : ""}{note}</Text>
-      <Text style={s.footerText} render={({ pageNumber, totalPages }) => `Page ${pageNumber} of ${totalPages}`} />
+      <Text style={[s.footerText, s.footerNote]}>{draft ? "DRAFT — pending legal review · " : ""}{note}</Text>
+      <Text style={[s.footerText, s.footerPage]} render={({ pageNumber, totalPages }) => `Page ${pageNumber} of ${totalPages}`} />
     </View>
   );
 }
@@ -176,7 +180,10 @@ export function AgreementDocument({ agreement, showDraftMarking }: { agreement: 
   const bodySections = sections.filter((sec) => sec.heading !== "Signature Blocks");
   const generated = new Date(c.generatedAt).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
   const number = c.agreementNumber;
-  const footerNote = `${number} · v${c.version} · ${c.clientBusinessName} · Confidential`;
+  // Compact footer note — NO company name (long names collided with the page counter).
+  // The page counter lives in its own reserved right-hand area; this note truncates
+  // before it could ever reach that area.
+  const footerNote = `${number} · v${c.version} · Confidential`;
   const proposalRef = c.proposalNumber ? `${c.proposalNumber} · v${c.proposalVersion}` : c.proposalId;
 
   return (

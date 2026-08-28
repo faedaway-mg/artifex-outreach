@@ -17,6 +17,12 @@
 import path from "path";
 import fs from "fs";
 import { Font } from "@react-pdf/renderer";
+import { installTextDecoderFix } from "./textdecoder-fix";
+
+// Restore correct single-byte TextDecoder behavior (Node 23.4.0 defect) BEFORE the
+// font-parsing probe, so brand fonts embed and the PDF renders identically across
+// viewers instead of falling back to unembedded standard-14 fonts.
+installTextDecoderFix();
 
 type Role = "display" | "sans" | "mono";
 type Weight = 400 | 500 | 600 | 700;

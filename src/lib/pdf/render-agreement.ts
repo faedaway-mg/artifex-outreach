@@ -1,3 +1,7 @@
+// MUST be first: restore correct single-byte TextDecoder (Node 23.4.0 defect) before
+// @react-pdf/renderer pulls in fontkit, which captures a TextDecoder at module load.
+// Without this, brand fonts fail to parse and the PDF falls back to unembedded fonts.
+import "./design/textdecoder-fix";
 import { renderToBuffer } from "@react-pdf/renderer";
 import { AgreementDocument } from "./AgreementDocument";
 import type { Agreement } from "@/lib/types";
