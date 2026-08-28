@@ -869,6 +869,32 @@ export const invoices = pgTable(
   }),
 );
 
+// ── Payment events (M3) — durable provider event receipts. Recorded BEFORE the
+// effect is applied so an event that arrives early or whose apply fails is never
+// lost. `event_id` is UNIQUE (idempotent across deliveries); `processed_at` is set
+// only after the effect commits. Reconciliation replays these.
+export const paymentEvents = pgTable(
+  "payment_events",
+  {
+    id: text("id").primaryKey(),
+    provider: text("provider").notNull().default("stripe"),
+    eventId: text("event_id").notNull(),
+    eventType: text("event_type").notNull(),
+    providerInvoiceId: text("provider_invoice_id"),
+    invoiceId: text("invoice_id"),
+    issuerId: text("issuer_id"),
+    payload: jsonb("payload"),
+    occurredAt: ts("occurred_at").notNull(),
+    receivedAt: ts("received_at").notNull(),
+    processedAt: ts("processed_at"),
+    outcome: text("outcome"),
+  },
+  (t) => ({
+    eventIdx: uniqueIndex("payment_events_event_id_idx").on(t.eventId),
+    invoiceIdx: index("payment_events_invoice_idx").on(t.providerInvoiceId),
+  }),
+);
+
 // ── Relationship Memory — persistent, provenance-carrying business knowledge ──
 export const relationshipMemory = pgTable(
   "relationship_memory",

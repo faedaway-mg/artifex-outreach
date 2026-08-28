@@ -679,6 +679,26 @@ export interface Invoice {
   updatedAt: string;
 }
 
+// Durable provider event receipt (M3). Every signature-verified provider event is
+// recorded here BEFORE its effect is applied, so an event that arrives before its
+// invoice exists, or whose apply fails, is never lost — it is replayed by
+// reconciliation. `processedAt` is set only after the effect is durably committed;
+// `eventId` is unique (idempotency across deliveries).
+export interface PaymentEvent {
+  id: string;
+  provider: string; // "stripe"
+  eventId: string; // provider event id — unique
+  eventType: string; // e.g. "invoice.paid"
+  providerInvoiceId: string | null;
+  invoiceId: string | null; // resolved local invoice, when known
+  issuerId: string | null;
+  payload: unknown;
+  occurredAt: string;
+  receivedAt: string;
+  processedAt: string | null; // null = received but effect not yet committed
+  outcome: string | null; // applied | duplicate | ignored | unmapped | pending_unmatched
+}
+
 export interface Suppression {
   id: string;
   email: string | null;

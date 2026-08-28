@@ -64,10 +64,10 @@ describe("stripe invoice webhook", () => {
     expect(r.result).toBe("issuer_mismatch");
   });
 
-  it("acks an unmatched invoice without mutating anything", async () => {
+  it("retains an event whose invoice does not exist yet (pending_unmatched, not lost)", async () => {
     const r = await send({ id: "e", type: "invoice.paid", created: NOW, data: { object: { id: "in_UNKNOWN" } } });
     expect(r.status).toBe(200);
-    expect(r.result).toBe("unmatched");
+    expect(r.result).toBe("pending_unmatched");
   });
 
   it("applies a charge.refunded (partial) via object.invoice reference", async () => {

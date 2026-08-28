@@ -26,6 +26,7 @@ import type {
   AgreementEvent,
   Payment,
   Invoice,
+  PaymentEvent,
   Suppression,
   Settings,
   StoredBusinessIntelligence,
@@ -53,6 +54,7 @@ export interface Collections {
   agreementEvents: AgreementEvent[];
   payments: Payment[];
   invoices: Invoice[];
+  paymentEvents: PaymentEvent[];
   suppressions: Suppression[];
   businessIntelligence: StoredBusinessIntelligence[];
   relationshipMemory: RelationshipMemoryItem[];
@@ -83,6 +85,7 @@ function createEmpty(): Collections {
     agreementEvents: [],
     payments: [],
     invoices: [],
+    paymentEvents: [],
     suppressions: [],
     businessIntelligence: [],
     relationshipMemory: [],

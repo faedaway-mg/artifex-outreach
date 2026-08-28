@@ -27,6 +27,7 @@ import { deriveSchedule, reconcileSchedule, isMilestoneEligible } from "./milest
 import { invoiceIdempotencyKey, shouldSkipForPaidCheckoutDeposit, canTransition, type InvoiceState } from "./invoice";
 import { agreementSendingEnabled } from "../esign/gate";
 import { prepareInvoice, finalizeInvoice, type FetchImpl } from "../payments/stripe-invoice";
+import { reconcileInvoiceFromEvents } from "../payments/reconcile";
 import { nowIso } from "../store";
 import { closingCan } from "./authz";
 import type { Role } from "../operators/roles";
@@ -173,12 +174,15 @@ export async function issueMilestoneInvoice(invoiceId: string, opts: IssueOpts):
   );
   if (!finalized.ok || !finalized.data) return { ok: false, blocked: finalized.blocked, reason: finalized.error };
 
-  const updated = await updateInvoice(invoice.id, {
+  await updateInvoice(invoice.id, {
     state: "issued",
     providerInvoiceId: finalized.data.invoiceId,
     hostedInvoiceUrl: finalized.data.hostedInvoiceUrl,
     issuedAt: nowIso(),
   });
+  // Absorb any events that arrived before this invoice had a provider id (races).
+  const reconciled = await reconcileInvoiceFromEvents(invoice.id);
+  const updated = reconciled?.invoice ?? (await getInvoice(invoice.id));
   await appendAudit({
     action: "invoice.issue",
     actor: opts.actor,

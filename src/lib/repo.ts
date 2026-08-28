@@ -31,6 +31,7 @@ import type {
   AgreementEvent,
   Payment,
   Invoice,
+  PaymentEvent,
   Suppression,
   Settings,
   PipelineStage,
@@ -129,6 +130,7 @@ const AgreementEvents = collection<AgreementEvent>(t.agreementEvents, () => ((me
 const memAgreementEvents = () => ((mem() as any).agreementEvents ??= []) as AgreementEvent[];
 const Payments = collection<Payment>(t.payments, () => ((mem() as any).payments ??= []));
 const Invoices = collection<Invoice>(t.invoices, () => ((mem() as any).invoices ??= []));
+const PaymentEvents = collection<PaymentEvent>(t.paymentEvents, () => ((mem() as any).paymentEvents ??= []));
 
 // ── Leads ────────────────────────────────────────────────────────────────────
 export async function listLeads(): Promise<Lead[]> {
@@ -480,6 +482,39 @@ export async function getInvoiceByProviderId(providerInvoiceId: string): Promise
   if (!providerInvoiceId) return undefined;
   if (hasDb()) return (await getDb().select().from(t.invoices).where(eq(t.invoices.providerInvoiceId, providerInvoiceId)))[0] as any;
   return (await Invoices.all()).find((i) => i.providerInvoiceId === providerInvoiceId);
+}
+
+// ── Payment events (M3 durable receipts) ─────────────────────────────────────
+export const updatePaymentEvent = (id: string, patch: Partial<PaymentEvent>) =>
+  PaymentEvents.update(id, patch);
+
+export async function getPaymentEventByEventId(eventId: string): Promise<PaymentEvent | undefined> {
+  if (!eventId) return undefined;
+  if (hasDb()) return (await getDb().select().from(t.paymentEvents).where(eq(t.paymentEvents.eventId, eventId)))[0] as any;
+  return (await PaymentEvents.all()).find((e) => e.eventId === eventId);
+}
+
+export async function paymentEventsForProviderInvoice(providerInvoiceId: string): Promise<PaymentEvent[]> {
+  if (!providerInvoiceId) return [];
+  if (hasDb()) return (await getDb().select().from(t.paymentEvents).where(eq(t.paymentEvents.providerInvoiceId, providerInvoiceId))) as any;
+  return (await PaymentEvents.all()).filter((e) => e.providerInvoiceId === providerInvoiceId);
+}
+
+/** Record a receipt idempotently by provider event id. inserted:false = duplicate. */
+export async function recordPaymentEventIfAbsent(
+  seed: Omit<PaymentEvent, "id">,
+): Promise<{ inserted: boolean; row: PaymentEvent }> {
+  const row = { ...seed, id: newId("pevt") } as PaymentEvent;
+  if (!hasDb()) {
+    const arr = ((mem() as any).paymentEvents ??= []) as PaymentEvent[];
+    const existing = arr.find((e) => e.eventId === seed.eventId);
+    if (existing) return { inserted: false, row: existing };
+    arr.push(row);
+    return { inserted: true, row };
+  }
+  await getDb().insert(t.paymentEvents).values(row as any).onConflictDoNothing({ target: t.paymentEvents.eventId });
+  const stored = await getPaymentEventByEventId(seed.eventId);
+  return { inserted: stored?.id === row.id, row: stored ?? row };
 }
 
 /**

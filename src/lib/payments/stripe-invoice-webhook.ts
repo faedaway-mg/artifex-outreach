@@ -11,7 +11,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import { verifyStripeSignature } from "./stripe-webhook";
 import { applyInvoiceEvent, type InvoiceEvent } from "./invoice-events";
-import { getInvoiceByProviderId, updateInvoice, insertAgreementEventIfAbsent } from "../repo";
+import { getInvoiceByProviderId, updateInvoice, recordPaymentEventIfAbsent, updatePaymentEvent } from "../repo";
+import { nowIso } from "../store";
 
 export type InvoiceWebhookResult = { ok: boolean; status: number; kind: string; result?: string };
 
@@ -47,40 +48,57 @@ export async function handleStripeInvoiceWebhook(input: {
     return { ok: false, status: 400, kind: "bad_json" };
   }
   const type = String(event.type ?? "");
-  const eventId = String(event.id ?? "");
+  const eventId = String(event.id ?? "") || `${type}:${event.created ?? ""}`;
   const obj = event.data?.object ?? {};
   // invoice.* events carry the invoice id as object.id; charge.* carry it as object.invoice.
   const providerInvoiceId = String(obj.invoice ?? obj.id ?? "");
   if (!providerInvoiceId) return { ok: true, status: 200, kind: type || "unknown", result: "no_invoice_ref" };
 
-  const invoice = await getInvoiceByProviderId(providerInvoiceId);
-  if (!invoice) return { ok: true, status: 200, kind: type, result: "unmatched" };
+  const occurredAt = event.created ? new Date(event.created * 1000).toISOString() : nowIso();
 
-  // 2) Account/environment isolation: reject events for a different issuer's account.
+  // 2) DURABLE RECEIPT FIRST — recorded (deduped by event id) BEFORE any effect, so
+  // an event that arrives before its invoice, or whose apply fails, is never lost.
+  const { inserted, row: receipt } = await recordPaymentEventIfAbsent({
+    provider: "stripe",
+    eventId,
+    eventType: type,
+    providerInvoiceId,
+    invoiceId: null,
+    issuerId: null,
+    payload: event as unknown,
+    occurredAt,
+    receivedAt: nowIso(),
+    processedAt: null,
+    outcome: null,
+  });
+  // A duplicate delivery: the first receipt already governs; do not re-apply.
+  if (!inserted) return { ok: true, status: 200, kind: type, result: "duplicate" };
+
+  const invoice = await getInvoiceByProviderId(providerInvoiceId);
+  if (!invoice) {
+    // The invoice does not exist yet (event raced ahead of local creation). The
+    // receipt is retained UNPROCESSED and will be replayed by reconciliation once
+    // the invoice is issued. Nothing is lost.
+    await updatePaymentEvent(receipt.id, { outcome: "pending_unmatched" });
+    return { ok: true, status: 200, kind: type, result: "pending_unmatched" };
+  }
+
+  // 3) Account/environment isolation: reject events for a different issuer's account.
   if (invoice.issuerId !== input.expectedIssuerId) {
+    await updatePaymentEvent(receipt.id, { invoiceId: invoice.id, issuerId: invoice.issuerId, outcome: "issuer_mismatch" });
     return { ok: false, status: 409, kind: type, result: "issuer_mismatch" };
   }
 
-  // 3) Idempotency: dedupe by Stripe event id across deliveries.
-  const dedupeKey = `stripe-invoice:${eventId || `${type}:${providerInvoiceId}:${event.created ?? ""}`}`;
-  const { inserted } = await insertAgreementEventIfAbsent({
-    agreementId: invoice.agreementId,
-    provider: "stripe",
-    eventType: type,
-    dedupeKey,
-    payload: event as unknown,
-    occurredAt: event.created ? new Date(event.created * 1000).toISOString() : new Date().toISOString(),
-  });
-  if (!inserted) return { ok: true, status: 200, kind: type, result: "duplicate" };
-
-  // 4) Apply via the pure reducer.
+  // 4) Apply via the pure reducer. Mark the receipt PROCESSED only after the effect
+  // commits — a failed apply leaves processedAt null so reconciliation retries it.
   const ev: InvoiceEvent = {
     type,
-    occurredAt: event.created ? new Date(event.created * 1000).toISOString() : new Date().toISOString(),
+    occurredAt,
     amountRefundedCents: typeof obj.amount_refunded === "number" ? obj.amount_refunded : undefined,
     disputeStatus: obj.status,
   };
   const { outcome, patch } = applyInvoiceEvent(invoice, ev);
   if (outcome === "applied") await updateInvoice(invoice.id, patch);
+  await updatePaymentEvent(receipt.id, { invoiceId: invoice.id, issuerId: invoice.issuerId, processedAt: nowIso(), outcome });
   return { ok: true, status: 200, kind: type, result: outcome };
 }
