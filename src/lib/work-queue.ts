@@ -9,13 +9,18 @@
 import type { Task, TaskType, Lead } from "./types";
 import { determineContactStrategy, strategyToWorkKind } from "./outreach/contact-strategy";
 import { knownClosedNow } from "./timezone";
-import { isOrdinaryColdPhoneFirst, predictablyClosedForWeekend } from "./outreach/call-priority";
+import { isEngaged, predictablyClosedForWeekend } from "./outreach/call-priority";
 
-/** Should this CALL be withheld from the PRIMARY board right now? Composes the three
- *  value-first withholds: a locked door (known closed), a predictably-out weekend office,
- *  and an ordinary completely-cold phone-first lead (deprioritized, never deleted). */
+/** Should this CALL be withheld from the PRIMARY board right now?
+ *  EMAIL-FIRST policy: the system SURFACES a call only after the prospect has ENGAGED (a booked
+ *  meeting / an in-conversation stage a positive reply drives). A cold prospect, or one we merely
+ *  emailed and heard nothing back from, is NEVER auto-surfaced for a call — that eliminates cold-call
+ *  busywork and unanswered-email chasing. Engaged calls still respect the door: a known-closed office
+ *  or a predictably-out weekend office is withheld. Numbers/history are preserved; the operator can
+ *  always initiate a call by hand from a live reply — this governs only what the queue proposes. */
 export function callWithheld(lead: Lead, now: Date): boolean {
-  return knownClosedNow(lead, now) || predictablyClosedForWeekend(lead, now) || isOrdinaryColdPhoneFirst(lead);
+  if (!isEngaged(lead)) return true;
+  return knownClosedNow(lead, now) || predictablyClosedForWeekend(lead, now);
 }
 
 export type WorkKind = "reply" | "discovery" | "follow-up" | "email" | "report" | "call" | "contact-form" | "instagram-dm" | "video" | "understand";

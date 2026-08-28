@@ -24,6 +24,21 @@ import { zonedParts } from "../timezone";
 // scores well enough to justify it. Tier A or a strong lead score clears the bar.
 const HIGH_VALUE_SCORE = 70;
 
+// Engagement = the prospect has actually leaned in. Email-first policy: a call task is only OFFERED
+// after engagement — a booked meeting or a stage past first contact that a POSITIVE reply drives —
+// never as cold-prospect busywork and never off an unanswered email. "Contacted"/"Follow-Up" mean we
+// merely sent outbound and are NOT engagement. Operator-initiated calls from a live reply are always
+// available; this only governs which calls the system SURFACES on its own.
+const ENGAGED_STAGES = new Set([
+  "Meeting Booked", "Discovery Complete", "Proposal Sent", "Proposal Accepted",
+  "Agreement Signed", "Deposit Paid", "Won",
+]);
+
+/** Has the prospect ENGAGED (booked / in active conversation), so a call is genuinely warranted? */
+export function isEngaged(lead: Pick<Lead, "pipelineStage">): boolean {
+  return ENGAGED_STAGES.has(lead.pipelineStage);
+}
+
 /** Has this business already received Artifex context (so a call would be WARM, not cold)? */
 export function hasPriorContext(lead: Pick<Lead, "lastContactAt" | "nextFollowUpAt" | "pipelineStage">): boolean {
   if (lead.lastContactAt) return true; // we've spoken / emailed — there is context to reference

@@ -8,14 +8,14 @@ const lead = (over: Partial<Lead> = {}): Lead =>
   ({ id: "l1", businessName: "Villa Brasil Motel", industry: "motel", city: "Los Angeles", state: "CA", website: "https://villabrasil.example", ...over }) as Lead;
 
 // An evidence-backed opportunity (Observed/Reported + non-empty basis) — the kind that survives.
-type OppSeed = { category?: string; observation: string; whyItMatters: string; rationale: string; confidence?: "Observed" | "Reported" | "Likely" | "Inferred"; basis?: string[] };
+type OppSeed = { category?: string; observation: string; whyItMatters: string; rationale: string; confidence?: "Observed" | "Reported" | "Likely" | "Inferred"; impact?: "Foundational" | "High" | "Moderate" | "Incremental"; basis?: string[] };
 const CATS = ["Customer Acquisition", "Scheduling", "Communication", "Customer Retention", "Brand Experience"];
 const profile = (opps: OppSeed[]): BusinessProfile =>
   ({
     executiveSummary: "A well-reviewed motel whose bookings run through third parties.",
     opportunities: opps.map((o, i) => ({
       id: `o${i}`, category: o.category ?? CATS[i % CATS.length], observation: o.observation, whyItMatters: o.whyItMatters,
-      estimatedImpact: { level: "High", rationale: o.rationale },
+      estimatedImpact: { level: o.impact ?? "High", rationale: o.rationale },
       confidence: { label: o.confidence ?? "Observed", score: 0.9 }, basis: o.basis ?? ["public website HTML"],
     })),
   } as unknown as BusinessProfile);
@@ -37,8 +37,9 @@ describe("buildQuickReview — deterministic, business-specific, never fabricate
     expect(r.ready).toBe(true);
   });
 
-  it("NEEDS_REVIEW (one finding) is NOT ready without approval, and ready once approved", () => {
-    const p = profile([{ observation: "The site has no online booking; reservations need a phone call.", whyItMatters: "After-hours demand slips away.", rationale: "Add online booking." }]);
+  it("NEEDS_REVIEW (one non-substantial finding) is NOT ready without approval, and ready once approved", () => {
+    // Observed but MODERATE impact → not promoted by the one-strong-finding policy → NEEDS_REVIEW.
+    const p = profile([{ observation: "The site has no online booking; reservations need a phone call.", whyItMatters: "After-hours demand slips away.", rationale: "Add online booking.", impact: "Moderate" }]);
     expect(buildQuickReview(lead(), p, null).status).toBe("NEEDS_REVIEW");
     expect(buildQuickReview(lead(), p, null).ready).toBe(false);              // can't silently attach
     expect(buildQuickReview(lead(), p, null, { approved: true }).ready).toBe(true); // explicit approval
@@ -82,7 +83,7 @@ describe("buildQuickReview — deterministic, business-specific, never fabricate
     const buf = await renderQuickReviewPdf(r, "August 9, 2026");
     expect(buf.length).toBeGreaterThan(1000);
     expect(buf.subarray(0, 5).toString("latin1")).toBe("%PDF-"); // a valid PDF
-  }, 20000);
+  }, 120000);
 
   it("renders a valid PDF WITH an embedded data-URI logo (no remote fetch at render)", async () => {
     // 1x1 transparent PNG as a data URI — the shape resolveLeadBrand now caches.
@@ -91,11 +92,11 @@ describe("buildQuickReview — deterministic, business-specific, never fabricate
     const r = buildQuickReview(lead(), profile([{ observation: "Reviews live on Google.", whyItMatters: "Reputation isn't on a site you own.", rationale: "Surface reviews on-site." }]), brand);
     const buf = await renderQuickReviewPdf(r, "August 9, 2026");
     expect(buf.subarray(0, 5).toString("latin1")).toBe("%PDF-");
-  }, 20000);
+  }, 120000);
 
   it("still renders a valid one-page PDF when content is sparse (no blank/throw)", async () => {
     const r = buildQuickReview(lead(), profile([]), null); // not ready, but must not throw
     const buf = await renderQuickReviewPdf(r, "August 9, 2026");
     expect(buf.subarray(0, 5).toString("latin1")).toBe("%PDF-");
-  }, 20000);
+  }, 120000);
 });

@@ -38,7 +38,9 @@ describe("email route gained → automatic reclassification & re-queue", () => {
   it("adding an email flips call-first → email-first and re-buckets the outreach task to email", async () => {
     const l = await seedCallFirst();
     expect(determineContactStrategy((await getLead(l.id))!).kind).toBe("call-first");
-    expect(await bucketsFor(l.id)).toEqual(["call"]);
+    // Email-first policy: a cold, unengaged call-first lead surfaces NO proactive work (no cold call,
+    // and no email route yet). Gaining an email is what puts it on the board — as email.
+    expect(await bucketsFor(l.id)).toEqual([]);
 
     const res = await saveCallOutcomeAction(l.id, { outcome: "asked-to-send", verifiedEmail: "info@wilshirelawfirm.com" });
     expect(res.readyToSend).toBe(true);

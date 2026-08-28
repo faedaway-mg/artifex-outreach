@@ -188,6 +188,91 @@ function base(mode: PlacesMode, timestamp: string, filtersApplied: boolean) {
   return { mode, attribution: ATTRIBUTION, timestamp, filtersApplied, pagination: false };
 }
 
+/** Deterministic text query used for both a single search and a paginated one. */
+function buildTextQuery(input: DiscoverInput): string {
+  return [input.keyword, input.category, input.city, input.state, input.postalCode].filter(Boolean).join(" ");
+}
+
+const FIELD_MASK = [
+  "places.id",
+  "places.displayName",
+  "places.formattedAddress",
+  "places.location",
+  "places.primaryType",
+  "places.types",
+  "places.businessStatus",
+  "places.rating",
+  "places.userRatingCount",
+  "places.websiteUri",
+  "places.nationalPhoneNumber",
+  "places.googleMapsUri",
+  "places.regularOpeningHours.weekdayDescriptions",
+  "nextPageToken",
+].join(",");
+
+interface GooglePage {
+  mapped: PlaceResult[];
+  nextPageToken: string | null;
+  httpStatus: number | null;
+  error?: PlacesError;
+}
+
+/**
+ * ONE Google Places (New) text-search request. `pageToken`, when present, requests the
+ * continuation page of the SAME query. Increments the per-instance call counter (each page
+ * is a billable request). Never substitutes mock results; never exposes the key/headers.
+ */
+async function googleTextSearch(query: string, input: DiscoverInput, pageToken: string | null): Promise<GooglePage> {
+  const timestamp = new Date().toISOString();
+  const body: Record<string, unknown> = { textQuery: query, maxResultCount: 20 };
+  if (pageToken) body.pageToken = pageToken;
+  try {
+    CALL_STATE.count += 1;
+    CALL_STATE.last = Date.now();
+    const res = await fetch(ENDPOINT, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Goog-Api-Key": process.env.GOOGLE_PLACES_API_KEY as string,
+        "X-Goog-FieldMask": FIELD_MASK,
+      },
+      body: JSON.stringify(body),
+    });
+    const data: any = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      return {
+        mapped: [],
+        nextPageToken: null,
+        httpStatus: res.status,
+        error: {
+          provider: "google",
+          success: false,
+          httpStatus: res.status,
+          googleStatus: data?.error?.status ?? null,
+          message: sanitize(data?.error?.message) || `Google Places request failed (HTTP ${res.status}).`,
+          timestamp,
+        },
+      };
+    }
+    const mapped = (Array.isArray(data.places) ? data.places : []).map((p: any) => mapGooglePlace(p, input));
+    return { mapped, nextPageToken: typeof data.nextPageToken === "string" && data.nextPageToken ? data.nextPageToken : null, httpStatus: res.status };
+  } catch {
+    return {
+      mapped: [],
+      nextPageToken: null,
+      httpStatus: null,
+      error: {
+        provider: "google",
+        success: false,
+        httpStatus: null,
+        googleStatus: null,
+        message: "Network error contacting Google Places. No mock results were substituted.",
+        timestamp,
+      },
+    };
+  }
+}
+
 export async function searchPlaces(input: DiscoverInput): Promise<PlacesSearchResult> {
   const mode = placesMode();
   const timestamp = new Date().toISOString();
@@ -237,84 +322,275 @@ export async function searchPlaces(input: DiscoverInput): Promise<PlacesSearchRe
     };
   }
 
-  const query = [input.keyword, input.category, input.city, input.state, input.postalCode].filter(Boolean).join(" ");
+  const page = await googleTextSearch(buildTextQuery(input), input, null);
+  if (page.error) {
+    return { provider: "google", success: false, results: [], count: 0, ...base(mode, timestamp, filtersApplied), error: page.error };
+  }
+  const results = applyFilters(page.mapped, input);
+  return {
+    provider: "google",
+    success: true,
+    results,
+    count: results.length,
+    ...base(mode, timestamp, filtersApplied),
+    pagination: Boolean(page.nextPageToken),
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Pagination — walk nextPageToken up to a strict page budget, stopping as soon as
+// the operational target is met (never collecting data without a need). Cross-page
+// dedup on place id / domain / phone / name+address. Same eligibility filters as the
+// single search; NEVER contacts a business, invents an email, or substitutes mock.
+// ─────────────────────────────────────────────────────────────────────────────
+export type PagedStopReason = "target-met" | "max-pages" | "no-token" | "budget" | "error" | "single-page";
+
+export interface PagedSearchOptions {
+  /** Hard cap on pages per query (Google returns ≤20/page). Default env PLACES_MAX_PAGES or 3. */
+  maxPages?: number;
+  /** Stop early once this many eligible (filtered, deduped) results are collected. Default ∞. */
+  targetResults?: number;
+  /** Provider token-readiness delay before each continuation page. Default env PLACES_PAGE_DELAY_MS or 2000. */
+  pageDelayMs?: number;
+  /** Extra retries when a continuation token is not yet ready (INVALID_ARGUMENT/400). Default 1. */
+  tokenRetries?: number;
+  /** Retries for transient errors (HTTP 429/5xx). Default 1. */
+  transientRetries?: number;
+  /** Injectable sleep (tests pass a no-op). */
+  sleep?: (ms: number) => Promise<void>;
+  /** Bypass the query cache for this call. */
+  noCache?: boolean;
+}
+
+export interface PagedSearchResult extends PlacesSearchResult {
+  pagesFetched: number;
+  /** Billable Google requests actually issued (includes retries) — for cost accounting. */
+  requestsMade: number;
+  duplicatesAcrossPages: number;
+  cached: boolean;
+  stopReason: PagedStopReason;
+  /** Present when a later page failed but earlier pages returned usable results (partial success). */
+  partialError?: PlacesError;
+}
+
+function normText(s: string): string {
+  return (s ?? "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+function normPhoneDigits(p: string | null): string {
+  return (p ?? "").replace(/\D/g, "");
+}
+function domainOfUrl(url: string | null): string {
+  if (!url) return "";
   try {
-    CALL_STATE.count += 1;
-    CALL_STATE.last = Date.now();
-    const res = await fetch(ENDPOINT, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Goog-Api-Key": process.env.GOOGLE_PLACES_API_KEY as string,
-        "X-Goog-FieldMask": [
-          "places.id",
-          "places.displayName",
-          "places.formattedAddress",
-          "places.location",
-          "places.primaryType",
-          "places.types",
-          "places.businessStatus",
-          "places.rating",
-          "places.userRatingCount",
-          "places.websiteUri",
-          "places.nationalPhoneNumber",
-          "places.googleMapsUri",
-          "places.regularOpeningHours.weekdayDescriptions",
-          "nextPageToken",
-        ].join(","),
-      },
-      body: JSON.stringify({ textQuery: query, maxResultCount: 20 }),
-    });
+    return new URL(url).hostname.replace(/^www\./i, "").toLowerCase();
+  } catch {
+    return "";
+  }
+}
 
-    const data: any = await res.json().catch(() => ({}));
-
-    if (!res.ok) {
-      // Structured error — no mock, no key/headers exposed.
-      return {
-        provider: "google",
-        success: false,
-        results: [],
-        count: 0,
-        ...base(mode, timestamp, filtersApplied),
-        error: {
-          provider: "google",
-          success: false,
-          httpStatus: res.status,
-          googleStatus: data?.error?.status ?? null,
-          message: sanitize(data?.error?.message) || `Google Places request failed (HTTP ${res.status}).`,
-          timestamp,
-        },
-      };
+/**
+ * Dedupe results that overlap across pages, on ANY strong identity key: place id, website
+ * domain, phone digits, or (business name AND address) together. A chain with the same name
+ * at a DIFFERENT address is kept (distinct business); a repeat of the same listing is dropped.
+ */
+export function dedupeAcrossPages(results: PlaceResult[]): { unique: PlaceResult[]; duplicates: number } {
+  const ids = new Set<string>();
+  const domains = new Set<string>();
+  const phones = new Set<string>();
+  const nameAddrs = new Set<string>();
+  const unique: PlaceResult[] = [];
+  let duplicates = 0;
+  for (const r of results) {
+    const id = r.googlePlaceId || "";
+    const dom = domainOfUrl(r.website);
+    const ph = normPhoneDigits(r.phone);
+    const na = `${normText(r.businessName)}|${normText(r.address)}`;
+    const isDup =
+      (id && ids.has(id)) ||
+      (dom && domains.has(dom)) ||
+      (ph && phones.has(ph)) ||
+      (normText(r.businessName) && normText(r.address) && nameAddrs.has(na));
+    if (isDup) {
+      duplicates += 1;
+      continue;
     }
+    if (id) ids.add(id);
+    if (dom) domains.add(dom);
+    if (ph) phones.add(ph);
+    if (normText(r.businessName) && normText(r.address)) nameAddrs.add(na);
+    unique.push(r);
+  }
+  return { unique, duplicates };
+}
 
-    const mapped = (Array.isArray(data.places) ? data.places : []).map((p: any) => mapGooglePlace(p, input));
-    const results = applyFilters(mapped, input);
-    return {
-      provider: "google",
-      success: true,
-      results,
-      count: results.length,
-      ...base(mode, timestamp, filtersApplied),
-      pagination: Boolean(data.nextPageToken),
-    };
-  } catch (err) {
-    // Network/transport failure — still a structured error, never mock.
+// ── Query-result cache (per instance; TTL-bounded) — avoids re-billing identical queries. ──
+const PLACES_CACHE = ((): Map<string, { at: number; val: PagedSearchResult }> => {
+  const g = globalThis as any;
+  if (!g.__places_query_cache__) g.__places_query_cache__ = new Map();
+  return g.__places_query_cache__;
+})();
+function cacheTtlMs(): number {
+  return Number(process.env.PLACES_CACHE_TTL_MS ?? 6 * 60 * 60 * 1000);
+}
+export function clearPlacesCache(): void {
+  PLACES_CACHE.clear();
+}
+
+function isTokenNotReady(page: GooglePage): boolean {
+  return page.httpStatus === 400 || page.error?.googleStatus === "INVALID_ARGUMENT";
+}
+function isTransient(page: GooglePage): boolean {
+  return page.httpStatus === 429 || (page.httpStatus != null && page.httpStatus >= 500);
+}
+
+const defaultSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+export async function searchPlacesPaged(input: DiscoverInput, opts: PagedSearchOptions = {}): Promise<PagedSearchResult> {
+  const mode = placesMode();
+  const timestamp = new Date().toISOString();
+  const filtersApplied = hasFilters(input);
+  const maxPages = Math.max(1, Math.floor(opts.maxPages ?? Number(process.env.PLACES_MAX_PAGES ?? 3)));
+  const targetResults = opts.targetResults ?? Infinity;
+  const pageDelayMs = Math.max(0, opts.pageDelayMs ?? Number(process.env.PLACES_PAGE_DELAY_MS ?? 2000));
+  const tokenRetries = Math.max(0, opts.tokenRetries ?? 1);
+  const transientRetries = Math.max(0, opts.transientRetries ?? 1);
+  const sleep = opts.sleep ?? defaultSleep;
+
+  const meta = base(mode, timestamp, filtersApplied);
+
+  // disabled / mock behave as a single non-paginated page (mock never paginates).
+  if (mode === "disabled") {
+    const single = await searchPlaces(input);
+    return { ...single, pagesFetched: 0, requestsMade: 0, duplicatesAcrossPages: 0, cached: false, stopReason: "single-page" };
+  }
+  if (mode === "mock") {
+    const single = await searchPlaces(input);
+    return { ...single, pagesFetched: 1, requestsMade: 0, duplicatesAcrossPages: 0, cached: false, stopReason: "single-page" };
+  }
+
+  // ── google, paginated ────────────────────────────────────────────────────────
+  const query = buildTextQuery(input);
+  const cacheKey = `${query}::mp=${maxPages}::tr=${targetResults}::f=${filtersApplied ? "1" : "0"}`;
+  if (!opts.noCache) {
+    const hit = PLACES_CACHE.get(cacheKey);
+    if (hit && Date.now() - hit.at <= cacheTtlMs()) {
+      return { ...hit.val, cached: true };
+    }
+    if (hit) PLACES_CACHE.delete(cacheKey);
+  }
+
+  // No budget at all → mirror searchPlaces' RESOURCE_EXHAUSTED error (never a mock substitution).
+  if (!withinBudget()) {
     return {
       provider: "google",
       success: false,
       results: [],
       count: 0,
-      ...base(mode, timestamp, filtersApplied),
-      error: {
-        provider: "google",
-        success: false,
-        httpStatus: null,
-        googleStatus: null,
-        message: "Network error contacting Google Places. No mock results were substituted.",
-        timestamp,
-      },
+      ...meta,
+      error: { provider: "google", success: false, httpStatus: null, googleStatus: "RESOURCE_EXHAUSTED", message: "Daily Google Places request cap reached. No mock results were substituted.", timestamp },
+      pagesFetched: 0,
+      requestsMade: 0,
+      duplicatesAcrossPages: 0,
+      cached: false,
+      stopReason: "budget",
     };
   }
+
+  const acc: PlaceResult[] = [];
+  let token: string | null = null;
+  let pagesFetched = 0;
+  let requestsMade = 0;
+  let stopReason: PagedStopReason = "no-token";
+  let partialError: PlacesError | undefined;
+
+  while (pagesFetched < maxPages) {
+    if (!withinBudget()) {
+      stopReason = "budget";
+      break;
+    }
+    // Continuation pages: wait for provider token readiness before requesting.
+    if (token) await sleep(pageDelayMs);
+
+    let page = await googleTextSearch(query, input, token);
+    requestsMade += 1;
+
+    // Token-not-ready race (INVALID_ARGUMENT/400) — bounded retry after the readiness delay.
+    let tries = tokenRetries;
+    while (page.error && token && isTokenNotReady(page) && tries-- > 0 && withinBudget()) {
+      await sleep(pageDelayMs);
+      page = await googleTextSearch(query, input, token);
+      requestsMade += 1;
+    }
+    // Transient errors (429/5xx) — bounded retry with the same delay as backoff.
+    let ttries = transientRetries;
+    while (page.error && isTransient(page) && ttries-- > 0 && withinBudget()) {
+      await sleep(pageDelayMs);
+      page = await googleTextSearch(query, input, token);
+      requestsMade += 1;
+    }
+
+    pagesFetched += 1;
+
+    if (page.error) {
+      if (acc.length > 0) {
+        partialError = page.error; // keep what we have; report the failure
+        stopReason = "error";
+        break;
+      }
+      // Total failure on the first page — surface as a normal failed search.
+      return {
+        provider: "google",
+        success: false,
+        results: [],
+        count: 0,
+        ...meta,
+        error: page.error,
+        pagesFetched,
+        requestsMade,
+        duplicatesAcrossPages: 0,
+        cached: false,
+        stopReason: "error",
+      };
+    }
+
+    acc.push(...page.mapped);
+    token = page.nextPageToken;
+
+    const filteredSoFar = applyFilters(dedupeAcrossPages(acc).unique, input);
+    if (filteredSoFar.length >= targetResults) {
+      stopReason = "target-met";
+      break;
+    }
+    if (!token) {
+      stopReason = "no-token";
+      break;
+    }
+    if (pagesFetched >= maxPages) {
+      stopReason = "max-pages";
+      break;
+    }
+  }
+
+  const { unique, duplicates } = dedupeAcrossPages(acc);
+  const results = applyFilters(unique, input);
+  const out: PagedSearchResult = {
+    provider: "google",
+    success: true,
+    results,
+    count: results.length,
+    ...meta,
+    pagination: Boolean(token),
+    pagesFetched,
+    requestsMade,
+    duplicatesAcrossPages: duplicates,
+    cached: false,
+    stopReason,
+    partialError,
+  };
+  if (!opts.noCache && results.length > 0 && !partialError) {
+    PLACES_CACHE.set(cacheKey, { at: Date.now(), val: out });
+  }
+  return out;
 }
 
 // Strip anything that could leak the key; bound length. (Google messages don't

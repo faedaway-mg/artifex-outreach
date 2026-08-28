@@ -61,17 +61,28 @@ describe("weekend awareness — predictably-closed professional offices are with
   });
 });
 
-describe("buildWorkQueue withholds ordinary cold calls from the primary board", () => {
+describe("buildWorkQueue surfaces calls ONLY after engagement (email-first policy)", () => {
   const task = (leadId: string): Task => ({ id: `t_${leadId}`, leadId, type: "review_and_send", title: "x", dueAt: "2026-08-11T00:00:00Z", status: "open", priority: 20, snoozedUntil: null, sourcePlanId: null, sourceStepId: null, createdAt: "2026-08-11T00:00:00Z", updatedAt: "2026-08-11T00:00:00Z" } as Task);
 
-  it("a cold low-value phone-first lead produces NO call card; a high-value one does", () => {
+  it("neither a cold NOR a high-value UNENGAGED lead produces a call card — only an ENGAGED one does", () => {
+    // Under email-first, a high lead score is NOT a reason to cold-call; only engagement is.
     const cold = coldCall({ businessName: "Cold Co" });
-    const hot = coldCall({ businessName: "Hot Co", leadScore: 80 });
-    cold.id = "cold"; hot.id = "hot";
-    const leads = new Map<string, Lead>([[cold.id, cold], [hot.id, hot]]);
-    const q = buildWorkQueue({ tasks: [task("cold"), task("hot")], meetingsToday: [], leads, now: WEEKDAY });
+    const hot = coldCall({ businessName: "Hot Co", leadScore: 80 }); // high value but NOT engaged
+    const engaged = coldCall({ businessName: "Booked Co", pipelineStage: "Meeting Booked" });
+    cold.id = "cold"; hot.id = "hot"; engaged.id = "engaged";
+    const leads = new Map<string, Lead>([[cold.id, cold], [hot.id, hot], [engaged.id, engaged]]);
+    const q = buildWorkQueue({ tasks: [task("cold"), task("hot"), task("engaged")], meetingsToday: [], leads, now: WEEKDAY });
     const callCard = q.find((c) => c.kind === "call");
-    expect(callCard?.leadIds ?? []).toContain("hot");
-    expect(callCard?.leadIds ?? []).not.toContain("cold"); // deprioritized off the board
+    expect(callCard?.leadIds ?? []).toEqual(["engaged"]); // engagement is the ONLY reason a call surfaces
+    expect(callCard?.leadIds ?? []).not.toContain("cold");
+    expect(callCard?.leadIds ?? []).not.toContain("hot"); // an unanswered high-value lead is NOT cold-called
+  });
+
+  it("an engaged lead's call is still withheld when the office is predictably closed (weekend)", () => {
+    const dentalBooked = makeLead({ id: "dbk", industry: "Dental practice", normalizedCategory: "dentist", state: "CA", pipelineStage: "Meeting Booked", publicEmail: null, phone: "(213) 555-0100" });
+    const leads = new Map<string, Lead>([[dentalBooked.id, dentalBooked]]);
+    const q = buildWorkQueue({ tasks: [task("dbk")], meetingsToday: [], leads, now: SUNDAY });
+    const callCard = q.find((c) => c.kind === "call");
+    expect(callCard?.leadIds ?? []).not.toContain("dbk"); // engaged, but weekend-closed office → held
   });
 });

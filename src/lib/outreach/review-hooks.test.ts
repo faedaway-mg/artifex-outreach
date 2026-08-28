@@ -6,7 +6,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import { describe, it, expect } from "vitest";
 import { presentFindings, openingHook, selectVisualHook, hookHasExaggeration } from "./review-hooks";
-import type { ReviewFinding } from "./review-evidence";
+import type { ReviewFinding, TopicKey } from "./review-evidence";
+import { checkEditorialRedundancy, editorialBlocks } from "./editorial-quality";
 
 function finding(over: Partial<Omit<ReviewFinding, "evidence">> & { id: string; topic: ReviewFinding["topic"]; observation: string; evidence?: Partial<ReviewFinding["evidence"]> }): ReviewFinding {
   return {
@@ -77,14 +78,35 @@ describe("visual hooks — bounded set, each mapped to real evidence", () => {
 });
 
 describe("opening hook — the strongest hook, not mechanically Finding 01", () => {
-  it("picks the quantified/contrast finding over a text-only lead finding", () => {
+  it("picks the strongest finding's topic and is DISTINCT from every finding hook (no verbatim copy)", () => {
     // Order: mobile (TEXT_ONLY) first, then catalog (STRUCTURE), reviews (COMPARISON).
     const hook = openingHook([mobile, catalog, reviews]);
-    expect(hook).not.toBe(presentFindings([mobile])[0].textHook); // not the mobile (Finding 01) hook
-    expect(hook).toMatch(/19|950/);                                // a quantified hook won
+    const findingHooks = [mobile, catalog, reviews].map((f) => presentFindings([f])[0].textHook);
+    expect(hook).not.toBeNull();
+    // The opening is a SYNTHESIZING frame — it must never be a verbatim copy of any finding's hook.
+    expect(findingHooks).not.toContain(hook);
+    // The strongest (contrast/structure) finding — not the text-only mobile lead — frames the opening.
+    expect([
+      "Your reputation is stronger than your website currently shows.", // reviews (COMPARISON)
+      "A large catalog is harder to shop than it should be.",           // catalog (STRUCTURE)
+    ]).toContain(hook);
   });
   it("returns null when there are no findings", () => {
     expect(openingHook([])).toBeNull();
+  });
+
+  it("REGRESSION: no topic's opening is a near-copy of that topic's finding hook (would false-block reviews)", () => {
+    const TOPICS: TopicKey[] = ["catalog", "test-content", "duplicate", "mobile", "cta", "booking", "reviews", "trust", "speed", "navigation", "contact", "brand", "copy", "presence", "general"];
+    for (const topic of TOPICS) {
+      const f = finding({ id: "t", topic, observation: `123 issues observed about ${topic} on the site` });
+      const opening = openingHook([f])!;
+      const hook = presentFindings([f])[0].textHook;
+      const issues = checkEditorialRedundancy([
+        { section: "main-hook", role: "hook", text: opening },
+        { section: "finding-1", role: "hook", text: hook },
+      ]);
+      expect(editorialBlocks(issues), `${topic}: opening "${opening}" collides with hook "${hook}"`).toEqual([]);
+    }
   });
 });
 

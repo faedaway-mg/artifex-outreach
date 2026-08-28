@@ -2,7 +2,9 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   insertLead, insertPlan, insertStep, getStep, stepsForPlan, addSuppression,
   emailSendsForPlan, getEmailSendByKey, updatePlan, getLead, listAudit,
+  upsertBusinessIntelligence,
 } from "../repo";
+import { analyzeBusiness } from "../intelligence/engine";
 import { dispatchStep } from "./dispatch";
 import { sha256, SEND_RECEIPT_ACTION } from "./receipt";
 import { resetEmailProvider } from "./provider";
@@ -62,7 +64,7 @@ describe("dispatchStep — idempotent sending (Phase 2)", () => {
     global.fetch = fetchMock as unknown as typeof fetch;
     const lead = await seedLead();
     const { plan, step } = await seedApprovedPlan(lead.id);
-
+    fetchMock.mockClear(); // ignore analyzeBusiness website fetches — count only the send
     const r = await dispatchStep(step.id);
     expect(r.outcome).toBe("sent");
     expect(r.providerMessageId).toBe("m1");
@@ -211,5 +213,70 @@ describe("dispatchStep — idempotent sending (Phase 2)", () => {
     const r = await dispatchStep(step.id);
     expect(r.outcome).toBe("skipped");
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+// Make a seeded BI's Quick Review SENDABLE (two Observed findings, distinct consequences).
+function makeSendable<T extends { businessProfile: { opportunities: any[] } }>(bi: T): T {
+  const ev = (category: string, observation: string, why: string) => ({
+    id: category, category, observation, whyItMatters: why,
+    estimatedImpact: { level: "High", rationale: "A concrete fix." }, confidence: { label: "Observed", score: 0.95 }, basis: ["public website HTML"],
+  });
+  bi.businessProfile.opportunities = [
+    ev("Scheduling", "The site has no online booking — reservations require a phone call during business hours.", "New customers who won't call during business hours quietly drop off before they ever reach the desk."),
+    ev("Brand Experience", "The homepage has no clear primary call to action for a first-time visitor.", "A first-time visitor with no obvious next move is the one most likely to leave without acting."),
+    ...bi.businessProfile.opportunities,
+  ];
+  return bi;
+}
+
+describe("dispatchStep — Gate 7 universal review delivery protection", () => {
+  it("BLOCKS (never bare-sends) an initial email when its review-bearing lead has NO delivery-ready Quick Review", async () => {
+    const fetchMock = vi.fn((_u: string | URL | Request, _i?: RequestInit) => Promise.resolve(okResponse("nope")));
+    global.fetch = fetchMock as unknown as typeof fetch;
+    const lead = await seedLead();
+    // No evidence-backed opportunities → 0 findings → INSUFFICIENT_EVIDENCE → NOT delivery-ready.
+    // (Explicitly emptied: a lead can otherwise yield one strong Observed finding, which the
+    // one-strong-finding policy now makes SENDABLE — that would defeat this "no ready review" case.)
+    const bi = await analyzeBusiness({ lead, findings: [], contacts: [] } as any);
+    (bi as any).businessProfile.opportunities = [];
+    await upsertBusinessIntelligence({ leadId: lead.id, profile: bi as any, enrichmentDelta: null, generatedAt: "2026-07-22T00:00:00.000Z" });
+    const { step } = await seedApprovedPlan(lead.id);
+    const r = await dispatchStep(step.id);
+    expect(r.outcome).toBe("failed"); // fail closed — the whole outreach is blocked
+    const send = await getEmailSendByKey(`step:${step.id}`);
+    expect(send!.status).toBe("failed");
+    expect(send!.lastErrorCode).toBe("review_not_ready");
+    // Canonical proof no bare email shipped: a blocked send writes NO immutable receipt and the
+    // step is never marked sent. (fetch count is not a clean signal — the legacy path resolves brand
+    // assets over the network before the readiness check.)
+    expect((await listAudit(50)).filter((a) => a.action === SEND_RECEIPT_ACTION && a.targetId === lead.id)).toHaveLength(0);
+    expect((await getStep(step.id))!.sentAt).toBeNull();
+  });
+
+  it("SENDS with the review attached when the legacy (unedited) review IS delivery-ready", async () => {
+    const fetchMock = vi.fn((_u: string | URL | Request, _i?: RequestInit) => Promise.resolve(okResponse("m-ready")));
+    global.fetch = fetchMock as unknown as typeof fetch;
+    const lead = await seedLead();
+    const bi = makeSendable(await analyzeBusiness({ lead, findings: [], contacts: [] } as any));
+    await upsertBusinessIntelligence({ leadId: lead.id, profile: bi as any, enrichmentDelta: null, generatedAt: "2026-07-22T00:00:00.000Z" });
+    const { step } = await seedApprovedPlan(lead.id);
+    const r = await dispatchStep(step.id);
+    expect(r.outcome).toBe("sent");
+    // The immutable receipt proves the exact Quick Review PDF (by filename + hash) actually shipped — not bare.
+    const receipt = (await listAudit(50)).find((a) => a.action === SEND_RECEIPT_ACTION && a.targetId === lead.id);
+    expect(receipt).toBeTruthy();
+    expect((receipt!.meta as any).attachmentFilename).toBeTruthy();
+    expect((receipt!.meta as any).attachmentSha256).toBeTruthy();
+  });
+
+  it("still bare-sends a lead with NO review profile at all (non-review outreach is unaffected)", async () => {
+    const fetchMock = vi.fn((_u: string | URL | Request, _i?: RequestInit) => Promise.resolve(okResponse("m-plain")));
+    global.fetch = fetchMock as unknown as typeof fetch;
+    const lead = await seedLead(); // no BI seeded → profile is null → guard does not apply
+    const { step } = await seedApprovedPlan(lead.id);
+    const r = await dispatchStep(step.id);
+    expect(r.outcome).toBe("sent");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

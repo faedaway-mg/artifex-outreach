@@ -5,9 +5,10 @@ import { resolveNextLead } from "./next-lead";
 import { makeLead } from "../test-lead";
 import type { Lead } from "../types";
 
-// A call-first lead with an open "call" task due today → lands in the call batch.
+// An ENGAGED call lead (booked) with an open "call" task due today → lands in the call batch. Under
+// the email-first policy the queue surfaces a call only after engagement, so booked is what qualifies.
 async function seedCallLead(name: string, priority: number, over: Partial<Lead> = {}) {
-  const base = makeLead({ businessName: name, phone: "(213) 555-0100", publicEmail: null, website: null, socialLinks: [], note: null, lastContactAt: null, ...over });
+  const base = makeLead({ businessName: name, phone: "(213) 555-0100", publicEmail: null, website: null, socialLinks: [], note: null, lastContactAt: null, pipelineStage: "Meeting Booked", ...over });
   const { id, createdAt, updatedAt, ...rest } = base;
   const lead = await insertLead(rest);
   await insertTask({ leadId: lead.id, type: "call", title: `Call — ${name}`, dueAt: new Date().toISOString(), status: "open", priority, snoozedUntil: null });

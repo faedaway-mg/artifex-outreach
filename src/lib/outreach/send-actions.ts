@@ -20,6 +20,7 @@ import { dispatchStep } from "../comms/dispatch";
 import { buildOutreachKit } from "./kit";
 import { buildQuickReview, resolveLeadBrand } from "./quick-review";
 import { quickReviewApproved } from "./review-approval";
+import { sendGate } from "./review-revisions";
 import { renderPersonalEmailHtml, renderPersonalEmailText } from "./email-render";
 import type { VeedVideo, IntroSendResult, OutreachEmail } from "./types";
 
@@ -108,6 +109,12 @@ async function sendNext(leadId: string, mode: "intro" | "followup", veed?: VeedV
   // reason rather than let an email go out claiming an attachment it doesn't have. (The internal
   // test lead is exempt so transport can always be verified.)
   if (mode === "intro" && lead.source !== "internal-test") {
+    // M2: when the operator has EDITED the review, it must be delivery-ready (its current content
+    // approved) before the send can proceed — the same gate dispatch re-checks at the final boundary.
+    const gate = await sendGate(leadId);
+    if (gate.edited && !gate.allowed) {
+      return { outcome: "blocked", reason: `Quick Review isn't delivery-ready: ${gate.reason ?? "resolve the open items and approve the current version."}` };
+    }
     const brand = await resolveLeadBrand(lead); // resolves + caches the logo once (dispatch reuses it)
     const approved = await quickReviewApproved(leadId);
     const review = buildQuickReview(lead, profile, brand, { approved });
@@ -131,8 +138,11 @@ async function sendNext(leadId: string, mode: "intro" | "followup", veed?: VeedV
   // send from here on is the EDITED email — the exact copy the operator reviewed.
   const email = applyOverride(mode === "intro" ? kit.email : kit.followUp, override);
 
-  // The {{unsubscribe}} token is replaced by dispatch, keeping compliance intact.
-  const renderInput = { email, settings, veed: mode === "intro" ? veed ?? null : null, unsubscribeUrl: "{{unsubscribe}}" as string | null };
+  // The {{unsubscribe}} token is replaced by dispatch, keeping compliance intact. The booking CTA
+  // offers the SAME canonical destination as the attached Quick Review's button (email/PDF aligned);
+  // reply stays available via reply-to. One destination only — no conflicting links.
+  const bookingCta = settings.calendarLink ? { label: "Book a conversation", url: settings.calendarLink } : null;
+  const renderInput = { email, settings, veed: mode === "intro" ? veed ?? null : null, unsubscribeUrl: "{{unsubscribe}}" as string | null, cta: bookingCta };
   const html = renderPersonalEmailHtml(renderInput);
   const text = renderPersonalEmailText(renderInput);
 

@@ -2,8 +2,10 @@ import { describe, it, expect } from "vitest";
 import type { Task, TaskType, Lead } from "./types";
 import { buildWorkQueue, batchLeadIds, minutesLabel, buildDailyMission, surfaceTodaysTasks, channelCapacity, channelOf } from "./work-queue";
 
-// Email-first leads (they carry an email) so a review_and_send task buckets to "email".
-const lead = (id: string): Lead => ({ id, businessName: `Biz ${id}`, publicEmail: `hi@biz-${id}.com`, phone: null, socialLinks: [], contactFormUrl: null } as unknown as Lead);
+// Email-first leads (they carry an email) so a review_and_send task buckets to "email". pipelineStage
+// is "Meeting Booked" (ENGAGED) so that CALL tasks in these channel-capacity tests actually surface —
+// under the email-first policy the queue only proposes a call after engagement (see call-priority).
+const lead = (id: string): Lead => ({ id, businessName: `Biz ${id}`, publicEmail: `hi@biz-${id}.com`, phone: null, socialLinks: [], contactFormUrl: null, pipelineStage: "Meeting Booked" } as unknown as Lead);
 const task = (leadId: string, type: TaskType): Task => ({ id: `t_${leadId}_${type}`, leadId, type, title: "", dueAt: "2026-07-23T00:00:00Z", status: "open", priority: 1, snoozedUntil: null, createdAt: "", updatedAt: "" } as Task);
 const leadsMap = (...ids: string[]) => new Map(ids.map((id) => [id, lead(id)]));
 

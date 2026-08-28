@@ -21,12 +21,14 @@ async function seedLead(name: string, html: string, over: Record<string, unknown
   return lead;
 }
 
-// A lead whose review is only NEEDS_REVIEW (one evidence-backed finding) — below the video threshold.
+// A lead whose review is only NEEDS_REVIEW (one NON-substantial finding) — below the video threshold.
+// (Moderate impact, so it is NOT promoted to SENDABLE by the one-strong-finding policy — this keeps
+// the video "thin lead" case a genuine NEEDS_REVIEW without touching video eligibility logic.)
 async function seedOneFindingLead(name: string) {
   const lead = await insertLead({ ...(makeLead({ businessName: name, website: `https://${name.toLowerCase().replace(/\s+/g, "")}.com` }) as any) });
   const bi = await analyzeBusiness({ lead, pages: [{ url: lead.website!, html: `<body><h1>${name}</h1></body>` }] });
   bi.businessProfile.opportunities = [
-    { id: "o1", category: "Scheduling", observation: "The site has no online booking; reservations require a phone call during business hours.", whyItMatters: "After-hours demand slips away.", estimatedImpact: { level: "High", rationale: "Add online booking." }, confidence: { label: "Observed", score: 0.95 }, basis: ["homepage HTML: no booking widget"] } as any,
+    { id: "o1", category: "Scheduling", observation: "The site has no online booking; reservations require a phone call during business hours.", whyItMatters: "After-hours demand slips away.", estimatedImpact: { level: "Moderate", rationale: "Add online booking." }, confidence: { label: "Observed", score: 0.95 }, basis: ["homepage HTML: no booking widget"] } as any,
   ];
   await upsertBusinessIntelligence({ leadId: lead.id, profile: bi, enrichmentDelta: null, generatedAt: "2026-08-15T00:00:00Z" });
   return lead;
