@@ -171,13 +171,95 @@ function ClientVideosPanel({ onPrepared, onSelect }: { onPrepared: () => Promise
   );
 }
 
+function SharePanel({ item }: { item: StudioItem }) {
+  const pieceId = item.piece.id;
+  const [shares, setShares] = useState<any[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [email, setEmail] = useState<any | null>(null);
+
+  const load = useCallback(async () => {
+    const r = await fetch(`/api/content-studio/share?pieceId=${encodeURIComponent(pieceId)}`, { cache: "no-store" });
+    if (r.ok) setShares((await r.json()).shares ?? []);
+  }, [pieceId]);
+  useEffect(() => { load(); }, [load]);
+
+  const create = async () => {
+    setBusy(true); setMsg(null);
+    const r = await fetch("/api/content-studio/share", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pieceId }) });
+    const d = await r.json();
+    if (!r.ok) setMsg(d.error); else { setMsg("Viewing link created."); await load(); }
+    setBusy(false);
+  };
+  const revoke = async (token: string) => { await fetch(`/api/content-studio/share/${token}/revoke`, { method: "POST" }); setEmail(null); await load(); };
+  const prepare = async (token: string) => {
+    setBusy(true); setMsg(null);
+    const r = await fetch(`/api/content-studio/share/${token}/email`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}) });
+    const d = await r.json();
+    if (!r.ok) setMsg(d.error); else setEmail(d);
+    setBusy(false);
+  };
+  const live = (shares ?? []).filter((s) => !s.revokedAt);
+
+  return (
+    <div className="card p-4">
+      <div className="mb-2 flex items-center gap-2">
+        <span className="grid h-8 w-8 place-items-center rounded-lg border border-white/[0.07] bg-white/[0.03] text-teal-300"><ExternalLink size={15} /></span>
+        <div className="min-w-0 flex-1">
+          <h4 className="text-sm font-semibold text-chalk-100">Sharing &amp; outreach</h4>
+          <p className="text-xs text-chalk-500">Host the approved video on a branded link — no MP4 attached to email.</p>
+        </div>
+        <button disabled={busy} onClick={create} className="btn-secondary flex items-center gap-1.5 text-xs disabled:opacity-50"><ExternalLink size={13} /> Create viewing link</button>
+      </div>
+      {msg && <p className="mb-2 text-xs text-chalk-400">{msg}</p>}
+      {live.length === 0 ? (
+        <p className="text-xs text-chalk-500">No live link yet. Create one to share this approved video.</p>
+      ) : (
+        <div className="space-y-2">
+          {live.map((s) => (
+            <div key={s.token} className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-2.5">
+              <div className="flex items-center gap-2 text-xs">
+                <a href={s.viewUrl} target="_blank" rel="noopener noreferrer" className="min-w-0 flex-1 truncate text-azure-300 hover:underline">{s.viewUrl}</a>
+                <CopyBtn text={s.viewUrl} label="Copy link" />
+                <button onClick={() => prepare(s.token)} className="btn-secondary text-[11px]">Prepare email</button>
+                <button onClick={() => revoke(s.token)} className="btn-ghost text-[11px] text-coral-300">Revoke</button>
+              </div>
+              <p className="mt-1 text-[10px] text-chalk-600">video {s.videoHash} · version {s.inputVersion} · unlisted link (anyone with it can forward; revoke to disable)</p>
+            </div>
+          ))}
+        </div>
+      )}
+      {email && (
+        <div className="mt-3 space-y-2 border-t border-white/[0.06] pt-3">
+          <div className="flex items-center justify-between"><span className="text-xs font-medium text-chalk-200">Prepared email (nothing sent)</span><span className="text-[10px] text-teal-300">no MP4 · links to page</span></div>
+          <div className="rounded-lg border border-white/[0.06] bg-ink-950/50 p-2.5 text-xs">
+            <p className="text-chalk-300"><span className="text-chalk-500">Subject:</span> {email.subject}</p>
+            <p className="mt-1 whitespace-pre-wrap text-chalk-400">{email.text}</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <CopyBtn text={email.subject} label="Copy subject" />
+            <CopyBtn text={email.text} label="Copy body (text)" />
+            <CopyBtn text={email.html} label="Copy body (HTML)" />
+          </div>
+          <p className="text-[11px] text-chalk-500">Send via the existing manual-email workflow (preview → approve → explicit Send). This studio never sends.</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function statusOf(item: StudioItem): { label: string; tone: string; icon: any } {
   const active = item.jobs.find((j) => j.status === "queued" || j.status === "rendering");
   if (active) return { label: active.stage || "Rendering", tone: "text-azure-300 border-azure-500/30 bg-azure-500/10", icon: Loader2 };
   if (item.postedAt) return { label: "Posted", tone: "text-teal-300 border-teal-400/30 bg-teal-400/10", icon: Radio };
   const failed = item.jobs.find((j) => j.status === "failed");
   if (failed && !item.piece.recommendedRel) return { label: "Failed", tone: "text-coral-300 border-coral-400/30 bg-coral-400/10", icon: CircleAlert };
-  if (item.piece.recommendedRel) return { label: item.piece.hasThumbnailFirst ? "Ready · thumbnail-first" : "Ready", tone: "text-emerald-300 border-emerald-400/30 bg-emerald-400/10", icon: CircleCheck };
+  const pv = item.provenance;
+  if (item.piece.recommendedRel) {
+    if (pv.audioKind === "placeholder") return { label: "Preview only", tone: "text-amber-300 border-amber-400/30 bg-amber-400/10", icon: CircleAlert };
+    if (pv.approved || pv.audioKind === "approved-master") return { label: "Posting-ready", tone: "text-teal-300 border-teal-400/30 bg-teal-400/10", icon: CircleCheck };
+    return { label: "Review & approve", tone: "text-azure-300 border-azure-500/30 bg-azure-500/10", icon: Clock };
+  }
   if (!item.piece.renderable) return { label: "Draft · needs scene", tone: "text-chalk-400 border-white/10 bg-white/[0.04]", icon: Clock };
   return { label: "Not generated", tone: "text-chalk-400 border-white/10 bg-white/[0.04]", icon: Clock };
 }
@@ -239,8 +321,15 @@ function PieceDetail({ item, onChanged, setJobOverride }: { item: StudioItem; on
   };
 
   const markPosted = async () => {
-    await fetch(`/api/content-studio/pieces/${piece.id}/posted`, { method: "POST" });
+    const r = await fetch(`/api/content-studio/pieces/${piece.id}/posted`, { method: "POST" });
+    if (!r.ok) { const d = await r.json().catch(() => ({})); setMsg({ tone: "err", text: d.error || "Could not mark posted." }); return; }
     await onChanged();
+  };
+  const approve = async () => {
+    const r = await fetch(`/api/content-studio/pieces/${piece.id}/approve`, { method: "POST" });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) setMsg({ tone: "err", text: d.error || "Could not approve." });
+    else { setMsg({ tone: "ok", text: "Approved for posting." }); await onChanged(); }
   };
 
   return (
@@ -313,13 +402,17 @@ function PieceDetail({ item, onChanged, setJobOverride }: { item: StudioItem; on
               <RenderProgress job={activeJob} />
             ) : (
               <div className="flex flex-wrap gap-2">
-                <button disabled={busy} onClick={() => startRender(false)} className="btn-primary flex items-center gap-1.5 text-sm disabled:opacity-50">
-                  {busy ? <Loader2 size={15} className="animate-spin" /> : <RefreshCw size={15} />} Generate (approved voiceover)
+                {/* Only #004–#006 have a previously-approved voiceover to reuse; template pieces render
+                    from an uploaded VO. */}
+                {["004", "005", "006"].includes(piece.id) && (
+                  <button disabled={busy} onClick={() => startRender(false)} className="btn-primary flex items-center gap-1.5 text-sm disabled:opacity-50">
+                    {busy ? <Loader2 size={15} className="animate-spin" /> : <RefreshCw size={15} />} Generate (approved voiceover)
+                  </button>
+                )}
+                <button disabled={busy || !hasUpload} onClick={() => startRender(true)} className={`flex items-center gap-1.5 text-sm disabled:opacity-40 ${["004", "005", "006"].includes(piece.id) ? "btn-secondary" : "btn-primary"}`} title={hasUpload ? "" : "Upload a voiceover first"}>
+                  <Film size={15} /> Generate with my voiceover
                 </button>
-                <button disabled={busy || !hasUpload} onClick={() => startRender(true)} className="btn-secondary flex items-center gap-1.5 text-sm disabled:opacity-40" title={hasUpload ? "" : "Upload an MP3 first"}>
-                  <Film size={15} /> Generate with my uploaded voiceover
-                </button>
-                {lastFailed && <button disabled={busy} onClick={() => startRender(false)} className="btn-ghost flex items-center gap-1.5 text-xs text-coral-300"><RefreshCw size={13} /> Retry</button>}
+                {lastFailed && <button disabled={busy || !hasUpload} onClick={() => startRender(true)} className="btn-ghost flex items-center gap-1.5 text-xs text-coral-300"><RefreshCw size={13} /> Retry</button>}
               </div>
             )}
             {lastFailed && !activeJob && <p className="mt-2 text-xs text-coral-300">Last render failed: {lastFailed.error}</p>}
@@ -327,24 +420,44 @@ function PieceDetail({ item, onChanged, setJobOverride }: { item: StudioItem; on
         )}
       </div>
 
-      {/* Preview + downloads */}
-      {piece.recommendedRel && (
-        <div className="card p-4">
-          <div className="mb-3 flex items-center justify-between">
-            <h4 className="text-sm font-semibold text-chalk-100">Preview &amp; download</h4>
-            {piece.hasThumbnailFirst && <span className="text-[10px] text-teal-300">recommended posting file</span>}
-          </div>
-          <div className="grid gap-4 sm:grid-cols-[220px_1fr]">
-            <video src={piece.recommendedRel} poster={piece.thumbRel || undefined} controls playsInline className="w-full rounded-lg border border-white/[0.08] bg-black" style={{ aspectRatio: "9 / 16" }} />
-            <div className="space-y-2">
-              <a href={piece.recommendedRel} download className="btn-primary flex w-full items-center justify-center gap-1.5 text-sm sm:w-auto"><Download size={15} /> Download video</a>
-              {piece.thumbRel && <a href={piece.thumbRel} download className="btn-secondary flex w-full items-center justify-center gap-1.5 text-sm sm:w-auto"><Download size={15} /> Download thumbnail</a>}
-              <button onClick={markPosted} className="btn-ghost flex w-full items-center justify-center gap-1.5 text-xs sm:w-auto"><Radio size={13} /> {item.postedAt ? "Update posted date" : "Mark as posted"}</button>
-              <p className="pt-1 text-[11px] leading-relaxed text-chalk-500">The thumbnail is also embedded as the first frame — but you should still upload it as the cover when posting; platforms don’t all pick frame zero.</p>
+      {/* Preview + downloads — labels reflect explicit audio provenance + approval */}
+      {piece.recommendedRel && (() => {
+        const pv = item.provenance;
+        const isPlaceholder = pv.audioKind === "placeholder";
+        const postable = pv.postingAllowed;
+        return (
+          <div className="card p-4">
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <h4 className="text-sm font-semibold text-chalk-100">{isPlaceholder ? "Preview" : "Preview & download"}</h4>
+              {isPlaceholder ? (
+                <span className="rounded-md border border-amber-400/30 bg-amber-400/10 px-1.5 py-0.5 text-[10px] text-amber-300">Preview only — replace placeholder voiceover</span>
+              ) : postable ? (
+                <span className="rounded-md border border-teal-400/25 bg-teal-400/10 px-1.5 py-0.5 text-[10px] text-teal-300">{pv.audioKind === "approved-master" ? "approved audio · posting-ready" : "approved for posting"}</span>
+              ) : (
+                <span className="rounded-md border border-azure-500/25 bg-azure-500/10 px-1.5 py-0.5 text-[10px] text-azure-300">uploaded — review, then approve</span>
+              )}
+            </div>
+            {pv.approvalStale && <p className="mb-2 text-[11px] text-amber-300">Inputs changed since approval — re-approve the current render before posting.</p>}
+            <div className="grid gap-4 sm:grid-cols-[220px_1fr]">
+              <video src={piece.recommendedRel} poster={piece.thumbRel || undefined} controls playsInline className="w-full rounded-lg border border-white/[0.08] bg-black" style={{ aspectRatio: "9 / 16" }} />
+              <div className="space-y-2">
+                <a href={piece.recommendedRel} download className={`flex w-full items-center justify-center gap-1.5 text-sm sm:w-auto ${isPlaceholder ? "btn-secondary" : "btn-primary"}`}><Download size={15} /> {isPlaceholder ? "Download preview" : "Download video"}</a>
+                {piece.thumbRel && <a href={piece.thumbRel} download className="btn-secondary flex w-full items-center justify-center gap-1.5 text-sm sm:w-auto"><Download size={15} /> Download thumbnail</a>}
+                {!isPlaceholder && !pv.approved && pv.audioKind === "uploaded" && (
+                  <button onClick={approve} className="btn-primary flex w-full items-center justify-center gap-1.5 text-sm sm:w-auto"><CircleCheck size={15} /> Approve for posting</button>
+                )}
+                <button disabled={!postable} onClick={markPosted} title={postable ? "" : "Approve a non-placeholder render first"} className="btn-ghost flex w-full items-center justify-center gap-1.5 text-xs disabled:opacity-40 sm:w-auto"><Radio size={13} /> {item.postedAt ? "Update posted date" : "Mark as posted"}</button>
+                {isPlaceholder
+                  ? <p className="pt-1 text-[11px] leading-relaxed text-amber-300/90">This render uses a placeholder voiceover for layout/timing preview only. Upload your real voiceover to produce a postable video — it is not an approved or final asset.</p>
+                  : <p className="pt-1 text-[11px] leading-relaxed text-chalk-500">The thumbnail is also embedded as the first frame — still upload it as the cover when posting; platforms don’t all pick frame zero.</p>}
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
+
+      {/* Sharing & outreach — only for an approved, non-placeholder video */}
+      {item.provenance.postingAllowed && item.provenance.audioKind !== "placeholder" && <SharePanel item={item} />}
 
       {/* Version history */}
       {item.jobs.length > 0 && (
@@ -445,6 +558,14 @@ function NewPieceModal({ onClose, onCreated }: { onClose: () => void; onCreated:
   const [narration, setNarration] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [ideas, setIdeas] = useState<any[] | null>(null);
+  const [seed, setSeed] = useState(0);
+
+  const suggest = async () => {
+    const r = await fetch(`/api/content-studio/ideas?n=3&seed=${seed}`, { cache: "no-store" });
+    if (r.ok) { setIdeas((await r.json()).ideas); setSeed((s) => s + 3); }
+  };
+  const useIdea = (idea: any) => { setTitle(idea.hook); setConcept(idea.concept); setNarration(idea.starterNarration.join("\n")); setIdeas(null); };
 
   const submit = async () => {
     setBusy(true); setErr(null);
@@ -465,6 +586,22 @@ function NewPieceModal({ onClose, onCreated }: { onClose: () => void; onCreated:
         <div className="mb-3 flex items-center justify-between">
           <h3 className="text-base font-semibold text-chalk-50">New Field Note</h3>
           <button onClick={onClose} className="rounded-lg p-1.5 text-chalk-500 hover:bg-white/[0.06] hover:text-chalk-100"><X size={16} /></button>
+        </div>
+        <div className="mb-3 rounded-lg border border-white/[0.06] bg-white/[0.02] p-2.5">
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-chalk-400">Need a starting point?</span>
+            <button onClick={suggest} className="btn-ghost text-[11px]">{ideas ? "More ideas" : "Suggest ideas"}</button>
+          </div>
+          {ideas && (
+            <div className="mt-2 space-y-1.5">
+              {ideas.map((idea) => (
+                <button key={idea.key} onClick={() => useIdea(idea)} className="block w-full rounded-md border border-white/[0.06] bg-white/[0.02] p-2 text-left text-xs hover:bg-white/[0.05]">
+                  <span className="font-medium text-chalk-200">{idea.hook}</span><span className="text-chalk-500"> — {idea.concept}</span>
+                </button>
+              ))}
+              <p className="text-[10px] text-chalk-600">Starter bank (not AI-generated) — pick one, then make the script your own.</p>
+            </div>
+          )}
         </div>
         <div className="space-y-3">
           <div><label className="field-label">Title / hook</label><input className="input" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. The status update nobody reads." /></div>

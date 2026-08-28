@@ -24,6 +24,11 @@ export async function middleware(req: NextRequest) {
     // Public brand assets (the constellation mark PNG) must be fetchable by email
     // clients and browsers without a session, or the mark degrades to alt text.
     pathname.startsWith("/api/brand") ||
+    // Content Studio outreach viewing links: the branded page + its Range-media route are reached by a
+    // prospect with NO session; the durable token is the capability. Everything else in Content Studio
+    // stays authenticated.
+    pathname.startsWith("/v/") ||
+    pathname.startsWith("/api/v/") ||
     pathname.startsWith("/icon") ||
     pathname.startsWith("/manifest") ||
     pathname.startsWith("/api/placeholder");

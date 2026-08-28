@@ -37,10 +37,14 @@ export async function POST(req: NextRequest) {
   const abs = path.join(dir, `${stamp}__${safe}`);
   await fs.writeFile(abs, Buffer.from(await file.arrayBuffer()));
 
+  // Provenance is EXPLICIT: the normal upload control sends kind="uploaded"; a demo/placeholder loader
+  // sends kind="placeholder". Never inferred from the filename.
+  const kind = String(form.get("kind") ?? "uploaded") === "placeholder" ? "placeholder" : "uploaded";
   const meta: AudioUpload = {
     pieceId, file: abs, name: file.name, bytes,
     durationSeconds: Number.isFinite(durationSeconds as number) ? durationSeconds : null,
     uploadedAt: new Date().toISOString(),
+    kind,
   };
   await writeUploadMeta(meta);
   return NextResponse.json({ upload: { ...meta, file: undefined } }, { status: 201 });

@@ -20,3 +20,4 @@ artifacts/
 /public/content/**/*.mp4
 /public/content/**/*.wav
 /public/content/thumbnails/_prefix-white-bar-originals/
+/public/content/shares

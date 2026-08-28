@@ -9,6 +9,7 @@ export interface SafeJob {
   progress: number;
   stage: string;
   mode: "reuse-approved-audio" | "uploaded-vo";
+  audioKind: "placeholder" | "uploaded" | "approved-master";
   audioLabel: string | null;
   outputRel: string | null;
   thumbRel: string | null;
@@ -22,6 +23,14 @@ export interface SafeUpload {
   bytes: number;
   durationSeconds: number | null;
   uploadedAt: string;
+  kind: "uploaded" | "placeholder";
+}
+
+export interface Provenance {
+  audioKind: "placeholder" | "uploaded" | "approved-master" | null;
+  approved: boolean;
+  approvalStale: boolean;
+  postingAllowed: boolean;
 }
 
 export interface StudioItem {
@@ -29,4 +38,5 @@ export interface StudioItem {
   postedAt: string | null;
   uploads: SafeUpload[];
   jobs: SafeJob[];
+  provenance: Provenance;
 }

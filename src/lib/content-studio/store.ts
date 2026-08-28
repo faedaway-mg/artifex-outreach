@@ -22,6 +22,7 @@ const DATA_DIR = process.env.CONTENT_STUDIO_DATA_DIR
 const JOBS_DIR = path.join(DATA_DIR, "jobs");
 const UPLOADS_DIR = path.join(DATA_DIR, "uploads");
 const POSTED_FILE = path.join(DATA_DIR, "posted.json");
+const APPROVALS_FILE = path.join(DATA_DIR, "approvals.json");
 const DRAFTS_FILE = path.join(DATA_DIR, "drafts.json");
 const TEMPLATES_DATA = path.join(DATA_DIR, "templates"); // UI-created (private)
 const TEMPLATES_PUBLIC = path.join(PUBLIC_DIR, "content", "templates"); // committed (e.g. #007)
@@ -92,6 +93,21 @@ export async function setPosted(pieceId: string, when: string): Promise<void> {
   const cur = await readPosted();
   cur[pieceId] = when;
   await writeAtomic(POSTED_FILE, JSON.stringify(cur, null, 2));
+}
+
+// ── Approvals (explicit operator action, version-bound) ──────────────────────
+export async function readApprovals(): Promise<Record<string, import("./types").Approval>> {
+  try { return JSON.parse(await fs.readFile(APPROVALS_FILE, "utf8")); } catch { return {}; }
+}
+export async function setApproval(a: import("./types").Approval): Promise<void> {
+  const cur = await readApprovals();
+  cur[a.pieceId] = a;
+  await writeAtomic(APPROVALS_FILE, JSON.stringify(cur, null, 2));
+}
+export async function clearApproval(pieceId: string): Promise<void> {
+  const cur = await readApprovals();
+  delete cur[pieceId];
+  await writeAtomic(APPROVALS_FILE, JSON.stringify(cur, null, 2));
 }
 
 // ── Uploads ──────────────────────────────────────────────────────────────────
@@ -214,14 +230,33 @@ export async function getPieces(): Promise<Piece[]> {
 }
 
 export async function studioSnapshot() {
-  const [pieces, jobs, posted] = await Promise.all([getPieces(), listJobs(), readPosted()]);
+  const [pieces, jobs, posted, approvals] = await Promise.all([getPieces(), listJobs(), readPosted(), readApprovals()]);
   const byPiece = await Promise.all(
-    pieces.map(async (p) => ({
-      piece: p,
-      jobs: jobsForPiece(jobs, p.id),
-      uploads: await listUploads(p.id),
-      postedAt: posted[p.id] ?? null,
-    })),
+    pieces.map(async (p) => {
+      const pieceJobs = jobsForPiece(jobs, p.id);
+      const ready = latestReadyJob(jobs, p.id);
+      const approval = approvals[p.id] ?? null;
+      // Provenance of the CURRENT recommended output. A disk-resolved recommended for #001–#006 is an
+      // approved master (its audio is the previously-approved final); a template render carries the
+      // job's explicit audioKind; otherwise unknown.
+      const isApprovedMasterPiece = ["001", "002", "003", "004", "005", "006"].includes(p.id);
+      const audioKind: import("./types").AudioKind | null = ready
+        ? ready.audioKind
+        : p.recommendedRel && isApprovedMasterPiece ? "approved-master" : null;
+      const approved = Boolean(
+        (ready && approval && approval.jobId === ready.id && approval.inputVersion === ready.inputVersion) ||
+        (!ready && p.recommendedRel && isApprovedMasterPiece), // prior approved master
+      );
+      const approvalStale = Boolean(approval && ready && approval.inputVersion !== ready.inputVersion);
+      const postingAllowed = audioKind !== "placeholder" && (approved || audioKind === "approved-master");
+      return {
+        piece: p,
+        jobs: pieceJobs,
+        uploads: await listUploads(p.id),
+        postedAt: posted[p.id] ?? null,
+        provenance: { audioKind, approved, approvalStale, postingAllowed },
+      };
+    }),
   );
   return byPiece;
 }

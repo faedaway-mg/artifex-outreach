@@ -16,7 +16,7 @@ function job(p: Partial<RenderJob>): RenderJob {
   const now = new Date().toISOString();
   return {
     id: p.id ?? "csjob_x", pieceId: p.pieceId ?? "007", inputVersion: p.inputVersion ?? "v1",
-    status: p.status ?? "queued", progress: p.progress ?? 0, stage: p.stage ?? "", mode: p.mode ?? "uploaded-vo",
+    status: p.status ?? "queued", progress: p.progress ?? 0, stage: p.stage ?? "", mode: p.mode ?? "uploaded-vo", audioKind: p.audioKind ?? "uploaded",
     audioFile: p.audioFile ?? null, audioLabel: null, outputFile: p.outputFile ?? null, outputRel: p.outputRel ?? null,
     thumbRel: null, error: p.error ?? null, attempt: p.attempt ?? 1, pid: p.pid ?? null,
     createdAt: p.createdAt ?? now, updatedAt: p.updatedAt ?? now, startedAt: p.startedAt ?? null, finishedAt: p.finishedAt ?? null,

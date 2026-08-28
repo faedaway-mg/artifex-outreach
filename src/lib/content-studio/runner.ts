@@ -45,6 +45,7 @@ export async function createRenderJob(pieceId: string, opts: { useUpload: boolea
   }
 
   let mode: RenderJob["mode"] = "reuse-approved-audio";
+  let audioKind: RenderJob["audioKind"] = "approved-master";
   let audioFile: string | null = null;
   let audioLabel: string | null = null;
   let audioSig = "approved";
@@ -55,6 +56,7 @@ export async function createRenderJob(pieceId: string, opts: { useUpload: boolea
     const up = await latestUpload(pieceId);
     if (!up) throw new Error("No uploaded voiceover found for this piece. Upload an MP3 first.");
     mode = "uploaded-vo";
+    audioKind = up.kind === "placeholder" ? "placeholder" : "uploaded"; // explicit provenance
     audioFile = up.file;
     audioLabel = up.name;
     audioSig = audioSignature({ name: up.name, bytes: up.bytes, durationSeconds: up.durationSeconds });
@@ -74,6 +76,7 @@ export async function createRenderJob(pieceId: string, opts: { useUpload: boolea
     progress: 0,
     stage: "Queued",
     mode,
+    audioKind,
     audioFile,
     audioLabel,
     outputFile: null,

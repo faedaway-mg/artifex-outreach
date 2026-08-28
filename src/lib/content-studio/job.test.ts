@@ -5,7 +5,7 @@ import type { RenderJob } from "./types";
 function job(p: Partial<RenderJob>): RenderJob {
   return {
     id: p.id ?? "j1", pieceId: p.pieceId ?? "004", inputVersion: p.inputVersion ?? "v1",
-    status: p.status ?? "queued", progress: p.progress ?? 0, stage: "", mode: "reuse-approved-audio",
+    status: p.status ?? "queued", progress: p.progress ?? 0, stage: "", mode: "reuse-approved-audio", audioKind: "approved-master",
     audioFile: null, audioLabel: null, outputFile: null, outputRel: p.outputRel ?? null, thumbRel: null,
     error: null, attempt: 1, pid: null,
     createdAt: p.createdAt ?? "2026-01-01T00:00:00Z", updatedAt: "", startedAt: null,

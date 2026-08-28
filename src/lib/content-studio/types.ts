@@ -5,6 +5,11 @@
 
 export type JobStatus = "queued" | "rendering" | "ready" | "failed";
 
+// Audio provenance — tracked EXPLICITLY, never inferred from a filename. "placeholder" = a demo/TTS
+// stand-in (never postable/approvable); "uploaded" = an operator-provided real voiceover (review →
+// approve); "approved-master" = reused byte-for-byte from a previously-approved final (#004–#006).
+export type AudioKind = "placeholder" | "uploaded" | "approved-master";
+
 export interface RenderJob {
   id: string; // "csjob_..."
   pieceId: string; // "004"
@@ -13,6 +18,7 @@ export interface RenderJob {
   progress: number; // 0..1
   stage: string; // human-facing label ("Rendering frames 240/635")
   mode: "reuse-approved-audio" | "uploaded-vo"; // how the audio is sourced
+  audioKind: AudioKind; // explicit provenance of the audio in this render
   audioFile: string | null; // absolute path to the VO mp3 used (uploaded), or null when reusing approved
   audioLabel: string | null; // display name of the audio used
   outputFile: string | null; // absolute path to the rendered mp4 (recommended posting file)
@@ -51,4 +57,16 @@ export interface AudioUpload {
   bytes: number;
   durationSeconds: number | null;
   uploadedAt: string;
+  kind: "uploaded" | "placeholder"; // explicit — set by the caller, never inferred from the name
+}
+
+// A recorded approval — an explicit operator action, bound to the EXACT render it approved. It goes
+// stale automatically when the piece's inputs change (a newer job with a different inputVersion exists).
+export interface Approval {
+  pieceId: string;
+  jobId: string;
+  inputVersion: string;
+  outputRel: string;
+  audioSig: string; // the audio that was approved
+  approvedAt: string;
 }

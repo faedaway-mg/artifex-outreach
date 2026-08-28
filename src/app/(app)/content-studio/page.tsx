@@ -8,10 +8,11 @@ export const dynamic = "force-dynamic";
 // filesystem paths for uploads or render outputs).
 export default async function ContentStudioPage() {
   const raw = await studioSnapshot();
-  const items: StudioItem[] = raw.map(({ piece, jobs, uploads, postedAt }) => ({
+  const items: StudioItem[] = raw.map(({ piece, jobs, uploads, postedAt, provenance }) => ({
     piece,
     postedAt,
-    uploads: uploads.map((u) => ({ name: u.name, bytes: u.bytes, durationSeconds: u.durationSeconds, uploadedAt: u.uploadedAt })),
+    provenance,
+    uploads: uploads.map((u) => ({ name: u.name, bytes: u.bytes, durationSeconds: u.durationSeconds, uploadedAt: u.uploadedAt, kind: u.kind })),
     jobs: jobs.map(sanitizeJob),
   }));
   return <ContentStudioClient initialItems={items} />;
@@ -20,7 +21,7 @@ export default async function ContentStudioPage() {
 function sanitizeJob(j: any): SafeJob {
   return {
     id: j.id, pieceId: j.pieceId, inputVersion: j.inputVersion, status: j.status,
-    progress: j.progress, stage: j.stage, mode: j.mode, audioLabel: j.audioLabel,
+    progress: j.progress, stage: j.stage, mode: j.mode, audioKind: j.audioKind, audioLabel: j.audioLabel,
     outputRel: j.outputRel, thumbRel: j.thumbRel, error: j.error,
     createdAt: j.createdAt, finishedAt: j.finishedAt,
   };
