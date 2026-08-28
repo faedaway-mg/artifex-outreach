@@ -11,16 +11,48 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import { verifyStripeSignature } from "./stripe-webhook";
 import { applyInvoiceEvent, type InvoiceEvent } from "./invoice-events";
-import { getInvoiceByProviderId, updateInvoice, recordPaymentEventIfAbsent, updatePaymentEvent } from "../repo";
+import { getInvoiceByProviderId, getInvoiceByChargeId, getInvoiceByPaymentIntentId, updateInvoice, recordPaymentEventIfAbsent, updatePaymentEvent } from "../repo";
+import type { Invoice } from "../types";
 import { nowIso } from "../store";
 
 export type InvoiceWebhookResult = { ok: boolean; status: number; kind: string; result?: string };
 
+interface EventObject {
+  id?: string;
+  invoice?: string; // sometimes present on charge (version-dependent); never on disputes
+  amount_refunded?: number;
+  amount?: number; // dispute amount
+  status?: string; // dispute status
+  charge?: string; // dispute.charge
+  payment_intent?: string; // dispute/charge/PI link — the PREFERRED resolver
+}
 interface EventShape {
   id?: string;
   type?: string;
   created?: number;
-  data?: { object?: { id?: string; invoice?: string; amount_refunded?: number; status?: string; charge?: string } };
+  data?: { object?: EventObject };
+}
+
+// Resolve the event to a local invoice using the best available link for its family:
+// invoice.* → invoice id; charge/dispute/PI → payment_intent, then charge, then any
+// inline invoice id. Disputes carry NO invoice field, so PI/charge is required.
+async function resolveInvoice(type: string, obj: EventObject): Promise<Invoice | undefined> {
+  if (type.startsWith("invoice.")) {
+    const id = obj.invoice ?? obj.id;
+    return id ? getInvoiceByProviderId(String(id)) : undefined;
+  }
+  if (obj.payment_intent) {
+    const byPi = await getInvoiceByPaymentIntentId(String(obj.payment_intent));
+    if (byPi) return byPi;
+  }
+  // charge.* : obj.id is the charge id; dispute.* : obj.charge is the charge id.
+  const chargeId = type.startsWith("charge.dispute") ? obj.charge : obj.id ?? obj.charge;
+  if (chargeId) {
+    const byCharge = await getInvoiceByChargeId(String(chargeId));
+    if (byCharge) return byCharge;
+  }
+  if (obj.invoice) return getInvoiceByProviderId(String(obj.invoice));
+  return undefined;
 }
 
 export async function handleStripeInvoiceWebhook(input: {
@@ -50,11 +82,15 @@ export async function handleStripeInvoiceWebhook(input: {
   const type = String(event.type ?? "");
   const eventId = String(event.id ?? "") || `${type}:${event.created ?? ""}`;
   const obj = event.data?.object ?? {};
-  // invoice.* events carry the invoice id as object.id; charge.* carry it as object.invoice.
-  const providerInvoiceId = String(obj.invoice ?? obj.id ?? "");
-  if (!providerInvoiceId) return { ok: true, status: 200, kind: type || "unknown", result: "no_invoice_ref" };
-
   const occurredAt = event.created ? new Date(event.created * 1000).toISOString() : nowIso();
+
+  // A durable-receipt reference for retention/replay. For invoice.* it's the invoice
+  // id; otherwise the best money link (payment_intent, then charge). Disputes carry
+  // no invoice id — hence PI/charge (see Stripe docs, verified 2026-08-27).
+  const receiptRef = type.startsWith("invoice.")
+    ? String(obj.invoice ?? obj.id ?? "")
+    : String(obj.payment_intent ?? obj.charge ?? obj.id ?? obj.invoice ?? "");
+  if (!receiptRef) return { ok: true, status: 200, kind: type || "unknown", result: "no_ref" };
 
   // 2) DURABLE RECEIPT FIRST — recorded (deduped by event id) BEFORE any effect, so
   // an event that arrives before its invoice, or whose apply fails, is never lost.
@@ -62,7 +98,7 @@ export async function handleStripeInvoiceWebhook(input: {
     provider: "stripe",
     eventId,
     eventType: type,
-    providerInvoiceId,
+    providerInvoiceId: receiptRef,
     invoiceId: null,
     issuerId: null,
     payload: event as unknown,
@@ -74,11 +110,10 @@ export async function handleStripeInvoiceWebhook(input: {
   // A duplicate delivery: the first receipt already governs; do not re-apply.
   if (!inserted) return { ok: true, status: 200, kind: type, result: "duplicate" };
 
-  const invoice = await getInvoiceByProviderId(providerInvoiceId);
+  const invoice = await resolveInvoice(type, obj);
   if (!invoice) {
-    // The invoice does not exist yet (event raced ahead of local creation). The
-    // receipt is retained UNPROCESSED and will be replayed by reconciliation once
-    // the invoice is issued. Nothing is lost.
+    // The invoice/mapping doesn't exist yet (event raced ahead, or PI/charge not yet
+    // linked). Receipt retained UNPROCESSED, replayed by reconciliation. Nothing lost.
     await updatePaymentEvent(receipt.id, { outcome: "pending_unmatched" });
     return { ok: true, status: 200, kind: type, result: "pending_unmatched" };
   }
@@ -95,7 +130,10 @@ export async function handleStripeInvoiceWebhook(input: {
     type,
     occurredAt,
     amountRefundedCents: typeof obj.amount_refunded === "number" ? obj.amount_refunded : undefined,
-    disputeStatus: obj.status,
+    amountDisputedCents: typeof obj.amount === "number" && type.startsWith("charge.dispute") ? obj.amount : undefined,
+    disputeStatus: type.startsWith("charge.dispute") ? obj.status : undefined,
+    chargeId: obj.charge ? String(obj.charge) : undefined,
+    paymentIntentId: obj.payment_intent ? String(obj.payment_intent) : undefined,
   };
   const { outcome, patch } = applyInvoiceEvent(invoice, ev);
   if (outcome === "applied") await updateInvoice(invoice.id, patch);

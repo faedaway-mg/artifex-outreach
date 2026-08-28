@@ -850,13 +850,21 @@ export const invoices = pgTable(
     provider: text("provider"),
     providerInvoiceId: text("provider_invoice_id"),
     hostedInvoiceUrl: text("hosted_invoice_url"),
+    // Durable refs so dispute/charge/refund events (which don't carry the invoice id)
+    // resolve back to this invoice.
+    chargeId: text("charge_id"),
+    paymentIntentId: text("payment_intent_id"),
     issuedAt: ts("issued_at"),
     paidAt: ts("paid_at"),
     failedAt: ts("failed_at"),
     voidedAt: ts("voided_at"),
     refundedAt: ts("refunded_at"),
-    disputedAt: ts("disputed_at"),
     amountRefundedCents: integer("amount_refunded_cents").notNull().default(0),
+    // Dispute fact — separate from refund. "none" | "open" | "won" | "lost".
+    disputeStatus: text("dispute_status").notNull().default("none"),
+    amountDisputedCents: integer("amount_disputed_cents").notNull().default(0),
+    disputedAt: ts("disputed_at"),
+    disputeResolvedAt: ts("dispute_resolved_at"),
     createdAt: ts("created_at").notNull(),
     updatedAt: ts("updated_at").notNull(),
   },
@@ -865,6 +873,7 @@ export const invoices = pgTable(
     agreementIdx: index("invoices_agreement_idx").on(t.agreementId),
     stateIdx: index("invoices_state_idx").on(t.state),
     providerInvoiceIdx: index("invoices_provider_invoice_idx").on(t.providerInvoiceId),
+    chargeIdx: index("invoices_charge_idx").on(t.chargeId),
     keyIdx: uniqueIndex("invoices_idempotency_key_idx").on(t.idempotencyKey),
   }),
 );

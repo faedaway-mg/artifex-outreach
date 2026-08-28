@@ -74,10 +74,10 @@ describe("GATE 9 mock rehearsal — full closing journey", () => {
     expect((await webhook("in_bal", "invoice.paid")).result).toBe("duplicate");
     expect((await getInvoice(bal.invoice!.id))!.state).toBe("paid");
 
-    // 4) A partial refund on the deposit — money state moves without erasing history.
+    // 4) A partial refund on the deposit — a SEPARATE fact; lifecycle stays paid.
     expect((await webhook("in_dep", "charge.refunded", { amount_refunded: 100_000 }, "refund")).result).toBe("applied");
     const depAfter = await getInvoice(dep.invoice!.id);
-    expect(depAfter!.state).toBe("partially_refunded");
+    expect(depAfter!.state).toBe("paid"); // "was paid" is never overwritten by a refund
     expect(depAfter!.amountRefundedCents).toBe(100_000);
 
     // 5) Money view: both collected; payout + bank receipt remain UNVERIFIED.

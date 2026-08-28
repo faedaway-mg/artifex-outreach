@@ -484,6 +484,22 @@ export async function getInvoiceByProviderId(providerInvoiceId: string): Promise
   return (await Invoices.all()).find((i) => i.providerInvoiceId === providerInvoiceId);
 }
 
+// Resolve by the stored Stripe charge id — used for dispute/charge events, whose
+// payload does NOT carry the invoice id.
+export async function getInvoiceByChargeId(chargeId: string): Promise<Invoice | undefined> {
+  if (!chargeId) return undefined;
+  if (hasDb()) return (await getDb().select().from(t.invoices).where(eq(t.invoices.chargeId, chargeId)))[0] as any;
+  return (await Invoices.all()).find((i) => i.chargeId === chargeId);
+}
+
+// Resolve by the stored PaymentIntent id — the PREFERRED link for dispute/refund
+// events (dispute.payment_intent / charge.payment_intent).
+export async function getInvoiceByPaymentIntentId(paymentIntentId: string): Promise<Invoice | undefined> {
+  if (!paymentIntentId) return undefined;
+  if (hasDb()) return (await getDb().select().from(t.invoices).where(eq(t.invoices.paymentIntentId, paymentIntentId)))[0] as any;
+  return (await Invoices.all()).find((i) => i.paymentIntentId === paymentIntentId);
+}
+
 // ── Payment events (M3 durable receipts) ─────────────────────────────────────
 export const updatePaymentEvent = (id: string, patch: Partial<PaymentEvent>) =>
   PaymentEvents.update(id, patch);

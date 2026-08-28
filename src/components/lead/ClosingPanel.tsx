@@ -83,13 +83,19 @@ export function ClosingPanel({ view, agreementId }: { view: ClosingView; agreeme
         </ul>
       </div>
 
-      {/* Money view — collected vs payout (separate + unverified) */}
+      {/* Money view — collected vs refunds vs chargebacks vs open disputes (all distinct) */}
       <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
         <Stat label="Invoiced" value={money(m.invoicedCents, m.currency)} />
-        <Stat label="Collected" value={money(m.collectedCents, m.currency)} tone="emerald" />
+        <Stat label="Collected (net)" value={money(m.collectedCents, m.currency)} tone="emerald" />
         <Stat label="Outstanding" value={money(m.outstandingCents, m.currency)} />
         <Stat label="Refunded" value={money(m.refundedCents, m.currency)} tone={m.refundedCents ? "orange" : undefined} />
       </div>
+      {(m.chargebackLostCents > 0 || m.disputedOpenCents > 0) && (
+        <div className="mt-2 grid grid-cols-2 gap-2">
+          <Stat label="Chargebacks lost" value={money(m.chargebackLostCents, m.currency)} tone={m.chargebackLostCents ? "red" : undefined} />
+          <Stat label="Disputes open" value={money(m.disputedOpenCents, m.currency)} tone={m.disputedOpenCents ? "red" : undefined} />
+        </div>
+      )}
       <div className="mt-2 grid grid-cols-2 gap-2">
         <Stat label="Payout to Relay" value="Unverified" tone="muted" />
         <Stat label="Bank receipt" value="Unverified" tone="muted" />
@@ -112,7 +118,11 @@ function MilestoneRow({ row, agreementId, signed }: { row: ScheduleRow; agreemen
   return (
     <li className="flex flex-wrap items-center justify-between gap-2 py-2">
       <div className="min-w-0">
-        <p className="truncate text-sm font-medium text-neutral-900">{row.label}{badge}</p>
+        <p className="truncate text-sm font-medium text-neutral-900">
+          {row.label}{badge}
+          {row.amountRefundedCents > 0 && <span className="ml-2 rounded-full bg-orange-100 px-2 py-0.5 text-xs font-medium text-orange-800">refunded {money(row.amountRefundedCents)}</span>}
+          {row.disputeStatus !== "none" && <span className={`ml-2 rounded-full px-2 py-0.5 text-xs font-medium ${row.disputeStatus === "lost" ? "bg-red-100 text-red-800" : row.disputeStatus === "won" ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}`}>dispute {row.disputeStatus}</span>}
+        </p>
         <p className="text-xs text-neutral-500">{money(row.amountCents)} · {row.trigger.replace(/_/g, " ")}</p>
       </div>
       <div className="flex items-center gap-2">
@@ -141,8 +151,8 @@ function MilestoneRow({ row, agreementId, signed }: { row: ScheduleRow; agreemen
   );
 }
 
-function Stat({ label, value, tone }: { label: string; value: string; tone?: "emerald" | "orange" | "muted" }) {
-  const color = tone === "emerald" ? "text-emerald-700" : tone === "orange" ? "text-orange-700" : tone === "muted" ? "text-neutral-400" : "text-neutral-900";
+function Stat({ label, value, tone }: { label: string; value: string; tone?: "emerald" | "orange" | "red" | "muted" }) {
+  const color = tone === "emerald" ? "text-emerald-700" : tone === "orange" ? "text-orange-700" : tone === "red" ? "text-red-700" : tone === "muted" ? "text-neutral-400" : "text-neutral-900";
   return (
     <div className="rounded-lg border border-neutral-100 bg-neutral-50 p-2">
       <p className="text-[11px] uppercase tracking-wide text-neutral-500">{label}</p>

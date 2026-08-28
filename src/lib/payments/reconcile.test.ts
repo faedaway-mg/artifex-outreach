@@ -5,7 +5,7 @@ import {
   insertInvoiceIfAbsent, insertAgreement, getInvoice, updateInvoice,
   recordPaymentEventIfAbsent, paymentEventsForProviderInvoice,
 } from "../repo";
-import { makeAgreement } from "../agreement/test-fixtures";
+import { makeAgreement, makeInvoice } from "../agreement/test-fixtures";
 import { handleStripeInvoiceWebhook } from "./stripe-invoice-webhook";
 import { reconcileInvoiceFromEvents } from "./reconcile";
 import { prepareMilestoneInvoice, issueMilestoneInvoice } from "../billing/invoicing-service";
@@ -24,12 +24,7 @@ function evt(id: string, type: string, providerInvoiceId: string, created: numbe
   return { id, type, created, data: { object: { id: providerInvoiceId, invoice: providerInvoiceId, ...extra } } };
 }
 function invSeed(over: Partial<Invoice> = {}): Omit<Invoice, "id" | "createdAt" | "updatedAt"> {
-  return {
-    leadId: "l1", agreementId: "a1", agreementVersion: 1, issuerId: "artifex-systems", milestoneKey: "deposit",
-    milestoneLabel: "Deposit", amountCents: 500_000, currency: "usd", state: "issued", idempotencyKey: Math.random().toString(36),
-    provider: "stripe", providerInvoiceId: "in_R", hostedInvoiceUrl: null, issuedAt: null, paidAt: null, failedAt: null,
-    voidedAt: null, refundedAt: null, disputedAt: null, amountRefundedCents: 0, ...over,
-  };
+  return makeInvoice({ leadId: "l1", agreementId: "a1", state: "issued", providerInvoiceId: "in_R", idempotencyKey: Math.random().toString(36), amountCents: 500_000, ...over });
 }
 
 beforeEach(() => __resetStoreForTests());
@@ -57,14 +52,15 @@ describe("Gate 4 — event ordering & reconciliation", () => {
     expect((await paymentEventsForProviderInvoice("in_dep"))[0].processedAt).not.toBeNull();
   });
 
-  it("out-of-order delivery converges: refund delivered before paid still ends partially_refunded", async () => {
+  it("out-of-order: refund delivered before paid converges to paid + recorded refund (refund is not a state)", async () => {
     const { row } = await insertInvoiceIfAbsent(invSeed({ state: "issued" }));
     // Deliver refund FIRST (but it occurred later); paid occurred earlier but arrives second.
     await fire(evt("e_refund", "charge.refunded", "in_R", NOW + 100, { amount_refunded: 200_000 }));
     await fire(evt("e_paid", "invoice.paid", "in_R", NOW));
-    // Replaying in occurredAt order (paid @NOW, refund @NOW+100) yields the right end state.
+    // Replaying in occurredAt order (paid @NOW, refund @NOW+100): lifecycle stays paid;
+    // the refund is a separate fact, so "was paid" is preserved (not overwritten).
     const res = await reconcileInvoiceFromEvents(row.id);
-    expect(res!.finalState).toBe("partially_refunded");
+    expect(res!.finalState).toBe("paid");
     const after = await getInvoice(row.id);
     expect(after!.paidAt).not.toBeNull();
     expect(after!.amountRefundedCents).toBe(200_000);

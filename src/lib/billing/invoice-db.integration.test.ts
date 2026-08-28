@@ -16,17 +16,16 @@ import {
 } from "../repo";
 import { invoiceIdempotencyKey } from "./invoice";
 import type { Invoice } from "../types";
+import { makeInvoice } from "../agreement/test-fixtures";
 
 const RUN = hasDb();
 
 function seed(over: Partial<Invoice> = {}): Omit<Invoice, "id" | "createdAt" | "updatedAt"> {
-  return {
-    leadId: "lead_db", agreementId: "ag_db", agreementVersion: 1, issuerId: "artifex-systems", milestoneKey: "deposit",
-    milestoneLabel: "Deposit", amountCents: 500_000, currency: "usd", state: "draft",
+  return makeInvoice({
+    leadId: "lead_db", agreementId: "ag_db", state: "draft", amountCents: 500_000,
     idempotencyKey: invoiceIdempotencyKey({ issuerId: "artifex-systems", agreementId: "ag_db", agreementVersion: 1, milestoneKey: "deposit" }),
-    provider: "stripe", providerInvoiceId: null, hostedInvoiceUrl: null, issuedAt: null, paidAt: null, failedAt: null,
-    voidedAt: null, refundedAt: null, disputedAt: null, amountRefundedCents: 0, ...over,
-  };
+    ...over,
+  });
 }
 
 describe.skipIf(!RUN)("REAL DB — invoice adapter (isolated Postgres)", () => {

@@ -661,20 +661,33 @@ export interface Invoice {
   milestoneLabel: string;
   amountCents: number;
   currency: string;
+  // COLLECTION lifecycle only (draft→issued→processing→paid→failed/void/uncollectible).
+  // Refunds and disputes are SEPARATE financial facts below — they never overwrite
+  // this, so "was paid" is never erased by a later refund or chargeback.
   state: import("./billing/invoice").InvoiceState;
   /** Deterministic key; unique per (issuer, agreement, version, milestone). */
   idempotencyKey: string;
   provider: string | null; // e.g. "stripe"
   providerInvoiceId: string | null;
   hostedInvoiceUrl: string | null;
-  // Money-state timeline (append-only intent; never overwrite history destructively).
+  // Durable provider references captured at payment, so dispute/charge/refund events
+  // (which do NOT carry the invoice id) can be resolved back to this invoice.
+  chargeId: string | null;
+  paymentIntentId: string | null;
+  // Money-fact timeline (append-only intent; never overwrite history destructively).
   issuedAt: string | null;
   paidAt: string | null;
   failedAt: string | null;
   voidedAt: string | null;
+  // Refund fact (merchant-initiated money returned). Cumulative minor units.
   refundedAt: string | null;
-  disputedAt: string | null;
   amountRefundedCents: number;
+  // Dispute fact — DISTINCT from a refund. A lost dispute is a chargeback loss, not
+  // a refund. Tracked separately so net accounting never conflates the two.
+  disputeStatus: "none" | "open" | "won" | "lost";
+  amountDisputedCents: number;
+  disputedAt: string | null;
+  disputeResolvedAt: string | null;
   createdAt: string;
   updatedAt: string;
 }

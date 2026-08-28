@@ -102,13 +102,18 @@ export async function prepareMilestoneInvoice(
     provider: "stripe",
     providerInvoiceId: null,
     hostedInvoiceUrl: null,
+    chargeId: null,
+    paymentIntentId: null,
     issuedAt: null,
     paidAt: null,
     failedAt: null,
     voidedAt: null,
     refundedAt: null,
-    disputedAt: null,
     amountRefundedCents: 0,
+    disputeStatus: "none",
+    amountDisputedCents: 0,
+    disputedAt: null,
+    disputeResolvedAt: null,
   });
 
   if (inserted) {

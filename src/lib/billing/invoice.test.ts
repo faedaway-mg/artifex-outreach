@@ -8,13 +8,13 @@ describe("invoice state machine", () => {
     expect(canTransition("processing", "paid")).toBe(true);
   });
 
-  it("money state is NOT globally forward-only: refund/dispute reachable from paid", () => {
-    expect(canTransition("paid", "refunded")).toBe(true);
-    expect(canTransition("paid", "partially_refunded")).toBe(true);
-    expect(canTransition("paid", "disputed")).toBe(true);
-    // dispute can resolve either way without erasing that it was paid
-    expect(canTransition("disputed", "paid")).toBe(true);
-    expect(canTransition("disputed", "refunded")).toBe(true);
+  it("refunds and disputes are NOT lifecycle states — they never overwrite 'paid'", () => {
+    // The lifecycle is terminal at paid; refund/dispute are separate facts on the
+    // invoice (amountRefundedCents / disputeStatus), so a chargeback or refund never
+    // rewrites 'paid' → 'refunded'/'disputed'. (Verified in invoice-events.test.)
+    expect(canTransition("paid", "refunded")).toBe(false);
+    expect(canTransition("paid", "disputed")).toBe(false);
+    expect(canTransition("paid", "void")).toBe(false);
   });
 
   it("void is terminal; draft cannot jump straight to paid", () => {

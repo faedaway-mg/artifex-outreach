@@ -3,6 +3,7 @@ import { createHmac } from "node:crypto";
 import { __resetStoreForTests } from "../store";
 import { insertInvoiceIfAbsent, getInvoice } from "../repo";
 import { handleStripeInvoiceWebhook } from "./stripe-invoice-webhook";
+import { makeInvoice } from "../agreement/test-fixtures";
 import type { Invoice } from "../types";
 
 const SECRET = "whsec_inv_test";
@@ -12,13 +13,7 @@ function sig(body: string, ts: number): string {
 const NOW = 1_800_000_000;
 
 function invSeed(over: Partial<Invoice> = {}): Omit<Invoice, "id" | "createdAt" | "updatedAt"> {
-  return {
-    leadId: "l1", agreementId: "a1", agreementVersion: 1, issuerId: "artifex-systems",
-    milestoneKey: "deposit", milestoneLabel: "Deposit", amountCents: 500_000, currency: "usd",
-    state: "issued", idempotencyKey: "inv:artifex-systems:a1:v1:deposit", provider: "stripe",
-    providerInvoiceId: "in_1", hostedInvoiceUrl: null, issuedAt: null, paidAt: null, failedAt: null,
-    voidedAt: null, refundedAt: null, disputedAt: null, amountRefundedCents: 0, ...over,
-  };
+  return makeInvoice({ leadId: "l1", agreementId: "a1", state: "issued", providerInvoiceId: "in_1", amountCents: 500_000, ...over });
 }
 
 async function send(eventObj: unknown, opts: { secret?: string | null; expectedIssuerId?: string } = {}) {
@@ -75,7 +70,7 @@ describe("stripe invoice webhook", () => {
     const r = await send({ id: "evt_ref", type: "charge.refunded", created: NOW, data: { object: { invoice: "in_1", amount_refunded: 200_000 } } });
     expect(r.result).toBe("applied");
     const after = await getInvoice(row.id);
-    expect(after!.state).toBe("partially_refunded");
+    expect(after!.state).toBe("paid"); // refund is a separate fact — lifecycle stays paid
     expect(after!.amountRefundedCents).toBe(200_000);
   });
 });

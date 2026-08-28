@@ -1,16 +1,10 @@
 import { describe, it, expect } from "vitest";
 import { buildClosingView } from "./closing-view";
-import { makeAgreement, makePayment } from "../agreement/test-fixtures";
+import { makeAgreement, makePayment, makeInvoice } from "../agreement/test-fixtures";
 import type { Invoice, Agreement } from "../types";
 
 function invoice(over: Partial<Invoice>): Invoice {
-  return {
-    id: "inv1", leadId: "lead_1", agreementId: "agr_1", agreementVersion: 1, issuerId: "artifex-systems",
-    milestoneKey: "deposit", milestoneLabel: "Deposit", amountCents: 725_000, currency: "usd", state: "draft",
-    idempotencyKey: "k", provider: "stripe", providerInvoiceId: null, hostedInvoiceUrl: null, issuedAt: null,
-    paidAt: null, failedAt: null, voidedAt: null, refundedAt: null, disputedAt: null, amountRefundedCents: 0,
-    createdAt: "", updatedAt: "", ...over,
-  };
+  return makeInvoice({ amountCents: 725_000, ...over });
 }
 
 describe("closing view-model", () => {

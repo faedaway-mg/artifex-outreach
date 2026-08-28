@@ -1,34 +1,45 @@
 import { describe, it, expect } from "vitest";
 import { moneyView, PAYOUT_CAVEAT } from "./payout";
+import { makeInvoice } from "../agreement/test-fixtures";
 import type { Invoice } from "../types";
 
-function inv(state: Invoice["state"], amountCents: number, over: Partial<Invoice> = {}): Invoice {
-  return {
-    id: Math.random().toString(36), leadId: "l1", agreementId: "a1", agreementVersion: 1, issuerId: "artifex-systems",
-    milestoneKey: "m", milestoneLabel: "M", amountCents, currency: "usd", state, idempotencyKey: Math.random().toString(36),
-    provider: "stripe", providerInvoiceId: null, hostedInvoiceUrl: null, issuedAt: null, paidAt: null, failedAt: null,
-    voidedAt: null, refundedAt: null, disputedAt: null, amountRefundedCents: 0, createdAt: "", updatedAt: "", ...over,
-  };
-}
+const inv = (over: Partial<Invoice>) => makeInvoice({ idempotencyKey: Math.random().toString(36), ...over });
 
-describe("payout / money-state separation", () => {
-  it("collected counts only paid invoices; payout + bank receipt stay UNVERIFIED", () => {
+describe("payout / money-state separation — refunds, chargebacks, open disputes are DISTINCT", () => {
+  it("net collected subtracts refunds and LOST chargebacks; open disputes reported separately", () => {
     const v = moneyView([
-      inv("paid", 500_000),
-      inv("issued", 300_000),
-      inv("void", 999_999),
-      inv("partially_refunded", 200_000, { amountRefundedCents: 50_000 }),
+      inv({ state: "paid", amountCents: 500_000 }),                                             // clean paid
+      inv({ state: "paid", amountCents: 300_000, amountRefundedCents: 100_000 }),               // partial refund
+      inv({ state: "paid", amountCents: 200_000, disputeStatus: "lost", amountDisputedCents: 200_000 }), // chargeback lost
+      inv({ state: "paid", amountCents: 400_000, disputeStatus: "open", amountDisputedCents: 400_000 }), // dispute open
+      inv({ state: "issued", amountCents: 250_000 }),                                           // outstanding
+      inv({ state: "void", amountCents: 999_999 }),                                             // excluded
     ]);
-    expect(v.collectedCents).toBe(650_000); // 500k paid + (200k - 50k refunded)
-    expect(v.invoicedCents).toBe(1_000_000); // excludes void
-    expect(v.outstandingCents).toBe(300_000);
-    expect(v.refundedCents).toBe(50_000);
-    // A paid invoice never implies money is in the bank.
+    // collected = 500k + (300k-100k) + (200k-200k lost) + 400k(open, still held) = 1,100,000
+    expect(v.collectedCents).toBe(1_100_000);
+    expect(v.refundedCents).toBe(100_000);
+    expect(v.chargebackLostCents).toBe(200_000);   // NOT counted as a refund
+    expect(v.disputedOpenCents).toBe(400_000);     // at risk, still in collected
+    expect(v.outstandingCents).toBe(250_000);
+    expect(v.invoicedCents).toBe(1_650_000);       // excludes void
+    // paid never implies money is in the bank
     expect(v.payoutStatus).toBe("unverified");
     expect(v.bankReceiptStatus).toBe("unverified");
   });
 
-  it("ships a caveat string for display", () => {
-    expect(PAYOUT_CAVEAT).toMatch(/not verified here/);
+  it("partial refund PLUS a lost partial dispute do not double-count", () => {
+    const v = moneyView([inv({ state: "paid", amountCents: 500_000, amountRefundedCents: 100_000, disputeStatus: "lost", amountDisputedCents: 150_000 })]);
+    // net = 500k - 100k refund - 150k chargeback = 250k
+    expect(v.collectedCents).toBe(250_000);
+    expect(v.refundedCents).toBe(100_000);
+    expect(v.chargebackLostCents).toBe(150_000);
   });
+
+  it("a WON dispute withdraws nothing from collected", () => {
+    const v = moneyView([inv({ state: "paid", amountCents: 500_000, disputeStatus: "won", amountDisputedCents: 500_000 })]);
+    expect(v.collectedCents).toBe(500_000);
+    expect(v.chargebackLostCents).toBe(0);
+  });
+
+  it("ships a caveat string", () => { expect(PAYOUT_CAVEAT).toMatch(/not verified here/); });
 });

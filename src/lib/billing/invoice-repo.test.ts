@@ -3,16 +3,11 @@ import { __resetStoreForTests } from "../store";
 import { insertInvoiceIfAbsent, invoicesForAgreement, getInvoiceByIdempotencyKey, updateInvoice } from "../repo";
 import { invoiceIdempotencyKey } from "./invoice";
 import type { Invoice } from "../types";
+import { makeInvoice } from "../agreement/test-fixtures";
 
 function seed(over: Partial<Invoice> = {}): Omit<Invoice, "id" | "createdAt" | "updatedAt"> {
   const idempotencyKey = invoiceIdempotencyKey({ issuerId: "artifex-systems", agreementId: "ag1", agreementVersion: 1, milestoneKey: "deposit" });
-  return {
-    leadId: "lead1", agreementId: "ag1", agreementVersion: 1, issuerId: "artifex-systems",
-    milestoneKey: "deposit", milestoneLabel: "Deposit", amountCents: 500_000, currency: "usd",
-    state: "draft", idempotencyKey, provider: "stripe", providerInvoiceId: null, hostedInvoiceUrl: null,
-    issuedAt: null, paidAt: null, failedAt: null, voidedAt: null, refundedAt: null, disputedAt: null,
-    amountRefundedCents: 0, ...over,
-  };
+  return makeInvoice({ leadId: "lead1", agreementId: "ag1", state: "draft", idempotencyKey, amountCents: 500_000, ...over });
 }
 
 describe("insertInvoiceIfAbsent — duplicate prevention under retry/concurrency", () => {

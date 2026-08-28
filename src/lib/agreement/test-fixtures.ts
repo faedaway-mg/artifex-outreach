@@ -1,6 +1,6 @@
 // Shared fixtures for agreement tests (not a *.test.ts file, so it never runs as a
 // suite). Builds minimal valid domain records with easy overrides.
-import type { Lead, Contact, Proposal, Settings, Agreement, Payment, ScoreBreakdown } from "../types";
+import type { Lead, Contact, Proposal, Settings, Agreement, Payment, Invoice, ScoreBreakdown } from "../types";
 import { defaultSettings } from "../store";
 import { buildAgreementContent } from "./snapshot";
 import { AGREEMENT_TEMPLATE_VERSION } from "./template";
@@ -53,6 +53,17 @@ export function makeAgreement(p: Partial<Agreement> = {}): Agreement {
     pdfKey: null, pdfUrl: null, signedPdfKey: null, signedPdfUrl: null, certificateUrl: null, esignProvider: null,
     esignRequestId: null, esignUrl: null, approvedAt: "2026-07-10T00:00:00.000Z", sentAt: null, viewedAt: null, signedAt: null,
     declinedAt: null, voidedAt: null, createdAt: "2026-07-10T00:00:00.000Z", updatedAt: "2026-07-10T00:00:00.000Z", ...p,
+  };
+}
+
+export function makeInvoice(p: Partial<Invoice> = {}): Invoice {
+  return {
+    id: "inv_1", leadId: "lead_1", agreementId: "agr_1", agreementVersion: 1, issuerId: "artifex-systems",
+    milestoneKey: "deposit", milestoneLabel: "Deposit", amountCents: 725000, currency: "usd", state: "draft",
+    idempotencyKey: "inv:artifex-systems:agr_1:v1:deposit", provider: "stripe", providerInvoiceId: null,
+    hostedInvoiceUrl: null, chargeId: null, paymentIntentId: null, issuedAt: null, paidAt: null, failedAt: null,
+    voidedAt: null, refundedAt: null, amountRefundedCents: 0, disputeStatus: "none", amountDisputedCents: 0,
+    disputedAt: null, disputeResolvedAt: null, createdAt: "", updatedAt: "", ...p,
   };
 }
 

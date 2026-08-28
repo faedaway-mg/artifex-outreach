@@ -14,12 +14,17 @@ import { applyInvoiceEvent, type InvoiceEvent } from "./invoice-events";
 import { nowIso } from "../store";
 
 function toInvoiceEvent(pe: PaymentEvent): InvoiceEvent {
-  const obj = ((pe.payload as any)?.data?.object ?? {}) as { amount_refunded?: number; status?: string };
+  const obj = ((pe.payload as any)?.data?.object ?? {}) as {
+    amount_refunded?: number; amount?: number; status?: string; charge?: string; payment_intent?: string;
+  };
   return {
     type: pe.eventType,
     occurredAt: pe.occurredAt,
     amountRefundedCents: typeof obj.amount_refunded === "number" ? obj.amount_refunded : undefined,
-    disputeStatus: obj.status,
+    amountDisputedCents: typeof obj.amount === "number" && pe.eventType.startsWith("charge.dispute") ? obj.amount : undefined,
+    disputeStatus: pe.eventType.startsWith("charge.dispute") ? obj.status : undefined,
+    chargeId: obj.charge ? String(obj.charge) : undefined,
+    paymentIntentId: obj.payment_intent ? String(obj.payment_intent) : undefined,
   };
 }
 
@@ -38,9 +43,13 @@ export async function reconcileInvoiceFromEvents(invoiceId: string): Promise<Rec
   const invoice = await getInvoice(invoiceId);
   if (!invoice || !invoice.providerInvoiceId) return null;
 
-  const events = (await paymentEventsForProviderInvoice(invoice.providerInvoiceId)).sort(
-    (a, b) => +new Date(a.occurredAt) - +new Date(b.occurredAt),
-  );
+  // Gather receipts across ALL of this invoice's refs: the invoice id (invoice.*
+  // events) plus the charge/PI ids (dispute/refund events key off those, not the
+  // invoice id). Dedupe by receipt id, sort by occurredAt.
+  const refs = [invoice.providerInvoiceId, invoice.chargeId, invoice.paymentIntentId].filter(Boolean) as string[];
+  const collected = (await Promise.all(refs.map((r) => paymentEventsForProviderInvoice(r)))).flat();
+  const byId = new Map(collected.map((e) => [e.id, e]));
+  const events = [...byId.values()].sort((a, b) => +new Date(a.occurredAt) - +new Date(b.occurredAt));
 
   let current: Invoice = { ...invoice };
   const netPatch: Partial<Invoice> = {};

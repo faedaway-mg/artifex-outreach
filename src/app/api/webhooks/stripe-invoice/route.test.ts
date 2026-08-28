@@ -7,6 +7,7 @@ import { NextRequest } from "next/server";
 import { POST } from "./route";
 import { __resetStoreForTests } from "@/lib/store";
 import { insertInvoiceIfAbsent, getInvoiceByProviderId } from "@/lib/repo";
+import { makeInvoice } from "@/lib/agreement/test-fixtures";
 import type { Invoice } from "@/lib/types";
 
 const SECRET = "whsec_route_test";
@@ -21,12 +22,7 @@ function req(body: string, signature: string | null) {
   return new NextRequest("http://localhost/api/webhooks/stripe-invoice", { method: "POST", body, headers });
 }
 function invSeed(over: Partial<Invoice> = {}): Omit<Invoice, "id" | "createdAt" | "updatedAt"> {
-  return {
-    leadId: "l1", agreementId: "a1", agreementVersion: 1, issuerId: "artifex-systems", milestoneKey: "deposit",
-    milestoneLabel: "Deposit", amountCents: 500_000, currency: "usd", state: "issued", idempotencyKey: "k",
-    provider: "stripe", providerInvoiceId: "in_1", hostedInvoiceUrl: null, issuedAt: null, paidAt: null, failedAt: null,
-    voidedAt: null, refundedAt: null, disputedAt: null, amountRefundedCents: 0, ...over,
-  };
+  return makeInvoice({ leadId: "l1", agreementId: "a1", state: "issued", providerInvoiceId: "in_1", idempotencyKey: "k", amountCents: 500_000, ...over });
 }
 
 const ORIG = { ...process.env };

@@ -7,6 +7,11 @@
 // permits; the durable event log (persisted elsewhere) records the actual path.
 // ─────────────────────────────────────────────────────────────────────────────
 
+// COLLECTION LIFECYCLE ONLY. Refunds and disputes are NOT lifecycle states — they
+// are separate financial facts on the Invoice (amountRefundedCents / disputeStatus),
+// so a refund or a lost chargeback never erases the fact the invoice was paid.
+// (The legacy values refunded/partially_refunded/disputed remain in the DB enum for
+// back-compat but are no longer assigned to `state`.)
 export const INVOICE_STATES = [
   "draft", // prepared locally, not issued to the client
   "issued", // finalized/sent at the provider (hosted invoice exists)
@@ -14,26 +19,28 @@ export const INVOICE_STATES = [
   "paid",
   "failed", // a payment attempt failed (invoice may still be collectible)
   "void", // cancelled before payment; no obligation
+  "uncollectible", // written off
+  // legacy — not assigned to `state` anymore; kept so old rows still type-check
   "refunded",
   "partially_refunded",
   "disputed",
-  "uncollectible", // written off
 ] as const;
 export type InvoiceState = (typeof INVOICE_STATES)[number];
 
-// Allowed transitions. Collection path is forward; post-payment money events
-// (refund/dispute) are reachable from paid and do not erase the paid history.
-const TRANSITIONS: Record<InvoiceState, InvoiceState[]> = {
+// Forward collection path. `paid` is terminal for the LIFECYCLE — money events after
+// payment are recorded on the separate refund/dispute fields, not here.
+const TRANSITIONS: Record<string, InvoiceState[]> = {
   draft: ["issued", "void"],
   issued: ["processing", "paid", "failed", "void", "uncollectible"],
   processing: ["paid", "failed", "uncollectible"],
   failed: ["processing", "paid", "void", "uncollectible"], // retry or give up
-  paid: ["refunded", "partially_refunded", "disputed"],
-  partially_refunded: ["refunded", "disputed"],
-  disputed: ["paid", "refunded", "uncollectible"], // dispute won → paid, lost → refunded
-  refunded: ["disputed"], // a refund can still be disputed/charged back
+  paid: [], // terminal lifecycle; refunds/disputes are orthogonal facts
   void: [],
   uncollectible: ["paid"], // late recovery
+  // legacy states have no forward transitions
+  refunded: [],
+  partially_refunded: [],
+  disputed: [],
 };
 
 export function canTransition(from: InvoiceState, to: InvoiceState): boolean {

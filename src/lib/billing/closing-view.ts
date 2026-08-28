@@ -25,6 +25,9 @@ export interface ScheduleRow {
   invoiceState: Invoice["state"] | "not-created" | "paid-via-checkout";
   invoiceId: string | null;
   hostedInvoiceUrl: string | null;
+  // Refund/dispute are separate facts from the lifecycle state.
+  disputeStatus: Invoice["disputeStatus"];
+  amountRefundedCents: number;
 }
 
 export interface NextAction {
@@ -73,6 +76,8 @@ export function buildClosingView(input: {
       invoiceState,
       invoiceId: inv?.id ?? null,
       hostedInvoiceUrl: inv?.hostedInvoiceUrl ?? null,
+      disputeStatus: inv?.disputeStatus ?? "none",
+      amountRefundedCents: inv?.amountRefundedCents ?? 0,
     };
   });
 
