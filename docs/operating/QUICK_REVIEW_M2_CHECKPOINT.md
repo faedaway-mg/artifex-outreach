@@ -363,3 +363,45 @@ Resend AUP, AWS AUP + SES enforcement FAQ, Microsoft Anti-Spam Policy + Services
 **Decision for Jordan:** approve Microsoft 365 Graph as the outreach transport ($0 extra, sends as
 hello@ from the mailbox we already own) + create the Entra app with `Mail.Send` scoped to hello@? No
 adapter will be built until the provider + cost are approved. One-hour reminder REMAINS outstanding.
+
+---
+
+## RECONCILE + AUDIT + DEPLOY-BLOCKER PASS (this session — no code changed; no send)
+
+**Production (verified read-only):** Railway project `artifex-outreach` / service `outreach-web` at
+`https://outreach.artifexlabs.tech`. `/api/health` 200 (DB connected), `/login` 200. Deploy is run via
+`pnpm deploy:production` from `~/artifex-outreach` (the LINKED worktree, branch
+`restore/acq-os-morning-m1`) — NOT from this `~/artifex-outreach-qr` worktree (unlinked). No git remote.
+
+**DEPLOYMENT IS BLOCKED (unsafe cross-session integration).** 8 active worktrees on divergent branches,
+no integration branch:
+- My `feat/quick-review-editorial` = `rc/m1-plus-pagination` + my 20 QR commits (superset of the RC).
+- The DEPLOYED/linked branch `restore/acq-os-morning-m1` DIVERGES from mine: 2 commits are on it that
+  are NOT in mine → deploying my branch would DROP them.
+- `feat/acq-os-closing-m3` (Stripe/closing) is a separate line: 19 commits not in mine.
+Deploying my isolated branch from another writer's linked worktree would drop deployed commits and
+touch a live session's checkout. Per directive → STOP. Needs a human integration decision (merge my 20
+QR commits into the release line + reconcile morning-m1's 2 + closing-m3), then deploy from
+`~/artifex-outreach`. NOT a code problem.
+
+**Prior-sends audit (prod `email_sends`, read-only, 2026-07-18 → 2026-08-14):** 23 messages; 22
+submitted to Resend; **20 delivered**, **2 bounced**, **1 queued with NO provider id = UNKNOWN**
+(submission unconfirmed — not proof of non-delivery; do NOT resend); 0 complaints; 0 inbound replies
+captured; 0 suppressions. History is visible in-app via the per-lead conversation/relationship view.
+
+**Automation state (verified in code):** the ONLY recurring runner (cron `daily-prospecting.mjs`)
+calls `/api/cron/materialize` + `/api/cron/prospect` ONLY — never a send endpoint. `/api/cron/send`
+(`runDueSends`) is unwired from cron AND gated by `COMMS_AUTOSEND_ENABLED`. `runScheduledOutreach`
+remains unwired. The MANUAL path (`sendIntroductionAction`→`dispatchStep`) is NOT gated by any autosend
+flag → manual send works with automation off; approval does NOT queue an automatic send. → automated
+outbound is OFF by architecture; scheduler code preserved with no active outbound runner.
+
+**Morning pool (read-only prod):** 107 leads / 104 active / 33 with valid email / 19 already emailed /
+**14 active + valid-email + never-emailed** (first-touch pool, before content-quality + suppression
+filters — actual ready drafts will be FEWER). Draft preparation is GATED on deployment (must run with
+the deployed code, not undeployed local logic) — NOT performed this pass. Do not promise 20.
+
+**Resend cold-outreach restriction STILL STANDS.** 20/day + manual clicking do NOT establish
+permission. The deployed/undeployed manual workflow is READY as infrastructure, but is NOT "ready for
+permitted cold outreach" through Resend — that remains blocked pending the M365-Graph transport
+decision (above) and counsel.
