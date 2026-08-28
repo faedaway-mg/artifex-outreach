@@ -7,7 +7,7 @@
 // Do not "fix" a defect by editing these assertions — fix the source, then update.
 // ─────────────────────────────────────────────────────────────────────────────
 import { describe, it, expect } from "vitest";
-import { ARTIFEX_IDENTITY } from "../identity";
+import { resolveIssuerForSnapshot } from "../billing/issuer";
 import { buildAgreementContent, type BuildAgreementInput } from "./snapshot";
 import {
   makeLead,
@@ -30,14 +30,26 @@ function input(overrides: Partial<BuildAgreementInput> = {}): BuildAgreementInpu
   };
 }
 
-describe("AUDIT M1 — agreement contracting entity", () => {
-  it("FINDING-P0: generated agreements use 'Faedaway M.G. LLC', NOT 'Artifex Labs Systems LLC'", () => {
-    // Mission brief for Acquisition OS closing states the legal entity is
-    // "Artifex Labs Systems LLC" (EIN obtained). The code hardcodes the parent
-    // holding company instead. This is a legal-entity DECISION for the operator,
-    // surfaced here — deliberately not auto-changed.
-    expect(ARTIFEX_IDENTITY.legalEntity).toBe("Faedaway M.G. LLC");
-    expect(ARTIFEX_IDENTITY.legalEntity).not.toBe("Artifex Labs Systems LLC");
+describe("M2 — agreement contracting entity (FINDING-P0 FIXED in M2/Gate 3)", () => {
+  // M1 documented that NEW agreements rendered under "Faedaway M.G. LLC". M2/Gate 3
+  // moved the issuer of record to "Artifex Labs Systems LLC" for NEW records via a
+  // dedicated issuer registry (billing/issuer.ts), while historical records keep
+  // their frozen entity. This test is now a REGRESSION GUARD for that fix.
+  it("NEW agreements freeze issuer = Artifex Labs Systems LLC", () => {
+    const { content } = buildAgreementContent(
+      input({ overrides: { scope: ["Website modernization"] } }),
+    );
+    expect(content!.issuerId).toBe("artifex-systems");
+    expect(content!.artifexLegalEntity).toBe("Artifex Labs Systems LLC");
+    expect(content!.artifexLegalEntity).not.toBe("Faedaway M.G. LLC");
+  });
+
+  it("historical snapshots (no issuerId) still resolve to Faedaway — never silently rebound", () => {
+    const legacy = { artifexLegalEntity: "Faedaway M.G. LLC" };
+    expect(resolveIssuerForSnapshot(legacy).id).toBe("faedaway");
+    // A snapshot with neither issuerId nor a known entity falls back to historical,
+    // NEVER the active entity — so a pre-issuer record can't bind to the new account.
+    expect(resolveIssuerForSnapshot({}).id).toBe("faedaway");
   });
 });
 

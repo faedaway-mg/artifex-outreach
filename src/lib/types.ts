@@ -562,6 +562,10 @@ export interface AgreementContentSnapshot {
   clientBusinessAddress: string;
   artifexSignatory: string;
   artifexLegalEntity: string;
+  // Issuer of record (billing/contracting entity). Frozen at generation. Optional
+  // because snapshots generated before the issuer registry existed lack it; those
+  // are resolved by legal-entity string at read time (see resolveIssuerForSnapshot).
+  issuerId?: string;
   // Project
   projectName: string;
   projectSummary: string;
