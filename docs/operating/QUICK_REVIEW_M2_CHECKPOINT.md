@@ -303,3 +303,63 @@ each candidate live at dispatch, so drift cannot cause an unsafe send.
 ### Exact next action
 Present the corrected multi-step activation package (deploy-disabled → verify runner → enable). Await
 ONE explicit authorization. Nothing deployed; autosend OFF; no real sends.
+
+---
+
+## TRANSPORT / PROVIDER RESEARCH (this pass — research only, no code, no signup)
+
+**Resend is CONFIRMED prohibited for cold outreach.** AUP fetched 2026-08-27: "prohibited from
+sending unsolicited messages of any kind, including cold outreach, purchased lists, or scraped contact
+data … all mail must be sent to recipients who have explicitly opted in." Keep Resend for its existing
+TRANSACTIONAL uses (agreements/receipts); do NOT route cold prospecting through it.
+
+**Key finding: NO mainstream provider gives explicit written permission for cold outreach.**
+- Transactional ESPs (Resend, Amazon SES, and by extension SendGrid/Postmark/Mailgun) explicitly
+  PROHIBIT unsolicited/cold email and suspend on it. Amazon SES: AWS AUP prohibits unsolicited mass
+  email; SES is "for messages specifically requested by the recipient" (retrieved 2026-08-27). REJECT.
+- Cold-email PLATFORMS (Instantly/Smartlead, $39–$97/mo + mailbox) send THROUGH your own M365/Google
+  mailbox, so the SAME mailbox anti-spam terms apply — the tool's marketing grants no permission. They
+  also introduce their OWN queue/scheduler (would OWN sending → our shared 20/day cap, pause,
+  suppression, engagement rules, revision-bound authorization, and exact-authorized-PDF-bytes could no
+  longer be enforced — the addendum forbids two schedulers) and per-recipient PDF attachments are not a
+  core feature. REJECT for our architecture.
+- Mailbox providers (Microsoft 365 / Google Workspace) prohibit "spam" = unsolicited BULK/commercial,
+  enforced by COMPLAINT-RATE (<0.10% in 2026), engagement signals, and domain-age/ramp — NOT a
+  categorical per-message ban. This is the operational channel the compliant low-volume B2B ecosystem
+  uses. It is a COMPLIANCE-OBLIGATION channel, not an explicit blessing.
+
+**RECOMMENDATION: send via the EXISTING Microsoft 365 mailbox (hello@artifexlabs.tech) through the
+Microsoft Graph `sendMail` API**, behind the existing `EmailProvider` interface.
+- Cost: **$0 additional** (mailbox already licensed; Graph included). ~20 emails/day ≈ 400/mo, far
+  under limits (safe cold range 20–50/mailbox/day).
+- Fit: Graph `sendMail` supports `fileAttachment` base64 (our PDF, exact bytes) + reply-to +
+  List-Unsubscribe header — a 1:1 match to our `EmailMessage`. Replies land NATIVELY in Outlook.
+- Preserves EVERYTHING: generator, PDF+CTA, scheduler, atomic quota, suppression, pause, audit,
+  revision-bound authorization, and Resend (transactional). Only the TRANSPORT swaps — and because
+  quota/pause/suppression live ABOVE the transport, they stay fully effective (the decisive reason to
+  swap the transport, not adopt an external platform).
+- Auth: OAuth 2.0 app (client-credentials) with `Mail.Send` APPLICATION permission scoped to the one
+  mailbox via an Application Access Policy (Basic-Auth SMTP was deprecated 2026-03-01). Config by NAME:
+  `GRAPH_TENANT_ID`, `GRAPH_CLIENT_ID`, `GRAPH_CLIENT_SECRET`, `GRAPH_SENDER`, `EMAIL_OUTREACH_PROVIDER`.
+
+**Real tradeoffs to flag (Graph vs Resend webhooks):**
+- Auto follow-up-STOP on reply currently rides the Resend inbound webhook; via Graph it needs a Graph
+  change-notification SUBSCRIPTION on the inbox (small new integration) or an operator-driven stop —
+  do NOT silently substitute a "handled" workflow without Jordan's decision.
+- Bounces = NDR messages in the inbox (parse) — weaker than a structured webhook. Complaints have NO
+  sender feedback-loop event on M365 → rely on one-click unsubscribe + manual/complaint suppression.
+- Graph has NO native idempotency-key header (Resend does) and returns `202` with no body id → set a
+  self-generated Message-Id header + read Sent Items to make an ambiguous 202 safe (confirm-before-
+  retry). Our reservation + `email_sends` unique key already prevent ledger double-rows / cap breaches.
+- Legacy `/api/cron/send` (`runDueSends`) has NO cap → cold outreach must flow ONLY through the capped
+  scheduler; that legacy route must never carry cold sends.
+
+**NOT legal clearance.** US cold B2B email must satisfy CAN-SPAM (accurate headers, non-deceptive
+subject, valid physical postal address, honored opt-out ≤10 business days) — already implemented; any
+non-US recipients invoke separate rules (CASL/GDPR). Jordan should confirm with counsel. Sources:
+Resend AUP, AWS AUP + SES enforcement FAQ, Microsoft Anti-Spam Policy + Services Agreement (eff.
+2026-09-30), Graph `sendMail` reference — all retrieved 2026-08-27.
+
+**Decision for Jordan:** approve Microsoft 365 Graph as the outreach transport ($0 extra, sends as
+hello@ from the mailbox we already own) + create the Entra app with `Mail.Send` scoped to hello@? No
+adapter will be built until the provider + cost are approved. One-hour reminder REMAINS outstanding.
