@@ -540,3 +540,13 @@ export async function revisitReview(leadId: string, opts: { actor?: string } = {
   if (!c.ok) return { ok: false, reason: c.conflict ? STALE_MSG : "lead or review not found" };
   return { ok: true };
 }
+
+/** Render the CURRENT effective review to PDF + manifest for ANY lead (edited or unedited). Used by
+ *  the automated send-authorization policy to bind an authorization to the exact bytes. */
+export async function renderCurrentArtifact(leadId: string): Promise<{ review: QuickReview; pdf: Buffer; manifest: ArtifactManifest; revisionId: string } | null> {
+  const eff = await effectiveReviewFor(leadId);
+  if (!eff) return null;
+  const revisionId = revisionFingerprint(eff.review);
+  const { pdf, manifest } = await renderArtifact(leadId, eff.review, revisionId);
+  return { review: eff.review, pdf, manifest, revisionId };
+}
