@@ -80,7 +80,7 @@ describe("AUDIT M1 — commercial math + snapshot binding (synthetic data)", () 
     const { content } = buildAgreementContent(
       input({ overrides: { scope: ["Website modernization"] } }),
     );
-    const c = content as Record<string, unknown>;
+    const c = content as unknown as Record<string, unknown>;
     expect("acceptanceCriteria" in c).toBe(false);
     expect("dependencies" in c).toBe(false);
   });
