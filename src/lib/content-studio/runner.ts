@@ -92,19 +92,29 @@ export async function createRenderJob(pieceId: string, opts: { useUpload: boolea
   };
   await writeJob(job);
 
-  // Spawn the detached worker. It reads/updates the job file directly (plain JSON, same shape).
-  const worker = path.join(REPO_ROOT, "scripts", "content-studio-render.mjs");
-  const child = spawn(process.execPath, [worker, job.id], {
-    cwd: REPO_ROOT,
-    detached: true,
-    stdio: "ignore",
-    env: process.env,
-  });
-  job.pid = child.pid ?? null;
-  await writeJob(job);
-  child.unref();
+  // PRODUCTION: the web endpoint ONLY enqueues (the job is 'queued'); a separate worker service claims
+  // and renders it. The web process must NEVER spawn Chromium/ffmpeg in production. LOCAL DEV: spawn a
+  // detached renderer so `next dev` alone works end-to-end. `shouldSpawnLocally()` is the single guard,
+  // and it fails closed in production (no accidental fallback).
+  if (shouldSpawnLocally()) {
+    const worker = path.join(REPO_ROOT, "scripts", "content-studio-render.mjs");
+    const child = spawn(process.execPath, [worker, job.id], { cwd: REPO_ROOT, detached: true, stdio: "ignore", env: process.env });
+    job.pid = child.pid ?? null;
+    await writeJob(job);
+    child.unref();
+  }
+  // else: left 'queued' for the worker (scripts/worker-loop.mjs) to claim.
 
   return { job, deduped: false };
+}
+
+// The ONLY place a local renderer is spawned. In production (NODE_ENV=production) this is false unless
+// CS_RENDER_MODE=local is explicitly set — so a prod misconfig can't silently fork Chromium in the web
+// process. Setting CS_RENDER_MODE=worker forces enqueue-only anywhere.
+export function shouldSpawnLocally(env: NodeJS.ProcessEnv = process.env): boolean {
+  if (env.CS_RENDER_MODE === "worker") return false;
+  if (env.CS_RENDER_MODE === "local") return true;
+  return env.NODE_ENV !== "production";
 }
 
 // If a "rendering"/"queued" job hasn't been touched in a while and its process is gone, it crashed —

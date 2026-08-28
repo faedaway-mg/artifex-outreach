@@ -18,7 +18,8 @@ CREATE TABLE IF NOT EXISTS "content_studio_jobs" (
   "output_key"     text,                                   -- object-storage key of the rendered mp4
   "thumb_key"      text,
   "error"          text,
-  "attempt"        integer NOT NULL DEFAULT 1,
+  "attempt"        integer NOT NULL DEFAULT 0,
+  "worker_id"      text,                                   -- id of the worker holding the lease (ownership)
   "lease_until"    timestamptz,                            -- worker heartbeat for crash recovery
   "created_at"     timestamptz NOT NULL DEFAULT now(),
   "updated_at"     timestamptz NOT NULL DEFAULT now(),

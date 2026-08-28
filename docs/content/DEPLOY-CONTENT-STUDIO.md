@@ -83,6 +83,32 @@ min/render assumption above; re-measure on Railway.
 limit is email-alert only. Recommend a workspace soft alert + a hard limit set with the whole workspace
 in mind; plus an app-level `CONTENT_STUDIO_MAX_CONCURRENCY`=1–2 and a share/upload retention window.
 
+## ITEMIZED TRIAL ESTIMATE (staging, time-boxed) — replaces the "under $1" shorthand
+
+Trial shape: ≤25 renders total, concurrency 1, ≤8-min/job hard timeout, **7-day** window, then the
+worker Cron is disabled (automatic shutdown). Rates verified 2026-08-28 (Railway per-min; R2). Behavior
+labels: [M]=measured macOS, [E]=estimated Linux (UNMEASURED — no local container), [C]=needs cloud check.
+
+| Line item | Basis | Trial cost |
+| --- | --- | --- |
+| Staging **web** service | reuse existing image; ~0.5 GB/0.5 vCPU, on only during testing (~10 h) | ~$0.12 [E] |
+| Staging **Postgres** | tiny (jobs+shares+drafts rows) | ~$0.05 [E] |
+| Worker **render compute** | 25 × ~2.5 billed min × (2 GB/2 vCPU = $0.001388/min) | ~$0.09 [M compute, E cold-start] |
+| Worker **Cron idle checks** | 5-min cron × 7 days = ~2,016 runs × ~10 s cold-start/empty-check × $0.001388/min | **~$0.47** [E] |
+| Worker **build/startup** | image build once + ~10–15 s Node/Chromium cold start folded into each render run | ~$0.05 [E/C] |
+| **R2 storage** | ≤25 mp4s (~50 MB) + posters/uploads, under 10 GB free tier | ~$0.00 |
+| **Media delivery** | trial views proxied via Railway (chosen path, below): ~50 views × 1.9 MB ≈ 0.1 GB × $0.05 | ~$0.01 |
+| **R2 operations** | puts/gets under free tiers | ~$0.00 |
+| — | — | — |
+| **Trial total (7 days)** | | **≈ $0.80** [~$0.47 of it is idle-cron overhead] |
+
+Notes: the **idle 5-min Cron is the single biggest line** — cut it by using a 15-min interval (~$0.16) or
+enqueue-triggered runs. Plan credit ($20 Pro) counts ONLY if that allowance is otherwise unused this
+cycle — do NOT assume it's free headroom [C: verify current usage]. Linux render time/RAM are [E] until
+measured on Railway. **Delivery path for the trial: PROXY via the Railway `/api/v` route** (simplest;
+tiny egress at trial volume) — NOT direct-R2 (deferred; adds presign wiring, and its residual-access
+window is stated in the delivery section). This is a defensible ~$1, NOT "free."
+
 ## Earlier estimate (kept for reference; polling-scale-to-zero assumption was wrong)
 
 Assumptions: worker **2 GB RAM / 2 vCPU**; each render ≈ 1.5 min; **R2** for storage (free egress);

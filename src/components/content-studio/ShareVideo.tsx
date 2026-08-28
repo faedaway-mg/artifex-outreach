@@ -24,7 +24,7 @@ export function ShareVideo({ token }: { token: string }) {
       {/* Base poster — paints first. */}
       {!posterFailed && (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={poster} alt="Video preview" onError={() => setPosterFailed(true)} className={`absolute inset-0 h-full w-full object-cover transition-opacity ${started ? "opacity-0" : "opacity-100"}`} />
+        <img src={poster} alt="Video preview" onError={() => setPosterFailed(true)} className={`absolute inset-0 h-full w-full object-contain transition-opacity ${started ? "opacity-0" : "opacity-100"}`} />
       )}
       <video
         ref={ref}
