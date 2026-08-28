@@ -1,0 +1,94 @@
+<!doctype html><html><head><meta charset="utf-8">
+<style>/* FIELD NOTE 006 — "The report that takes all morning." Uses shared scene-lib.js. */
+.src{font-size:24px;font-weight:800;letter-spacing:2px;color:var(--faint);background:var(--card);
+ border:1px solid var(--line);border-radius:11px;padding:11px 18px}
+.src.on{color:var(--azure);border-color:#2f456b;background:#101d34}
+.task{font-size:25px;font-weight:800;letter-spacing:2px;color:#c7d2e4;background:var(--cardhi);
+ border:1px solid #33445f;border-radius:11px;padding:11px 18px}</style></head><body>
+  <canvas id="bg" width="1080" height="1920"></canvas>
+  <div class="l meta" id="meta"><span style="display:inline-flex;align-items:center;gap:16px" id="markwrap"><span class="eyebrow">ARTIFEX / FIELD NOTE 006</span></span></div>
+
+  <!-- SCENE 1/2/3 — the manual weekly report -->
+  <div class="l" id="monday" style="top:430px"><span class="tag" style="color:var(--mute);font-size:28px">MONDAY · 9:00 AM</span></div>
+  <div class="l" id="report" style="top:510px"><div class="surface">
+    <div class="sbar"><span class="ic">▦</span>Weekly Report<span class="kind" id="rkind">DRAFT</span></div>
+    <div class="sbody" style="padding-top:14px">
+      <div class="frow"><span class="fl">SALES</span><span class="fv" id="rv0" style="color:var(--faint)">—</span></div>
+      <div class="frow"><span class="fl">PROJECTS</span><span class="fv" id="rv1" style="color:var(--faint)">—</span></div>
+      <div class="frow"><span class="fl">REVENUE</span><span class="fv" id="rv2" style="color:var(--faint)">—</span></div>
+      <div class="frow"><span class="fl">LEADS</span><span class="fv" id="rv3" style="color:var(--faint)">—</span></div>
+      <div class="frow"><span class="fl">DELIVERY</span><span class="fv" id="rv4" style="color:var(--faint)">—</span></div>
+    </div></div></div>
+  <div class="l" id="sources" style="top:1220px;width:1040px"><div style="display:flex;gap:14px;justify-content:center;flex-wrap:wrap">
+    <span class="src" id="s0">SALES CRM</span><span class="src" id="s1">PROJECTS</span><span class="src" id="s2">PAYMENTS</span><span class="src" id="s3">LEADS</span><span class="src" id="s4">DELIVERY</span></div></div>
+  <div class="l" id="tasks" style="top:1330px;width:1040px"><div style="display:flex;gap:16px;justify-content:center">
+    <span class="task" id="k0">COPY</span><span class="task" id="k1">PASTE</span><span class="task" id="k2">CHECK</span><span class="task" id="k3">RECONCILE</span></div></div>
+  <div class="l center h2" id="c_short" style="top:1460px">The meeting is short.</div>
+  <div class="l center h2" id="c_building" style="top:1460px">Building the report isn't.</div>
+  <div class="l center h2" id="c_already" style="top:1440px">The data was already<br>in the systems.</div>
+
+  <!-- ARTIFEX TURN — one operational view, auto -->
+  <div class="l center eyebrow" id="dashcap" style="top:430px;color:var(--teal)">ONE OPERATIONAL VIEW · AUTO-UPDATED</div>
+  <div class="l" id="dash" style="top:510px"><div class="surface">
+    <div class="sbar teal"><span class="ic">◉</span>Operational View<span class="kind" style="color:var(--teal)">LIVE</span></div>
+    <div class="sbody" style="padding-top:14px">
+      <div class="frow"><span class="fl">SALES</span><span class="fv" id="dv0" style="color:var(--teal)">$128k</span></div>
+      <div class="frow"><span class="fl">PROJECTS</span><span class="fv" id="dv1" style="color:var(--teal)">14 active</span></div>
+      <div class="frow"><span class="fl">REVENUE</span><span class="fv" id="dv2" style="color:var(--teal)">$91k</span></div>
+      <div class="frow"><span class="fl">LEADS</span><span class="fv" id="dv3" style="color:var(--teal)">37 new</span></div>
+      <div class="frow"><span class="fl">DELIVERY</span><span class="fv" id="dv4" style="color:var(--teal)">96% on-time</span></div>
+    </div></div></div>
+  <div class="l center h2" id="c_created" style="top:1300px">Your business already<br>created the data.</div>
+  <div class="l center h2" id="c_rebuild" style="top:1300px">Why rebuild it<br><span style="color:var(--azure)">every week?</span></div>
+
+  <!-- BRAND RESOLVE -->
+  <div class="l center h2" id="c_answer" style="top:620px">The answer should<br>already be there.</div>
+  <div class="l center" id="brand" style="top:900px"><span id="brandmark"></span>
+    <div class="tag" style="color:var(--chalk);font-size:56px;letter-spacing:8px;margin-top:26px">ARTIFEX LABS</div>
+    <div class="sub" style="margin-top:22px;color:var(--mute)">Business technology that works together.</div></div>
+
+  <script src="../_shared/scene-lib.js"></script>
+  <script>
+  document.getElementById('markwrap').insertAdjacentHTML('afterbegin', MARK_SVG.replace('class="mark"','class="mark" style="width:52px;height:52px"'));
+  document.getElementById('brandmark').innerHTML = MARK_SVG.replace('class="mark"','class="mark" style="display:block;margin:0 auto"');
+  const RVAL=['$128k','14 active','$91k','37 new','96% on-time'];
+  const drawBg=makeBg(20260106);
+  const D={monday:0.3,short:2.8,pull:4.6,building:8.6,filled:11.0,already:12.6,turn:15.2,auto:16.0,created:19.8,rebuild:22.0,answer:25.6,brand:28.2,end:31.4};
+
+  window.render=function(t){
+    const T=window.TL||D;
+    let I=0.5; if(t>=T.pull&&t<T.turn)I=0.7; else if(t>=T.turn)I=0.55-0.28*eio(inv(t,T.turn,T.end));
+    let Cl=1; if(t>=T.building&&t<T.building+1.4)Cl=0.6; if(t>=T.already&&t<T.turn)Cl=0.6; if(t>=T.answer)Cl=0.6;
+    drawBg(t, Cl*(0.62+0.38*I), t>=T.turn?0.85:0.4);
+    document.getElementById('meta').style.opacity=t<0.8?0:t<1.8?eo(inv(t,0.8,1.8))*0.55:(t>T.turn?0:0.55);
+
+    // scene 1/2/3 — manual report
+    const repOn=win(t,T.monday,T.turn-0.2,0.35,0.4);
+    S('report',repOn,0,(1-eo(inv(t,T.monday,T.monday+0.7)))*40);
+    S('monday',win(t,T.monday,T.short+0.4,0.3,0.4),0,0);
+    // values fill one at a time during "pull"
+    for(let i=0;i<5;i++){const e=document.getElementById('rv'+i);if(e){const on=t>=T.pull+0.3+i*0.7;
+      e.textContent=on?RVAL[i]:'—';e.style.color=on?'var(--chalk)':'var(--faint)';}}
+    {const rk=document.getElementById('rkind');if(rk)rk.textContent=t>=T.filled?'DONE (3 hrs)':'DRAFT';}
+    // sources light as each value pulled; tasks visible during pull
+    document.getElementById('sources').style.opacity=win(t,T.pull,T.turn-0.2,0.3,0.4);
+    for(let i=0;i<5;i++){const e=document.getElementById('s'+i);if(e)e.className='src'+(t>=T.pull+0.3+i*0.7&&t<T.pull+0.3+i*0.7+0.9?' on':'');}
+    document.getElementById('tasks').style.opacity=win(t,T.pull+0.4,T.building+0.3,0.3,0.4);
+    S('c_short',win(t,T.short,T.pull+0.1,0.3,0.4),0,t<T.short+0.5?(1-eo(inv(t,T.short,T.short+0.5)))*20:0);
+    S('c_building',win(t,T.building,T.already-0.05,0.3,0.4),0,t<T.building+0.5?(1-eo(inv(t,T.building,T.building+0.5)))*20:0);
+    S('c_already',win(t,T.already,T.turn-0.1,0.3,0.4),0,0);
+
+    // turn — auto operational view
+    const dashOn=win(t,T.turn,T.answer-0.2,0.4,0.5);
+    S('dashcap',dashOn*0.9,0,0);
+    S('dash',dashOn,0,(1-eo(inv(t,T.turn,T.turn+0.7)))*40);
+    for(let i=0;i<5;i++){const e=document.getElementById('dv'+i);if(e)e.style.opacity=dashOn?eo(inv(t,T.auto+0.2+i*0.18,T.auto+0.6+i*0.18)):0;}
+    S('c_created',win(t,T.created,T.rebuild-0.05,0.3,0.4),0,0);
+    S('c_rebuild',win(t,T.rebuild,T.answer-0.1,0.3,0.4),0,0);
+
+    // resolve
+    S('c_answer',win(t,T.answer,T.brand+0.05,0.4,0.4),0,t<T.answer+0.6?(1-eo(inv(t,T.answer,T.answer+0.6)))*24:0);
+    S('brand',win(t,T.brand,T.end,0.5,0.7),0,t<T.brand+0.8?(1-eo(inv(t,T.brand,T.brand+0.8)))*20:0,0.96+eo(inv(t,T.brand,T.brand+0.8))*0.04);
+  };
+  __bootScene();
+  </script></body></html>

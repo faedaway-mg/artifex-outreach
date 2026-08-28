@@ -18,6 +18,7 @@ import {
   Mail,
   Menu as MenuIcon,
   Users,
+  Clapperboard,
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -34,6 +35,7 @@ const NAV = [
   { href: "/sent", label: "Sent", icon: Mail },
   { href: "/team", label: "Team", icon: Users },
   { href: "/performance", label: "Insights", icon: BarChart3 },
+  { href: "/content-studio", label: "Content Studio", icon: Clapperboard },
   { href: "/launch", label: "Launch", icon: Rocket },
   { href: "/settings", label: "Settings", icon: SettingsIcon },
 ];
@@ -55,6 +57,7 @@ const TITLES: Record<string, string> = {
   "/meetings": "Discovery Conversations",
   "/team": "Team",
   "/performance": "Insights",
+  "/content-studio": "Content Studio",
   "/launch": "Launch Readiness",
   "/settings": "Settings",
 };

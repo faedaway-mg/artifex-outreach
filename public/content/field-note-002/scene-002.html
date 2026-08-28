@@ -1,0 +1,311 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+/* FIELD NOTE 002 — "One customer. Four systems. Same information."
+   Same Artifex visual system as Content #001 (dark field, constellation, premium type, floating
+   surfaces). NEW story: the same customer record is copied by hand across Form → Email → Spreadsheet
+   → CRM, then Artifex connects them so it happens once. render(t seconds) reads window.TL (event
+   start times injected by the renderer; sane defaults below so it previews standalone).
+   1080x1920, faceless, SYNTHETIC demo data only. Components are built by a factory (reusable). */
+:root{--ink0:#06080C;--ink1:#0C1220;--ink2:#101a2e;--chalk:#F6F8FC;--mute:#AEBBD0;--azure:#93B8FF;
+ --teal:#7FE3C7;--amber:#F5B95C;--faint:#5A6B85;--card:#141c2b;--line:#26334a;--red:#e0655a;
+ --cardhi:#182338;--cell:#0f1826;}
+*{margin:0;box-sizing:border-box;-webkit-font-smoothing:antialiased}
+html,body{width:1080px;height:1920px;overflow:hidden}
+body{background:radial-gradient(1200px 900px at 50% 22%,#12203a 0%,var(--ink1) 42%,var(--ink0) 100%);
+ font-family:Inter,system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:var(--chalk)}
+.l{position:absolute;left:50%;top:0;transform:translateX(-50%);opacity:0;will-change:transform,opacity}
+.center{width:960px;text-align:center;left:50%}
+.eyebrow{font-size:24px;font-weight:600;letter-spacing:6px;color:var(--azure)}
+.h1{font-size:76px;font-weight:800;line-height:1.05;letter-spacing:-1px}
+.h2{font-size:60px;font-weight:800;line-height:1.08;letter-spacing:-.5px}
+.sub{font-size:38px;font-weight:500;color:var(--mute);line-height:1.3}
+.tag{font-size:32px;font-weight:700;letter-spacing:4px;color:var(--faint)}
+.chip{display:inline-flex;align-items:center;gap:14px;font-size:34px;font-weight:800;border-radius:14px;padding:16px 26px}
+.chip.ok{color:var(--teal);border:1px solid #2b5f52;background:#10241f}
+.chip.warn{color:var(--amber);border:1px solid #6b5326;background:#241d10}
+/* ── reusable floating SURFACE (form / email / sheet / crm share this chrome) ── */
+.surface{width:780px;border-radius:24px;background:var(--card);border:1px solid var(--line);
+ box-shadow:0 30px 80px rgba(0,0,0,.45);overflow:hidden}
+.sbar{height:78px;background:var(--cell);display:flex;align-items:center;gap:18px;padding:0 32px;
+ border-bottom:1px solid var(--line);font-size:30px;font-weight:800;color:var(--chalk);letter-spacing:.5px}
+.sbar .kind{margin-left:auto;font-size:22px;font-weight:800;letter-spacing:3px;color:var(--faint)}
+.ic{width:46px;height:46px;border-radius:12px;display:flex;align-items:center;justify-content:center;
+ font-size:26px;font-weight:800;background:linear-gradient(135deg,#2c5ac4,#7fe3c7);color:#fff}
+.sbody{padding:26px 36px 34px}
+.frow{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:19px 16px;border-radius:12px;
+ border-bottom:1px solid #1b2butter}
+.frow{border-bottom:1px solid #1b2740}
+.fl{font-size:25px;color:var(--faint);font-weight:700;letter-spacing:2px;flex:0 0 auto}
+.fv{font-size:36px;color:var(--chalk);font-weight:700;transition:none;text-align:right}
+.hl{box-shadow:inset 0 0 0 2px rgba(127,227,199,.7);background:rgba(127,227,199,.06)}
+.btn{margin-top:24px;height:78px;border-radius:14px;background:linear-gradient(135deg,#2c5ac4,#3a6fd0);
+ display:flex;align-items:center;justify-content:center;font-size:34px;font-weight:800;color:#fff;letter-spacing:1px}
+/* spreadsheet */
+.grid{width:820px;border-radius:20px;overflow:hidden;border:1px solid var(--line);background:var(--card);
+ box-shadow:0 30px 80px rgba(0,0,0,.45)}
+.grow{display:grid;grid-template-columns:1.35fr 1.7fr 1.2fr 1.5fr;border-bottom:1px solid #1b2740}
+.gcell{padding:22px 20px;font-size:27px;font-weight:600;color:var(--chalk);border-right:1px solid #1b2740;
+ white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.grow.head .gcell{background:var(--cell);color:var(--faint);font-weight:800;letter-spacing:2px;font-size:23px}
+.grow .gcell:last-child{border-right:none}
+.gcell.ghost{color:#39465e}
+.gcell.lock{background:rgba(127,227,199,.07)}
+/* crm record */
+.rec{display:flex;align-items:center;gap:24px;padding:8px 4px 26px}
+.av{width:96px;height:96px;border-radius:22px;background:linear-gradient(135deg,#2c5ac4,#7fe3c7);
+ display:flex;align-items:center;justify-content:center;font-size:42px;font-weight:800;color:#fff}
+.rname{font-size:44px;font-weight:800}.rmeta{font-size:26px;color:var(--faint);font-weight:600;margin-top:6px;letter-spacing:1px}
+/* mini surface for the recognition 2x2 */
+.mini{width:392px;border-radius:18px;background:var(--card);border:1px solid var(--line);overflow:hidden;
+ box-shadow:0 18px 50px rgba(0,0,0,.4)}
+.mbar{height:56px;background:var(--cell);display:flex;align-items:center;gap:12px;padding:0 20px;border-bottom:1px solid var(--line);
+ font-size:22px;font-weight:800;letter-spacing:2px;color:var(--faint)}
+.mic{width:30px;height:30px;border-radius:8px;background:linear-gradient(135deg,#2c5ac4,#7fe3c7)}
+.mbody{padding:22px 22px}
+.mname{font-size:34px;font-weight:800;color:var(--chalk)}
+.mline{font-size:22px;color:var(--mute);margin-top:8px;font-weight:600}
+/* pipeline (artifex turn) */
+.node{display:inline-flex;flex-direction:column;align-items:center;gap:10px}
+.pill{font-size:30px;font-weight:800;color:var(--chalk);background:var(--card);border:1px solid var(--line);
+ border-radius:14px;padding:16px 26px;display:inline-block}
+.pill.sys{border-color:#3a6fd0;color:var(--azure);background:#101d34}
+.arw{color:var(--azure);font-size:40px;vertical-align:middle}
+/* orbit task chips */
+.task{position:absolute;font-size:29px;font-weight:800;letter-spacing:2px;color:#c7d2e4;
+ background:var(--cardhi);border:1px solid #33445f;border-radius:12px;padding:14px 24px;
+ box-shadow:0 10px 30px rgba(0,0,0,.35)}
+.mark{width:70px;height:70px}
+</style></head><body>
+  <canvas id="bg" width="1080" height="1920" style="position:absolute;inset:0"></canvas>
+  <div class="l" id="meta" style="top:150px"><span style="display:inline-flex;align-items:center;gap:16px">
+    <svg width="52" height="52" viewBox="0 0 32 32"><path d="M16 4 L27 27 M16 4 L5 27 M9.5 19 L22.5 19" fill="none" stroke="#F7F6F4" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/><circle cx="16" cy="4" r="2.7" fill="#F7F6F4"/><circle cx="5" cy="27" r="2.5" fill="#F7F6F4"/><circle cx="27" cy="27" r="2.5" fill="#F5B95C"/></svg>
+    <span class="eyebrow">ARTIFEX / FIELD NOTE 002</span></span></div>
+
+  <!-- primary surfaces (built by factory into #stage) -->
+  <div id="stage"></div>
+
+  <!-- text cards -->
+  <div class="l center h2" id="c_once" style="top:1380px">The customer<br>entered it once.</div>
+  <div class="l center h2" id="c_again" style="top:1380px">Then your team<br>enters it again.</div>
+  <div class="l center h1" id="c_andagain" style="top:1400px">And again.</div>
+  <div class="l center" id="c_recog" style="top:250px">
+    <div class="h1" style="color:var(--chalk)">One customer.<br>Four systems.</div>
+    <div class="h2" style="margin-top:22px;color:var(--azure)">Same information.</div></div>
+  <div class="l center h2" id="c_notwork" style="top:1360px">The software<br>isn't the work.</div>
+  <div class="l center h2" id="c_moving" style="top:1360px">Moving information<br><span style="color:var(--amber)">between it is.</span></div>
+  <div class="l center h1" id="c_once2" style="top:520px">Enter it once.</div>
+  <div class="l center h2" id="c_rest" style="top:1360px">Let the systems<br>handle the rest.</div>
+  <div class="l center h1" id="c_people" style="top:560px">Your people should<br>run the business.</div>
+  <div class="l center h2" id="c_notmove" style="top:1300px">Not move data<br>between software.</div>
+
+  <!-- brand resolve -->
+  <div class="l center" id="brand" style="top:760px">
+    <svg class="mark" viewBox="0 0 32 32" style="display:block;margin:0 auto 26px"><path d="M16 4 L27 27 M16 4 L5 27 M9.5 19 L22.5 19" fill="none" stroke="#F7F6F4" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/><circle cx="16" cy="4" r="2.7" fill="#F7F6F4"/><circle cx="5" cy="27" r="2.5" fill="#F7F6F4"/><circle cx="27" cy="27" r="2.5" fill="#F5B95C"/></svg>
+    <div class="tag" style="color:var(--chalk);font-size:56px;letter-spacing:8px">ARTIFEX LABS</div>
+    <div class="sub" style="margin-top:22px;color:var(--mute)">Business technology that works together.</div></div>
+
+  <!-- recognition 2x2 grid + orbit + mismatch + pipeline are built by JS into #overlay -->
+  <div id="overlay"></div>
+
+<script>
+const DATA={name:'Maya Carter',email:'maya@example.com',phone:'(555) 014-2048',phoneBad:'(555) 014-2084',req:'New service inquiry'};
+const FIELDS=[['NAME',DATA.name],['EMAIL',DATA.email],['PHONE',DATA.phone],['REQUEST',DATA.req]];
+const stage=document.getElementById('stage'),overlay=document.getElementById('overlay');
+
+// ── reusable surface factory (form / email / crm) → returns {el, vals[]} ──
+function surface(id,icon,title,kind,opts){opts=opts||{};
+  const w=document.createElement('div');w.className='l';w.id=id;w.style.top=(opts.top||500)+'px';
+  const s=document.createElement('div');s.className='surface';
+  s.innerHTML=`<div class="sbar"><span class="ic">${icon}</span>${title}<span class="kind">${kind}</span></div>`;
+  const body=document.createElement('div');body.className='sbody';
+  const vals=[];
+  FIELDS.forEach((f,i)=>{const r=document.createElement('div');r.className='frow';r.id=id+'-r'+i;
+    r.innerHTML=`<span class="fl">${f[0]}</span><span class="fv" id="${id}-v${i}">${f[1]}</span>`;body.appendChild(r);vals.push(r);});
+  if(opts.btn){const b=document.createElement('div');b.className='btn';b.id=id+'-btn';b.textContent=opts.btn;body.appendChild(b);}
+  s.appendChild(body);w.appendChild(s);stage.appendChild(w);return w;}
+
+// form (scene 1), email (scene 2), crm (scene 4). Spreadsheet built separately (grid).
+surface('form','✎','New Customer','WEBSITE FORM',{top:500,btn:'Submit'});
+const email=(function(){const w=document.createElement('div');w.className='l';w.id='email';w.style.top='500px';
+  const s=document.createElement('div');s.className='surface';
+  s.innerHTML=`<div class="sbar"><span class="ic">✉</span>Inbox<span class="kind">EMAIL</span></div>`;
+  const body=document.createElement('div');body.className='sbody';
+  body.innerHTML=`<div style="font-size:30px;font-weight:800;color:var(--chalk);padding:6px 16px 4px">New inquiry from your website</div>
+   <div style="font-size:24px;color:var(--faint);font-weight:600;padding:0 16px 18px">from: forms@site · to: front-desk</div>`;
+  FIELDS.forEach((f,i)=>{const r=document.createElement('div');r.className='frow';r.id='email-r'+i;
+    r.innerHTML=`<span class="fl">${f[0]}</span><span class="fv" id="email-v${i}">${f[1]}</span>`;body.appendChild(r);});
+  s.appendChild(body);w.appendChild(s);stage.appendChild(w);return w;})();
+surface('crm','◍','Customer Record','CRM / INTERNAL',{top:500});
+
+// spreadsheet (scene 3)
+const sheet=(function(){const w=document.createElement('div');w.className='l';w.id='sheet';w.style.top='560px';
+  const g=document.createElement('div');g.className='grid';
+  const cols=['NAME','EMAIL','PHONE','REQUEST'];
+  const head=`<div class="grow head">${cols.map(c=>`<div class="gcell">${c}</div>`).join('')}</div>`;
+  // two existing rows (prior customers) + the Maya row that fills in
+  const r1=['Devon Lee','devon@ex.co','(555) 019-7730','Quote request'];
+  const r2=['Priya Nair','priya@ex.co','(555) 002-8841','Follow-up'];
+  const row=(vals,cls='')=>`<div class="grow ${cls}">${vals.map(v=>`<div class="gcell">${v}</div>`).join('')}</div>`;
+  const maya=`<div class="grow" id="sheet-newrow">${['name','email','phone','req'].map((k,i)=>`<div class="gcell ghost" id="sheet-c${i}">${['Maya Carter','maya@example.com','(555) 014-2048','New service inquiry'][i]}</div>`).join('')}</div>`;
+  g.innerHTML=head+row(r1)+row(r2)+maya;
+  const cnt=document.createElement('div');cnt.className='chip warn';cnt.id='sheet-cnt';cnt.style.cssText='position:absolute;right:0;top:-92px;font-size:28px';cnt.textContent='ENTRY #2';
+  const wrap=document.createElement('div');wrap.style.position='relative';wrap.appendChild(cnt);wrap.appendChild(g);
+  w.appendChild(wrap);stage.appendChild(w);return w;})();
+
+// recognition 2x2 grid (built into overlay, shown at recog beat)
+const grid4=(function(){const w=document.createElement('div');w.className='l center';w.id='grid4';w.style.top='640px';
+  const kinds=[['✎','FORM'],['✉','EMAIL'],['▦','SHEET'],['◍','CRM']];
+  const wrap=document.createElement('div');wrap.style.cssText='display:grid;grid-template-columns:392px 392px;gap:36px;justify-content:center';
+  kinds.forEach((k,i)=>{const m=document.createElement('div');m.className='mini';m.id='mini'+i;
+    m.innerHTML=`<div class="mbar"><span class="mic"></span>${k[1]}</div><div class="mbody"><div class="mname">Maya Carter</div><div class="mline">maya@example.com · (555) 014-2048</div></div>`;
+    wrap.appendChild(m);});
+  w.appendChild(wrap);overlay.appendChild(w);return w;})();
+
+// orbit tasks + mismatch (cost beat)
+const orbit=(function(){const w=document.createElement('div');w.className='l';w.id='orbit';w.style.cssText='top:0;left:0;transform:none;width:1080px;height:1920px';
+  const tasks=[['COPY',300,720],['PASTE',700,760],['CHECK',300,1120],['CORRECT',700,1160],['FOLLOW UP',500,1300]];
+  tasks.forEach((tk,i)=>{const d=document.createElement('div');d.className='task';d.id='task'+i;
+    d.style.left=tk[1]+'px';d.style.top=tk[2]+'px';d.style.transform='translateX(-50%)';d.textContent=tk[0];w.appendChild(d);});
+  // central record chip
+  const rec=document.createElement('div');rec.id='orbit-rec';rec.style.cssText='position:absolute;left:50%;top:940px;transform:translateX(-50%);text-align:center';
+  rec.innerHTML=`<div class="chip" style="color:var(--chalk);border:1px solid var(--line);background:var(--card)">◍ Maya Carter</div>`;
+  w.appendChild(rec);overlay.appendChild(w);return w;})();
+const mismatch=(function(){const w=document.createElement('div');w.className='l center';w.id='mismatch';w.style.top='1000px';
+  w.innerHTML=`<div style="display:flex;gap:40px;justify-content:center;align-items:stretch">
+     <div style="text-align:center"><div class="tag" style="font-size:24px">SPREADSHEET</div><div class="pill" style="margin-top:12px">(555) 014-20<span style="color:var(--teal)">48</span></div></div>
+     <div style="text-align:center"><div class="tag" style="font-size:24px">CRM RECORD</div><div class="pill" style="margin-top:12px;border-color:#6b5326">(555) 014-20<span style="color:var(--amber)">84</span></div></div></div>
+   <div class="chip warn" id="mismatch-a" style="margin-top:30px">⚠ Values don't match</div>`;
+  overlay.appendChild(w);return w;})();
+
+// artifex pipeline (turn beat)
+const pipe=(function(){const w=document.createElement('div');w.className='l center';w.id='pipe';w.style.top='820px';
+  w.innerHTML=`<div style="display:flex;align-items:center;justify-content:center;gap:22px">
+     <span class="pill" id="p_form">FORM</span><span class="arw" id="a1">→</span>
+     <span class="pill sys" id="p_sys">ARTIFEX</span><span class="arw" id="a2">→</span>
+     <span class="pill" id="p_crm">CRM</span></div>
+   <div style="display:flex;align-items:center;justify-content:center;gap:60px;margin-top:34px">
+     <span class="pill" id="p_email" style="font-size:26px;color:var(--mute)">✉ Email notified</span>
+     <span class="pill" id="p_rec" style="font-size:26px;color:var(--mute)">◍ Record updated</span></div>`;
+  overlay.appendChild(w);return w;})();
+
+// ── helpers (shared with #001) ──
+const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));const inv=(t,a,b)=>clamp((t-a)/((b-a)||1e-6),0,1);
+const eo=x=>1-Math.pow(1-x,3);const eio=x=>x<.5?4*x*x*x:1-Math.pow(-2*x+2,3)/2;
+function win(t,a,b,fi=.3,fo=.3){if(t<a||t>b)return 0;return Math.min(eo(inv(t,a,a+fi)),eo(1-inv(t,b-fo,b)));}
+function S(id,o,x=0,y=0,s=1){const e=document.getElementById(id);if(!e)return;e.style.opacity=o;e.style.transform=`translateX(-50%) translate(${x}px,${y}px) scale(${s})`;}
+function P(id,o,x,y,s=1){const e=document.getElementById(id);if(!e)return;e.style.opacity=o;e.style.transform=`translate(${x}px,${y}px) scale(${s})`;}
+function fv(id,o){const e=document.getElementById(id);if(e)e.style.opacity=o;}
+function hl(id,on){const e=document.getElementById(id);if(e)e.classList.toggle('hl',on);}
+
+// default timeline (seconds) — overridden by window.TL from the renderer
+const D={form:0.3,submit:2.9,once:3.3,email:4.6,copy:5.6,again:6.9,sheet:8.4,entry2:9.6,entry3:11.2,
+ crm:13.2,andagain:14.2,recog:15.6,cost:18.2,mismatch:19.8,notwork:20.5,moving:21.4,turn:22.4,
+ once2:24.1,rest:25.3,people:28.4,notmove:29.7,brand:31.0,end:33.3};
+
+// ── LIVING ARTIFEX BACKGROUND — deterministic constellation (reused from #001, retuned to #002) ──
+const _bg=document.getElementById('bg'),_x=_bg.getContext('2d');
+function _rng(a){return function(){a|=0;a=a+0x6D2B79F5|0;let x=Math.imul(a^a>>>15,1|a);x=x+Math.imul(x^x>>>7,61|x)^x;return((x^x>>>14)>>>0)/4294967296;};}
+let NODES=null,CONN=null;
+function initBg(){const r=_rng(20260214);const layers=[{n:22,sp:0.06,amp:10,rad:2.0,al:0.05},{n:18,sp:0.12,amp:14,rad:2.6,al:0.09},{n:8,sp:0.22,amp:20,rad:3.0,al:0.13}];
+ NODES=[];layers.forEach((L,z)=>{for(let i=0;i<L.n;i++)NODES.push({bx:r()*1080,by:r()*1920,ph:r()*6.28,ph2:r()*6.28,sp:L.sp*(0.7+r()*0.6),amp:L.amp,rad:L.rad,al:L.al,z});});
+ CONN=[];const c=NODES.filter(n=>n.z>=1);for(let i=0;i<c.length;i++)for(let j=i+1;j<c.length;j++){const d=Math.hypot(c[i].bx-c[j].bx,c[i].by-c[j].by);if(d<300)CONN.push({a:c[i],b:c[j],cph:r()*6.28,pulse:r()<0.35,psp:0.15+r()*0.2,pph:r()});}}
+function _pos(n,t){return[n.bx+Math.sin(t*n.sp+n.ph)*n.amp,n.by+Math.cos(t*n.sp*0.8+n.ph2)*n.amp];}
+function drawBg(t,T){if(!NODES)initBg();
+ let I=0.55; // activity: busier through the duplicate-work build, calmer at the turn/resolve
+ if(t>=T.copy&&t<T.recog)I=0.6+0.6*eio(inv(t,T.copy,T.crm));
+ else if(t>=T.cost&&t<T.turn)I=0.9; // most cluttered at the "cost"
+ else if(t>=T.turn)I=0.55-0.30*eio(inv(t,T.turn,T.end)); // friction reduces on screen
+ let C=1; // clarity: recede behind text-dense moments
+ if(t>=T.recog&&t<T.recog+2.4)C=0.55;
+ if(t>=T.people)C=0.6;
+ const gA=C*(0.65+0.35*I);
+ _x.clearRect(0,0,1080,1920);_x.lineWidth=1.2;
+ const ordered=(t>=T.turn)?0.85:0.4; // lines steady/ordered after Artifex connects
+ for(const c of CONN){const[ax,ay]=_pos(c.a,t),[bx2,by2]=_pos(c.b,t);
+  const a=(ordered+(1-ordered)*Math.abs(Math.sin(t*0.2*I+c.cph)))*0.06*gA;
+  _x.strokeStyle=`rgba(147,184,255,${a.toFixed(3)})`;_x.beginPath();_x.moveTo(ax,ay);_x.lineTo(bx2,by2);_x.stroke();
+  if(c.pulse){const p=((t*c.psp*I)+c.pph)%1,px=ax+(bx2-ax)*p,py=ay+(by2-ay)*p;
+   _x.fillStyle=`rgba(127,227,199,${(0.10*gA).toFixed(3)})`;_x.beginPath();_x.arc(px,py,2.4,0,6.29);_x.fill();}}
+ for(const n of NODES){const[x,y]=_pos(n,t),tw=0.6+0.4*Math.sin(t*n.sp*1.7+n.ph);
+  _x.fillStyle=`rgba(174,187,208,${(n.al*gA*tw).toFixed(3)})`;_x.beginPath();_x.arc(x,y,n.rad,0,6.29);_x.fill();}}
+
+function render(t){
+ const T=window.TL||D;
+ drawBg(t,T);
+ document.getElementById('meta').style.opacity=t<0.8?0:t<1.8?eo(inv(t,0.8,1.8))*0.55:(t>T.recog?0:0.55);
+
+ // ── SCENE 1 — FORM (0..once) ──
+ const formOn=win(t,T.form,T.email-0.2,0.35,0.4);
+ S('form',formOn,0,(1-eo(inv(t,T.form,T.form+0.7)))*40,0.92+eo(inv(t,T.form,T.form+0.7))*0.08);
+ // fields type in sequentially
+ for(let i=0;i<4;i++)fv('form-v'+i, formOn?eo(inv(t,T.form+0.5+i*0.45,T.form+0.95+i*0.45)):0);
+ // submit press + confirm
+ {const b=document.getElementById('form-btn');if(b){const pr=t>=T.submit&&t<T.submit+0.5;
+   b.style.transform=pr?'scale(0.97)':'scale(1)';b.style.filter=t>=T.submit+0.2?'brightness(1.15)':'none';
+   b.textContent=t>=T.submit+0.25?'✓ Submitted':'Submit';}}
+ S('c_once',win(t,T.once,T.email-0.1,0.3,0.35),0,t<T.once+0.5?(1-eo(inv(t,T.once,T.once+0.5)))*22:0);
+
+ // ── SCENE 2 — EMAIL (email..sheet) ──
+ const emailOn=win(t,T.email,T.sheet-0.2,0.35,0.4);
+ S('email',emailOn,0,(1-eo(inv(t,T.email,T.email+0.6)))*36);
+ // copy: highlight name/email/phone in sequence (abstract "copying")
+ hl('email-r0',t>=T.copy&&t<T.copy+0.6);
+ hl('email-r1',t>=T.copy+0.55&&t<T.copy+1.15);
+ hl('email-r2',t>=T.copy+1.1&&t<T.copy+1.7);
+ S('c_again',win(t,T.again,T.sheet-0.1,0.3,0.35),0,t<T.again+0.5?(1-eo(inv(t,T.again,T.again+0.5)))*22:0);
+
+ // ── SCENE 3 — SPREADSHEET (sheet..crm) ──
+ const sheetOn=win(t,T.sheet,T.crm-0.2,0.35,0.4);
+ S('sheet',sheetOn,0,(1-eo(inv(t,T.sheet,T.sheet+0.6)))*40);
+ // Maya row fills cell-by-cell; ghost→locked
+ for(let i=0;i<4;i++){const c=document.getElementById('sheet-c'+i);if(c){const on=t>=T.entry2+i*0.4;
+   c.classList.toggle('ghost',!on);c.classList.toggle('lock',on&&t<T.entry2+i*0.4+0.5);}}
+ {const cnt=document.getElementById('sheet-cnt');if(cnt){cnt.style.opacity=sheetOn;
+   cnt.textContent=t>=T.entry3?'ENTRY #3':'ENTRY #2';}}
+
+ // ── SCENE 4 — CRM (crm..recog) ──
+ const crmOn=win(t,T.crm,T.recog-0.2,0.35,0.4);
+ S('crm',crmOn,0,(1-eo(inv(t,T.crm,T.crm+0.6)))*40);
+ for(let i=0;i<4;i++)fv('crm-v'+i, crmOn?eo(inv(t,T.crm+0.5+i*0.4,T.crm+0.95+i*0.4)):0);
+ S('c_andagain',win(t,T.andagain,T.recog-0.1,0.28,0.35),0,t<T.andagain+0.4?(1-eo(inv(t,T.andagain,T.andagain+0.4)))*20:0);
+
+ // ── RECOGNITION — 2x2 grid + headline (recog..cost) ──
+ const recOn=win(t,T.recog,T.cost-0.2,0.4,0.4);
+ S('c_recog',win(t,T.recog+0.1,T.cost-0.2,0.4,0.4),0,0);
+ for(let i=0;i<4;i++){const m=document.getElementById('mini'+i);if(m){const p=eo(inv(t,T.recog+0.3+i*0.22,T.recog+0.9+i*0.22));
+   m.style.opacity=recOn*(t<T.recog?0:p);m.style.transform=`translateY(${(1-p)*26}px) scale(${0.94+p*0.06})`;}}
+ document.getElementById('grid4').style.opacity=recOn;
+
+ // ── COST — orbit tasks + mismatch (cost..turn) ──
+ const costOn=win(t,T.cost,T.turn-0.1,0.35,0.4);
+ document.getElementById('orbit').style.opacity=1;
+ document.getElementById('orbit-rec').style.opacity=costOn;
+ for(let i=0;i<5;i++){const p=eo(inv(t,T.cost+0.2+i*0.25,T.cost+0.8+i*0.25));
+   P('task'+i, costOn*(t<T.cost?0:p), 0, (1-p)*14, 0.9+p*0.1);
+   const el=document.getElementById('task'+i);if(el)el.style.transform=`translateX(-50%) translateY(${(1-p)*14}px) scale(${0.9+p*0.1})`;}
+ S('mismatch',win(t,T.mismatch,T.turn-0.1,0.3,0.4),0,0);
+ {const a=document.getElementById('mismatch-a');if(a)a.style.opacity=t>=T.mismatch+0.6?1:0;}
+ S('c_notwork',win(t,T.notwork,T.moving+0.1,0.3,0.35));
+ S('c_moving',win(t,T.moving,T.turn-0.05,0.3,0.35));
+
+ // ── ARTIFEX TURN — pipeline connects (turn..people) ──
+ const pipeOn=win(t,T.turn,T.people-0.2,0.4,0.5);
+ S('pipe',pipeOn,0,(1-eo(inv(t,T.turn,T.turn+0.7)))*24);
+ // connections light up in order; side nodes turn teal (updated) after the flow settles
+ {const a1=document.getElementById('a1'),a2=document.getElementById('a2');
+  if(a1)a1.style.opacity=eo(inv(t,T.turn+0.5,T.turn+1.0));
+  if(a2)a2.style.opacity=eo(inv(t,T.turn+0.9,T.turn+1.4));
+  const settled=t>=T.rest;
+  ['p_email','p_rec'].forEach(id=>{const e=document.getElementById(id);if(e){e.style.borderColor=settled?'#2b5f52':'var(--line)';e.style.color=settled?'var(--teal)':'var(--mute)';}});
+  const sys=document.getElementById('p_sys');if(sys)sys.style.boxShadow=t>=T.turn+1.2?`0 0 ${eio(inv(t,T.turn+1.2,T.rest))*46}px rgba(127,227,199,0.4)`:'none';}
+ S('c_once2',win(t,T.once2,T.rest+0.3,0.35,0.4),0,t<T.once2+0.5?(1-eo(inv(t,T.once2,T.once2+0.5)))*22:0);
+ S('c_rest',win(t,T.rest,T.people-0.15,0.3,0.4),0,t<T.rest+0.5?(1-eo(inv(t,T.rest,T.rest+0.5)))*20:0);
+
+ // ── BRAND RESOLVE (people..end) ──
+ S('c_people',win(t,T.people,T.brand-0.05,0.35,0.4),0,t<T.people+0.6?(1-eo(inv(t,T.people,T.people+0.6)))*26:0);
+ S('c_notmove',win(t,T.notmove,T.brand+0.05,0.3,0.4),0,t<T.notmove+0.5?(1-eo(inv(t,T.notmove,T.notmove+0.5)))*20:0);
+ S('brand',win(t,T.brand,T.end,0.5,0.7),0,t<T.brand+0.8?(1-eo(inv(t,T.brand,T.brand+0.8)))*20:0,0.96+eo(inv(t,T.brand,T.brand+0.8))*0.04);
+}
+const q=new URLSearchParams(location.search);const t0=parseFloat(q.get('t')||'0');
+function go(){render(t0);}
+if(document.readyState!=='loading')go();else document.addEventListener('DOMContentLoaded',go);
+</script></body></html>

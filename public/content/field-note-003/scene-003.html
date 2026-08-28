@@ -1,0 +1,244 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+/* FIELD NOTE 003 — "The follow-up that never happened."
+   Same Artifex visual system as #001/#002. Story: a valuable lead arrives → somebody sees it →
+   nobody owns the next step → time passes → it goes cold; then Artifex assigns owner + next action +
+   follow-up and CLOSES THE LOOP. render(t seconds) reads window.TL. 1080x1920, faceless, synthetic. */
+:root{--ink0:#06080C;--ink1:#0C1220;--ink2:#101a2e;--chalk:#F6F8FC;--mute:#AEBBD0;--azure:#93B8FF;
+ --teal:#7FE3C7;--amber:#F5B95C;--faint:#5A6B85;--card:#141c2b;--line:#26334a;--red:#e0655a;
+ --cardhi:#182338;--cell:#0f1826;}
+*{margin:0;box-sizing:border-box;-webkit-font-smoothing:antialiased}
+html,body{width:1080px;height:1920px;overflow:hidden}
+body{background:radial-gradient(1200px 900px at 50% 22%,#12203a 0%,var(--ink1) 42%,var(--ink0) 100%);
+ font-family:Inter,system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:var(--chalk)}
+.l{position:absolute;left:50%;top:0;transform:translateX(-50%);opacity:0;will-change:transform,opacity}
+.center{width:960px;text-align:center;left:50%}
+.eyebrow{font-size:24px;font-weight:600;letter-spacing:6px;color:var(--azure)}
+.h1{font-size:76px;font-weight:800;line-height:1.05;letter-spacing:-1px}
+.h2{font-size:60px;font-weight:800;line-height:1.08;letter-spacing:-.5px}
+.sub{font-size:38px;font-weight:500;color:var(--mute);line-height:1.3}
+.tag{font-size:32px;font-weight:700;letter-spacing:4px;color:var(--faint)}
+.chip{display:inline-flex;align-items:center;gap:14px;font-size:32px;font-weight:800;border-radius:14px;padding:14px 24px}
+.chip.ok{color:var(--teal);border:1px solid #2b5f52;background:#10241f}
+.chip.warn{color:var(--amber);border:1px solid #6b5326;background:#241d10}
+.chip.cold{color:var(--faint);border:1px solid #2b374d;background:#121a28}
+/* lead / structure surface (reused grammar from #002) */
+.surface{width:800px;border-radius:24px;background:var(--card);border:1px solid var(--line);
+ box-shadow:0 30px 80px rgba(0,0,0,.45);overflow:hidden}
+.sbar{height:78px;background:var(--cell);display:flex;align-items:center;gap:18px;padding:0 32px;
+ border-bottom:1px solid var(--line);font-size:29px;font-weight:800;letter-spacing:2px;color:var(--teal)}
+.sbar.neutral{color:var(--chalk)}
+.sbar .kind{margin-left:auto;font-size:22px;font-weight:800;letter-spacing:3px;color:var(--faint)}
+.ic{width:46px;height:46px;border-radius:12px;display:flex;align-items:center;justify-content:center;
+ font-size:26px;font-weight:800;background:linear-gradient(135deg,#2c5ac4,#7fe3c7);color:#fff}
+.sbody{padding:28px 36px 32px}
+.lname{font-size:46px;font-weight:800}
+.ltype{font-size:30px;color:var(--azure);font-weight:700;margin-top:6px}
+.lmsg{font-size:30px;color:var(--mute);font-weight:500;margin-top:20px;line-height:1.35}
+.lstat{display:flex;align-items:center;gap:16px;margin-top:26px;font-size:26px;color:var(--faint);font-weight:700}
+.frow{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:18px 4px;border-bottom:1px solid #1b2740}
+.fl{font-size:26px;color:var(--faint);font-weight:700;letter-spacing:1px}
+.fv{font-size:32px;font-weight:800}
+.dot{width:16px;height:16px;border-radius:50%;background:var(--teal)}
+.dot.grey{background:#3a4a63}.dot.amber{background:var(--amber)}
+/* operator lanes (scene 3) */
+.lane{width:300px;border-radius:18px;background:var(--card);border:1px solid var(--line);padding:26px 22px;text-align:center}
+.lanehd{font-size:28px;font-weight:800;letter-spacing:2px;color:var(--mute)}
+.lanesub{font-size:22px;color:var(--faint);margin-top:10px;font-weight:600}
+.frag{position:absolute;font-size:26px;font-weight:600;color:var(--mute);background:var(--cardhi);
+ border:1px solid #33445f;border-radius:14px 14px 14px 4px;padding:12px 20px;box-shadow:0 10px 30px rgba(0,0,0,.35)}
+/* chain / loop (the open→closed metaphor) */
+.cnode{display:inline-flex;align-items:center;justify-content:center;font-size:24px;font-weight:800;letter-spacing:1px;
+ color:var(--chalk);background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 18px;white-space:nowrap}
+.cnode.on{border-color:#2b5f52;color:var(--teal);background:#10241f}
+.cnode.gap{border-style:dashed;border-color:#43506a;color:var(--faint);background:transparent}
+.cbar{display:inline-block;width:44px;height:3px;background:#33445f;vertical-align:middle;border-radius:2px}
+.cbar.on{background:var(--teal)}
+.cbar.gap{background:repeating-linear-gradient(90deg,#43506a 0 8px,transparent 8px 16px)}
+.time{font-size:34px;font-weight:800;letter-spacing:2px;color:var(--mute)}
+.mark{width:70px;height:70px}
+</style></head><body>
+  <canvas id="bg" width="1080" height="1920" style="position:absolute;inset:0"></canvas>
+  <div class="l" id="meta" style="top:150px"><span style="display:inline-flex;align-items:center;gap:16px">
+    <svg width="52" height="52" viewBox="0 0 32 32"><path d="M16 4 L27 27 M16 4 L5 27 M9.5 19 L22.5 19" fill="none" stroke="#F7F6F4" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/><circle cx="16" cy="4" r="2.7" fill="#F7F6F4"/><circle cx="5" cy="27" r="2.5" fill="#F7F6F4"/><circle cx="27" cy="27" r="2.5" fill="#F5B95C"/></svg>
+    <span class="eyebrow">ARTIFEX / FIELD NOTE 003</span></span></div>
+
+  <!-- SCENE 1 — the inquiry (positive) -->
+  <div class="l" id="lead" style="top:520px"><div class="surface">
+    <div class="sbar"><span class="ic">✦</span>NEW INQUIRY<span class="kind">LEAD</span></div>
+    <div class="sbody">
+      <div class="lname" id="lead-name">Marcus Lee</div>
+      <div class="ltype" id="lead-type">Commercial renovation</div>
+      <div class="lmsg" id="lead-msg">“Looking for an estimate for our new office.”</div>
+      <div class="lstat"><span class="chip ok" id="lead-badge" style="font-size:26px">NEW LEAD</span>
+        <span id="lead-recv">Received · 9:14 AM</span></div>
+    </div></div></div>
+
+  <!-- SCENE 2 — somebody saw it / unassigned -->
+  <div class="l" id="viewed" style="top:1160px"><span class="chip" style="color:var(--azure);border:1px solid #2f456b;background:#101d34">👁 Opened · front desk</span></div>
+  <div class="l" id="assign" style="top:1270px"><span class="chip warn" style="font-size:28px">ASSIGNED TO: <span style="color:var(--faint)">— none —</span></span></div>
+  <div class="l center h2" id="c_saw" style="top:1420px">Somebody saw it.</div>
+
+  <!-- SCENE 3 — who owns the next step? -->
+  <div class="l" id="lanes" style="top:760px;width:1000px"><div style="display:flex;gap:40px;justify-content:center">
+    <div class="lane" id="lane0"><div class="lanehd">FRONT DESK</div><div class="lanesub">“Sales has it.”</div></div>
+    <div class="lane" id="lane1"><div class="lanehd">SALES</div><div class="lanesub">“Front desk replied?”</div></div>
+    <div class="lane" id="lane2"><div class="lanehd">OPERATIONS</div><div class="lanesub">“Was this assigned?”</div></div>
+  </div></div>
+  <div class="l" id="drift" style="top:1010px"><span class="chip" style="color:var(--mute);border:1px solid var(--line);background:var(--card);font-size:26px">✦ Marcus Lee</span></div>
+  <div class="l center h2" id="c_noowner" style="top:1300px">But nobody owned<br>the next step.</div>
+
+  <!-- SCENE 4 — time passes -->
+  <div class="l" id="times" style="top:720px;width:1000px"><div style="display:flex;gap:40px;justify-content:center;align-items:center">
+    <span class="time" id="tm0">9:14 AM</span><span class="cbar"></span>
+    <span class="time" id="tm1">1:42 PM</span><span class="cbar"></span>
+    <span class="time" id="tm2" style="color:var(--faint)">NEXT DAY</span></div></div>
+  <div class="l" id="nextnone" style="top:980px"><span class="chip cold" style="font-size:30px">NEXT ACTION: <span>—</span></span></div>
+  <div class="l center h1" id="c_didnt" style="top:1180px">The lead didn't<br>disappear.</div>
+  <div class="l center h2" id="c_stopped" style="top:1440px" >The workflow stopped.</div>
+
+  <!-- SCENE 5 — goes cold -->
+  <div class="l center h2" id="c_lost" style="top:1240px">Opportunity<br>lost quietly.</div>
+
+  <!-- ARTIFEX TURN — structure created -->
+  <div class="l" id="struct" style="top:600px"><div class="surface">
+    <div class="sbar neutral"><span class="ic">✦</span>INQUIRY RECEIVED<span class="kind">ARTIFEX</span></div>
+    <div class="sbody" style="padding-top:10px">
+      <div class="frow"><span class="fl">OWNER</span><span class="fv" id="st0" style="color:var(--teal)">Alex · Sales</span></div>
+      <div class="frow"><span class="fl">NEXT ACTION</span><span class="fv" id="st1" style="color:var(--chalk)">Follow up</span></div>
+      <div class="frow"><span class="fl">DUE</span><span class="fv" id="st2" style="color:var(--chalk)">10:00 AM</span></div>
+      <div class="frow" style="border-bottom:none"><span class="fl">STATUS</span><span class="fv" id="st3" style="color:var(--teal)">✓ Conversation started</span></div>
+    </div></div></div>
+  <div class="l center h2" id="c_owner" style="top:1300px">Every opportunity<br>needs an owner.</div>
+  <div class="l center h2" id="c_action" style="top:1440px">And a next action.</div>
+
+  <!-- SYSTEM VIEW — open vs closed loop -->
+  <div class="l center eyebrow" id="loopcap" style="top:840px;color:var(--teal)">THE LOOP, CLOSED</div>
+  <div class="l center" id="chain" style="top:960px"><div id="chainrow" style="display:flex;align-items:center;justify-content:center;gap:0;flex-wrap:nowrap"></div></div>
+
+  <!-- BRAND RESOLVE -->
+  <div class="l center" id="c_memory" style="top:600px"><div class="h2">Good follow-up shouldn't<br>depend on memory.</div></div>
+  <div class="l center" id="brand" style="top:900px">
+    <svg class="mark" viewBox="0 0 32 32" style="display:block;margin:0 auto 26px"><path d="M16 4 L27 27 M16 4 L5 27 M9.5 19 L22.5 19" fill="none" stroke="#F7F6F4" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/><circle cx="16" cy="4" r="2.7" fill="#F7F6F4"/><circle cx="5" cy="27" r="2.5" fill="#F7F6F4"/><circle cx="27" cy="27" r="2.5" fill="#F5B95C"/></svg>
+    <div class="tag" style="color:var(--chalk);font-size:56px;letter-spacing:8px">ARTIFEX LABS</div>
+    <div class="sub" style="margin-top:22px;color:var(--mute)">Business technology that closes the loop.</div></div>
+
+<script>
+// chain nodes (system view). Built once; render() toggles open→closed + pulse.
+const CHAIN=['INQUIRY','OWNER','ACTION','FOLLOW-UP','OUTCOME'];
+(function(){const row=document.getElementById('chainrow');
+ CHAIN.forEach((n,i)=>{if(i){const b=document.createElement('span');b.className='cbar';b.id='cb'+i;row.appendChild(b);}
+  const d=document.createElement('span');d.className='cnode';d.id='cn'+i;d.textContent=n;row.appendChild(d);});})();
+
+const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));const inv=(t,a,b)=>clamp((t-a)/((b-a)||1e-6),0,1);
+const eo=x=>1-Math.pow(1-x,3);const eio=x=>x<.5?4*x*x*x:1-Math.pow(-2*x+2,3)/2;
+function win(t,a,b,fi=.3,fo=.3){if(t<a||t>b)return 0;return Math.min(eo(inv(t,a,a+fi)),eo(1-inv(t,b-fo,b)));}
+function S(id,o,x=0,y=0,s=1){const e=document.getElementById(id);if(!e)return;e.style.opacity=o;e.style.transform=`translateX(-50%) translate(${x}px,${y}px) scale(${s})`;}
+function P(id,o,x,y,s=1){const e=document.getElementById(id);if(!e)return;e.style.opacity=o;e.style.transform=`translate(${x}px,${y}px) scale(${s})`;}
+
+const D={inq:0.3,recv:2.8,viewed:4.4,unassigned:5.6,saw:6.4,lanes:8.4,drift:9.0,noowner:11.6,
+ times:13.4,nofollow:14.6,didnt:15.8,stopped:17.0,cold:18.4,lost:19.8,turn:21.6,struct:22.4,
+ owner:24.2,action:26.2,loop:27.4,memory:29.6,brand:31.4,end:33.6};
+
+// ── LIVING ARTIFEX BACKGROUND (reused, retuned) ──
+const _bg=document.getElementById('bg'),_x=_bg.getContext('2d');
+function _rng(a){return function(){a|=0;a=a+0x6D2B79F5|0;let x=Math.imul(a^a>>>15,1|a);x=x+Math.imul(x^x>>>7,61|x)^x;return((x^x>>>14)>>>0)/4294967296;};}
+let NODES=null,CONN=null;
+function initBg(){const r=_rng(20260303);const layers=[{n:22,sp:0.06,amp:10,rad:2.0,al:0.05},{n:18,sp:0.12,amp:14,rad:2.6,al:0.09},{n:8,sp:0.22,amp:20,rad:3.0,al:0.13}];
+ NODES=[];layers.forEach((L,z)=>{for(let i=0;i<L.n;i++)NODES.push({bx:r()*1080,by:r()*1920,ph:r()*6.28,ph2:r()*6.28,sp:L.sp*(0.7+r()*0.6),amp:L.amp,rad:L.rad,al:L.al,z});});
+ CONN=[];const c=NODES.filter(n=>n.z>=1);for(let i=0;i<c.length;i++)for(let j=i+1;j<c.length;j++){const d=Math.hypot(c[i].bx-c[j].bx,c[i].by-c[j].by);if(d<300)CONN.push({a:c[i],b:c[j],cph:r()*6.28,pulse:r()<0.35,psp:0.15+r()*0.2,pph:r()});}}
+function _pos(n,t){return[n.bx+Math.sin(t*n.sp+n.ph)*n.amp,n.by+Math.cos(t*n.sp*0.8+n.ph2)*n.amp];}
+function drawBg(t,T){if(!NODES)initBg();
+ let I=0.5; // quieter while the lead is stranded (the system stalls), orders after Artifex
+ if(t>=T.lanes&&t<T.times)I=0.6;
+ else if(t>=T.times&&t<T.turn)I=0.30; // stalled/negative space
+ else if(t>=T.turn)I=0.55+0.25*eio(inv(t,T.turn,T.loop))-0.4*eio(inv(t,T.memory,T.end));
+ let C=1;
+ if(t>=T.saw&&t<T.saw+2)C=0.55;
+ if(t>=T.didnt&&t<T.cold)C=0.55;
+ if(t>=T.memory)C=0.6;
+ const gA=C*(0.62+0.38*I);
+ _x.clearRect(0,0,1080,1920);_x.lineWidth=1.2;
+ const ordered=(t>=T.turn)?0.85:0.4;
+ for(const c of CONN){const[ax,ay]=_pos(c.a,t),[bx2,by2]=_pos(c.b,t);
+  const a=(ordered+(1-ordered)*Math.abs(Math.sin(t*0.2*I+c.cph)))*0.06*gA;
+  _x.strokeStyle=`rgba(147,184,255,${a.toFixed(3)})`;_x.beginPath();_x.moveTo(ax,ay);_x.lineTo(bx2,by2);_x.stroke();
+  if(c.pulse){const p=((t*c.psp*I)+c.pph)%1,px=ax+(bx2-ax)*p,py=ay+(by2-ay)*p;
+   _x.fillStyle=`rgba(127,227,199,${(0.10*gA).toFixed(3)})`;_x.beginPath();_x.arc(px,py,2.4,0,6.29);_x.fill();}}
+ for(const n of NODES){const[x,y]=_pos(n,t),tw=0.6+0.4*Math.sin(t*n.sp*1.7+n.ph);
+  _x.fillStyle=`rgba(174,187,208,${(n.al*gA*tw).toFixed(3)})`;_x.beginPath();_x.arc(x,y,n.rad,0,6.29);_x.fill();}}
+
+function render(t){
+ const T=window.TL||D;
+ drawBg(t,T);
+ document.getElementById('meta').style.opacity=t<0.8?0:t<1.8?eo(inv(t,0.8,1.8))*0.55:(t>T.loop?0:0.55);
+
+ // ── SCENE 1 — inquiry arrives (positive) ──
+ // full lead card lives in scenes 1–2, then RE-appears for the going-cold moment (scene 5).
+ // In scenes 3–4 the drifting "Marcus Lee" chip / time row carry the lead, so the card is hidden
+ // (no collision with the lanes / time surfaces).
+ const leadOn=Math.max(win(t,T.inq,T.lanes-0.2,0.35,0.4), win(t,T.cold-0.6,T.turn-0.2,0.4,0.5));
+ let leadDim=1, leadY=(1-eo(inv(t,T.inq,T.inq+0.7)))*40;
+ // fields reveal
+ ['lead-name','lead-type','lead-msg'].forEach((id,i)=>{const e=document.getElementById(id);if(e)e.style.opacity=leadOn?eo(inv(t,T.inq+0.4+i*0.4,T.inq+0.9+i*0.4)):0;});
+ document.getElementById('lead-recv').parentElement.style.opacity=leadOn?eo(inv(t,T.recv,T.recv+0.5)):0;
+ // scene 5: dim + slide out
+ if(t>=T.cold){const p=eio(inv(t,T.cold,T.cold+1.6));leadDim=1-0.65*p;leadY=-p*40; }
+ if(t>=T.lost+0.6){const p=eio(inv(t,T.lost+0.6,T.turn-0.2));leadY=-40-p*520;leadDim=Math.max(0,0.35-p*0.35);}
+ {const badge=document.getElementById('lead-badge');if(badge){const cold=t>=T.cold;badge.textContent=cold?'COLD':'NEW LEAD';
+   badge.className='chip '+(cold?'cold':'ok');badge.style.fontSize='26px';}}
+ S('lead', (t<T.turn?leadOn*leadDim:0), 0, leadY, 0.98);
+
+ // ── SCENE 2 — saw it / unassigned ──
+ S('viewed',win(t,T.viewed,T.lanes-0.2,0.3,0.4),0,0);
+ S('assign',win(t,T.unassigned,T.lanes-0.2,0.3,0.4),0,0);
+ S('c_saw',win(t,T.saw,T.lanes-0.15,0.3,0.4),0,t<T.saw+0.5?(1-eo(inv(t,T.saw,T.saw+0.5)))*20:0);
+
+ // ── SCENE 3 — lanes, drifting lead, no owner ──
+ const lanesOn=win(t,T.lanes,T.times-0.2,0.35,0.4);
+ for(let i=0;i<3;i++){const e=document.getElementById('lane'+i);if(e){const p=eo(inv(t,T.lanes+i*0.2,T.lanes+0.6+i*0.2));
+   e.style.opacity=lanesOn;e.parentElement.parentElement.style.opacity=lanesOn;}}
+ document.getElementById('lanes').style.opacity=lanesOn;
+ // lead chip drifts left→right between lanes but never lands (horizontal sine)
+ {const p=inv(t,T.drift,T.times-0.3);const x=Math.sin(p*Math.PI*2.2)*300;
+  P('drift', lanesOn, x, 0, 1);}
+ S('c_noowner',win(t,T.noowner,T.times-0.15,0.3,0.4),0,t<T.noowner+0.5?(1-eo(inv(t,T.noowner,T.noowner+0.5)))*20:0);
+
+ // ── SCENE 4 — time passes ──
+ const timesOn=win(t,T.times,T.cold-0.2,0.35,0.4);
+ document.getElementById('times').style.opacity=timesOn;
+ ['tm0','tm1','tm2'].forEach((id,i)=>{const e=document.getElementById(id);if(e)e.style.opacity=timesOn*eo(inv(t,T.times+0.2+i*0.7,T.times+0.7+i*0.7));});
+ S('nextnone',win(t,T.nofollow,T.cold-0.2,0.3,0.4),0,0);
+ S('c_didnt',win(t,T.didnt,T.stopped-0.05,0.3,0.4),0,t<T.didnt+0.5?(1-eo(inv(t,T.didnt,T.didnt+0.5)))*22:0);
+ S('c_stopped',win(t,T.stopped,T.cold-0.1,0.3,0.4),0,0);
+
+ // ── SCENE 5 — lost quietly ──
+ S('c_lost',win(t,T.lost,T.turn-0.15,0.3,0.5),0,t<T.lost+0.5?(1-eo(inv(t,T.lost,T.lost+0.5)))*18:0);
+
+ // ── ARTIFEX TURN — structure created ──
+ const structOn=win(t,T.struct,T.loop-0.2,0.4,0.5);
+ S('struct',structOn,0,(1-eo(inv(t,T.struct,T.struct+0.7)))*40);
+ ['st0','st1','st2','st3'].forEach((id,i)=>{const e=document.getElementById(id);if(e)e.style.opacity=structOn?eo(inv(t,T.struct+0.5+i*0.5,T.struct+1.0+i*0.5)):0;});
+ {const done=document.getElementById('st3');if(done)done.style.opacity=structOn?eo(inv(t,T.struct+2.6,T.struct+3.2)):0;}
+ S('c_owner',win(t,T.owner,T.action+0.1,0.3,0.4),0,0);
+ S('c_action',win(t,T.action,T.loop-0.1,0.3,0.4),0,0);
+
+ // ── SYSTEM VIEW — closed loop with completion pulse ──
+ const loopOn=win(t,T.loop,T.memory-0.15,0.4,0.5);
+ S('loopcap',loopOn*0.9,0,0);
+ S('chain',loopOn,0,0);
+ for(let i=0;i<CHAIN.length;i++){const n=document.getElementById('cn'+i);
+   const on=t>=T.loop+0.4+i*0.4; if(n)n.className='cnode'+(on?' on':'');
+   if(i){const b=document.getElementById('cb'+i);const bon=t>=T.loop+0.6+i*0.4;if(b)b.className='cbar'+(bon?' on':'');}}
+ // completion pulse sweeps through once the chain is lit
+ {const litAll=T.loop+0.4+CHAIN.length*0.4; if(t>=litAll){const pp=(t-litAll)%1.4/1.4;
+    for(let i=0;i<CHAIN.length;i++){const n=document.getElementById('cn'+i);if(n){const near=Math.abs(pp-(i/(CHAIN.length-1)))<0.12;
+      n.style.boxShadow=near?'0 0 26px rgba(127,227,199,0.55)':'none';}}}}
+
+ // ── BRAND RESOLVE ──
+ S('c_memory',win(t,T.memory,T.brand+0.05,0.4,0.4),0,t<T.memory+0.6?(1-eo(inv(t,T.memory,T.memory+0.6)))*24:0);
+ S('brand',win(t,T.brand,T.end,0.5,0.7),0,t<T.brand+0.8?(1-eo(inv(t,T.brand,T.brand+0.8)))*20:0,0.96+eo(inv(t,T.brand,T.brand+0.8))*0.04);
+}
+const q=new URLSearchParams(location.search);const t0=parseFloat(q.get('t')||'0');
+function go(){render(t0);}
+if(document.readyState!=='loading')go();else document.addEventListener('DOMContentLoaded',go);
+</script></body></html>

@@ -1,0 +1,98 @@
+<!doctype html><html><head><meta charset="utf-8">
+<style>/* FIELD NOTE 005 — "It's somewhere in the inbox." Uses shared scene-lib.js. */
+.qbar{display:flex;align-items:center;gap:16px;background:var(--cell);border:1px solid var(--line);border-radius:14px;
+ padding:20px 24px;font-size:30px;color:var(--mute);font-weight:600}
+.qbar .cur{color:var(--chalk);font-weight:700}
+.rrow{display:flex;align-items:center;gap:18px;padding:18px 6px;border-bottom:1px solid #1b2740}
+.rico{width:44px;height:44px;border-radius:10px;background:#1b2740;display:flex;align-items:center;justify-content:center;font-size:24px;color:var(--mute)}
+.rlab{font-size:25px;color:var(--faint);font-weight:700;letter-spacing:1px;width:150px}
+.rbar{height:16px;border-radius:5px;background:#1d2740;flex:1}</style></head><body>
+  <canvas id="bg" width="1080" height="1920"></canvas>
+  <div class="l meta" id="meta"><span style="display:inline-flex;align-items:center;gap:16px" id="markwrap"><span class="eyebrow">ARTIFEX / FIELD NOTE 005</span></span></div>
+
+  <!-- SCENE 1/2 — search the inbox -->
+  <div class="l" id="search" style="top:520px"><div class="surface">
+    <div class="sbar"><span class="ic">🔎</span>Search · company inbox<span class="kind">FINDING IT</span></div>
+    <div class="sbody">
+      <div class="qbar"><span>🔎</span><span class="cur" id="query">“signed agreement”</span></div>
+      <div style="margin-top:22px">
+        <div class="rrow" id="rr0"><span class="rico">✉</span><span class="rlab">EMAIL</span><span class="rbar" style="max-width:78%"></span></div>
+        <div class="rrow" id="rr1"><span class="rico">↩</span><span class="rlab">FORWARD</span><span class="rbar" style="max-width:64%"></span></div>
+        <div class="rrow" id="rr2"><span class="rico">💬</span><span class="rlab">THREAD</span><span class="rbar" style="max-width:88%"></span></div>
+        <div class="rrow" id="rr3"><span class="rico">📎</span><span class="rlab">ATTACHMENT</span><span class="rbar" style="max-width:54%"></span></div>
+      </div>
+    </div></div></div>
+  <div class="l center h2" id="c_exists" style="top:1300px">The information exists.</div>
+  <div class="l" id="counters" style="top:1300px;width:1000px"><div style="display:flex;gap:22px;justify-content:center">
+    <span class="chip neutral" id="ct0" style="font-size:28px">34 results</span>
+    <span class="chip neutral" id="ct1" style="font-size:28px">12 attachments</span>
+    <span class="chip neutral" id="ct2" style="font-size:28px">3 versions</span></div></div>
+  <div class="l center h1" id="c_luck" style="top:1470px">Good luck finding it.</div>
+
+  <!-- SCENE 3 — structure, not information -->
+  <div class="l center h2" id="c_notmiss" style="top:1300px">The problem isn't<br>missing information.</div>
+  <div class="l center h2" id="c_struct" style="top:1470px">It's missing structure.</div>
+
+  <!-- ARTIFEX TURN — captured, structured record -->
+  <div class="l center eyebrow" id="foundcap" style="top:430px;color:var(--teal)">CAPTURED ONCE · STRUCTURED</div>
+  <div class="l" id="found" style="top:520px"><div class="surface">
+    <div class="sbar teal"><span class="ic">✓</span>Signed Agreement<span class="kind">KNOWLEDGE</span></div>
+    <div class="sbody">
+      <div class="frow"><span class="fl">LINKED TO</span><span class="fv" id="f0" style="color:var(--chalk)">Northstar · Project Q3</span></div>
+      <div class="frow"><span class="fl">VERSION</span><span class="fv" id="f1" style="color:var(--teal)">v3 · current</span></div>
+      <div class="frow"><span class="fl">FIND IT</span><span class="fv" id="f2" style="color:var(--teal)">✓ Searchable</span></div>
+    </div></div></div>
+  <div class="l center h2" id="c_know" style="top:1300px">The business should know<br><span style="color:var(--azure)">what the business knows.</span></div>
+  <div class="l center h2" id="c_findit" style="top:1300px">Having it isn't enough —<br>you have to find it.</div>
+
+  <!-- BRAND RESOLVE -->
+  <div class="l center h2" id="c_inbox" style="top:600px">Your inbox shouldn't be<br>your operating system.</div>
+  <div class="l center" id="brand" style="top:900px"><span id="brandmark"></span>
+    <div class="tag" style="color:var(--chalk);font-size:56px;letter-spacing:8px;margin-top:26px">ARTIFEX LABS</div>
+    <div class="sub" style="margin-top:22px;color:var(--mute)">Business technology that works together.</div></div>
+
+  <script src="../_shared/scene-lib.js"></script>
+  <script>
+  document.getElementById('markwrap').insertAdjacentHTML('afterbegin', MARK_SVG.replace('class="mark"','class="mark" style="width:52px;height:52px"'));
+  document.getElementById('brandmark').innerHTML = MARK_SVG.replace('class="mark"','class="mark" style="display:block;margin:0 auto"');
+  const drawBg=makeBg(20260105);
+  const QUERIES=['“signed agreement”','“contract final”','“agreement v2”','“NDA signed?”'];
+  const D={ask:0.3,exists:2.6,search:4.4,luck:7.8,requery:9.8,notmiss:12.2,struct:13.8,turn:15.8,found:16.4,know:20.0,findit:22.2,inbox:25.6,brand:28.6,end:31.8};
+
+  window.render=function(t){
+    const T=window.TL||D;
+    let I=0.5; if(t>=T.search&&t<T.turn)I=0.66; else if(t>=T.turn)I=0.55-0.28*eio(inv(t,T.turn,T.end));
+    let Cl=1; if(t>=T.luck&&t<T.luck+1.4)Cl=0.6; if(t>=T.notmiss&&t<T.turn)Cl=0.6; if(t>=T.inbox)Cl=0.6;
+    drawBg(t, Cl*(0.62+0.38*I), t>=T.turn?0.85:0.4);
+    document.getElementById('meta').style.opacity=t<0.8?0:t<1.8?eo(inv(t,0.8,1.8))*0.55:(t>T.turn?0:0.55);
+
+    // scene 1/2 — search surface
+    const searchOn=win(t,T.ask,T.turn-0.2,0.35,0.4);
+    S('search',searchOn,0,(1-eo(inv(t,T.ask,T.ask+0.7)))*40);
+    // result rows appear staggered
+    for(let i=0;i<4;i++){const e=document.getElementById('rr'+i);if(e)e.style.opacity=searchOn?eo(inv(t,T.search+0.1+i*0.28,T.search+0.5+i*0.28)):0;}
+    // query text cycles (the "requery" flail)
+    {const idx=t<T.requery?0:Math.min(QUERIES.length-1,1+Math.floor(inv(t,T.requery,T.notmiss)*3));document.getElementById('query').textContent=QUERIES[idx];}
+    S('c_exists',win(t,T.exists,T.search-0.1,0.3,0.35),0,t<T.exists+0.5?(1-eo(inv(t,T.exists,T.exists+0.5)))*20:0);
+    // counters
+    document.getElementById('counters').style.opacity=win(t,T.search+1.0,T.luck+0.4,0.3,0.4);
+    for(let i=0;i<3;i++){const e=document.getElementById('ct'+i);if(e)e.style.opacity=eo(inv(t,T.search+1.0+i*0.35,T.search+1.5+i*0.35));}
+    S('c_luck',win(t,T.luck,T.requery+0.2,0.3,0.4),0,t<T.luck+0.5?(1-eo(inv(t,T.luck,T.luck+0.5)))*22:0);
+    // scene 3 text
+    S('c_notmiss',win(t,T.notmiss,T.struct+0.1,0.3,0.4),0,t<T.notmiss+0.5?(1-eo(inv(t,T.notmiss,T.notmiss+0.5)))*20:0);
+    S('c_struct',win(t,T.struct,T.turn-0.1,0.3,0.4),0,0);
+
+    // turn — structured record
+    const foundOn=win(t,T.turn,T.inbox-0.2,0.4,0.5);
+    S('foundcap',foundOn*0.9,0,0);
+    S('found',foundOn,0,(1-eo(inv(t,T.turn,T.turn+0.7)))*40);
+    ['f0','f1','f2'].forEach((id,i)=>{const e=document.getElementById(id);if(e)e.style.opacity=foundOn?eo(inv(t,T.found+0.4+i*0.5,T.found+0.9+i*0.5)):0;});
+    S('c_know',win(t,T.know,T.findit-0.05,0.3,0.4),0,0);
+    S('c_findit',win(t,T.findit,T.inbox-0.1,0.3,0.4),0,0);
+
+    // resolve
+    S('c_inbox',win(t,T.inbox,T.brand+0.05,0.4,0.4),0,t<T.inbox+0.6?(1-eo(inv(t,T.inbox,T.inbox+0.6)))*24:0);
+    S('brand',win(t,T.brand,T.end,0.5,0.7),0,t<T.brand+0.8?(1-eo(inv(t,T.brand,T.brand+0.8)))*20:0,0.96+eo(inv(t,T.brand,T.brand+0.8))*0.04);
+  };
+  __bootScene();
+  </script></body></html>

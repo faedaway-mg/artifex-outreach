@@ -1,0 +1,108 @@
+<!doctype html><html><head><meta charset="utf-8">
+<style>/* FIELD NOTE 004 — "Waiting for approval." Uses shared scene-lib.js for the visual DNA. */
+.route{position:absolute;font-size:26px;font-weight:800;letter-spacing:1px;color:var(--mute);
+ background:var(--cardhi);border:1px solid #33445f;border-radius:12px;padding:12px 20px;box-shadow:0 10px 30px rgba(0,0,0,.35)}
+.time{font-size:34px;font-weight:800;letter-spacing:2px;color:var(--mute)}
+.qm{color:var(--amber)}</style></head><body>
+  <canvas id="bg" width="1080" height="1920"></canvas>
+  <div class="l meta" id="meta"><span style="display:inline-flex;align-items:center;gap:16px" id="markwrap">
+    <span class="eyebrow">ARTIFEX / FIELD NOTE 004</span></span></div>
+
+  <!-- SCENE 1 — completed work -->
+  <div class="l" id="work" style="top:540px"><div class="surface">
+    <div class="sbar teal"><span class="ic">✓</span>PROPOSAL READY<span class="kind">WORK ITEM</span></div>
+    <div class="sbody">
+      <div class="frow"><span class="fl">TITLE</span><span class="fv" id="w0">Q3 Renovation Proposal</span></div>
+      <div class="frow"><span class="fl">PREPARED BY</span><span class="fv" id="w1" style="color:var(--chalk)">Alex · Projects</span></div>
+      <div class="frow"><span class="fl">STATUS</span><span class="fv" id="w2" style="color:var(--teal)">✓ Ready to send</span></div>
+    </div></div></div>
+  <div class="l center h2" id="c_done" style="top:1380px">The work was done.</div>
+
+  <!-- SCENE 2 — awaiting / unknowns -->
+  <div class="l" id="await" style="top:1120px"><span class="chip warn" style="font-size:30px">AWAITING APPROVAL</span></div>
+  <div class="l" id="routes" style="top:1250px;width:1000px"><div style="display:flex;gap:22px;justify-content:center;align-items:center">
+    <span class="route" id="r0">✉ Email</span><span class="arw">→</span><span class="route" id="r1">💬 Chat</span><span class="arw">→</span><span class="route" id="r2">✉ Email</span></div></div>
+  <div class="l" id="unknowns" style="top:760px"><div class="surface" style="width:720px">
+    <div class="sbody" style="padding:22px 36px">
+      <div class="frow"><span class="fl">OWNER</span><span class="fv qm" id="u0">?</span></div>
+      <div class="frow"><span class="fl">STATUS</span><span class="fv" id="u1" style="color:var(--amber)">Waiting</span></div>
+      <div class="frow"><span class="fl">NEXT STEP</span><span class="fv qm" id="u2">?</span></div>
+    </div></div></div>
+  <div class="l center h1" id="c_waited" style="top:1440px">Then it waited.</div>
+
+  <!-- SCENE 3 — time passes -->
+  <div class="l" id="times" style="top:760px;width:1000px"><div style="display:flex;gap:36px;justify-content:center;align-items:center">
+    <span class="time" id="tm0">9:14 AM</span><span class="cbar"></span><span class="time" id="tm1">2:40 PM</span><span class="cbar"></span><span class="time" id="tm2" style="color:var(--faint)">NEXT DAY</span></div></div>
+  <div class="l" id="stillwait" style="top:960px"><span class="chip warn" style="font-size:28px">STATUS: WAITING</span></div>
+  <div class="l center h2" id="c_nothing" style="top:1180px">Nothing was wrong<br>with the work.</div>
+  <div class="l center h2" id="c_justwait" style="top:1440px">The workflow<br>was just waiting.</div>
+
+  <!-- ARTIFEX TURN — closed approval chain -->
+  <div class="l center eyebrow" id="loopcap" style="top:840px;color:var(--teal)">ONE CLEAR PATH</div>
+  <div class="l center" id="chain" style="top:960px"><div id="chainrow" style="display:flex;align-items:center;justify-content:center;flex-wrap:nowrap"></div></div>
+  <div class="l center h2" id="c_scav" style="top:1240px">Approval shouldn't be<br>a scavenger hunt.</div>
+  <div class="l center h2" id="c_knows" style="top:1240px">When it's ready, the next<br><span style="color:var(--azure)">step should already know.</span></div>
+
+  <!-- BRAND RESOLVE -->
+  <div class="l center h2" id="c_move" style="top:620px">Good workflows<br>keep work moving.</div>
+  <div class="l center" id="brand" style="top:900px">
+    <span id="brandmark"></span>
+    <div class="tag" style="color:var(--chalk);font-size:56px;letter-spacing:8px;margin-top:26px">ARTIFEX LABS</div>
+    <div class="sub" style="margin-top:22px;color:var(--mute)">Business technology that works together.</div></div>
+
+  <script src="../_shared/scene-lib.js"></script>
+  <script>
+  document.getElementById('markwrap').insertAdjacentHTML('afterbegin', MARK_SVG.replace('class="mark"','class="mark" style="width:52px;height:52px"'));
+  document.getElementById('brandmark').innerHTML = MARK_SVG.replace('class="mark"','class="mark" style="display:block;margin:0 auto"');
+  const CHAIN=['READY','APPROVER','REVIEW','APPROVED','NEXT STEP'];
+  (function(){const row=document.getElementById('chainrow');CHAIN.forEach((n,i)=>{if(i){const b=document.createElement('span');b.className='cbar';b.id='cb'+i;row.appendChild(b);}const d=document.createElement('span');d.className='cnode';d.id='cn'+i;d.textContent=n;row.appendChild(d);});})();
+  const drawBg=makeBg(20260104);
+  const D={ready:0.3,done:2.8,await:4.6,unknowns:6.0,waited:8.4,times:10.8,nothing:13.2,justwait:14.8,turn:16.6,scav:20.4,knows:22.8,move:27.0,brand:29.4,end:32.6};
+
+  window.render=function(t){
+    const T=window.TL||D;
+    // bg intensity: busy while stalled, orders after the turn
+    let I=0.5; if(t>=T.await&&t<T.times)I=0.62; else if(t>=T.times&&t<T.turn)I=0.32; else if(t>=T.turn)I=0.6-0.3*eio(inv(t,T.turn,T.end));
+    let Cl=1; if(t>=T.waited&&t<T.waited+1.6)Cl=0.6; if(t>=T.move)Cl=0.6;
+    drawBg(t, Cl*(0.62+0.38*I), t>=T.turn?0.85:0.4);
+    document.getElementById('meta').style.opacity=t<0.8?0:t<1.8?eo(inv(t,0.8,1.8))*0.55:(t>T.turn?0:0.55);
+
+    // scene 1
+    const workOn=win(t,T.ready,T.times-0.2,0.35,0.4);
+    S('work',workOn,0,(1-eo(inv(t,T.ready,T.ready+0.7)))*40);
+    ['w0','w1','w2'].forEach((id,i)=>{const e=document.getElementById(id);if(e)e.style.opacity=workOn?eo(inv(t,T.ready+0.5+i*0.4,T.ready+1.0+i*0.4)):0;});
+    S('c_done',win(t,T.done,T.await-0.1,0.3,0.35),0,t<T.done+0.5?(1-eo(inv(t,T.done,T.done+0.5)))*22:0);
+    // move the work card up when "awaiting" starts (into the inbox), reveal unknowns card
+    if(t>=T.await){const p=eio(inv(t,T.await,T.await+0.8));S('work',workOn,0,-p*260,1-p*0.12);}
+
+    // scene 2 — awaiting + unknowns + routes
+    S('await',win(t,T.await,T.times-0.2,0.3,0.4),0,0);
+    const unkOn=win(t,T.unknowns,T.times-0.2,0.35,0.4);
+    S('unknowns',unkOn,0,(1-eo(inv(t,T.unknowns,T.unknowns+0.5)))*30);
+    // routes drift (never lands)
+    document.getElementById('routes').style.opacity=win(t,T.unknowns,T.times-0.2,0.3,0.4);
+    {const x=Math.sin(inv(t,T.unknowns,T.times)*Math.PI*2)*40;document.getElementById('routes').style.transform=`translateX(calc(-50% + ${x}px))`;}
+    S('c_waited',win(t,T.waited,T.times-0.15,0.3,0.4),0,t<T.waited+0.5?(1-eo(inv(t,T.waited,T.waited+0.5)))*22:0);
+
+    // scene 3 — time passes
+    const timesOn=win(t,T.times,T.turn-0.2,0.35,0.4);
+    document.getElementById('times').style.opacity=timesOn;
+    ['tm0','tm1','tm2'].forEach((id,i)=>{const e=document.getElementById(id);if(e)e.style.opacity=timesOn*eo(inv(t,T.times+0.2+i*0.7,T.times+0.7+i*0.7));});
+    S('stillwait',win(t,T.nothing-0.4,T.turn-0.2,0.3,0.4),0,0);
+    S('c_nothing',win(t,T.nothing,T.justwait+0.1,0.3,0.4),0,t<T.nothing+0.5?(1-eo(inv(t,T.nothing,T.nothing+0.5)))*20:0);
+    S('c_justwait',win(t,T.justwait,T.turn-0.1,0.3,0.4),0,0);
+
+    // turn — chain
+    const loopOn=win(t,T.turn,T.move-0.15,0.4,0.5);
+    S('loopcap',loopOn*0.9,0,0);S('chain',loopOn,0,0);
+    for(let i=0;i<CHAIN.length;i++){const n=document.getElementById('cn'+i);const on=t>=T.turn+0.5+i*0.5;if(n)n.className='cnode'+(on?' on':'');if(i){const b=document.getElementById('cb'+i);if(b)b.className='cbar'+(t>=T.turn+0.7+i*0.5?' on':'');}}
+    {const litAll=T.turn+0.5+CHAIN.length*0.5;if(t>=litAll){const pp=(t-litAll)%1.4/1.4;for(let i=0;i<CHAIN.length;i++){const n=document.getElementById('cn'+i);if(n)n.style.boxShadow=Math.abs(pp-(i/(CHAIN.length-1)))<0.12?'0 0 26px rgba(127,227,199,0.55)':'none';}}}
+    S('c_scav',win(t,T.scav,T.knows-0.05,0.3,0.4),0,0);
+    S('c_knows',win(t,T.knows,T.move-0.1,0.3,0.4),0,0);
+
+    // resolve
+    S('c_move',win(t,T.move,T.brand+0.05,0.4,0.4),0,t<T.move+0.6?(1-eo(inv(t,T.move,T.move+0.6)))*24:0);
+    S('brand',win(t,T.brand,T.end,0.5,0.7),0,t<T.brand+0.8?(1-eo(inv(t,T.brand,T.brand+0.8)))*20:0,0.96+eo(inv(t,T.brand,T.brand+0.8))*0.04);
+  };
+  __bootScene();
+  </script></body></html>

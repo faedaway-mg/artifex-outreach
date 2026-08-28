@@ -1,0 +1,153 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+/* ARTIFEX CONTENT COVER — reusable series thumbnail template.
+   One dark constellation field + a swappable ART slot rendered from the ACTUAL component grammar of
+   each video (#001 review doc, #002 duplicated record, #003 open-loop inquiry). Select a cover with
+   ?c=001|002|003. Future #004+ = add one entry to COVERS below (number, headline, secondary, art). */
+:root{--ink0:#06080C;--ink1:#0C1220;--chalk:#F6F8FC;--mute:#AEBBD0;--azure:#93B8FF;--teal:#7FE3C7;
+ --amber:#F5B95C;--faint:#5A6B85;--card:#141c2b;--line:#26334a;--cardhi:#182338;--cell:#0f1826;}
+*{margin:0;box-sizing:border-box;-webkit-font-smoothing:antialiased}
+html,body{width:1080px;height:1920px;overflow:hidden}
+body{background:radial-gradient(1200px 1000px at 50% 30%,#13233f 0%,var(--ink1) 44%,var(--ink0) 100%);
+ font-family:Inter,system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:var(--chalk)}
+canvas{position:absolute;inset:0}
+.wrap{position:absolute;inset:0}
+/* series id (top) */
+.series{position:absolute;top:150px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:16px}
+.series .eyebrow{font-size:26px;font-weight:700;letter-spacing:7px;color:var(--azure)}
+/* headline block */
+.headline{position:absolute;top:1120px;left:50%;transform:translateX(-50%);width:980px;text-align:center;
+ font-size:104px;font-weight:800;line-height:0.98;letter-spacing:-2px}
+.secondary{position:absolute;top:1450px;left:50%;transform:translateX(-50%);width:900px;text-align:center;
+ font-size:42px;font-weight:600;color:var(--mute);letter-spacing:.3px}
+/* footer mark line */
+.foot{position:absolute;bottom:120px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:14px;
+ font-size:26px;font-weight:800;letter-spacing:5px;color:var(--faint)}
+/* art wrapper (upper-center focal) */
+.artwrap{position:absolute;top:360px;left:50%;transform:translateX(-50%);width:1000px;height:640px;
+ display:flex;align-items:center;justify-content:center}
+/* ── reused component styles ── */
+.chip{display:inline-flex;align-items:center;gap:12px;font-size:30px;font-weight:800;border-radius:14px;padding:14px 24px}
+.chip.ok{color:var(--teal);border:1px solid #2b5f52;background:#10241f}
+.chip.cold{color:var(--faint);border:1px solid #2b374d;background:#121a28}
+/* #001 review doc */
+.doc{width:720px;border-radius:22px;background:linear-gradient(180deg,#f7f9fc,#eef2f8);color:#0c1220;
+ box-shadow:0 50px 120px rgba(0,0,0,.55);overflow:hidden;border:1px solid #cdd6e6}
+.dhead{display:flex;align-items:center;gap:24px;padding:34px 40px 22px}
+.logo{width:88px;height:88px;border-radius:18px;background:linear-gradient(135deg,#2c5ac4,#7fe3c7);
+ display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:44px}
+.dco{font-size:42px;font-weight:800;color:#0c1220;line-height:1.1}
+.dtag{font-size:23px;font-weight:800;letter-spacing:2px;color:#2c5ac4;margin-top:6px}
+.drule{height:1px;background:#dbe2ee;margin:0 40px}
+.sec{padding:20px 40px}.sh{font-size:23px;font-weight:800;letter-spacing:2px;color:#2c5ac4}
+.sb{height:16px;border-radius:5px;background:#dfe6f1;margin-top:12px}
+/* #002 mini surfaces (2x2) */
+.mini{width:392px;border-radius:18px;background:var(--card);border:1px solid var(--line);overflow:hidden;
+ box-shadow:0 22px 60px rgba(0,0,0,.45)}
+.mbar{height:58px;background:var(--cell);display:flex;align-items:center;gap:12px;padding:0 22px;border-bottom:1px solid var(--line);
+ font-size:23px;font-weight:800;letter-spacing:2px;color:var(--faint)}
+.mic{width:32px;height:32px;border-radius:8px;background:linear-gradient(135deg,#2c5ac4,#7fe3c7)}
+.mbody{padding:22px}.mname{font-size:36px;font-weight:800}.mline{font-size:22px;color:var(--mute);margin-top:8px;font-weight:600}
+/* #003 inquiry + open chain */
+.inq{width:720px;border-radius:22px;background:var(--card);border:1px solid var(--line);overflow:hidden;box-shadow:0 40px 100px rgba(0,0,0,.5)}
+.ibar{height:74px;background:var(--cell);display:flex;align-items:center;gap:16px;padding:0 30px;border-bottom:1px solid var(--line);
+ font-size:27px;font-weight:800;letter-spacing:2px;color:var(--teal)}
+.iic{width:44px;height:44px;border-radius:11px;background:linear-gradient(135deg,#2c5ac4,#7fe3c7);display:flex;align-items:center;justify-content:center;font-size:24px;color:#fff}
+.ibody{padding:26px 34px 30px}.iname{font-size:44px;font-weight:800}.itype{font-size:27px;color:var(--azure);font-weight:700;margin-top:6px}
+.chain{display:flex;align-items:center;justify-content:center;margin-top:30px;gap:0}
+.cnode{font-size:24px;font-weight:800;letter-spacing:1px;color:var(--chalk);background:var(--card);
+ border:1px solid var(--line);border-radius:12px;padding:14px 20px;white-space:nowrap}
+.cnode.on{border-color:#2b5f52;color:var(--teal);background:#10241f}
+.cnode.gap{border-style:dashed;border-color:#43506a;color:var(--faint);background:transparent}
+.cbar{width:38px;height:3px;background:#33445f;border-radius:2px}
+.cbar.gap{background:repeating-linear-gradient(90deg,#43506a 0 8px,transparent 8px 16px)}
+.mark{width:64px;height:64px}
+</style></head><body>
+  <canvas id="bg" width="1080" height="1920"></canvas>
+  <div class="wrap">
+    <div class="series"><svg class="mark" viewBox="0 0 32 32" style="width:52px;height:52px"><path d="M16 4 L27 27 M16 4 L5 27 M9.5 19 L22.5 19" fill="none" stroke="#F7F6F4" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/><circle cx="16" cy="4" r="2.7" fill="#F7F6F4"/><circle cx="5" cy="27" r="2.5" fill="#F7F6F4"/><circle cx="27" cy="27" r="2.5" fill="#F5B95C"/></svg>
+      <span class="eyebrow" id="series">ARTIFEX FIELD NOTE 000</span></div>
+    <div class="artwrap" id="art"></div>
+    <div class="headline" id="headline"></div>
+    <div class="secondary" id="secondary"></div>
+    <div class="foot">ARTIFEX LABS</div>
+  </div>
+<script>
+// ── swappable cover registry (add #004+ here — no architecture rebuild) ──
+const COVERS = {
+  "001": { n: "001", headline: ["We found", "the problem."], secondary: "Business Technology Review", art: "review", size: 104 },
+  "002": { n: "002", headline: ["Entered", "four times."], secondary: "One customer. Four systems.", art: "duplicate", size: 104 },
+  "003": { n: "003", headline: ["Nobody", "followed up."], secondary: "Who owned the next step?", art: "openloop", size: 104 },
+  "004": { n: "004", headline: ["Waiting for", "approval."], secondary: "The work was done. Then it waited.", art: "waiting", size: 104 },
+  "005": { n: "005", headline: ["It's in", "the inbox."], secondary: "The information exists. Good luck finding it.", art: "inbox", size: 104 },
+  "006": { n: "006", headline: ["Why are we", "rebuilding this?"], secondary: "The data was already there.", art: "rebuild", size: 92 },
+};
+const ART = {
+  review(el){ el.innerHTML =
+    `<div style="position:relative">
+       <div class="doc">
+         <div class="dhead"><div class="logo">N</div><div><div class="dco">Northstar Hospitality</div><div class="dtag">BUSINESS TECHNOLOGY REVIEW</div></div></div>
+         <div class="drule"></div>
+         <div class="sec"><div class="sh">WHAT STOOD OUT</div><div class="sb" style="width:84%"></div></div>
+         <div class="sec"><div class="sh">WHAT WE'D PRIORITIZE</div><div class="sb" style="width:70%"></div><div class="sb" style="width:52%"></div></div>
+       </div>
+       <div class="chip ok" style="position:absolute;right:-34px;bottom:-30px;box-shadow:0 20px 50px rgba(0,0,0,.5)">✓ Review complete</div>
+     </div>`; },
+  duplicate(el){ const k=[["✎","FORM"],["✉","EMAIL"],["▦","SHEET"],["◍","CRM"]];
+    el.innerHTML = `<div style="display:grid;grid-template-columns:392px 392px;gap:34px">`+
+      k.map(x=>`<div class="mini"><div class="mbar"><span class="mic"></span>${x[1]}</div>
+        <div class="mbody"><div class="mname">Maya Carter</div><div class="mline">maya@example.com · (555) 014-2048</div></div></div>`).join('')+`</div>`; },
+  openloop(el){ el.innerHTML =
+    `<div style="display:flex;flex-direction:column;align-items:center;gap:8px">
+       <div class="inq"><div class="ibar"><span class="iic">✦</span>NEW INQUIRY<span style="margin-left:auto;font-size:20px;letter-spacing:3px;color:var(--faint)">LEAD</span></div>
+         <div class="ibody"><div class="iname">Marcus Lee</div><div class="itype">Commercial renovation</div>
+           <div class="chain">
+             <span class="cnode on">INQUIRY</span><span class="cbar"></span>
+             <span class="cnode on">VIEWED</span><span class="cbar gap"></span>
+             <span class="cnode gap">???</span></div>
+           <div style="margin-top:22px;display:flex;gap:16px"><span class="chip cold" style="font-size:24px">OWNER: —</span><span class="chip cold" style="font-size:24px">NEXT ACTION: —</span></div>
+         </div></div>
+     </div>`; },
+  waiting(el){ el.innerHTML =
+    `<div class="inq"><div class="ibar" style="color:var(--amber)"><span class="iic" style="background:linear-gradient(135deg,#8a6a2a,#f5b95c)">⏳</span>PROPOSAL READY<span style="margin-left:auto;font-size:20px;letter-spacing:3px;color:var(--faint)">WORK ITEM</span></div>
+       <div class="ibody"><div class="iname">Q3 Renovation Proposal</div><div class="itype" style="color:var(--teal)">✓ Ready to send</div>
+         <div class="chain">
+           <span class="cnode on">READY</span><span class="cbar gap"></span>
+           <span class="cnode gap">APPROVAL?</span></div>
+         <div style="margin-top:22px;display:flex;gap:16px"><span class="chip cold" style="font-size:24px">OWNER: ?</span><span class="chip" style="font-size:24px;color:var(--amber);border:1px solid #6b5326;background:#241d10">STATUS: WAITING</span></div>
+       </div></div>`; },
+  inbox(el){ el.innerHTML =
+    `<div class="inq"><div class="ibar"><span class="iic">🔎</span>SEARCH · COMPANY INBOX<span style="margin-left:auto;font-size:20px;letter-spacing:3px;color:var(--faint)">FINDING IT</span></div>
+       <div class="ibody"><div style="display:flex;align-items:center;gap:14px;background:var(--cell);border:1px solid var(--line);border-radius:12px;padding:16px 20px;font-size:26px;color:var(--chalk);font-weight:700">🔎 “signed agreement”</div>
+         <div style="margin-top:18px;display:flex;flex-direction:column;gap:12px">
+           ${["✉ EMAIL","↩ FORWARD","💬 THREAD","📎 ATTACHMENT"].map((r,i)=>`<div style="display:flex;align-items:center;gap:16px"><span style="font-size:23px;color:var(--faint);font-weight:700;letter-spacing:1px;width:220px">${r}</span><span style="height:14px;border-radius:5px;background:#1d2740;flex:1;max-width:${[78,60,88,52][i]}%"></span></div>`).join('')}
+         </div>
+         <div style="margin-top:20px;display:flex;gap:14px"><span class="chip" style="font-size:22px;color:var(--chalk);border:1px solid var(--line);background:var(--card)">34 results</span><span class="chip" style="font-size:22px;color:var(--chalk);border:1px solid var(--line);background:var(--card)">3 versions</span></div>
+       </div></div>`; },
+  rebuild(el){ const rows=[["SALES","$128k"],["PROJECTS","14 active"],["REVENUE","$91k"],["LEADS","37 new"]];
+    el.innerHTML =
+    `<div class="inq"><div class="ibar"><span class="iic">▦</span>WEEKLY REPORT<span style="margin-left:auto;font-size:20px;letter-spacing:3px;color:var(--faint)">MONDAY · 9:00 AM</span></div>
+       <div class="ibody" style="padding-top:14px">
+         ${rows.map((r,i)=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:16px 2px;border-bottom:1px solid #1b2740"><span style="font-size:24px;color:var(--faint);font-weight:700;letter-spacing:1px">${r[0]}</span><span style="font-size:30px;font-weight:800;color:${i<2?'var(--chalk)':'var(--faint)'}">${i<2?r[1]:'— copy · paste · check —'}</span></div>`).join('')}
+       </div></div>`; },
+};
+const q = new URLSearchParams(location.search); const id = q.get('c') || '001'; const cov = COVERS[id] || COVERS['001'];
+document.getElementById('series').textContent = `ARTIFEX FIELD NOTE ${cov.n}`;
+const hl = document.getElementById('headline'); hl.style.fontSize = (cov.size||104)+'px';
+hl.innerHTML = cov.headline.join('<br>');
+document.getElementById('secondary').textContent = cov.secondary;
+ART[cov.art](document.getElementById('art'));
+
+// ── static constellation frame (same engine as the videos, frozen at t=6) ──
+const _bg=document.getElementById('bg'),_x=_bg.getContext('2d');
+function _rng(a){return function(){a|=0;a=a+0x6D2B79F5|0;let x=Math.imul(a^a>>>15,1|a);x=x+Math.imul(x^x>>>7,61|x)^x;return((x^x>>>14)>>>0)/4294967296;};}
+function drawBg(t,seed){const r=_rng(seed);const layers=[{n:22,sp:0.06,amp:10,rad:2.0,al:0.05},{n:18,sp:0.12,amp:14,rad:2.6,al:0.09},{n:8,sp:0.22,amp:20,rad:3.0,al:0.13}];
+ const NODES=[];layers.forEach((L,z)=>{for(let i=0;i<L.n;i++)NODES.push({bx:r()*1080,by:r()*1920,ph:r()*6.28,ph2:r()*6.28,sp:L.sp*(0.7+r()*0.6),amp:L.amp,rad:L.rad,al:L.al,z});});
+ const CONN=[];const c=NODES.filter(n=>n.z>=1);for(let i=0;i<c.length;i++)for(let j=i+1;j<c.length;j++){const d=Math.hypot(c[i].bx-c[j].bx,c[i].by-c[j].by);if(d<300)CONN.push({a:c[i],b:c[j],cph:r()*6.28});}
+ const pos=(n)=>[n.bx+Math.sin(t*n.sp+n.ph)*n.amp,n.by+Math.cos(t*n.sp*0.8+n.ph2)*n.amp];
+ _x.clearRect(0,0,1080,1920);_x.lineWidth=1.2;const gA=0.9;
+ for(const cn of CONN){const[ax,ay]=pos(cn.a),[bx,by]=pos(cn.b);const a=(0.5+0.5*Math.abs(Math.sin(cn.cph)))*0.06*gA;
+  _x.strokeStyle=`rgba(147,184,255,${a.toFixed(3)})`;_x.beginPath();_x.moveTo(ax,ay);_x.lineTo(bx,by);_x.stroke();}
+ for(const n of NODES){const[x,y]=pos(n),tw=0.6+0.4*Math.sin(t*n.sp*1.7+n.ph);
+  _x.fillStyle=`rgba(174,187,208,${(n.al*gA*tw).toFixed(3)})`;_x.beginPath();_x.arc(x,y,n.rad,0,6.29);_x.fill();}}
+drawBg(6.0, 20260100 + parseInt(cov.n,10));
+</script></body></html>

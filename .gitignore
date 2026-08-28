@@ -13,3 +13,10 @@ next-env.d.ts
 /drizzle/*.sql.meta
 /.pdf-preview
 artifacts/
+# Content Studio runtime state (jobs, private uploads) + render scratch dirs
+/.data
+/.tmp-*
+# Field Notes rendered media — large + regenerable; kept locally, not version-controlled
+/public/content/**/*.mp4
+/public/content/**/*.wav
+/public/content/thumbnails/_prefix-white-bar-originals/
