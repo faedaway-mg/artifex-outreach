@@ -51,15 +51,22 @@ export interface ApprovalBinding {
   approvedBy: string;
   approvedAt: string;
 }
+export interface HeldState {
+  reason: string;
+  by: string;
+  at: string;
+}
 export interface ReviewEditorialState {
   draft: ReviewOverlay;
   history: Revision[];
   previewedRevisionId: string | null;
   checkedRevisionId: string | null;
   approval: ApprovalBinding | null;
+  /** Operator "skip / hold unsent" — excluded from delivery without deleting the prospect. */
+  held: HeldState | null;
 }
 
-export const EMPTY_STATE: ReviewEditorialState = { draft: {}, history: [], previewedRevisionId: null, checkedRevisionId: null, approval: null };
+export const EMPTY_STATE: ReviewEditorialState = { draft: {}, history: [], previewedRevisionId: null, checkedRevisionId: null, approval: null, held: null };
 
 // ── Audit actions ───────────────────────────────────────────────────────────────────────────
 export const A = {
@@ -72,6 +79,8 @@ export const A = {
   regenRejected: "quick-review.regen.rejected",
   regenFailed: "quick-review.regen.failed",
   overridden: "quick-review.editorial.overridden",
+  held: "quick-review.held",
+  revisited: "quick-review.revisited",
 } as const;
 
 // ── Apply overlay: PRESENTATION-only override of an assembled review. Evidence untouched. ───────
@@ -297,6 +306,7 @@ export async function saveDraft(leadId: string, overlay: ReviewOverlay, opts: { 
     previewedRevisionId: null,
     checkedRevisionId: null,
     approval: null,
+    held: state.held ?? null, // editing a held review keeps it held until explicitly revisited
   };
   await writeEditorialState(leadId, next);
   await appendAudit({ action: A.saved, actor, targetType: "lead", targetId: leadId, meta: { revisionId: newId, priorRevisionId: currentId, fields: changedFields(overlay), evidenceProblems: evidenceProblems.length }, ip: null });
@@ -483,6 +493,8 @@ export function verifyArtifact(manifest: ArtifactManifest | null | undefined, pd
  */
 export async function sendGate(leadId: string): Promise<{ allowed: boolean; edited: boolean; reason?: string; review?: QuickReview; pdf?: Buffer; manifest?: ArtifactManifest }> {
   const state = await getEditorialState(leadId);
+  // "Skip / hold unsent" blocks delivery regardless of edit state — never interpreted as permission to send.
+  if (state.held) return { allowed: false, edited: true, reason: `held: ${state.held.reason}` };
   const edited = Object.keys(state.draft ?? {}).length > 0 || state.approval != null || (state.history?.length ?? 0) > 0;
   if (!edited) return { allowed: true, edited: false }; // legacy gate applies downstream
   const readiness = await deliveryReadiness(leadId);
@@ -493,4 +505,24 @@ export async function sendGate(leadId: string): Promise<{ allowed: boolean; edit
   const verify = verifyArtifact(manifest, pdf, readiness.revisionId);
   if (!verify.ok) return { allowed: false, edited, reason: verify.reason };
   return { allowed: true, edited, review: eff!.review, pdf, manifest };
+}
+
+// ── Skip / hold unsent (the 4th lightweight control) ─────────────────────────────────────────────
+export async function skipReview(leadId: string, reason: string, opts: { actor?: string } = {}): Promise<{ ok: boolean; reason?: string }> {
+  if (!reason || !reason.trim()) return { ok: false, reason: "a reason is required to hold a review" };
+  const eff = await effectiveReviewFor(leadId);
+  if (!eff) return { ok: false, reason: "lead or review not found" };
+  const actor = opts.actor ?? currentActor();
+  await writeEditorialState(leadId, { ...eff.state, held: { reason: reason.trim(), by: actor, at: nowIso() } });
+  await appendAudit({ action: A.held, actor, targetType: "lead", targetId: leadId, meta: { reason: reason.trim() }, ip: null });
+  return { ok: true };
+}
+
+export async function revisitReview(leadId: string, opts: { actor?: string } = {}): Promise<{ ok: boolean; reason?: string }> {
+  const eff = await effectiveReviewFor(leadId);
+  if (!eff) return { ok: false, reason: "lead or review not found" };
+  const actor = opts.actor ?? currentActor();
+  await writeEditorialState(leadId, { ...eff.state, held: null });
+  await appendAudit({ action: A.revisited, actor, targetType: "lead", targetId: leadId, meta: {}, ip: null });
+  return { ok: true };
 }

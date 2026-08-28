@@ -61,3 +61,17 @@ export async function acceptRegenAction(leadId: string, proposal: RegenProposal)
   if (!actor) return { ok: false, reason: "Sign in to accept a proposal." };
   return acceptRegeneration(leadId, proposal, { actor });
 }
+
+export async function skipAction(leadId: string, reason: string) {
+  const actor = signedInOperator();
+  if (!actor) return { ok: false, reason: "Sign in to hold a review." };
+  const { skipReview } = await import("./review-revisions");
+  return skipReview(leadId, reason, { actor });
+}
+
+export async function revisitAction(leadId: string) {
+  const actor = signedInOperator();
+  if (!actor) return { ok: false, reason: "Sign in to revisit a review." };
+  const { revisitReview } = await import("./review-revisions");
+  return revisitReview(leadId, { actor });
+}

@@ -7,7 +7,7 @@ import {
   applyOverlay, revisionFingerprint, validateOverlayClaims, effectiveReviewFor,
   saveDraft, recordPreview, runEditorialCheck, approveRevision, deliveryReadiness, reviewForSend,
   proposeRegeneration, acceptRegeneration, getEditorialState, A,
-  sendGate, verifyArtifact, sha256Hex,
+  sendGate, verifyArtifact, sha256Hex, skipReview, revisitReview,
 } from "./review-revisions";
 import { getBusinessIntelligence } from "../repo";
 
@@ -273,5 +273,21 @@ describe("review-revisions — PDF-byte artifact binding + send gate (Gate 5)", 
     await upsertBusinessIntelligence({ leadId: id, profile: bi.profile, enrichmentDelta: null, generatedAt: bi.generatedAt });
     const g = await sendGate(id);
     expect(g.allowed).toBe(false);
+  });
+});
+
+describe("review-revisions — skip / hold unsent (4th control)", () => {
+  it("skip requires a reason, blocks the send gate, and revisit clears it", async () => {
+    const id = await seedLead();
+    expect((await skipReview(id, "", AUTH)).ok).toBe(false); // reason required
+    expect((await skipReview(id, "waiting on a better photo", AUTH)).ok).toBe(true);
+    const g = await sendGate(id);
+    expect(g.allowed).toBe(false);
+    expect(g.reason).toMatch(/held/i);
+    expect((await revisitReview(id, AUTH)).ok).toBe(true);
+    expect((await sendGate(id)).allowed).toBe(true); // unedited → legacy defer
+    const acts = (await auditForTarget("lead", id)).map((a) => a.action);
+    expect(acts).toContain(A.held);
+    expect(acts).toContain(A.revisited);
   });
 });
