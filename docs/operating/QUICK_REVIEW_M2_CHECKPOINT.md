@@ -161,3 +161,42 @@ correct operator model is the lightweight preview→approve/skip flow over the 1
   · Universal legacy enrollment (Gate 4). · Production regeneration adapter (mock only; also note: generation is
   largely DETERMINISTIC, so "regenerate" on identical inputs is not a correction mechanism — a genuine
   correction path needs changed inputs or a provider adapter).
+
+---
+
+## SINGLE-WRITER INTEGRATION → LAUNCH (this pass)
+
+- **Gate 1 (handoff) DONE.** Parallel session committed its work at `cb56676` (lightweight
+  OperatorReviewPanel UI, real-DB CAS `commitReviewEditorial`, regen provider adapter, universal
+  dispatch protection, 2 DB integration tests). Verified it: provisioned an isolated local Postgres
+  (initdb/pg_ctl, socket+TCP 55432, throwaway) and ran the **11/11 real-DB integration tests green**
+  (incl. the concurrency race — exactly one of two edits lands). Base for launch = `d322559` (adds a
+  render-timeout bump). I am sole writer.
+- **Gate 2 (one-finding policy) DONE + VALIDATED.** `reviewStatus`: a single **Observed + High/
+  Foundational** finding → SENDABLE (explicit, evidence-grounded — NOT the 0.45 cutoff). Threaded
+  `impactLevel` through `ReviewFinding`. Frozen batch under the live policy: **11 SENDABLE / 0
+  NEEDS_REVIEW / 9 INSUFFICIENT** (the 9 correctly fail closed). SENDABLE = content eligibility only.
+- **Gate 3 (test failures) RESOLVED CORRECTLY (investigated, not blanket-rewritten).** dispatch
+  Gate-7: fixture made genuinely INSUFFICIENT so the never-bare-send block is still exercised. Video:
+  "thin" fixture → Observed+Moderate → stays NEEDS_REVIEW; **video eligibility unchanged**. Added
+  explicit regressions (strong→SENDABLE, Moderate/Reported→NEEDS_REVIEW). Full suite 154/1604 green.
+- **Gate 4 (automated authorization) DONE.** `review-send-policy.ts`: `authorizeForSend` records a
+  DISTINCT authorization (type policy|operator) bound to revision + evidence digest + PDF sha256 +
+  recipient + campaign, only when every gate passes (content-SENDABLE or version-bound approval,
+  editorial/render/artifact, valid+unsuppressed recipient, not held); audited; OFF unless
+  `QR_AUTOSEND_ENABLED=1`. `authorizationValidForDispatch` re-verifies via the deterministic revision
+  fingerprint (drift → fail closed). 7 tests.
+
+### OUTSTANDING toward the dry run + activation (Gates 5–10) — NOT built this pass
+- **Gate 5 scheduler/quota**: weekday 08:00–10:00 (recipient tz; fallback America/Los_Angeles;
+  cap-accounting tz America/Los_Angeles), **20/weekday** total, atomic quota reservation across
+  workers, staggered, persisted, no weekend/catch-up burst, pause-all at the dispatch boundary.
+- **Gate 6/7 suppression + reply/reminder**: much EXISTS (suppression re-check at dispatch, dedup,
+  reply capture, follow-up stop). Needs: verify sender SPF/DKIM/DMARC (read-only), one-hour reminder
+  logic, inbox integration confirmation. NOT yet verified/built this pass.
+- **Gate 8 queue replenishment**, **Gate 9 non-delivering dry run**, **Gate 10 activation package**.
+
+### Exact next action
+Build Gate 5 (scheduler + atomic quota + pause-all) wiring `authorizeForSend` → a persisted daily
+queue, then the non-delivering dry run (Gate 9). Activation package (Gate 10) is NOT ready until the
+scheduler + dry run pass. Nothing deployed; autosend OFF; no real sends.
