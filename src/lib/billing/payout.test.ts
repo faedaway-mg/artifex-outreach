@@ -19,7 +19,7 @@ describe("payout / money-state separation", () => {
       inv("void", 999_999),
       inv("partially_refunded", 200_000, { amountRefundedCents: 50_000 }),
     ]);
-    expect(v.collectedCents).toBe(500_000);
+    expect(v.collectedCents).toBe(650_000); // 500k paid + (200k - 50k refunded)
     expect(v.invoicedCents).toBe(1_000_000); // excludes void
     expect(v.outstandingCents).toBe(300_000);
     expect(v.refundedCents).toBe(50_000);

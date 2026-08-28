@@ -31,7 +31,10 @@ export function moneyView(invoices: Invoice[], currency = "usd"): MoneyView {
   for (const inv of invoices) {
     if (inv.state === "void") continue;
     invoiced += inv.amountCents;
+    // Net collected: a fully-paid invoice counts in full; a partially-refunded one
+    // counts the amount still retained. A fully-refunded invoice nets to zero.
     if (isSettledPositive(inv.state)) collected += inv.amountCents;
+    else if (inv.state === "partially_refunded") collected += Math.max(0, inv.amountCents - (inv.amountRefundedCents ?? 0));
     refunded += inv.amountRefundedCents ?? 0;
     if (inv.state === "disputed") disputed += inv.amountCents;
     if (inv.state === "issued" || inv.state === "processing" || inv.state === "failed") outstanding += inv.amountCents;
