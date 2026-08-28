@@ -6,7 +6,7 @@
 // paginates to two only when three rich findings need the room. Renders through the existing
 // @react-pdf stack with embedded Helvetica (no fragile font dependency).
 import React from "react";
-import { Document, Page, Text, View, Image, Svg, Path, Circle, StyleSheet } from "@react-pdf/renderer";
+import { Document, Page, Text, View, Image, Link, Svg, Path, Circle, StyleSheet } from "@react-pdf/renderer";
 import type { QuickReview } from "@/lib/outreach/quick-review";
 
 const C = {
@@ -92,6 +92,16 @@ function makeStyles(compact: boolean) {
     startLabel: { fontFamily: "Helvetica-Bold", fontSize: d.startLabel, color: C.ink, marginTop: compact ? 5 : 7, lineHeight: 1.1 },
     startWhy: { fontSize: compact ? 10.5 : 11, color: C.body, lineHeight: compact ? 1.4 : 1.5, marginTop: d.startWhyTop, maxWidth: 430 },
     startProof: { fontSize: 8, letterSpacing: 1, color: C.mute, textTransform: "uppercase", marginTop: compact ? 5 : 8 },
+
+    // Call to action — the one prominent next step. A REAL clickable link (not a graphic) whose
+    // annotation box IS the padded gold button, plus a plain reply fallback that points at the
+    // delivering email thread (never a new mailto).
+    cta: { marginTop: compact ? 14 : 22 },
+    ctaRule: { height: 2.5, backgroundColor: C.gold, width: 54 },
+    ctaHeading: { fontFamily: "Helvetica-Bold", fontSize: compact ? 13 : 15.5, color: C.ink, marginTop: compact ? 6 : 11 },
+    ctaSub: { fontSize: compact ? 10 : 11, color: C.body, lineHeight: 1.4, marginTop: 4, maxWidth: 420 },
+    ctaButton: { marginTop: compact ? 9 : 12, alignSelf: "flex-start", backgroundColor: C.gold, color: "#FFFFFF", fontFamily: "Helvetica-Bold", fontSize: 11.5, letterSpacing: 0.3, textDecoration: "none", paddingTop: 8, paddingBottom: 8, paddingLeft: 18, paddingRight: 18, borderRadius: 4 },
+    ctaReply: { fontSize: 9, color: C.mute, marginTop: compact ? 8 : 10, lineHeight: 1.4 },
 
     footer: { position: "absolute", left: 54, right: 54, bottom: 30, flexDirection: "row", justifyContent: "space-between", borderTopWidth: 1, borderTopColor: C.hair, paddingTop: 8 },
     footerText: { fontSize: 8.5, color: C.mute, letterSpacing: 0.3 },
@@ -256,6 +266,17 @@ export function QuickReviewDocument({ review, dateStr }: { review: QuickReview; 
             <Text style={s.startEyebrow}>Where we'd start</Text>
             <Text style={s.startLabel}>{review.start.label}</Text>
             <Text style={s.startWhy}>{review.start.why}</Text>
+          </View>
+        ) : null}
+
+        {/* The one prominent next step — a real clickable booking link + an email reply fallback. */}
+        {review.cta ? (
+          <View style={s.cta} wrap={false}>
+            <View style={s.ctaRule} />
+            <Text style={s.ctaHeading}>{review.cta.heading}</Text>
+            <Text style={s.ctaSub}>{review.cta.subhead}</Text>
+            <Link src={review.cta.bookingUrl} style={s.ctaButton}>{review.cta.buttonLabel}</Link>
+            <Text style={s.ctaReply}>{review.cta.replyLine}</Text>
           </View>
         ) : null}
 

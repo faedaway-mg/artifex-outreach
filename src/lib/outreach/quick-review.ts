@@ -10,6 +10,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import type { Lead } from "../types";
 import type { BusinessProfile } from "../business-intelligence/types";
+import { ARTIFEX_IDENTITY } from "../identity";
 import { deslug } from "../utils";
 import { discoverLogoCandidates, type LogoSourceType } from "../brand/logo-extractor";
 import { getBusinessIntelligence, upsertBusinessIntelligence } from "../repo";
@@ -48,6 +49,36 @@ export interface ResolvedBrand {
   confidence: number;
 }
 
+/** The single, prominent next step on a send-ready review: one booking button + a reply fallback.
+ *  The button carries the CANONICAL scheduling URL (ARTIFEX_IDENTITY.bookingUrl by default, or the
+ *  operator-configured calendarLink threaded in at send time). The copy promises no result, price,
+ *  duration, or free work. The reply line points at the delivering email thread — never a new mailto,
+ *  so we never imply an untracked message preserves the thread. Rendered as a REAL PDF link. */
+export interface ReviewCTA {
+  heading: string;
+  subhead: string;
+  buttonLabel: string;
+  bookingUrl: string;
+  replyLine: string;
+}
+
+const CTA_COPY = {
+  heading: "Want to talk through this?",
+  subhead: "Let's discuss what would make the biggest difference for your business.",
+  buttonLabel: "Book a conversation",
+  replyLine: "Prefer email? Reply to the message that included this review.",
+} as const;
+
+/** Build the review's booking CTA. Present only when there is something to act on (≥1 finding /
+ *  a starting point). `bookingUrl` defaults to the canonical identity URL; callers on the send path
+ *  pass the resolved settings.calendarLink so the PDF and the email offer the SAME destination and
+ *  the URL enters the revision fingerprint. */
+export function buildReviewCta(hasStart: boolean, bookingUrl?: string | null): ReviewCTA | null {
+  if (!hasStart) return null;
+  const url = (bookingUrl && /^https?:\/\//i.test(bookingUrl)) ? bookingUrl : ARTIFEX_IDENTITY.bookingUrl;
+  return { ...CTA_COPY, bookingUrl: url };
+}
+
 export interface QuickReview {
   businessName: string;
   industryLabel: string;
@@ -63,6 +94,9 @@ export interface QuickReview {
   /** The single recommended starting point — demonstrates prioritization. Null when no findings.
    *  Its label, intervention, and rationale all derive from one source finding (internally coherent). */
   start: StartingPoint | null;
+  /** The one prominent next step (booking button + reply fallback). Present only when there is a
+   *  starting point to act on; null/absent on an INSUFFICIENT review (which is never sent). */
+  cta?: ReviewCTA | null;
   /** Sendability: SENDABLE (≥2 strong) · NEEDS_REVIEW (1) · INSUFFICIENT_EVIDENCE (0). */
   status: ReviewStatus;
   /** Back-compat views derived from findings (older consumers/tests). */
@@ -76,7 +110,7 @@ export interface QuickReview {
 
 /** Options that affect the real attachment gate. `approved` reflects an explicit, auditable operator
  *  approval of a NEEDS_REVIEW review; `observedAt` stamps evidence provenance (BI generatedAt). */
-export interface BuildReviewOptions { approved?: boolean; observedAt?: string | null }
+export interface BuildReviewOptions { approved?: boolean; observedAt?: string | null; bookingUrl?: string | null }
 
 const MIN_LOGO_CONFIDENCE = 0.75;
 
@@ -115,6 +149,7 @@ export function buildQuickReview(lead: Lead, profile: BusinessProfile | null, br
     presentations,
     openingHook: opening,
     start,
+    cta: buildReviewCta(!!start, opts.bookingUrl ?? null),
     status,
     observations: findings.map((f) => f.observation),
     whyItMatters: findings[0]?.whyItMatters || profile?.executiveSummary || "",

@@ -138,8 +138,11 @@ async function sendNext(leadId: string, mode: "intro" | "followup", veed?: VeedV
   // send from here on is the EDITED email — the exact copy the operator reviewed.
   const email = applyOverride(mode === "intro" ? kit.email : kit.followUp, override);
 
-  // The {{unsubscribe}} token is replaced by dispatch, keeping compliance intact.
-  const renderInput = { email, settings, veed: mode === "intro" ? veed ?? null : null, unsubscribeUrl: "{{unsubscribe}}" as string | null };
+  // The {{unsubscribe}} token is replaced by dispatch, keeping compliance intact. The booking CTA
+  // offers the SAME canonical destination as the attached Quick Review's button (email/PDF aligned);
+  // reply stays available via reply-to. One destination only — no conflicting links.
+  const bookingCta = settings.calendarLink ? { label: "Book a conversation", url: settings.calendarLink } : null;
+  const renderInput = { email, settings, veed: mode === "intro" ? veed ?? null : null, unsubscribeUrl: "{{unsubscribe}}" as string | null, cta: bookingCta };
   const html = renderPersonalEmailHtml(renderInput);
   const text = renderPersonalEmailText(renderInput);
 

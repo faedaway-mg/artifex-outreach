@@ -18,13 +18,13 @@ import type { Lead } from "../types";
 import type { BusinessProfile } from "../business-intelligence/types";
 import { buildQuickReview, type QuickReview, type ResolvedBrand } from "./quick-review";
 import { checkReview, editorialBlocks, reviewEditorialSurface, type EditorialIssue } from "./editorial-quality";
-import { getBusinessIntelligence, getLead, appendAudit, commitReviewEditorial } from "../repo";
+import { getBusinessIntelligence, getLead, appendAudit, commitReviewEditorial, getSettings } from "../repo";
 import type { AuditEntry } from "../types";
 import { currentActor } from "../auth";
 
 /** The renderer/template contract version. Bump when the PDF layout or field semantics change so
  *  a prior approval (bound to the old template) can never silently render on a new one. */
-export const TEMPLATE_VERSION = "qr-m2-1";
+export const TEMPLATE_VERSION = "qr-m3-cta-1";
 
 // ── Overlay: operator-authored PRESENTATION overrides. Evidence is never here. ──────────────────
 export interface FindingOverlay {
@@ -140,7 +140,10 @@ export function revisionFingerprint(review: QuickReview): string {
     id: f.id, obs: f.observation, conf: f.evidence.confidence, src: f.evidence.sourceUrl,
     basis: f.evidence.basis, at: f.evidence.observedAt, label: f.evidence.displayLabel,
   }));
-  const canonical = JSON.stringify({ template: TEMPLATE_VERSION, category: review.industryLabel, surface, evidence, status: review.status });
+  // The CTA destination is part of the customer-facing artifact: a change to the booking URL (or its
+  // presence) must invalidate a prior approval/authorization bound to the old destination.
+  const cta = review.cta ? { url: review.cta.bookingUrl, label: review.cta.buttonLabel } : null;
+  const canonical = JSON.stringify({ template: TEMPLATE_VERSION, category: review.industryLabel, surface, evidence, cta, status: review.status });
   return "rev_" + createHash("sha256").update(canonical).digest("hex").slice(0, 20);
 }
 
@@ -221,6 +224,14 @@ async function commitState(
 }
 const STALE_MSG = "the review changed since you loaded it — reload and reapply";
 
+/** The canonical scheduling destination the send artifacts (PDF + email) share. Reading settings so
+ *  an operator-configured calendarLink flows into BOTH surfaces and into the fingerprint — a change
+ *  invalidates any prior approval bound to the old destination. Defaults heal to the identity URL. */
+export async function resolveBookingUrl(): Promise<string> {
+  const settings = await getSettings();
+  return settings.calendarLink;
+}
+
 // ── Build the EFFECTIVE (overlay-applied) review for a lead ─────────────────────────────────────
 export async function effectiveReviewFor(leadId: string, opts: { brand?: ResolvedBrand | null } = {}): Promise<{ lead: Lead; review: QuickReview; state: ReviewEditorialState } | null> {
   const lead = await getLead(leadId);
@@ -228,7 +239,8 @@ export async function effectiveReviewFor(leadId: string, opts: { brand?: Resolve
   const bi = await getBusinessIntelligence(leadId);
   const profile = (bi?.profile?.businessProfile as BusinessProfile) ?? null;
   const state = await getEditorialState(leadId);
-  const base = buildQuickReview(lead, profile, opts.brand ?? null, { approved: true, observedAt: bi?.generatedAt ?? null });
+  const bookingUrl = await resolveBookingUrl();
+  const base = buildQuickReview(lead, profile, opts.brand ?? null, { approved: true, observedAt: bi?.generatedAt ?? null, bookingUrl });
   const review = applyOverlay(base, state.draft);
   return { lead, review, state };
 }
@@ -304,7 +316,7 @@ export async function saveDraft(leadId: string, overlay: ReviewOverlay, opts: { 
   const actor = opts.actor ?? currentActor();
   const state = eff.state;
   const biNow = await getBusinessIntelligence(leadId);
-  const base = buildQuickReview(eff.lead, biNow?.profile?.businessProfile as BusinessProfile ?? null, null, { approved: true, observedAt: biNow?.generatedAt ?? null });
+  const base = buildQuickReview(eff.lead, biNow?.profile?.businessProfile as BusinessProfile ?? null, null, { approved: true, observedAt: biNow?.generatedAt ?? null, bookingUrl: await resolveBookingUrl() });
   const merged: ReviewOverlay = mergeOverlay(state.draft, overlay);
   const nextReview = applyOverlay(base, merged);
   const newId = revisionFingerprint(nextReview);
@@ -339,7 +351,7 @@ export async function runEditorialCheck(leadId: string, opts: { actor?: string }
   const revisionId = revisionFingerprint(eff.review);
   const issues = checkReview(eff.review);
   const biNow = await getBusinessIntelligence(leadId);
-  const base = buildQuickReview(eff.lead, biNow?.profile?.businessProfile as BusinessProfile ?? null, null, { approved: true, observedAt: biNow?.generatedAt ?? null });
+  const base = buildQuickReview(eff.lead, biNow?.profile?.businessProfile as BusinessProfile ?? null, null, { approved: true, observedAt: biNow?.generatedAt ?? null, bookingUrl: await resolveBookingUrl() });
   const evidenceProblems = validateOverlayClaims(base, eff.state.draft);
   const { rev: _r, ...prevNoRev } = eff.state;
   const c = await commitState(leadId, eff.state, { ...prevNoRev, checkedRevisionId: revisionId }, { action: A.checked, actor: opts.actor ?? currentActor(), targetType: "lead", targetId: leadId, meta: { revisionId, blocks: editorialBlocks(issues).length, evidenceProblems: evidenceProblems.length }, ip: null });

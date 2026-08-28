@@ -277,6 +277,9 @@ export function renderPersonalEmailHtml(input: RenderInput): string {
   const paras = email.paragraphs.map((p) => `<p style="margin:0 0 14px;">${linkify(p)}</p>`).join("\n");
   // A video, if present, is a plain inline link — never a designed card in personal mode.
   const video = veed?.url ? `<p style="margin:0 0 14px;">If it's easier than reading, I recorded a short video: <a href="${escapeHtml(veed.url)}" style="color:${GOLD_LINK};text-decoration:none;">watch it here</a>.</p>` : "";
+  // Booking offer — the SAME canonical destination the attached Quick Review's button uses (kept a
+  // modest inline link in personal mode, not a big card). Reply stays available via reply-to.
+  const booking = input.cta ? `<p style="margin:0 0 14px;">${escapeHtml(input.cta.label)}: <a href="${escapeHtml(input.cta.url)}" style="color:${GOLD_LINK};text-decoration:none;">${escapeHtml(input.cta.url.replace(/^https?:\/\//, ""))}</a>. Prefer email? Just reply to this message.</p>` : "";
   // Commercial mail needs the postal address + opt-out in the body (CAN-SPAM). Kept tiny.
   const addr = settings.businessAddress ? escapeHtml(settings.businessAddress) : "";
   const footer = unsubscribeUrl
@@ -288,6 +291,7 @@ export function renderPersonalEmailHtml(input: RenderInput): string {
   <div style="max-width:600px;margin:0 auto;padding:18px 16px;font-family:${FONT};color:#222222;font-size:15.5px;line-height:1.6;">
     ${paras}
     ${video}
+    ${booking}
     ${personalSignatureHtml(settings, { booking: false })}
     ${footer}
   </div>
@@ -298,6 +302,8 @@ export function renderPersonalEmailText(input: RenderInput): string {
   const { email, settings, veed, unsubscribeUrl } = input;
   const parts = [...email.paragraphs];
   if (veed?.url) parts.push(`If it's easier than reading, I recorded a short video: ${veed.url}`);
+  // Same canonical booking destination as the attached review; reply stays available via reply-to.
+  if (input.cta) parts.push(`${input.cta.label}: ${input.cta.url}\nPrefer email? Just reply to this message.`);
   parts.push(personalSignatureText(settings));
   // The opt-out SENTENCE belongs to renderBody (comms/render.ts), which substitutes
   // the {{unsubscribe}} token at send time. Stating it here too made the delivered

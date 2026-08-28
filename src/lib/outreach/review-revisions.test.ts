@@ -7,7 +7,7 @@ import {
   applyOverlay, revisionFingerprint, validateOverlayClaims, effectiveReviewFor,
   saveDraft, recordPreview, runEditorialCheck, approveRevision, deliveryReadiness, reviewForSend,
   proposeRegeneration, acceptRegeneration, getEditorialState, A,
-  sendGate, verifyArtifact, sha256Hex, skipReview, revisitReview,
+  sendGate, verifyArtifact, sha256Hex, skipReview, revisitReview, TEMPLATE_VERSION,
 } from "./review-revisions";
 import { getBusinessIntelligence } from "../repo";
 
@@ -219,7 +219,7 @@ describe("review-revisions — concurrency, regeneration, audit", () => {
 
 describe("review-revisions — PDF-byte artifact binding + send gate (Gate 5)", () => {
   it("verifyArtifact rejects wrong bytes, a stale revision, and a wrong template version", () => {
-    const manifest = { leadId: "l", revisionId: "rev_abc", evidenceDigest: "e", templateVersion: "qr-m2-1", pdfSha256: "", filename: "f.pdf", renderedAt: "t" } as any;
+    const manifest = { leadId: "l", revisionId: "rev_abc", evidenceDigest: "e", templateVersion: TEMPLATE_VERSION, pdfSha256: "", filename: "f.pdf", renderedAt: "t" } as any;
     const bytes = Buffer.from("PDFDATA");
     manifest.pdfSha256 = sha256Hex(bytes);
     expect(verifyArtifact(manifest, bytes, "rev_abc").ok).toBe(true);
