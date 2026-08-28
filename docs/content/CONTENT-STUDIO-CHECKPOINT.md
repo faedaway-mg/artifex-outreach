@@ -184,3 +184,109 @@ space. Readable + on-brand; per-beat vertical centering is a future polish.
 1. Send the real #007 MP3 → I regenerate `field-note-007-final.mp4` from it (one command).
 2. Approve the deploy request (deploy doc) for phone rendering + durable Postgres/R2 jobs.
 3. (Optional) richer beat authoring UI + per-beat vertical centering.
+
+---
+
+# Pass 3 — Honesty fixes, hosted outreach links, measured verification
+
+**Branch:** `feat/content-studio @ b435c3b`. Integration branch prepared: `integration/content-studio @ 106a840`
+(off manual-email release `dc3f093`, clean cherry-pick, manual-email/QR/migrations untouched). Local only.
+
+## 1. Honest provenance + approval (no fabricated "ready"/"posted")
+Explicit `AudioKind` (placeholder|uploaded|approved-master), never inferred from a filename. Placeholder
+renders show **"Preview only — replace placeholder voiceover"** and can't be recommended/approved/posted.
+Approval is an explicit, version-bound action (`/pieces/[id]/approve`); changing audio/script marks it
+stale. "Mark posted" is gated behind approval (`/posted` returns 422 otherwise). Generate buttons no
+longer offer "approved voiceover" for template pieces. Provenance surfaced in the snapshot + UI labels.
+
+## 2. Concept → ideas → script
+`ideas.ts` = deterministic starter-idea bank (6, Field-Notes theme), `/api/content-studio/ideas`,
+"Suggest ideas" in New-video → fills concept + editable starter narration → renders via the template
+path. **Labeled "not AI/provider-generated"** (source: deterministic-bank). App AI provider defaults to
+`mock`; a paid LLM would replace the bank — prepared as a labeled-unverified future (in the deploy ask),
+no paid call made. Manual entry remains the default.
+
+## 3. Real business rehearsal (evidence snapshot, not prod)
+Client-video projection (Pass 2) reuses the REAL `reviewVideoReadiness` gate + `buildQuickReview`. Proven
+on a realistic evidence fixture; there IS an authorized local BI snapshot (`src/lib/business-intelligence/
+fixtures.ts`) to seed from. LIVE prod-business enumeration still needs the production DB (mock has none);
+I did NOT connect the test server to prod (real client data + login writes). Final-VO acceptance: pending.
+
+## 4. Real-Postgres durability + measured render (Docker/Linux BLOCKED)
+`scripts/verify-pg-jobs.mjs` against an ISOLATED Postgres (`cs_jobs_test`, `deploy/field_note_jobs.sql`) —
+**8/8**: DB dedup (active-job unique index), two/three-worker race → exactly ONE claims, crash-lease
+recovery reclaimable once + attempt++, restart persistence, input-change staleness. Measured render:
+**~124 s, ~1.08 GB peak RSS, 1.9 MB out**. **Docker is not installed → the Linux worker CONTAINER was not
+built/run** (honest blocker; the render pipeline + job model are proven, the containerized Linux run is not).
+
+## 5. Hosted outreach viewing links (addendum) — no MP4 email attachments
+`share.ts`: only an APPROVED, non-placeholder render (or an approved #004–#006 master) is shareable; the
+video is FROZEN (copied + sha256) so regenerating never changes a sent link. Public branded
+`/v/[token]` page (noindex, no autoplay, verified `cal.com/artifex-labs-ob2qbv/30min` booking, reply
+invite) + `/api/v/[token]/video` Range route (private file, token capability, seeking). Revoke → page
+unavailable + media 410 + email-prepare blocked. Email prepare → subject/body/HTML with a clickable
+thumbnail → viewing page + text fallback "Watch your video review"; **no `<video>`, no `.mp4`**. Reuses
+`ARTIFEX_IDENTITY`. Middleware: `/v` + `/api/v` public. Live E2E all green + viewing-page screenshot.
+Tests: `share.test.ts` (6) — placeholder/unapproved blocked, immutability across regen, revoke, no-mp4.
+
+## 6. Integration (prepared, not deployed)
+`integration/content-studio` off `dc3f093`; 3 CS commits cherry-pick with ZERO conflicts; diff touches
+only `content-studio/*`, `/v` routes, `Shell.tsx` (nav), `middleware.ts` (public /v), `.gitignore`,
+`deploy/`, `docs/content`, `scripts/` — **no** comms/quick-review/drizzle/sending files; 0 migrations changed.
+
+## 7. Measured cost (corrects the ~$11 guess)
+Polling worker CANNOT scale to zero on Railway (outbound-packet idle detection). Use **Cron** (run→exit,
+≥5-min) → **~$0/mo absorbed by the $20 Pro plan** at 30–100 renders/mo (+R2 free egress); or always-on
+**~$60/mo** for zero latency. Hard spend limit is workspace-wide (min $10). Full table + one consolidated
+request in `DEPLOY-CONTENT-STUDIO.md`.
+
+## Verification (Pass 3)
+tsc 0 errors · **37 unit/integration tests** (job, upload, template-schema, client-video, durability,
+share) · **8/8 PG durability** · `next build` OK (earlier) · live share E2E + viewing-page screenshot.
+
+## Still open / honest
+- Linux worker container: not built (no Docker).
+- Live prod-business render: needs prod DB.
+- LLM idea/script generation: mock only (deterministic bank) until a provider is authorized.
+- `scripts/worker-loop.mjs` (Cron drainer) + R2 key wiring in the store: to write at deploy time.
+
+---
+
+# Pass 4 — Poster fix, video-artifact dispatch policy, delivery-cost honesty
+
+**Branch:** `feat/content-studio` (starting 5251bc1). HEADs verified; `release/qr-manual-m1` still @ `dc3f093`
+(manual-email release NOT advanced). No local container runtime (docker/podman/lima/colima absent) → the
+Linux worker CONTAINER remains unbuilt/unrun. Local only.
+
+1. **Black-player poster FIXED (item 1).** The poster is now FROZEN with the video at share time
+   (`sharePosterPath`, 440×782 ~24 KB), served token-gated at `/api/v/[token]/poster` (revoke → 410, no
+   asset exposure). Viewing page uses a client `ShareVideo` with a **click-to-play poster overlay**: a
+   lightweight `<img>` poster paints first (never a black box), the `<video>` (preload=none) reveals only
+   on the visitor's tap (user-initiated, not autoplay). Loading + error states shown. VERIFIED on an
+   **empty-cache + throttled (~400 kbps/400 ms)** headless visit — screenshot shows the #004 cover +
+   play button before playback. Range/seek preserved (206 + Content-Range). Poster is version-bound
+   (same frozen approved render).
+2. **Video-artifact dispatch policy (item 2 — testable core).** `email-draft.ts`: a draft binds
+   business + share token + approved VERSION; `draftApprovalValid` goes false on revoke or version drift;
+   `videoDispatchGate` re-checks suppression/pause/authorization/quota/business-binding/share-validity
+   and **blocks (never silently downgrades to a bare email)** when a video link is missing/revoked/stale;
+   PDF drafts keep their own path (no substitution). 9 tests. **NOT YET DONE:** wiring this into the live
+   `comms/dispatch.ts` (persist a real draft in the manual workflow, call the gate inside the existing
+   send path) — a coordinated change owned by the manual-email release; a non-delivering transport E2E is
+   still pending that wiring. "Prepare email" today returns/saves the draft content, it does not yet
+   create a draft inside the manual pipeline. Reported as the remaining integration.
+3. **Migrations for jobs AND shares (item 4).** `deploy/content_studio_shares.sql` (shares +
+   email_drafts, ordered after jobs) with explicit **backup (pg_dump) + rollback (DROP/restore)** steps.
+   `next` still must not launch Chromium in prod (render API spawns a detached worker in dev; prod =
+   enqueue + separate worker). `scripts/worker-loop.mjs` + R2 key wiring remain deploy-time TODOs.
+4. **Delivery-cost HONESTY (item 5).** Corrected: R2 free egress applies ONLY if bytes go R2→viewer. The
+   current `/api/v/[token]/video` route PROXIES through Railway → billed $0.05/GB (10k views ≈ ~$0.95/mo).
+   Free delivery needs a per-load presigned R2 URL behind the stable `/v` page (revoke → no presign).
+   Added build/startup overhead note to the Cron per-run cost. Full detail in `DEPLOY-CONTENT-STUDIO.md`.
+
+**Still blocked / honest:** (3) a REAL prospect verification still needs production read access — the
+local BI fixture is a fixture, not a real business; the gate is not weakened. Linux container: no runtime
+available locally. LLM idea/script generation: deterministic bank only.
+
+**Verification (Pass 4):** tsc 0 errors · **46 tests** (added email-draft ×9) · poster throttled/empty-cache
+screenshot · revoke blocks poster+video (410). PG durability (8/8) unchanged (schema stable).

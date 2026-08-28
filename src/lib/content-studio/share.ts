@@ -50,6 +50,9 @@ export interface ShareRecord {
 function ensure() { for (const d of [SHARES_DIR, MEDIA_DIR, PUBLIC_SHARE_DIR]) if (!existsSync(d)) mkdirSync(d, { recursive: true }); }
 const recPath = (t: string) => path.join(SHARES_DIR, `${t}.json`);
 export const shareMediaPath = (t: string) => path.join(MEDIA_DIR, `${t}.mp4`);
+// The poster is FROZEN alongside the mp4 (same approved version) — regenerating the piece can't change
+// what an already-sent link shows before playback.
+export const sharePosterPath = (t: string) => path.join(MEDIA_DIR, `${t}-poster.jpg`);
 
 async function pieceMeta(pieceId: string): Promise<{ title: string; businessId: string | null; businessName: string | null; posterRel: string; intro: string }> {
   const tpl = await loadTemplate(pieceId);
@@ -87,6 +90,17 @@ export async function createShare(pieceId: string): Promise<{ ok: true; share: S
   const frozen = shareMediaPath(token);
   await fs.copyFile(sourceFile, frozen);
   const videoHash = await sha256(frozen);
+
+  // Freeze the POSTER too (private, version-bound). Prefer the piece's generated cover; fall back to the
+  // mp4's frame zero (which IS the embedded thumbnail) so the poster always exists and matches the video.
+  const posterAbs = sharePosterPath(token);
+  const coverPng = path.join(PUBLIC_DIR, "content", "thumbnails", `field-note-${pieceId}-thumbnail.png`);
+  try {
+    // Small + progressive so it paints fast even on a throttled phone connection.
+    const scale = "scale=440:782";
+    if (existsSync(coverPng)) execFileSync("ffmpeg", ["-y", "-i", coverPng, "-vf", scale, "-q:v", "5", posterAbs], { stdio: "ignore" });
+    else execFileSync("ffmpeg", ["-y", "-i", frozen, "-frames:v", "1", "-vf", scale, "-q:v", "5", posterAbs], { stdio: "ignore" });
+  } catch { /* poster optional; the page degrades to a plain player */ }
 
   // Small PUBLIC email thumbnail (separate from the full cover) with a play badge. Best-effort.
   let emailThumbRel: string | null = null;

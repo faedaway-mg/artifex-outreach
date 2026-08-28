@@ -1,6 +1,7 @@
 import { getShare, isLive } from "@/lib/content-studio/share";
 import { ARTIFEX_IDENTITY } from "@/lib/identity";
 import { BrandMark } from "@/components/BrandMark";
+import { ShareVideo } from "@/components/content-studio/ShareVideo";
 
 export const dynamic = "force-dynamic";
 // noindex — this is an unlisted link, not a public page. (noindex is NOT access control: anyone holding
@@ -33,16 +34,8 @@ export default async function ViewingPage({ params }: { params: { token: string 
       </div>
 
       <div className="card overflow-hidden p-3">
-        {/* No autoplay, no sound-on by default; standard controls; portrait-safe. */}
-        <video
-          controls
-          playsInline
-          preload="metadata"
-          poster={share.posterRel}
-          src={`/api/v/${share.token}/video`}
-          className="mx-auto block w-full max-w-[420px] rounded-lg bg-black"
-          style={{ aspectRatio: "9 / 16" }}
-        />
+        {/* Frozen poster shows before playback (no black box); no autoplay; Range/seek preserved. */}
+        <ShareVideo token={share.token} />
       </div>
 
       {share.intro && <p className="mt-4 text-center text-sm leading-relaxed text-chalk-300">{share.intro}</p>}
