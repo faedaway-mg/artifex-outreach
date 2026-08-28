@@ -93,6 +93,28 @@ describe("Gate 4 — event ordering & reconciliation", () => {
     expect((await getInvoice(row.id))!.state).toBe("paid");
   });
 
+  it("EQUAL timestamps converge via state semantics, not sort order (paid + refund same ts)", async () => {
+    const { row } = await insertInvoiceIfAbsent(invSeed({ providerInvoiceId: "in_EQ", state: "issued" }));
+    // Both events carry the SAME occurredAt — chronological sort cannot order them.
+    await fire(evt("e_a", "invoice.paid", "in_EQ", NOW));
+    await fire(evt("e_b", "charge.refunded", "in_EQ", NOW, { amount_refunded: 50_000 }));
+    await reconcileInvoiceFromEvents(row.id);
+    const after = await getInvoice(row.id);
+    // Regardless of order: lifecycle=paid (a separate refund fact recorded). The reducer's
+    // idempotency + separate-fact model makes the outcome order-independent.
+    expect(after!.state).toBe("paid");
+    expect(after!.amountRefundedCents).toBe(50_000);
+  });
+
+  it("equal-timestamp dispute created+closed converge to the resolved outcome", async () => {
+    const { row } = await insertInvoiceIfAbsent(invSeed({ providerInvoiceId: "in_EQ2", state: "paid", paidAt: new Date(NOW * 1000).toISOString() }));
+    await fire(evt("d_close", "charge.dispute.closed", "in_EQ2", NOW, { status: "lost", payment_intent: "pi_eq2" }));
+    await fire(evt("d_open", "charge.dispute.created", "in_EQ2", NOW, { amount: 500_000, payment_intent: "pi_eq2" }));
+    await reconcileInvoiceFromEvents(row.id);
+    // "lost" is terminal; a same-ts create cannot reopen it → converges to lost.
+    expect((await getInvoice(row.id))!.disputeStatus).toBe("lost");
+  });
+
   it("wrong issuer/account event is rejected and marked as mismatch", async () => {
     await insertInvoiceIfAbsent(invSeed({ providerInvoiceId: "in_X", state: "issued" })); // artifex-systems
     const body = JSON.stringify(evt("e_x", "invoice.paid", "in_X", NOW));

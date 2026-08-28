@@ -24,7 +24,11 @@ export async function POST(req: NextRequest) {
     isProduction: process.env.NODE_ENV === "production",
     expectedIssuerId: issuer.id,
   });
-  // 2xx = do not retry (processed/duplicate/ignored/pending). 401/409/400 = Stripe
-  // will retry per its schedule, which is correct for a transient misconfiguration.
+  // 2xx acks anything we've durably handled — including a pending_unmatched event
+  // (its receipt is persisted BEFORE this returns and is replayed by reconciliation).
+  // A non-2xx is a genuine REJECTION, not a "retry will fix it": 400 malformed and 401
+  // bad/absent signature are permanent client errors (Stripe will still retry per its
+  // schedule; that's harmless and we must not 200-ack a request we refused), and 409 is
+  // an account/issuer mismatch that a retry to THIS endpoint won't resolve.
   return NextResponse.json({ ok: result.ok, kind: result.kind, result: result.result }, { status: result.status });
 }
