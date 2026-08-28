@@ -290,3 +290,32 @@ available locally. LLM idea/script generation: deterministic bank only.
 
 **Verification (Pass 4):** tsc 0 errors · **46 tests** (added email-draft ×9) · poster throttled/empty-cache
 screenshot · revoke blocks poster+video (410). PG durability (8/8) unchanged (schema stable).
+
+---
+
+# Pass 6 — Worker-only hard guard, durable storage contract; deployment gated on R2 credentials
+
+**Branch:** feat/content-studio (from 413c186). Integration base verified: e36fedf IS the tip of
+release/contact-first-scheduler (latest accepted release). Local only.
+
+- **Item 2 hard guard DONE:** `shouldSpawnLocally` now returns false in production UNCONDITIONALLY (even
+  if CS_RENDER_MODE=local is set); `assertRenderConfigSafe` THROWS on CS_RENDER_MODE=local in prod and is
+  called at enqueue — the web process can never fork Chromium in production. Tests added.
+- **Item 1 storage contract DONE (code):** `cs-storage.ts` — durable object-key put/get/exists/delete for
+  uploads/inputs/outputs/posters/share-media; S3/R2 backend (reuses the app S3 env) when
+  STORAGE_PROVIDER=s3, else atomic writes under the DURABLE .data dir (never /tmp, never in-memory).
+  Atomic rename → a failed publish is never visible as ready. `cs-storage.test.ts` (4). Wiring each
+  route/worker call site to use these keys is the remaining mechanical step (scoped; not done to avoid
+  breaking the verified local flow before R2 exists).
+- **Verification:** tsc 0 · 60 tests · PG worker 9/9.
+
+## DEPLOYMENT — genuinely gated (cannot produce a live URL this pass)
+Verified in this environment: **no R2/S3 credentials configured (0 env files), no Cloudflare bucket**, and
+**no container runtime** (docker/podman/lima/colima absent). Railway CLI is present. A live
+outreach.artifexlabs.tech/content-studio therefore requires, at minimum:
+  1) a Cloudflare **R2 bucket + API credentials** (new billable infra — needs your account + a budget);
+  2) a Railway **staging service** creation + env (S3_*, CS_RENDER_MODE=worker, CHROME_PATH) — Railway
+     builds the Dockerfile server-side (no local Docker needed), but the service must be created;
+  3) applying the additive CS migrations to the staging DB (authorized, with pg_dump backup).
+None of these can be self-provisioned without the R2 credentials + the budget number. This is the ONE
+consolidated question (below). No live URL is claimed; nothing was deployed or sent.

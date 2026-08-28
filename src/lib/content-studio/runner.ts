@@ -36,6 +36,7 @@ export interface CreateResult {
 // Create (or reuse) a render job for a piece. `useUpload` picks the most recent uploaded VO; otherwise
 // the approved audio stream is reused byte-for-byte (only valid for #004–#006).
 export async function createRenderJob(pieceId: string, opts: { useUpload: boolean }): Promise<CreateResult> {
+  assertRenderConfigSafe(); // reject a prod misconfig loudly instead of forking Chromium in the web process
   const isTemplate = await hasTemplate(pieceId);
   if (!isRenderable(pieceId) && !isTemplate) {
     throw new Error(
@@ -108,13 +109,21 @@ export async function createRenderJob(pieceId: string, opts: { useUpload: boolea
   return { job, deduped: false };
 }
 
-// The ONLY place a local renderer is spawned. In production (NODE_ENV=production) this is false unless
-// CS_RENDER_MODE=local is explicitly set — so a prod misconfig can't silently fork Chromium in the web
-// process. Setting CS_RENDER_MODE=worker forces enqueue-only anywhere.
+// The ONLY place a local renderer is spawned. In production the web process must NEVER fork Chromium —
+// not even if CS_RENDER_MODE=local is accidentally set. This function fails closed in production
+// regardless of CS_RENDER_MODE; a separate worker service does all rendering.
 export function shouldSpawnLocally(env: NodeJS.ProcessEnv = process.env): boolean {
+  if (env.NODE_ENV === "production") return false; // hard rule — worker-only in prod, no override
   if (env.CS_RENDER_MODE === "worker") return false;
-  if (env.CS_RENDER_MODE === "local") return true;
-  return env.NODE_ENV !== "production";
+  return true; // dev default
+}
+
+// Reject an unsafe configuration rather than silently ignoring it: CS_RENDER_MODE=local in production is
+// a misconfiguration (the web process would try to render). Called at enqueue so it surfaces loudly.
+export function assertRenderConfigSafe(env: NodeJS.ProcessEnv = process.env): void {
+  if (env.NODE_ENV === "production" && env.CS_RENDER_MODE === "local") {
+    throw new Error("Unsafe Content Studio config: CS_RENDER_MODE=local in production. The web process must NOT render — rendering runs only in the worker service. Unset CS_RENDER_MODE or set it to 'worker'.");
+  }
 }
 
 // If a "rendering"/"queued" job hasn't been touched in a while and its process is gone, it crashed —
