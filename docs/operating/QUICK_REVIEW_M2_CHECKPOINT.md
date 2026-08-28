@@ -31,3 +31,40 @@
 
 ## Exact next action
 Decide the persistence hardening: authorize a LOCAL `review_revisions` migration (with CAS + integration tests against an isolated test DB) for true atomic concurrency, then build the React editor page + browser/mobile walkthrough and the production regeneration adapter. Until then, M2 is functionally proven for a single-writer flow but NOT accepted for concurrent multi-writer production use. Nothing is deployed; autosend OFF.
+
+---
+
+## M2-SIMPLIFIED addendum (scope corrected: reliable generation + lightweight controls, NOT a full editor)
+
+Full field-by-field editor DEFERRED (per scope correction). Backend revision/approval/artifact work preserved and reused.
+
+### Gate 2 — generation quality (the priority): DONE, with real evidence
+Harness `scripts/eval-generation.ts` ran the UNTOUCHED generator (no overlay, no per-prospect fixes)
+across **20 diverse real records** (79 in the BI pool, 41 categories). Predefined criteria.
+- **0 DEFECTS** — every review: coherent, opening hook DISTINCT from finding hooks/titles, no repeated
+  sentences, evidence-scoped, renders clean. The M1/M2 safeguards generalize beyond All About Smiles.
+- **11 PASS** (all `NEEDS_REVIEW`, 1 evidence-backed finding → operator-approvable) · **9 BLOCKED**
+  (`INSUFFICIENT_EVIDENCE`, 0 findings → fail-closed, correct).
+- **Systemic finding: the binding constraint is EVIDENCE DEPTH, not generator coherence.** Almost no
+  lead yields ≥2 findings (AAS's 2-finding SENDABLE review is an outlier). Reviews fail CLOSED on thin
+  evidence — no incoherent document ships. There is NO generator/template defect to fix.
+- Visual: single-finding NEEDS_REVIEW PDFs inspected desktop + phone — clean layout, no clipping/overlap.
+- Artifacts: `docs/artifacts/quick-review-m2/gen-eval/` (results.json, per-lead PDFs, desktop/phone PNGs).
+
+### Gate 3/4 — lightweight controls
+Backend for all four controls exists: preview (`recordPreview`), approve (`approveRevision`, version-bound),
+regenerate (`propose/acceptRegeneration`, MOCK), skip/hold (`skipReview`/`revisitReview`, reason-required,
+blocks the send gate). Server actions in `review-editor-actions.ts` (actor server-derived). **The React UI
+page is still NOT built** — controls are API-complete and PDF-verified, but no interactive page / browser
+walkthrough this turn.
+
+### Still OUTSTANDING (unchanged from above, precise)
+- Production regeneration adapter (MOCK only). · Real-DB atomic concurrency + isolated-test-DB integration
+  (optimistic read-then-write on mock store only). · Legacy/unedited reviews still defer to the legacy gate
+  (Gate 7 "universal enrollment" not applied — low practical risk since 0 reviews are auto-SENDABLE).
+- Evidence validation depth (numbers + absence only; qualitative/comparative/outcome NOT validated).
+
+### Next action
+Given evidence depth (not coherence) is the constraint, the highest-leverage next step is upstream evidence
+enrichment + the lightweight review UI so operators can approve/skip the NEEDS_REVIEW reviews. Real-DB
+atomicity + production regeneration remain gated. Nothing deployed; autosend OFF.
