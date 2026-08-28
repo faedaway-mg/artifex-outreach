@@ -68,3 +68,49 @@ walkthrough this turn.
 Given evidence depth (not coherence) is the constraint, the highest-leverage next step is upstream evidence
 enrichment + the lightweight review UI so operators can approve/skip the NEEDS_REVIEW reviews. Real-DB
 atomicity + production regeneration remain gated. Nothing deployed; autosend OFF.
+
+---
+
+## SEND-READY YIELD DIAGNOSIS (Gates 5 + 6) — the readiness decision
+
+Harness `scripts/diagnose-yield.ts` (read-only, no new collection) over the frozen 20-record batch.
+Full data: `docs/artifacts/quick-review-m2/gen-eval/yield-diagnosis.json`.
+
+### Gate 5 — the two-finding rule
+- **Origin: a CODE HEURISTIC**, not an approved external policy. `reviewStatus()` (review-evidence.ts:314):
+  `>=2 findings → SENDABLE · 1 → NEEDS_REVIEW · 0 → INSUFFICIENT`. The second finding adds no evidence
+  guarantee — each finding is already independently evidence-gated by `isSendable()` (Observed/Reported
+  confidence + non-empty basis + observable category + non-speculative).
+- **Current vs proposed on the frozen batch** (proposed = a single Observed finding with score ≥ 0.45 qualifies):
+  - CURRENT: 0 SENDABLE · 11 NEEDS_REVIEW · 9 INSUFFICIENT.
+  - PROPOSED: **11 SENDABLE(1-strong)** · 9 INSUFFICIENT (unchanged).
+  - The 11 are NOT weak: each has exactly ONE surviving finding at **Observed confidence, score 0.80–0.96**,
+    held back ONLY by the ≥2 count. Qualifying them needs **no lowering of evidence standards and no padded
+    second finding**. This is a POLICY decision for Jordan (auto-send eligibility stays OFF regardless).
+
+### Gate 6 — evidence-depth root cause (per record, no new collection)
+- **9 INSUFFICIENT**: genuinely thin — every opportunity was rejected because its confidence is INFERRED/Likely
+  (not Observed/Reported) or the observation used hedging language. Correctly fails CLOSED. (7 "all-inferred
+  confidence", 2 "speculative-language".)
+- **11 NEEDS_REVIEW**: "only-one-defensible-issue (policy-threshold)" — a strong Observed finding exists; the
+  other 3–5 opportunities are inferred → dropped → 1 survives.
+- **Dominant rejection reason across the batch: 71 weak-confidence** (BI engine emits most opportunities at
+  INFERRED confidence) + 3 speculative-language. So ≥2 findings is rarely met because the engine rarely
+  produces ≥2 OBSERVED opportunities — an EXTRACTION/enrichment depth limit, not a generator-coherence defect.
+- **Fixable from existing evidence?** Not by relabeling (that would lower standards — the inferred labels are
+  by design). Real lift requires better OBSERVATION EXTRACTION/scoping upstream (proposed new work: state the
+  missing data + cost; NOT executed here). "Not observed" is correctly distinguished from "does not exist".
+
+### Readiness decision
+Generation is SAFE and coherent (0 defects/20). Zero auto-SENDABLE is explained by (a) a ≥2-finding HEURISTIC
+that holds back 11 single-strong-finding reviews, and (b) genuinely inferred evidence on the other 9. A future
+controlled auto-send milestone is viable IF Jordan (1) approves the one-strong-finding policy (no rigor lost),
+and/or (2) authorizes upstream extraction improvements to raise Observed-opportunity depth. Until then, the
+correct operator model is the lightweight preview→approve/skip flow over the 11 NEEDS_REVIEW reviews.
+
+### Build gates still OUTSTANDING (honest, unchanged)
+- Interactive UI page (backend/API complete; page not built). · Real-DB atomicity + transactional audit
+  (local Postgres IS available at /opt/homebrew — initdb/pg_ctl; NOT yet provisioned/migrated/tested this turn).
+  · Universal legacy enrollment (Gate 4). · Production regeneration adapter (mock only; also note: generation is
+  largely DETERMINISTIC, so "regenerate" on identical inputs is not a correction mechanism — a genuine
+  correction path needs changed inputs or a provider adapter).
