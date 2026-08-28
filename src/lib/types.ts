@@ -647,6 +647,38 @@ export interface Payment {
   updatedAt: string;
 }
 
+// Milestone/deposit invoice bound to an exact agreement version + issuer. This is
+// the M2 billing record (Stripe Invoices); historical Checkout deposits remain in
+// `Payment` and are never migrated. `state` uses the invoice state machine
+// (src/lib/billing/invoice.ts). All amounts are integer minor units.
+export interface Invoice {
+  id: string;
+  leadId: string;
+  agreementId: string;
+  agreementVersion: number;
+  issuerId: string;
+  milestoneKey: string;
+  milestoneLabel: string;
+  amountCents: number;
+  currency: string;
+  state: import("./billing/invoice").InvoiceState;
+  /** Deterministic key; unique per (issuer, agreement, version, milestone). */
+  idempotencyKey: string;
+  provider: string | null; // e.g. "stripe"
+  providerInvoiceId: string | null;
+  hostedInvoiceUrl: string | null;
+  // Money-state timeline (append-only intent; never overwrite history destructively).
+  issuedAt: string | null;
+  paidAt: string | null;
+  failedAt: string | null;
+  voidedAt: string | null;
+  refundedAt: string | null;
+  disputedAt: string | null;
+  amountRefundedCents: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface Suppression {
   id: string;
   email: string | null;

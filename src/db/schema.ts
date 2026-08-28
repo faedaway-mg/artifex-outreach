@@ -816,6 +816,59 @@ export const payments = pgTable(
   }),
 );
 
+// ── Invoices (M2) — deposit + milestone invoicing bound to an exact agreement ──
+// version + issuer. Historical Checkout deposits stay in `payments` and are never
+// migrated here. `idempotency_key` is UNIQUE so a retried/concurrent create for the
+// same (issuer, agreement, version, milestone) can never duplicate an obligation.
+export const invoiceStateEnum = pgEnum("invoice_state", [
+  "draft",
+  "issued",
+  "processing",
+  "paid",
+  "failed",
+  "void",
+  "refunded",
+  "partially_refunded",
+  "disputed",
+  "uncollectible",
+]);
+
+export const invoices = pgTable(
+  "invoices",
+  {
+    id: text("id").primaryKey(),
+    leadId: text("lead_id").notNull(),
+    agreementId: text("agreement_id").notNull(),
+    agreementVersion: integer("agreement_version").notNull().default(1),
+    issuerId: text("issuer_id").notNull(),
+    milestoneKey: text("milestone_key").notNull(),
+    milestoneLabel: text("milestone_label").notNull().default(""),
+    amountCents: integer("amount_cents").notNull().default(0),
+    currency: text("currency").notNull().default("usd"),
+    state: invoiceStateEnum("state").notNull().default("draft"),
+    idempotencyKey: text("idempotency_key").notNull(),
+    provider: text("provider"),
+    providerInvoiceId: text("provider_invoice_id"),
+    hostedInvoiceUrl: text("hosted_invoice_url"),
+    issuedAt: ts("issued_at"),
+    paidAt: ts("paid_at"),
+    failedAt: ts("failed_at"),
+    voidedAt: ts("voided_at"),
+    refundedAt: ts("refunded_at"),
+    disputedAt: ts("disputed_at"),
+    amountRefundedCents: integer("amount_refunded_cents").notNull().default(0),
+    createdAt: ts("created_at").notNull(),
+    updatedAt: ts("updated_at").notNull(),
+  },
+  (t) => ({
+    leadIdx: index("invoices_lead_idx").on(t.leadId),
+    agreementIdx: index("invoices_agreement_idx").on(t.agreementId),
+    stateIdx: index("invoices_state_idx").on(t.state),
+    providerInvoiceIdx: index("invoices_provider_invoice_idx").on(t.providerInvoiceId),
+    keyIdx: uniqueIndex("invoices_idempotency_key_idx").on(t.idempotencyKey),
+  }),
+);
+
 // ── Relationship Memory — persistent, provenance-carrying business knowledge ──
 export const relationshipMemory = pgTable(
   "relationship_memory",

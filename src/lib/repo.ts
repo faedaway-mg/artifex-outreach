@@ -30,6 +30,7 @@ import type {
   Agreement,
   AgreementEvent,
   Payment,
+  Invoice,
   Suppression,
   Settings,
   PipelineStage,
@@ -127,6 +128,7 @@ const Agreements = collection<Agreement>(t.agreements, () => ((mem() as any).agr
 const AgreementEvents = collection<AgreementEvent>(t.agreementEvents, () => ((mem() as any).agreementEvents ??= []));
 const memAgreementEvents = () => ((mem() as any).agreementEvents ??= []) as AgreementEvent[];
 const Payments = collection<Payment>(t.payments, () => ((mem() as any).payments ??= []));
+const Invoices = collection<Invoice>(t.invoices, () => ((mem() as any).invoices ??= []));
 
 // ── Leads ────────────────────────────────────────────────────────────────────
 export async function listLeads(): Promise<Lead[]> {
@@ -455,6 +457,56 @@ export async function getStripeSessionPayment(sessionId: string): Promise<Paymen
   if (!sessionId) return undefined;
   if (hasDb()) return (await getDb().select().from(t.payments).where(eq(t.payments.stripeSessionId, sessionId)))[0] as any;
   return (await Payments.all()).find((p) => p.stripeSessionId === sessionId);
+}
+
+// ── Invoices (M2 deposit + milestone invoicing) ──────────────────────────────
+export const getInvoice = (id: string) => Invoices.byId(id);
+export const updateInvoice = (id: string, patch: Partial<Invoice>) => Invoices.update(id, patch);
+export const allInvoices = () => Invoices.all();
+export const invoicesForLead = (leadId: string) => Invoices.byLead(leadId);
+
+export async function invoicesForAgreement(agreementId: string): Promise<Invoice[]> {
+  if (hasDb()) return (await getDb().select().from(t.invoices).where(eq(t.invoices.agreementId, agreementId))) as any;
+  return (await Invoices.all()).filter((i) => i.agreementId === agreementId);
+}
+
+export async function getInvoiceByIdempotencyKey(key: string): Promise<Invoice | undefined> {
+  if (!key) return undefined;
+  if (hasDb()) return (await getDb().select().from(t.invoices).where(eq(t.invoices.idempotencyKey, key)))[0] as any;
+  return (await Invoices.all()).find((i) => i.idempotencyKey === key);
+}
+
+export async function getInvoiceByProviderId(providerInvoiceId: string): Promise<Invoice | undefined> {
+  if (!providerInvoiceId) return undefined;
+  if (hasDb()) return (await getDb().select().from(t.invoices).where(eq(t.invoices.providerInvoiceId, providerInvoiceId)))[0] as any;
+  return (await Invoices.all()).find((i) => i.providerInvoiceId === providerInvoiceId);
+}
+
+/**
+ * Idempotent create. If an invoice with the same idempotencyKey already exists it
+ * is returned untouched (inserted:false) — the single guard against duplicate
+ * obligations under retries/concurrency. Callers must set idempotencyKey via
+ * invoiceIdempotencyKey().
+ */
+export async function insertInvoiceIfAbsent(
+  seed: Omit<Invoice, "id" | "createdAt" | "updatedAt">,
+): Promise<{ inserted: boolean; row: Invoice }> {
+  const row = { ...seed, id: newId("inv"), createdAt: nowIso(), updatedAt: nowIso() } as Invoice;
+  if (!hasDb()) {
+    // In-memory: find + push in one synchronous step (no await between) so
+    // concurrent callers cannot both observe "absent". The DB path relies on the
+    // unique index below instead.
+    const arr = ((mem() as any).invoices ??= []) as Invoice[];
+    const existing = arr.find((i) => i.idempotencyKey === seed.idempotencyKey);
+    if (existing) return { inserted: false, row: existing };
+    arr.push(row);
+    return { inserted: true, row };
+  }
+  // DB: the unique index on idempotency_key makes this atomic; a losing race is a
+  // no-op insert, then we read back whichever row won.
+  await getDb().insert(t.invoices).values(row as any).onConflictDoNothing({ target: t.invoices.idempotencyKey });
+  const stored = await getInvoiceByIdempotencyKey(seed.idempotencyKey);
+  return { inserted: stored?.id === row.id, row: stored ?? row };
 }
 
 // ── Global collections (analytics + batch hydration) ─────────────────────────
