@@ -32,7 +32,7 @@ export interface SendAuthorization {
   at: string;
 }
 
-export interface AuthResult { authorized: boolean; reason?: string; auth?: SendAuthorization }
+export interface AuthResult { authorized: boolean; reason?: string; auth?: SendAuthorization; pdf?: Buffer }
 
 function autosendEnabled(): boolean {
   return process.env[AUTOSEND_ENV] === "1";
@@ -84,7 +84,9 @@ export async function authorizeForSend(leadId: string, opts: { campaignId: strin
     at: opts.now ?? new Date().toISOString(),
   };
   await appendAudit({ action: AUTH_ACTION, actor: auth.authorizedBy, targetType: "lead", targetId: leadId, meta: { ...auth }, ip: null });
-  return { authorized: true, auth };
+  // Return the EXACT authorized bytes so the caller ships them verbatim (a re-render would differ
+  // only in the PDF's embedded creation timestamp — never re-render an authorized artifact).
+  return { authorized: true, auth, pdf: art.pdf };
 }
 
 /**
