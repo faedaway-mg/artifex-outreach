@@ -1,3 +1,6 @@
+// MUST be first: restore correct single-byte TextDecoder (Node 23.4.0 defect) before
+// @react-pdf pulls in fontkit, whose utils.js captures a TextDecoder at module load.
+import "./design/textdecoder-fix";
 import { renderToBuffer } from "@react-pdf/renderer";
 import { BriefDocument } from "./BriefDocument";
 import { QuickReviewDocument } from "./QuickReviewDocument";

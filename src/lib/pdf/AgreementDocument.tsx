@@ -44,22 +44,22 @@ const s = StyleSheet.create({
   coverTitle: { ...T.displayLg, letterSpacing: 0, color: color.textPrimary },
   coverSub: { ...T.subtitle, color: color.textMuted, marginTop: 4 },
 
-  partiesRow: { flexDirection: "row", gap: space.md, marginTop: space.xl },
+  partiesRow: { flexDirection: "row", gap: space.md, marginTop: space.lg },
   partyCard: { flex: 1, borderWidth: HAIRLINE, borderColor: color.hairlineStrong, borderRadius: radius.md, padding: space.md, backgroundColor: color.surface },
   partyRole: { ...LABEL, color: color.accentDeep, marginBottom: 5 },
   partyName: { ...T.h3, color: color.textPrimary },
   partyLine: { ...T.caption, color: color.textMuted, marginTop: 2 },
 
-  metaGrid: { flexDirection: "row", marginTop: space.xl, borderWidth: HAIRLINE, borderColor: color.hairline, borderRadius: radius.md },
+  metaGrid: { flexDirection: "row", marginTop: space.lg, borderWidth: HAIRLINE, borderColor: color.hairline, borderRadius: radius.md },
   metaCell: { flex: 1, paddingVertical: space.sm, paddingHorizontal: space.md, borderRightWidth: HAIRLINE, borderRightColor: color.hairline },
   metaCellLast: { borderRightWidth: 0 },
   metaLabel: { ...LABEL, color: color.textFaint, marginBottom: 3 },
   metaValue: { ...T.bodyStrong, color: color.textPrimary, fontSize: 9.5 },
 
-  termsWrap: { marginTop: space.xl },
+  termsWrap: { marginTop: space.lg },
   termsHead: { ...LABEL, color: color.textMuted, marginBottom: 7 },
   termsCard: { borderWidth: HAIRLINE, borderColor: color.hairlineStrong, borderRadius: radius.md, backgroundColor: color.surface, paddingHorizontal: space.md },
-  termRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 8, borderBottomWidth: HAIRLINE, borderBottomColor: color.hairline },
+  termRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 7, borderBottomWidth: HAIRLINE, borderBottomColor: color.hairline },
   termRowLast: { borderBottomWidth: 0 },
   termLabel: { ...T.body, color: color.textMuted },
   termValue: { ...T.bodyStrong, color: color.textPrimary },
@@ -68,7 +68,7 @@ const s = StyleSheet.create({
   depositValue: { ...T.statSm, color: color.accentDeep, fontSize: 13 },
   convenience: { ...T.fine, color: color.textFaint, marginTop: space.sm },
 
-  stepsWrap: { marginTop: space.xxl },
+  stepsWrap: { marginTop: space.lg },
   stepsRow: { flexDirection: "row", gap: space.md },
   step: { flex: 1, flexDirection: "row", gap: space.sm, alignItems: "flex-start" },
   stepNum: { width: 18, height: 18, borderRadius: 9, backgroundColor: color.accentBgTint, alignItems: "center", justifyContent: "center" },
@@ -191,7 +191,7 @@ export function AgreementDocument({ agreement, showDraftMarking }: { agreement: 
       {/* ── Cover + key terms ── */}
       <Page size="A4" style={s.page}>
         <TopBar number={number} />
-        <View style={{ marginTop: 26 }}>
+        <View style={{ marginTop: 18 }}>
           <DraftBanner show={showDraftMarking} />
           <Text style={s.coverEyebrow}>Professional Services Agreement</Text>
           <Text style={s.coverTitle}>{c.clientBusinessName}</Text>
@@ -224,7 +224,9 @@ export function AgreementDocument({ agreement, showDraftMarking }: { agreement: 
             <Text style={s.convenience}>Proposal reference {proposalRef}. This summary is for convenience only; the numbered sections below govern.</Text>
           </View>
 
-          <View style={s.stepsWrap}>
+          {/* Atomic: heading + all three steps + their descriptions stay together on
+              one page — never orphan the descriptions onto a near-empty page. */}
+          <View style={s.stepsWrap} wrap={false}>
             <Text style={s.termsHead}>What happens next</Text>
             <View style={s.stepsRow}>
               <View style={s.step}>
