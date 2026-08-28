@@ -33,6 +33,12 @@ export async function POST(req: NextRequest) {
     });
   }
 
+  // Runtime pause applies to the legacy path too, so it can never bypass the shared pause control.
+  const { outreachPausedNow } = await import("@/lib/outreach/outreach-pause");
+  if (await outreachPausedNow()) {
+    return NextResponse.json({ ok: true, dispatched: false, sent: 0, reason: "paused" });
+  }
+
   const force = req.nextUrl.searchParams.get("force") === "1";
   try {
     const provider = getEmailProvider();
