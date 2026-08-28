@@ -256,7 +256,7 @@ describe("review-revisions — PDF-byte artifact binding + send gate (Gate 5)", 
     expect(g.allowed).toBe(true);
     expect(g.edited).toBe(true);
     expect(g.pdf!.length).toBeGreaterThan(1000);
-    expect(g.manifest!.pdfSha256).toBe(sha256Hex(g.pdf));
+    expect(g.manifest!.pdfSha256).toBe(sha256Hex(g.pdf!));
     // swapping the bytes must fail verification against the approved revision
     expect(verifyArtifact(g.manifest!, Buffer.from("not the approved pdf"), g.manifest!.revisionId).ok).toBe(false);
   }, 30000);
