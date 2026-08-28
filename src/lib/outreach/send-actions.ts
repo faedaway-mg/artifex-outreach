@@ -20,6 +20,7 @@ import { dispatchStep } from "../comms/dispatch";
 import { buildOutreachKit } from "./kit";
 import { buildQuickReview, resolveLeadBrand } from "./quick-review";
 import { quickReviewApproved } from "./review-approval";
+import { sendGate } from "./review-revisions";
 import { renderPersonalEmailHtml, renderPersonalEmailText } from "./email-render";
 import type { VeedVideo, IntroSendResult, OutreachEmail } from "./types";
 
@@ -108,6 +109,12 @@ async function sendNext(leadId: string, mode: "intro" | "followup", veed?: VeedV
   // reason rather than let an email go out claiming an attachment it doesn't have. (The internal
   // test lead is exempt so transport can always be verified.)
   if (mode === "intro" && lead.source !== "internal-test") {
+    // M2: when the operator has EDITED the review, it must be delivery-ready (its current content
+    // approved) before the send can proceed — the same gate dispatch re-checks at the final boundary.
+    const gate = await sendGate(leadId);
+    if (gate.edited && !gate.allowed) {
+      return { outcome: "blocked", reason: `Quick Review isn't delivery-ready: ${gate.reason ?? "resolve the open items and approve the current version."}` };
+    }
     const brand = await resolveLeadBrand(lead); // resolves + caches the logo once (dispatch reuses it)
     const approved = await quickReviewApproved(leadId);
     const review = buildQuickReview(lead, profile, brand, { approved });

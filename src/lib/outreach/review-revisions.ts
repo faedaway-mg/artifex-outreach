@@ -436,3 +436,61 @@ function overlayForField(field: RegenField, text: string): ReviewOverlay {
   if (field.part === "openingHook") return { openingHook: text };
   return { start: { why: text } };
 }
+
+// ── Artifact manifest: bind the ACTUAL PDF BYTES to the approved revision (M2 hardening, Gate 5) ──
+export interface ArtifactManifest {
+  leadId: string;
+  revisionId: string;      // the approved content revision this PDF corresponds to
+  evidenceDigest: string;  // hash of the evidence inputs (subset of the fingerprint)
+  templateVersion: string;
+  pdfSha256: string;       // hash of the exact bytes
+  filename: string;
+  renderedAt: string;
+}
+
+export function sha256Hex(buf: Buffer): string {
+  return createHash("sha256").update(buf).digest("hex");
+}
+
+/** Render the CURRENT effective review to PDF and produce a manifest binding those exact bytes to the
+ *  current revision. The caller must have verified readiness (approval bound to this revision). */
+async function renderArtifact(leadId: string, review: QuickReview, revisionId: string): Promise<{ pdf: Buffer; manifest: ArtifactManifest }> {
+  const { renderQuickReviewPdf } = await import("../pdf/render");
+  const { quickReviewFilename } = await import("./quick-review");
+  const renderedAt = nowIso();
+  const pdf = await renderQuickReviewPdf(review, renderedAt.slice(0, 10));
+  const evidenceDigest = createHash("sha256").update(JSON.stringify(review.findings.map((f) => ({ id: f.id, basis: f.evidence.basis, src: f.evidence.sourceUrl, at: f.evidence.observedAt })))).digest("hex").slice(0, 20);
+  const manifest: ArtifactManifest = { leadId, revisionId, evidenceDigest, templateVersion: TEMPLATE_VERSION, pdfSha256: sha256Hex(pdf), filename: quickReviewFilename(review.businessName), renderedAt };
+  return { pdf, manifest };
+}
+
+/** Re-verify a manifest against its bytes and the CURRENT revision. Rejects mismatched/stale/corrupt. */
+export function verifyArtifact(manifest: ArtifactManifest | null | undefined, pdf: Buffer | null | undefined, currentRevisionId: string): { ok: boolean; reason?: string } {
+  if (!manifest || !pdf) return { ok: false, reason: "missing artifact or manifest" };
+  if (manifest.templateVersion !== TEMPLATE_VERSION) return { ok: false, reason: "artifact was rendered on a different template version" };
+  if (manifest.revisionId !== currentRevisionId) return { ok: false, reason: "artifact is stale — the review changed since it was rendered" };
+  if (sha256Hex(pdf) !== manifest.pdfSha256) return { ok: false, reason: "artifact bytes do not match the manifest hash (corrupted or swapped)" };
+  return { ok: true };
+}
+
+/**
+ * The single safe gate every send path must pass. Backward compatible: when NO operator editing has
+ * occurred (empty overlay, no approval, no history) it defers to the legacy review gate (returns
+ * allowed with no artifact, so the existing path builds/attaches as before). When editing HAS
+ * occurred, it REQUIRES a version-bound approval whose fingerprint matches the current content, then
+ * renders + hashes the exact approved bytes and re-verifies them. Never returns allowed with a stale
+ * or unapproved edited review; the caller must BLOCK the whole send (never send bare) when !allowed.
+ */
+export async function sendGate(leadId: string): Promise<{ allowed: boolean; edited: boolean; reason?: string; review?: QuickReview; pdf?: Buffer; manifest?: ArtifactManifest }> {
+  const state = await getEditorialState(leadId);
+  const edited = Object.keys(state.draft ?? {}).length > 0 || state.approval != null || (state.history?.length ?? 0) > 0;
+  if (!edited) return { allowed: true, edited: false }; // legacy gate applies downstream
+  const readiness = await deliveryReadiness(leadId);
+  if (!readiness) return { allowed: false, edited, reason: "no review" };
+  if (!readiness.ready) return { allowed: false, edited, reason: readiness.reasons[0] };
+  const eff = await effectiveReviewFor(leadId);
+  const { pdf, manifest } = await renderArtifact(leadId, eff!.review, readiness.revisionId);
+  const verify = verifyArtifact(manifest, pdf, readiness.revisionId);
+  if (!verify.ok) return { allowed: false, edited, reason: verify.reason };
+  return { allowed: true, edited, review: eff!.review, pdf, manifest };
+}

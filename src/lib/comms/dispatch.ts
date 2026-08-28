@@ -22,6 +22,7 @@ import { renderBody } from "./render";
 import { renderQuickReviewPdf } from "../pdf/render";
 import { buildQuickReview, resolveLeadBrand, quickReviewFilename } from "../outreach/quick-review";
 import { quickReviewApproved } from "../outreach/review-approval";
+import { sendGate, verifyArtifact, deliveryReadiness } from "../outreach/review-revisions";
 import type { BusinessProfile } from "../business-intelligence/types";
 import { isSent, backoffMs, MAX_ATTEMPTS, STUCK_SENDING_MS } from "./state";
 import { unsubscribeUrlFor, listUnsubscribeHeaders } from "./unsubscribe";
@@ -174,36 +175,58 @@ export async function dispatchStep(stepId: string, opts: { now?: Date } = {}): P
   let receptivitySignalTypes: string[] = [];
   let receptivityScoreVal = 0;
   if (!isFollowUp) {
-    let review: import("../outreach/quick-review").QuickReview | null = null;
-    try {
-      const bi = await getBusinessIntelligence(lead.id);
-      const profile = (bi?.profile?.businessProfile as BusinessProfile | undefined) ?? null;
-      if (profile) {
-        const signals = receptivitySignalsFrom({ opportunities: profile.opportunities, generatedAt: bi?.generatedAt ?? null });
-        receptivitySignalTypes = [...new Set(signals.map((s) => s.type))];
-        receptivityScoreVal = receptivityScore(signals);
+    const bi = await getBusinessIntelligence(lead.id);
+    const profile = (bi?.profile?.businessProfile as BusinessProfile | undefined) ?? null;
+    if (profile) {
+      const signals = receptivitySignalsFrom({ opportunities: profile.opportunities, generatedAt: bi?.generatedAt ?? null });
+      receptivitySignalTypes = [...new Set(signals.map((s) => s.type))];
+      receptivityScoreVal = receptivityScore(signals);
+    }
+    // M2 version-bound artifact gate. When the operator has EDITED this review, only the exact
+    // approved revision's bytes may ship; a stale/unapproved edit fails the whole send (never bare).
+    // When the review is UNEDITED, this defers to the legacy attachable gate below (unchanged).
+    const gate = await sendGate(lead.id);
+    if (gate.edited && !gate.allowed && lead.source !== "internal-test") {
+      await updateEmailSend(sendRow.id, { status: "failed", failedAt: nowIso, lastError: `review not delivery-ready: ${gate.reason ?? ""}`, lastErrorCode: "review_not_ready" });
+      return { stepId, outcome: "failed", reason: `Quick Review is not delivery-ready: ${gate.reason ?? ""}`, sendId: sendRow.id };
+    }
+    if (gate.edited && gate.allowed && gate.pdf && gate.manifest) {
+      // Re-verify the exact approved bytes at this FINAL dispatch boundary before attaching.
+      const rid = (await deliveryReadiness(lead.id))!.revisionId;
+      const check = verifyArtifact(gate.manifest, gate.pdf, rid);
+      if (!check.ok) {
+        if (lead.source !== "internal-test") {
+          await updateEmailSend(sendRow.id, { status: "failed", failedAt: nowIso, lastError: `artifact verify failed: ${check.reason}`, lastErrorCode: "artifact_verify_failed" });
+          return { stepId, outcome: "failed", reason: `Approved attachment failed verification: ${check.reason}`, sendId: sendRow.id };
+        }
+      } else {
+        attachmentFilename = gate.manifest.filename;
+        attachmentSha256 = gate.manifest.pdfSha256; // the exact approved bytes
+        attachments = [{ filename: attachmentFilename, content: gate.pdf.toString("base64"), contentType: "application/pdf" }];
+      }
+    } else if (profile) {
+      // Legacy path — UNEDITED review: build fresh from BI + old-style approval (SENDABLE, or
+      // NEEDS_REVIEW the operator explicitly approved). Behavior unchanged.
+      let review: import("../outreach/quick-review").QuickReview | null = null;
+      try {
         const brand = await resolveLeadBrand(lead);
-        // The PDF attaches only when the review is truly attachable: SENDABLE, or NEEDS_REVIEW that
-        // the operator explicitly approved. NEEDS_REVIEW without approval is never attached here.
         const approved = await quickReviewApproved(lead.id);
         review = buildQuickReview(lead, profile, brand, { approved, observedAt: bi?.generatedAt ?? null });
-      }
-    } catch {
-      review = null; // no BI / resolution issue → nothing to attach (bare-lead flows are unaffected)
-    }
-    if (review?.ready) {
-      try {
-        const dateStr = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
-        const pdf = await renderQuickReviewPdf(review, dateStr);
-        attachmentFilename = quickReviewFilename(lead.businessName);
-        attachmentSha256 = sha256(pdf); // immutable fingerprint of the exact bytes attached
-        attachments = [{ filename: attachmentFilename, content: pdf.toString("base64"), contentType: "application/pdf" }];
       } catch {
-        // A real initial email must not go out CLAIMING a review it couldn't attach. Fail the
-        // send (before any provider call) rather than send it bare. Internal test is exempt.
-        if (lead.source !== "internal-test") {
-          await updateEmailSend(sendRow.id, { status: "failed", failedAt: nowIso, lastError: "quick review render failed", lastErrorCode: "artifact_render_failed" });
-          return { stepId, outcome: "failed", reason: "Could not render the Quick Review attachment.", sendId: sendRow.id };
+        review = null;
+      }
+      if (review?.ready) {
+        try {
+          const dateStr = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+          const pdf = await renderQuickReviewPdf(review, dateStr);
+          attachmentFilename = quickReviewFilename(lead.businessName);
+          attachmentSha256 = sha256(pdf);
+          attachments = [{ filename: attachmentFilename, content: pdf.toString("base64"), contentType: "application/pdf" }];
+        } catch {
+          if (lead.source !== "internal-test") {
+            await updateEmailSend(sendRow.id, { status: "failed", failedAt: nowIso, lastError: "quick review render failed", lastErrorCode: "artifact_render_failed" });
+            return { stepId, outcome: "failed", reason: "Could not render the Quick Review attachment.", sendId: sendRow.id };
+          }
         }
       }
     }

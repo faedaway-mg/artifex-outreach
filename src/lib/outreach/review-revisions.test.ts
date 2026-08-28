@@ -7,6 +7,7 @@ import {
   applyOverlay, revisionFingerprint, validateOverlayClaims, effectiveReviewFor,
   saveDraft, recordPreview, runEditorialCheck, approveRevision, deliveryReadiness, reviewForSend,
   proposeRegeneration, acceptRegeneration, getEditorialState, A,
+  sendGate, verifyArtifact, sha256Hex,
 } from "./review-revisions";
 import { getBusinessIntelligence } from "../repo";
 
@@ -213,5 +214,64 @@ describe("review-revisions — concurrency, regeneration, audit", () => {
     expect(actions).toContain(A.previewed);
     expect(actions).toContain(A.checked);
     expect(actions).toContain(A.approved);
+  });
+});
+
+describe("review-revisions — PDF-byte artifact binding + send gate (Gate 5)", () => {
+  it("verifyArtifact rejects wrong bytes, a stale revision, and a wrong template version", () => {
+    const manifest = { leadId: "l", revisionId: "rev_abc", evidenceDigest: "e", templateVersion: "qr-m2-1", pdfSha256: "", filename: "f.pdf", renderedAt: "t" } as any;
+    const bytes = Buffer.from("PDFDATA");
+    manifest.pdfSha256 = sha256Hex(bytes);
+    expect(verifyArtifact(manifest, bytes, "rev_abc").ok).toBe(true);
+    expect(verifyArtifact(manifest, Buffer.from("SWAPPED"), "rev_abc").ok).toBe(false); // wrong bytes
+    expect(verifyArtifact(manifest, bytes, "rev_DIFFERENT").ok).toBe(false); // stale revision
+    expect(verifyArtifact({ ...manifest, templateVersion: "old" }, bytes, "rev_abc").ok).toBe(false); // template drift
+    expect(verifyArtifact(null, bytes, "rev_abc").ok).toBe(false); // missing
+  });
+
+  it("sendGate: an UNEDITED review defers to the legacy gate (edited=false, allowed=true)", async () => {
+    const id = await seedLead();
+    const g = await sendGate(id);
+    expect(g.edited).toBe(false);
+    expect(g.allowed).toBe(true);
+    expect(g.pdf).toBeUndefined();
+  });
+
+  it("sendGate: an EDITED-but-unapproved review is BLOCKED (never a bare send)", async () => {
+    const id = await seedLead();
+    await saveDraft(id, { openingHook: "A distinct edited hook, not approved yet." }, AUTH);
+    const g = await sendGate(id);
+    expect(g.edited).toBe(true);
+    expect(g.allowed).toBe(false);
+    expect(g.reason).toMatch(/not approved|preview/i);
+  });
+
+  it("sendGate: an EDITED + APPROVED review yields the exact approved bytes, and swapping them fails verify", async () => {
+    const id = await seedLead();
+    await saveDraft(id, { openingHook: "Your reputation is stronger than your website currently shows." }, AUTH);
+    await recordPreview(id, AUTH);
+    await runEditorialCheck(id, AUTH);
+    expect((await approveRevision(id, AUTH)).ok).toBe(true);
+    const g = await sendGate(id);
+    expect(g.allowed).toBe(true);
+    expect(g.edited).toBe(true);
+    expect(g.pdf!.length).toBeGreaterThan(1000);
+    expect(g.manifest!.pdfSha256).toBe(sha256Hex(g.pdf));
+    // swapping the bytes must fail verification against the approved revision
+    expect(verifyArtifact(g.manifest!, Buffer.from("not the approved pdf"), g.manifest!.revisionId).ok).toBe(false);
+  }, 30000);
+
+  it("sendGate: an evidence change AFTER approval invalidates it → blocked (no stale artifact)", async () => {
+    const id = await seedLead();
+    await saveDraft(id, { openingHook: "Distinct hook for evidence-change test." }, AUTH);
+    await recordPreview(id, AUTH);
+    await runEditorialCheck(id, AUTH);
+    expect((await approveRevision(id, AUTH)).ok).toBe(true);
+    // mutate the underlying evidence (re-analyze changes the BI) → fingerprint changes → approval stale
+    const bi: any = await getBusinessIntelligence(id);
+    bi.profile.businessProfile.opportunities[0].basis = ["a materially different basis"];
+    await upsertBusinessIntelligence({ leadId: id, profile: bi.profile, enrichmentDelta: null, generatedAt: bi.generatedAt });
+    const g = await sendGate(id);
+    expect(g.allowed).toBe(false);
   });
 });
