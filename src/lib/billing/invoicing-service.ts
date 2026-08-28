@@ -28,9 +28,13 @@ import { invoiceIdempotencyKey, shouldSkipForPaidCheckoutDeposit, canTransition,
 import { agreementSendingEnabled } from "../esign/gate";
 import { prepareInvoice, finalizeInvoice, type FetchImpl } from "../payments/stripe-invoice";
 import { nowIso } from "../store";
+import { closingCan } from "./authz";
+import type { Role } from "../operators/roles";
 
 export interface PrepareOpts {
   actor: string;
+  /** Actor's role, resolved SERVER-SIDE (never from client input). */
+  actorRole: Role;
   /** Milestone keys the operator has recorded acceptance evidence for. */
   acceptedKeys?: string[];
 }
@@ -50,6 +54,9 @@ export async function prepareMilestoneInvoice(
   milestoneKey: string,
   opts: PrepareOpts,
 ): Promise<ServiceResult> {
+  if (!closingCan(opts.actorRole, "createInvoice")) {
+    return { ok: false, blocked: true, reason: `Role '${opts.actorRole}' is not authorized to create invoices.` };
+  }
   const agreement = await getAgreement(agreementId);
   if (!agreement) return { ok: false, blocked: true, reason: "Agreement not found." };
   if (agreement.status !== "signed") return { ok: false, blocked: true, reason: "The agreement is not signed yet." };
@@ -118,6 +125,8 @@ export async function prepareMilestoneInvoice(
 
 export interface IssueOpts {
   actor: string;
+  /** Actor's role, resolved SERVER-SIDE. */
+  actorRole: Role;
   /** Rehearsal safety: when true, refuse to touch a live provider key. */
   requireTestMode: boolean;
   fetchImpl?: FetchImpl;
@@ -129,6 +138,9 @@ export interface IssueOpts {
  * rehearsal, which is allowed but forced onto a test key by the adapter.
  */
 export async function issueMilestoneInvoice(invoiceId: string, opts: IssueOpts): Promise<ServiceResult> {
+  if (!closingCan(opts.actorRole, "issueInvoice")) {
+    return { ok: false, blocked: true, reason: `Role '${opts.actorRole}' is not authorized to issue invoices.` };
+  }
   const invoice = await getInvoice(invoiceId);
   if (!invoice) return { ok: false, blocked: true, reason: "Invoice not found." };
   if (!canTransition(invoice.state as InvoiceState, "issued")) {
