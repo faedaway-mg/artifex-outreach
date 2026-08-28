@@ -5,11 +5,34 @@
 // but left the snapshot — and therefore the rendered PDF and the SignWell document
 // — on a different number. This guards that class of mismatch.)
 // ─────────────────────────────────────────────────────────────────────────────
-import type { Agreement } from "../types";
+import type { Agreement, AgreementContentSnapshot } from "../types";
+
+/**
+ * The commercial terms must agree internally, using the SAME integer-cents rounding
+ * policy the snapshot builder uses: deposit = round(total × pct / 100), and
+ * deposit + balance = total. A percentage/amount disagreement (e.g. amounts that are
+ * 30% while the label says 50%) is a hard error — we never silently pick a winner.
+ */
+export function commercialConsistencyIssues(c: Pick<AgreementContentSnapshot, "totalPriceCents" | "depositPercent" | "depositAmountCents" | "remainingBalanceCents">): string[] {
+  const issues: string[] = [];
+  const ints = [c.totalPriceCents, c.depositPercent, c.depositAmountCents, c.remainingBalanceCents];
+  if (ints.some((n) => !Number.isInteger(n))) issues.push("commercial amounts must be integers (minor units / whole percent)");
+  if (c.totalPriceCents <= 0) issues.push("totalPriceCents must be positive");
+  if (c.depositPercent < 0 || c.depositPercent > 100) issues.push(`depositPercent out of range: ${c.depositPercent}`);
+  const expectedDeposit = Math.round((c.totalPriceCents * c.depositPercent) / 100);
+  if (c.depositAmountCents !== expectedDeposit) {
+    const impliedPct = c.totalPriceCents ? Math.round((c.depositAmountCents / c.totalPriceCents) * 100) : 0;
+    issues.push(`deposit percentage/amount disagree: label ${c.depositPercent}% expects ${expectedDeposit} but amount is ${c.depositAmountCents} (~${impliedPct}%)`);
+  }
+  if (c.depositAmountCents + c.remainingBalanceCents !== c.totalPriceCents) {
+    issues.push(`deposit (${c.depositAmountCents}) + balance (${c.remainingBalanceCents}) != total (${c.totalPriceCents})`);
+  }
+  return issues;
+}
 
 export function agreementConsistencyIssues(agreement: Agreement): string[] {
   const c = agreement.contentSnapshot;
-  const issues: string[] = [];
+  const issues: string[] = [...commercialConsistencyIssues(c)];
   if (agreement.agreementNumber !== c.agreementNumber) {
     issues.push(`agreementNumber mismatch: record="${agreement.agreementNumber}" vs snapshot="${c.agreementNumber}"`);
   }

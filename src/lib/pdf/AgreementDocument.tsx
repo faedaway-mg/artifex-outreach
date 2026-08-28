@@ -3,50 +3,57 @@ import React from "react";
 import { Document, Page, Text, View, StyleSheet } from "@react-pdf/renderer";
 import type { Agreement, AgreementContentSnapshot } from "@/lib/types";
 import { buildAgreementSections } from "@/lib/agreement/template";
+import { agreementSignatureFields } from "@/lib/agreement/signature-fields";
 import { color, space, radius, page, HAIRLINE } from "./design/tokens";
-import { type as T, registerPdfFonts } from "./design/typography";
-import { Wordmark } from "./design/primitives";
+import { type as T, ff, registerPdfFonts } from "./design/typography";
+import { BrandMark } from "./design/primitives";
 
 registerPdfFonts();
+
+// Legal-document labels use a reliable SANS face with restrained tracking — NOT the
+// mono display face, whose standard-14 fallback (Courier) renders uppercase labels
+// awkwardly spread. Natural spacing everywhere else.
+const LABEL = { ...ff("sans", 600), fontSize: 7.5, letterSpacing: 0.6, textTransform: "uppercase" as const };
+const EYEBROW = { ...ff("sans", 600), fontSize: 8.5, letterSpacing: 1.0, textTransform: "uppercase" as const };
 
 const s = StyleSheet.create({
   page: {
     backgroundColor: color.paper,
-    paddingTop: 46,
-    paddingBottom: 54,
+    paddingTop: 48,
+    paddingBottom: 64, // reserves space so content never collides with the footer
     paddingHorizontal: page.marginX,
     color: color.textBody,
   },
   // Running header / footer
-  topbar: { position: "absolute", top: 20, left: page.marginX, right: page.marginX, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  topbarLabel: { ...T.label, color: color.textFaint },
-  topRule: { position: "absolute", top: 38, left: page.marginX, right: page.marginX, borderBottomWidth: HAIRLINE, borderBottomColor: color.hairline },
-  footer: { position: "absolute", bottom: 26, left: page.marginX, right: page.marginX, flexDirection: "row", justifyContent: "space-between", alignItems: "center", borderTopWidth: HAIRLINE, borderTopColor: color.hairline, paddingTop: 6 },
-  footerText: { ...T.fine, color: color.textFaint },
+  topbar: { position: "absolute", top: 22, left: page.marginX, right: page.marginX, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  topbarLabel: { ...LABEL, fontSize: 7, color: color.textFaint },
+  topRule: { position: "absolute", top: 40, left: page.marginX, right: page.marginX, borderBottomWidth: HAIRLINE, borderBottomColor: color.hairline },
+  footer: { position: "absolute", bottom: 28, left: page.marginX, right: page.marginX, flexDirection: "row", justifyContent: "space-between", alignItems: "center", borderTopWidth: HAIRLINE, borderTopColor: color.hairline, paddingTop: 7 },
+  footerText: { ...ff("sans", 400), fontSize: 7.5, color: color.textMuted, letterSpacing: 0.2 },
 
   draftBanner: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "#FBEEDF", borderWidth: HAIRLINE, borderColor: color.heatSoft, borderRadius: radius.sm, paddingVertical: 7, paddingHorizontal: 10, marginBottom: space.lg },
   draftDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: color.heat },
   draftText: { ...T.caption, color: "#8A4B18", fontFamily: T.bodyStrong.fontFamily },
 
   // Cover
-  coverEyebrow: { ...T.eyebrow, color: color.accentDeep, marginBottom: 6 },
-  coverTitle: { ...T.displayLg, color: color.textPrimary },
+  coverEyebrow: { ...EYEBROW, color: color.accentDeep, marginBottom: 6 },
+  coverTitle: { ...T.displayLg, letterSpacing: 0, color: color.textPrimary },
   coverSub: { ...T.subtitle, color: color.textMuted, marginTop: 4 },
 
   partiesRow: { flexDirection: "row", gap: space.md, marginTop: space.xl },
   partyCard: { flex: 1, borderWidth: HAIRLINE, borderColor: color.hairlineStrong, borderRadius: radius.md, padding: space.md, backgroundColor: color.surface },
-  partyRole: { ...T.label, color: color.accentDeep, marginBottom: 5 },
+  partyRole: { ...LABEL, color: color.accentDeep, marginBottom: 5 },
   partyName: { ...T.h3, color: color.textPrimary },
   partyLine: { ...T.caption, color: color.textMuted, marginTop: 2 },
 
   metaGrid: { flexDirection: "row", marginTop: space.xl, borderWidth: HAIRLINE, borderColor: color.hairline, borderRadius: radius.md },
   metaCell: { flex: 1, paddingVertical: space.sm, paddingHorizontal: space.md, borderRightWidth: HAIRLINE, borderRightColor: color.hairline },
   metaCellLast: { borderRightWidth: 0 },
-  metaLabel: { ...T.label, color: color.textFaint, marginBottom: 3 },
+  metaLabel: { ...LABEL, color: color.textFaint, marginBottom: 3 },
   metaValue: { ...T.bodyStrong, color: color.textPrimary, fontSize: 9.5 },
 
   termsWrap: { marginTop: space.xl },
-  termsHead: { ...T.label, color: color.textMuted, marginBottom: 7 },
+  termsHead: { ...LABEL, color: color.textMuted, marginBottom: 7 },
   termsCard: { borderWidth: HAIRLINE, borderColor: color.hairlineStrong, borderRadius: radius.md, backgroundColor: color.surface, paddingHorizontal: space.md },
   termRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 8, borderBottomWidth: HAIRLINE, borderBottomColor: color.hairline },
   termRowLast: { borderBottomWidth: 0 },
@@ -61,12 +68,12 @@ const s = StyleSheet.create({
   stepsRow: { flexDirection: "row", gap: space.md },
   step: { flex: 1, flexDirection: "row", gap: space.sm, alignItems: "flex-start" },
   stepNum: { width: 18, height: 18, borderRadius: 9, backgroundColor: color.accentBgTint, alignItems: "center", justifyContent: "center" },
-  stepNumText: { ...T.label, color: color.accentDeep, fontSize: 8 },
+  stepNumText: { ...LABEL, color: color.accentDeep, fontSize: 8 },
   stepTitle: { ...T.bodyStrong, color: color.textPrimary, fontSize: 9.5, marginBottom: 1 },
   stepDesc: { ...T.caption, color: color.textMuted },
 
   // Body
-  bodyEyebrow: { ...T.label, color: color.accentDeep, marginBottom: space.sm },
+  bodyEyebrow: { ...LABEL, color: color.accentDeep, marginBottom: space.sm },
   section: { marginBottom: space.md },
   secHeadRow: { flexDirection: "row", alignItems: "baseline", gap: 6, marginBottom: 4 },
   secNum: { ...T.h4, color: color.accentDeep, fontSize: 9 },
@@ -79,7 +86,7 @@ const s = StyleSheet.create({
   sigIntro: { ...T.body, color: color.textBody, marginBottom: space.md },
   sigRow: { flexDirection: "row", gap: space.lg },
   sigPanel: { flex: 1, borderWidth: HAIRLINE, borderColor: color.hairlineStrong, borderRadius: radius.md, padding: space.md, backgroundColor: color.surface },
-  sigRole: { ...T.label, color: color.accentDeep, marginBottom: 3 },
+  sigRole: { ...LABEL, color: color.accentDeep, marginBottom: 3 },
   sigEntity: { ...T.bodyStrong, color: color.textPrimary, marginBottom: space.md },
   sigFieldLabel: { ...T.fine, color: color.textFaint, marginBottom: 2 },
   sigLine: { borderBottomWidth: HAIRLINE, borderBottomColor: color.hairlineStrong, paddingBottom: 14, marginBottom: 3 },
@@ -97,7 +104,10 @@ function TopBar({ number }: { number: string }) {
   return (
     <>
       <View style={s.topbar} fixed>
-        <Wordmark size={12} />
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 7 }}>
+          <BrandMark size={13} />
+          <Text style={{ ...ff("sans", 700), fontSize: 9.5, letterSpacing: 0.6, color: color.textPrimary }}>Artifex Labs</Text>
+        </View>
         <Text style={s.topbarLabel}>Professional Services Agreement · {number}</Text>
       </View>
       <View style={s.topRule} fixed />
@@ -134,17 +144,21 @@ function Party({ role, name, lines }: { role: string; name: string; lines: strin
   );
 }
 
-function SignaturePanel({ role, entity, sigTag, dateTag, name, title }: { role: string; entity: string; sigTag: string; dateTag: string; name: string; title?: string }) {
+// One signature panel per signer. The company is the panel header (entity); Name is
+// truthful source data; Title is an explicit BLANK field (titles are not in the
+// snapshot — never invented); Date carries the {{date_*}} anchor. The {{sig_*}} anchor
+// sits alone on the signature line so SignWell maps it to THIS signer's field.
+function SignaturePanel({ role, entity, sigTag, dateTag, name }: { role: string; entity: string; sigTag: string; dateTag: string; name: string }) {
   return (
     <View style={s.sigPanel} wrap={false}>
       <Text style={s.sigRole}>{role}</Text>
       <Text style={s.sigEntity}>{entity}</Text>
       <Text style={s.sigFieldLabel}>Signature</Text>
-      {/* The {{sig_*}} text anchor is where SignWell places the signature field. */}
       <View style={s.sigLine}><Text style={s.sigTag}>{sigTag}</Text></View>
       <Text style={s.sigMetaLabel}>Name</Text>
       <Text style={s.sigMetaValue}>{name || "—"}</Text>
-      {title != null && (<><Text style={s.sigMetaLabel}>Title / Company</Text><Text style={s.sigMetaValue}>{title || "—"}</Text></>)}
+      <Text style={s.sigMetaLabel}>Title</Text>
+      <View style={s.sigLine} />
       <Text style={s.sigMetaLabel}>Date</Text>
       <Text style={s.sigMetaValue}>{dateTag}</Text>
     </View>
@@ -252,8 +266,9 @@ export function AgreementDocument({ agreement, showDraftMarking }: { agreement: 
             </View>
             <Text style={s.sigIntro}>IN WITNESS WHEREOF, the Parties have executed this Agreement as of the Effective Date.</Text>
             <View style={s.sigRow}>
-              <SignaturePanel role="Provider" entity={`${c.artifexLegalEntity} d/b/a Artifex Labs`} sigTag="{{sig_artifex}}" dateTag="{{date_artifex}}" name={c.artifexSignatory} />
-              <SignaturePanel role="Client" entity={c.clientLegalName} sigTag="{{sig_client}}" dateTag="{{date_client}}" name={c.clientContactName || ""} title={c.clientBusinessName || ""} />
+              {agreementSignatureFields(c).map((f) => (
+                <SignaturePanel key={f.role} role={f.role === "provider" ? "Provider" : "Client"} entity={f.party} sigTag={f.sigTag} dateTag={f.dateTag} name={f.signerName} />
+              ))}
             </View>
           </View>
         </View>
