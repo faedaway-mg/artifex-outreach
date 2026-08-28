@@ -133,9 +133,11 @@ async function main() {
 }
 
 async function deliverSignwell(type: string, docId: string, eventId: string, extra: Record<string, unknown>) {
-  const body = JSON.stringify({ event: { id: eventId, type, time: new Date().toISOString() }, data: { object: { id: docId, status: type === "document_completed" ? "completed" : "viewed", ...extra } } });
-  const sig = createHmac("sha256", SIGNWELL_SECRET).update(body).digest("hex");
-  const res = await handleSignwellWebhook({ rawBody: body, signature: sig, secret: SIGNWELL_SECRET });
+  // SignWell signs event.hash = HMAC-SHA256(webhook id, `type@time`), hex (in-body).
+  const time = String(Math.floor(Date.now() / 1000));
+  const hash = createHmac("sha256", SIGNWELL_SECRET).update(`${type}@${time}`).digest("hex");
+  const body = JSON.stringify({ event: { id: eventId, type, time, hash }, data: { object: { id: docId, status: type === "document_completed" ? "completed" : "viewed", ...extra } } });
+  const res = await handleSignwellWebhook({ rawBody: body, secret: SIGNWELL_SECRET });
   if (!res.ok || res.result !== "applied") { console.error(`  ✗ webhook ${type} not applied: ${JSON.stringify(res)}`); process.exit(1); }
 }
 

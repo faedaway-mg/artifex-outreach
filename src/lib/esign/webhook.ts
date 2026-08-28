@@ -9,10 +9,13 @@
 // created (status: pending) ONLY after the signed state is committed — and even
 // then it is not SENT; sending is a separate, gated operator action.
 //
-// NOTE FOR PRODUCTION: confirm SignWell's exact signature scheme + event names
-// against their current API docs before go-live. The verification here is HMAC-
-// SHA256 over the raw body (hex or base64) against SIGNWELL_WEBHOOK_SECRET, and
-// the event-name matching is tolerant of the documented variants.
+// SIGNATURE SCHEME (verified vs SignWell docs 2026-08-27, developers.signwell.com/
+// reference/event-hash-verification): the signature is `event.hash` INSIDE the JSON
+// body (NOT an HTTP header, NOT over the raw body). It is HMAC-SHA256, hex-encoded,
+// of the message `${event.type}@${event.time}`, keyed by the WEBHOOK ID (returned by
+// Create/List Webhooks). SIGNWELL_WEBHOOK_SECRET holds that webhook id. Because the
+// signed message is only type+time, it authenticates the event but does not
+// integrity-protect the body — so we treat body data as a pointer.
 // ─────────────────────────────────────────────────────────────────────────────
 import { createHmac, timingSafeEqual } from "node:crypto";
 import {
@@ -26,21 +29,16 @@ import {
 import { nowIso } from "../store";
 import type { Agreement, AgreementStatus } from "../types";
 
-const SIGNATURE_HEADER = (process.env.SIGNWELL_WEBHOOK_SIGNATURE_HEADER ?? "x-signwell-signature").toLowerCase();
-
-/** HMAC-SHA256(rawBody, secret) — accept a hex or base64 signature (timing-safe). */
-export function verifySignwellSignature(secret: string, rawBody: string, signature: string | null): boolean {
-  if (!signature) return false;
-  const mac = createHmac("sha256", secret).update(rawBody);
-  const digest = mac.digest();
-  const candidates = [digest.toString("hex"), digest.toString("base64")];
-  const provided = signature.trim();
-  for (const expected of candidates) {
-    const a = Buffer.from(expected);
-    const b = Buffer.from(provided);
-    if (a.length === b.length && timingSafeEqual(a, b)) return true;
-  }
-  return false;
+/**
+ * Verify SignWell's `event.hash` = HMAC-SHA256(key = webhook id, msg = `type@time`),
+ * hex, timing-safe. `type`/`time` are the RAW values from the event body.
+ */
+export function verifySignwellEventHash(webhookId: string, type: string, time: string, hash: string | null): boolean {
+  if (!hash || !type || !time) return false;
+  const expected = createHmac("sha256", webhookId).update(`${type}@${time}`).digest("hex");
+  const a = Buffer.from(expected);
+  const b = Buffer.from(hash.trim());
+  return a.length === b.length && timingSafeEqual(a, b);
 }
 
 export type AgreementEventType = "viewed" | "signed" | "declined" | "voided";
@@ -116,24 +114,26 @@ export type EsignWebhookResult = { ok: boolean; status: number; kind: string; re
 
 export async function handleSignwellWebhook(input: {
   rawBody: string;
-  signature: string | null;
+  /** The webhook id used as the HMAC key (SIGNWELL_WEBHOOK_SECRET). */
   secret?: string | null;
   isProduction?: boolean;
 }): Promise<EsignWebhookResult> {
-  const secret = input.secret ?? null;
-  if (secret) {
-    if (!verifySignwellSignature(secret, input.rawBody, input.signature)) {
-      return { ok: false, status: 401, kind: "invalid_signature" };
-    }
-  } else if (input.isProduction) {
-    return { ok: false, status: 401, kind: "no_secret" };
-  }
-
+  // Parse first — the signature (event.hash) lives inside the body.
   let payload: any;
   try {
     payload = JSON.parse(input.rawBody);
   } catch {
     return { ok: false, status: 400, kind: "bad_json" };
+  }
+
+  const secret = input.secret ?? null;
+  const ev = payload?.event ?? {};
+  if (secret) {
+    if (!verifySignwellEventHash(secret, String(ev.type ?? ""), String(ev.time ?? ""), ev.hash ?? null)) {
+      return { ok: false, status: 401, kind: "invalid_signature" };
+    }
+  } else if (input.isProduction) {
+    return { ok: false, status: 401, kind: "no_secret" };
   }
 
   const event = parseSignwellEvent(payload);
