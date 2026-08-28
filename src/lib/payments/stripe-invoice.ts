@@ -118,8 +118,12 @@ export interface PreparedInvoice {
 }
 
 /**
- * PREPARE: create customer → invoice item → DRAFT invoice. Does NOT finalize or
- * send. `auto_advance=false` keeps Stripe from auto-issuing.
+ * PREPARE: create customer → DRAFT invoice → attach the line item TO THAT INVOICE.
+ * Does NOT finalize or send (auto_advance=false). The item is created with an explicit
+ * `invoice` id rather than as a pending customer item, because current Stripe API
+ * versions default `pending_invoice_items_behavior` to "exclude" — a pending item
+ * would otherwise NOT be pulled in, finalizing a $0 invoice. (Caught by the Gate-3
+ * client-facing walkthrough.)
  */
 export async function prepareInvoice(input: PrepareInvoiceInput): Promise<AdapterResult<PreparedInvoice>> {
   const cust = await call<{ id?: string }>(input, "/v1/customers", {
@@ -128,15 +132,6 @@ export async function prepareInvoice(input: PrepareInvoiceInput): Promise<Adapte
   });
   if (!cust.ok || !cust.data?.id) return { ok: false, error: cust.error ?? "customer create failed", blocked: cust.blocked };
   const customerId = cust.data.id;
-
-  const itemParams: Record<string, string> = {
-    customer: customerId,
-    amount: String(input.amountCents),
-    currency: input.currency.toLowerCase(),
-    description: input.description,
-  };
-  const item = await call<{ id?: string }>(input, "/v1/invoiceitems", itemParams);
-  if (!item.ok) return { ok: false, error: item.error, blocked: item.blocked };
 
   const invParams: Record<string, string> = {
     customer: customerId,
@@ -147,8 +142,18 @@ export async function prepareInvoice(input: PrepareInvoiceInput): Promise<Adapte
   for (const [k, v] of Object.entries(input.metadata)) invParams[`metadata[${k}]`] = v;
   const inv = await call<{ id?: string }>(input, "/v1/invoices", invParams);
   if (!inv.ok || !inv.data?.id) return { ok: false, error: inv.error ?? "invoice create failed", blocked: inv.blocked };
+  const invoiceId = inv.data.id;
 
-  return { ok: true, data: { customerId, invoiceId: inv.data.id } };
+  const item = await call<{ id?: string }>(input, "/v1/invoiceitems", {
+    customer: customerId,
+    invoice: invoiceId, // attach explicitly to THIS invoice
+    amount: String(input.amountCents),
+    currency: input.currency.toLowerCase(),
+    description: input.description,
+  });
+  if (!item.ok) return { ok: false, error: item.error, blocked: item.blocked };
+
+  return { ok: true, data: { customerId, invoiceId } };
 }
 
 export interface IssuedInvoice {
