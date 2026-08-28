@@ -52,7 +52,17 @@ describe("evidence invariants — no evidence, no finding", () => {
 describe("quality — fewer is fine; never filler; no duplicates", () => {
   it("allows 1 or 2 findings (does NOT invent a third to hit a count)", () => {
     expect(selectReviewFindings([opp({ category: "Scheduling", observation: "No online booking on the site." })])).toHaveLength(1);
-    expect(reviewStatus(selectReviewFindings([opp({ category: "Scheduling", observation: "No online booking." })]))).toBe("NEEDS_REVIEW");
+  });
+  it("one-strong-finding policy: 1 Observed + High/Foundational → SENDABLE; weaker/Reported single → NEEDS_REVIEW", () => {
+    // Approved policy: a single substantial, directly-observed finding stands on its own.
+    const strong = selectReviewFindings([opp({ observation: "No online booking on the site.", estimatedImpact: { level: "Foundational", rationale: "x" }, confidence: { label: "Observed", score: 0.95 } })]);
+    expect(reviewStatus(strong)).toBe("SENDABLE");
+    // A single Moderate-impact finding is NOT substantial → still operator review.
+    const moderate = selectReviewFindings([opp({ observation: "No online booking on the site.", estimatedImpact: { level: "Moderate", rationale: "x" }, confidence: { label: "Observed", score: 0.9 } })]);
+    expect(reviewStatus(moderate)).toBe("NEEDS_REVIEW");
+    // Third-party REPORTED (not directly observed) does not stand alone, even at High impact.
+    const reported = selectReviewFindings([opp({ observation: "Customers report slow replies to enquiries.", estimatedImpact: { level: "High", rationale: "x" }, confidence: { label: "Reported", score: 0.8 } })]);
+    expect(reviewStatus(reported)).toBe("NEEDS_REVIEW");
   });
   it("de-duplicates by category and by observation", () => {
     const f = selectReviewFindings([

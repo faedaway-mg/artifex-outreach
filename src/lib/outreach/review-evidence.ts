@@ -82,6 +82,10 @@ export interface ReviewFinding {
   whatWedDo: string;
   /** Internal rank score (higher = stronger/more valuable). Not shown. */
   score: number;
+  /** The source opportunity's estimated impact level (Foundational/High/Moderate/Incremental).
+   *  Drives the one-strong-finding sendability policy. Optional so synthetic fixtures default to
+   *  the conservative (non-substantial) path. */
+  impactLevel?: string;
 }
 
 /** The single, internally-coherent starting point. Its title, intervention, and rationale ALL derive
@@ -248,6 +252,7 @@ function toFinding(o: ModernizationOpportunity, ctx: { website?: string | null; 
     whyItMatters: o.whyItMatters,
     whatWedDo: intervention,
     score: CONF_WEIGHT[o.confidence.label] * (IMPACT_WEIGHT[o.estimatedImpact?.level] ?? 0.5) * (0.6 + 0.4 * specificity),
+    impactLevel: o.estimatedImpact?.level,
   };
 }
 
@@ -309,11 +314,33 @@ export function selectReviewFindings(
   return findings;
 }
 
-/** The review's sendability. ≥2 strong findings = SENDABLE; exactly 1 = NEEDS_REVIEW (operator
- *  should eyeball it); 0 = INSUFFICIENT_EVIDENCE (must not silently become an attachment). */
+// Impact levels strong enough that a SINGLE finding can carry a review on its own. Grounded in the
+// frozen-batch diagnosis: the 11 defensible single-finding reviews were ALL Observed + High/Foundational.
+const SUBSTANTIAL_IMPACT = new Set(["High", "Foundational"]);
+
+/**
+ * True when ONE finding is substantial enough to stand alone (the approved one-finding policy):
+ *   directly OBSERVED (not third-party-Reported/inferred) AND High/Foundational impact.
+ * An impact label alone is NOT sufficient — the finding already passed the full evidence gate
+ * (isSendable: non-empty basis, observable category, non-speculative, actionable intervention).
+ * This is an EXPLICIT, evidence-grounded condition — never the reverse-engineered 0.45 score cutoff.
+ */
+export function isSubstantialSingle(f: ReviewFinding): boolean {
+  return f.evidence.confidence === "Observed" && !!f.impactLevel && SUBSTANTIAL_IMPACT.has(f.impactLevel);
+}
+
+/**
+ * The review's CONTENT sendability (one-strong-finding policy, adopted 2026-08-28):
+ *   ≥2 findings                                → SENDABLE
+ *   1 SUBSTANTIAL (Observed + High/Foundational) → SENDABLE (stands on its own; no padded 2nd finding)
+ *   1 weaker finding                            → NEEDS_REVIEW (operator eyeballs it)
+ *   0 findings                                  → INSUFFICIENT_EVIDENCE (never silently attaches)
+ * SENDABLE is CONTENT eligibility only — it is NEVER authorization to send. Delivery still requires
+ * the version-bound approval / automated-policy authorization + artifact binding at dispatch.
+ */
 export function reviewStatus(findings: ReviewFinding[]): ReviewStatus {
   if (findings.length >= 2) return "SENDABLE";
-  if (findings.length === 1) return "NEEDS_REVIEW";
+  if (findings.length === 1) return isSubstantialSingle(findings[0]) ? "SENDABLE" : "NEEDS_REVIEW";
   return "INSUFFICIENT_EVIDENCE";
 }
 

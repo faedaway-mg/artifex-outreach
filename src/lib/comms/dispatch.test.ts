@@ -235,8 +235,11 @@ describe("dispatchStep — Gate 7 universal review delivery protection", () => {
     const fetchMock = vi.fn((_u: string | URL | Request, _i?: RequestInit) => Promise.resolve(okResponse("nope")));
     global.fetch = fetchMock as unknown as typeof fetch;
     const lead = await seedLead();
-    // Plain BI (no injected findings) → INSUFFICIENT_EVIDENCE → review is NOT delivery-ready.
+    // No evidence-backed opportunities → 0 findings → INSUFFICIENT_EVIDENCE → NOT delivery-ready.
+    // (Explicitly emptied: a lead can otherwise yield one strong Observed finding, which the
+    // one-strong-finding policy now makes SENDABLE — that would defeat this "no ready review" case.)
     const bi = await analyzeBusiness({ lead, findings: [], contacts: [] } as any);
+    (bi as any).businessProfile.opportunities = [];
     await upsertBusinessIntelligence({ leadId: lead.id, profile: bi as any, enrichmentDelta: null, generatedAt: "2026-07-22T00:00:00.000Z" });
     const { step } = await seedApprovedPlan(lead.id);
     const r = await dispatchStep(step.id);
