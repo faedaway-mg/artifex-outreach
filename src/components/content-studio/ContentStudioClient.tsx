@@ -565,7 +565,7 @@ function NewPieceModal({ onClose, onCreated }: { onClose: () => void; onCreated:
     const r = await fetch(`/api/content-studio/ideas?n=3&seed=${seed}`, { cache: "no-store" });
     if (r.ok) { setIdeas((await r.json()).ideas); setSeed((s) => s + 3); }
   };
-  const useIdea = (idea: any) => { setTitle(idea.hook); setConcept(idea.concept); setNarration(idea.starterNarration.join("\n")); setIdeas(null); };
+  const applyIdea = (idea: any) => { setTitle(idea.hook); setConcept(idea.concept); setNarration(idea.starterNarration.join("\n")); setIdeas(null); };
 
   const submit = async () => {
     setBusy(true); setErr(null);
@@ -595,7 +595,7 @@ function NewPieceModal({ onClose, onCreated }: { onClose: () => void; onCreated:
           {ideas && (
             <div className="mt-2 space-y-1.5">
               {ideas.map((idea) => (
-                <button key={idea.key} onClick={() => useIdea(idea)} className="block w-full rounded-md border border-white/[0.06] bg-white/[0.02] p-2 text-left text-xs hover:bg-white/[0.05]">
+                <button key={idea.key} onClick={() => applyIdea(idea)} className="block w-full rounded-md border border-white/[0.06] bg-white/[0.02] p-2 text-left text-xs hover:bg-white/[0.05]">
                   <span className="font-medium text-chalk-200">{idea.hook}</span><span className="text-chalk-500"> — {idea.concept}</span>
                 </button>
               ))}
