@@ -4,6 +4,26 @@
 // identical bytes. Atomic publish (one INSERT), SHA-256, ownership fence, server-side Range slice.
 import postgres from "postgres";
 import { createHash } from "node:crypto";
+import { promises as fs } from "node:fs";
+import { existsSync, mkdirSync, createReadStream } from "node:fs";
+import path from "node:path";
+
+// Backend selection mirrors src/lib/content-studio/storage-factory.ts EXACTLY so the Node worker and the
+// TS web agree in BOTH dev (durable-local files) and staging/production (Postgres) — same keys, same bytes.
+function mode() {
+  const p = (process.env.CS_STORAGE_PROVIDER ?? "").trim().toLowerCase();
+  if (p === "postgres" || p === "pg") return "postgres";
+  if (p === "local") return "local";
+  if (process.env.NODE_ENV === "production") throw new Error("cs-artifacts FAIL-CLOSED: production requires CS_STORAGE_PROVIDER=postgres");
+  return "local";
+}
+function localRoot() {
+  return process.env.CONTENT_STUDIO_DATA_DIR
+    ? path.join(path.resolve(process.env.CONTENT_STUDIO_DATA_DIR), "artifacts")
+    : path.join(process.cwd(), ".data", "content-studio", "artifacts");
+}
+const localPath = (key) => path.join(localRoot(), key.replace(/^content-studio\//, ""));
+const metaPath = (key) => localPath(key) + ".meta.json";
 
 let _sql = null;
 function db() {
@@ -36,6 +56,13 @@ export function buildObjectKey({ artifactClass, env, version, ext, operatorId, j
 
 // Atomic + idempotent publish; ownership-fenced (a different job can't overwrite).
 export async function putArtifact(key, body, contentType, { artifactClass, jobId = null, shareToken = null, expiresAt = null, metadata = {} }) {
+  const hashLocal = sha256(body);
+  if (mode() === "local") {
+    const p = localPath(key); mkdirSync(path.dirname(p), { recursive: true });
+    const tmp = `${p}.tmp-${process.pid}`; await fs.writeFile(tmp, body); await fs.rename(tmp, p); // atomic
+    await fs.writeFile(metaPath(key), JSON.stringify({ key, size: body.length, contentType, sha256: hashLocal, artifactClass, jobId, shareToken }));
+    return { key, sha256: hashLocal, bytes: body.length };
+  }
   const sql = db();
   const hash = sha256(body);
   const rows = await sql`
@@ -52,6 +79,7 @@ export async function putArtifact(key, body, contentType, { artifactClass, jobId
 
 const LIVE = (sql) => sql`deleted_at IS NULL AND (expires_at IS NULL OR expires_at > now())`;
 export async function getArtifactMeta(key) {
+  if (mode() === "local") { try { return JSON.parse(await fs.readFile(metaPath(key), "utf8")); } catch { return null; } }
   const sql = db();
   const r = await sql`SELECT object_key, byte_size, content_type, sha256, artifact_class, job_id, share_token
     FROM content_studio_artifacts WHERE object_key=${key} AND ${LIVE(sql)}`;
@@ -60,14 +88,22 @@ export async function getArtifactMeta(key) {
   return { key: x.object_key, size: Number(x.byte_size), contentType: x.content_type, sha256: x.sha256, artifactClass: x.artifact_class, jobId: x.job_id, shareToken: x.share_token };
 }
 export async function readArtifactRange(key, start, end) {
-  const sql = db();
   const len = end - start + 1; if (len <= 0) return Buffer.alloc(0);
+  if (mode() === "local") {
+    const p = localPath(key); if (!existsSync(p)) return null;
+    return new Promise((res, rej) => { const c = []; createReadStream(p, { start, end }).on("data", (x) => c.push(Buffer.from(x))).on("end", () => res(Buffer.concat(c))).on("error", rej); });
+  }
+  const sql = db();
   const r = await sql`SELECT substring(data from ${start + 1} for ${len}) AS chunk FROM content_studio_artifacts WHERE object_key=${key} AND ${LIVE(sql)}`;
   return r.length ? Buffer.from(r[0].chunk) : null;
 }
 export async function readArtifactFull(key) {
+  if (mode() === "local") { const p = localPath(key); return existsSync(p) ? fs.readFile(p) : null; }
   const sql = db();
   const r = await sql`SELECT data FROM content_studio_artifacts WHERE object_key=${key} AND ${LIVE(sql)}`;
   return r.length ? Buffer.from(r[0].data) : null;
 }
-export async function deleteArtifact(key) { await db()`UPDATE content_studio_artifacts SET deleted_at=now() WHERE object_key=${key}`; }
+export async function deleteArtifact(key) {
+  if (mode() === "local") { for (const f of [localPath(key), metaPath(key)]) if (existsSync(f)) await fs.rm(f, { force: true }); return; }
+  await db()`UPDATE content_studio_artifacts SET deleted_at=now() WHERE object_key=${key}`;
+}

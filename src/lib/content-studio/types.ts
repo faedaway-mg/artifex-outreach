@@ -52,7 +52,9 @@ export interface Piece {
 
 export interface AudioUpload {
   pieceId: string;
-  file: string; // absolute path (private, under .data)
+  file: string; // absolute path (LEGACY — dev fallback; production reads via objectKey)
+  objectKey?: string; // canonical ArtifactStore key — the cross-process reference (web↔worker)
+  sha256?: string; // integrity of the stored bytes
   name: string; // original filename
   bytes: number;
   durationSeconds: number | null;
