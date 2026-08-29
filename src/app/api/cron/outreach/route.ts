@@ -5,16 +5,12 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Scheduled-outreach RUNNER — wired but DELIVERY-DISABLED by construction.
-//
-// This is the recurring entry point that would, once activated, dispatch approved + window-eligible
-// Quick Reviews through the shared protections (window, shared 20/LA-day cap, suppression, pause,
-// version-bound authorization). It cannot send today:
-//   ENTRY boundary — requires QR_AUTOSEND_ENABLED=1 (off by default) → otherwise a pure no-op.
-//   FINAL boundary — the transport handed to runScheduledOutreach is NON-DELIVERING and there is no
-//                    scheduled batch wired, so even with the flag on there is NO path to a provider.
-// Activating real delivery is a SEPARATE, explicit step (wire a delivering transport + a persisted
-// scheduled batch). This route never invents a send path from missing configuration.
+// Scheduled-outreach RUNNER — reads the PERSISTED scheduled batch and would dispatch each due item at
+// its staggered time, but is DELIVERY-DISABLED by construction:
+//   ENTRY  — requires QR_AUTOSEND_ENABLED=1 (off by default) → otherwise it only REPORTS the due count.
+//   FINAL  — no business-approved delivering transport is configured, so every due item resolves to
+//            "delivery-blocked" (the slot is never consumed, nothing reaches a provider).
+// Activating real delivery requires a separate, explicitly-authorized transport decision.
 // ─────────────────────────────────────────────────────────────────────────────
 export async function POST(req: NextRequest) {
   const secret = process.env.CRON_SECRET;
@@ -23,37 +19,35 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
   }
 
-  // ENTRY gate: automated scheduled outreach is disabled unless explicitly enabled.
+  const { dueScheduled } = await import("@/lib/outreach/scheduled-batch");
+  const now = new Date();
+  const due = await dueScheduled(now);
+
+  // ENTRY gate: with automated sending off, report the real due count but dispatch nothing.
   if (process.env.QR_AUTOSEND_ENABLED !== "1") {
-    return NextResponse.json({
-      ok: true, dispatched: false, sent: 0,
-      reason: "Scheduled outreach is DISABLED (QR_AUTOSEND_ENABLED != \"1\"). Operators prepare/approve; nothing dispatches automatically.",
-    });
+    return NextResponse.json({ ok: true, dispatched: false, due: due.length, sent: 0, reason: "Scheduled outreach is DISABLED (QR_AUTOSEND_ENABLED != \"1\"). Persisted batch read; nothing dispatched." });
   }
 
-  // Runtime pause (DB-backed + env) — honored even when the flag is on.
   const { outreachPausedNow } = await import("@/lib/outreach/outreach-pause");
   if (await outreachPausedNow()) {
-    return NextResponse.json({ ok: true, dispatched: false, sent: 0, reason: "paused" });
+    return NextResponse.json({ ok: true, dispatched: false, due: due.length, sent: 0, reason: "paused" });
   }
 
-  // Run the REAL scheduler function so the wiring is exercised end-to-end, but with a NON-DELIVERING
-  // transport and no scheduled batch — it authorizes/checks and dispatches to nothing. sent is always 0.
-  const { runScheduledOutreach } = await import("@/lib/outreach/outreach-scheduler");
-  const now = new Date();
-  const summary = await runScheduledOutreach([], {
-    now,
-    campaignId: "scheduled-outreach",
-    // FINAL boundary: refuse at the transport. No provider is wired here.
-    send: async () => ({ ok: false, ambiguous: false, providerId: null }),
-  });
-  await appendAudit({
-    action: "outreach.runner.ran-disabled", actor: "cron", targetType: "comms", targetId: null,
-    meta: { laDay: summary.laDay, considered: summary.startedWith, sent: summary.sent, note: "delivery disabled — non-delivering transport, no scheduled batch" }, ip: null,
-  });
-  return NextResponse.json({
-    ok: true, dispatched: false, sent: summary.sent,
-    reason: "Scheduled-outreach runner executed with delivery DISABLED (non-delivering transport, no scheduled batch). Wiring a delivering transport is a separate, explicitly-authorized step.",
-    summary,
-  });
+  // Flag on + not paused: re-verify + reserve, but the transport is non-delivering (no approved
+  // transport). Every due item → delivery-blocked; the reserved slot is released (nothing shipped).
+  const { validateScheduled } = await import("@/lib/outreach/scheduled-batch");
+  const { reserveDailySlot, releaseSlot } = await import("@/lib/comms/send-quota");
+  const { DAILY_CAP } = await import("@/lib/outreach/outreach-scheduler");
+  const counts = { due: due.length, sent: 0, held: 0, blocked: 0 };
+  for (const { leadId, binding } of due) {
+    const v = await validateScheduled(leadId, binding);
+    if (!v.ok) { counts.held += 1; continue; }
+    const slot = await reserveDailySlot({ now, cap: DAILY_CAP, leadId });
+    if (!slot.granted) { counts.held += 1; continue; }
+    // FINAL boundary: no delivering transport → refuse, release the slot. Never a provider path.
+    if (slot.reservationId) await releaseSlot(slot.reservationId);
+    counts.blocked += 1;
+  }
+  await appendAudit({ action: "outreach.runner.delivery-blocked", actor: "cron", targetType: "comms", targetId: null, meta: counts, ip: null });
+  return NextResponse.json({ ok: true, dispatched: false, ...counts, reason: "No business-approved delivering transport configured. Due items are delivery-blocked; nothing was sent." });
 }

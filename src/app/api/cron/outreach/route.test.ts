@@ -23,19 +23,19 @@ describe("/api/cron/outreach — scheduled runner is delivery-disabled at both b
     expect((await POST(req("Bearer wrong"))).status).toBe(401);
   });
 
-  it("ENTRY gate: with QR_AUTOSEND_ENABLED off, it is a pure no-op (dispatched:false, sent:0)", async () => {
+  it("ENTRY gate: with QR_AUTOSEND_ENABLED off, it reports the due count but dispatches nothing", async () => {
     const r = await (await POST(req(`Bearer ${SECRET}`))).json();
-    expect(r).toMatchObject({ ok: true, dispatched: false, sent: 0 });
+    expect(r).toMatchObject({ ok: true, dispatched: false, sent: 0, due: 0 });
     expect(r.reason).toMatch(/disabled/i);
   });
 
-  it("even ENABLED, it dispatches NOTHING (non-delivering transport, no scheduled batch)", async () => {
+  it("even ENABLED, nothing ships — no approved delivering transport (delivery-blocked)", async () => {
     process.env.QR_AUTOSEND_ENABLED = "1";
     const r = await (await POST(req(`Bearer ${SECRET}`))).json();
     expect(r.ok).toBe(true);
     expect(r.dispatched).toBe(false);
     expect(r.sent).toBe(0);
-    expect(r.summary?.sent).toBe(0);
+    expect(r.reason).toMatch(/no business-approved delivering transport/i);
   });
 
   it("ENABLED + paused → paused (no run)", async () => {

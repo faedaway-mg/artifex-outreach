@@ -57,6 +57,26 @@ export interface HeldState {
   by: string;
   at: string;
 }
+/** A one-time SCHEDULED-SEND authorization — DISTINCT from review approval. Binds the exact package
+ *  (recipient + content + evidence + PDF bytes + template + CTA) to a batch + a staggered send time,
+ *  so the runner can re-verify and refuse on ANY drift. Persisted in the jsonb editorial state (no
+ *  migration), CAS-guarded by `rev`. Never manufactures a review-approval record. */
+export interface ScheduledBinding {
+  batchId: string;
+  revisionId: string;
+  evidenceDigest: string;
+  pdfSha256: string;
+  templateVersion: string;
+  ctaUrl: string | null;
+  recipient: string;
+  subject: string;
+  bodyDigest: string;
+  scheduledAt: string;      // assigned staggered instant (ISO, within the LA morning window)
+  windowTz: string;
+  by: string;
+  at: string;
+  status: "scheduled" | "cancelled" | "sent" | "held" | "delivery-blocked";
+}
 export interface ReviewEditorialState {
   draft: ReviewOverlay;
   history: Revision[];
@@ -65,13 +85,15 @@ export interface ReviewEditorialState {
   approval: ApprovalBinding | null;
   /** Operator "skip / hold unsent" — excluded from delivery without deleting the prospect. */
   held: HeldState | null;
+  /** One-time scheduled-send authorization (distinct from approval). Null until the operator schedules. */
+  scheduled?: ScheduledBinding | null;
   /** Monotonic storage version for DB-level compare-and-swap (Gate 6). Every persisted mutation
    *  bumps it; a write only lands if the stored rev still equals the rev the caller read. Distinct
    *  from the CONTENT fingerprint (`revisionId`) — preview/approve bump rev without changing content. */
   rev: number;
 }
 
-export const EMPTY_STATE: ReviewEditorialState = { draft: {}, history: [], previewedRevisionId: null, checkedRevisionId: null, approval: null, held: null, rev: 0 };
+export const EMPTY_STATE: ReviewEditorialState = { draft: {}, history: [], previewedRevisionId: null, checkedRevisionId: null, approval: null, held: null, scheduled: null, rev: 0 };
 
 // ── Audit actions ───────────────────────────────────────────────────────────────────────────
 export const A = {
