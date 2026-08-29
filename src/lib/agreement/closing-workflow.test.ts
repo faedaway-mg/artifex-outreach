@@ -83,6 +83,7 @@ describe("approveAgreementForSigning (Gate 3 wiring)", () => {
 });
 
 import { sendApprovedAgreementForSignature, type SendInput } from "./closing-workflow";
+import { authorizeAgreementSend } from "./send-authorization";
 import { getAgreement } from "../repo";
 
 function sendBase(agreementId: string, sender: any, over: Partial<SendInput> = {}): SendInput {
@@ -94,12 +95,26 @@ function sendBase(agreementId: string, sender: any, over: Partial<SendInput> = {
     ...over,
   };
 }
+// Authorize sending for a test-mode agreement (mirrors the sendBase client/mode).
+async function authTest(agreementId: string) {
+  return authorizeAgreementSend({ agreementId, actor: "jordan", actorRole: "founder", esignMode: "test", stripeMode: "test", client: { name: "Jordan", email: "jordant.jackson@gmail.com", verified: false, recordEmail: null }, unsignedPdfSha256: PDF_SHA, productionGateOn: false, sendingGateOn: false, env: PROD_ENV });
+}
 
 describe("sendApprovedAgreementForSignature (Gate 5 wiring)", () => {
   beforeEach(() => __resetStoreForTests());
 
+  it("blocks without a send authorization (approval alone cannot send)", async () => {
+    const a = await mkAgreement();
+    let calls = 0;
+    const r = await sendApprovedAgreementForSignature(sendBase(a.id, async () => { calls++; return { ok: true, requestId: "x", signingUrl: null }; }));
+    expect(r.ok).toBe(false);
+    expect(r.reason).toMatch(/send authorization/);
+    expect(calls).toBe(0);
+  });
+
   it("test-mode: passes preflight, calls the injected provider, persists sent state", async () => {
     const a = await mkAgreement();
+    await authTest(a.id);
     let calls = 0; let captured: any = null;
     const sender = async (inp: any) => { calls++; captured = inp; return { ok: true, requestId: "doc_x", signingUrl: null }; };
     const r = await sendApprovedAgreementForSignature(sendBase(a.id, sender));
@@ -124,6 +139,7 @@ describe("sendApprovedAgreementForSignature (Gate 5 wiring)", () => {
 
   it("is idempotent — a second send does not create a second document", async () => {
     const a = await mkAgreement();
+    await authTest(a.id);
     let calls = 0;
     const sender = async () => { calls++; return { ok: true, requestId: "doc_once", signingUrl: null }; };
     await sendApprovedAgreementForSignature(sendBase(a.id, sender));
@@ -134,6 +150,7 @@ describe("sendApprovedAgreementForSignature (Gate 5 wiring)", () => {
 
   it("provider failure leaves no sent state", async () => {
     const a = await mkAgreement();
+    await authTest(a.id);
     const sender = async () => ({ ok: false, requestId: null, signingUrl: null, error: "boom" });
     const r = await sendApprovedAgreementForSignature(sendBase(a.id, sender));
     expect(r.ok).toBe(false);

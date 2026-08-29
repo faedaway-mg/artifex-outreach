@@ -15,6 +15,7 @@ import * as t from "@/db/schema";
 import { db as mem, newId, nowIso, normalizeName, domainFromUrl, normalizePhone, defaultSettings, defaultProspecting } from "./store";
 import type { AgreementApproval, LivePaymentAuthorization } from "./agreement/approval";
 import type { SignedArtifact, SignedArtifactBlob } from "./billing/retention";
+import type { SendAuthorization } from "./agreement/send-authorization";
 import { ARTIFEX_IDENTITY } from "./identity";
 import type {
   Operator,
@@ -139,6 +140,8 @@ const SignedArtifacts = collection<SignedArtifact>(t.signedArtifacts as any, () 
 const memSignedArtifacts = () => ((mem() as any).signedArtifacts ??= []) as SignedArtifact[];
 const memSignedArtifactBlobs = () => ((mem() as any).signedArtifactBlobs ??= []) as SignedArtifactBlob[];
 const LivePaymentAuths = collection<LivePaymentAuthorization>(t.livePaymentAuthorizations as any, () => ((mem() as any).livePaymentAuthorizations ??= []));
+const SendAuths = collection<SendAuthorization>(t.agreementSendAuthorizations as any, () => ((mem() as any).agreementSendAuthorizations ??= []));
+const memSendAuths = () => ((mem() as any).agreementSendAuthorizations ??= []) as SendAuthorization[];
 const memLivePaymentAuths = () => ((mem() as any).livePaymentAuthorizations ??= []) as LivePaymentAuthorization[];
 
 // ── Leads ────────────────────────────────────────────────────────────────────
@@ -511,6 +514,39 @@ export async function insertLivePaymentAuthorization(rec: Omit<LivePaymentAuthor
   const row = { ...rec, id: rec.id ?? newId("lpa"), createdAt: nowIso() } as any as LivePaymentAuthorization;
   await LivePaymentAuths.insert(row);
   return row;
+}
+
+// ── Send authorizations (Gate 3) ──
+export async function insertSendAuthorization(rec: Omit<SendAuthorization, "id" | "createdAt" | "updatedAt"> & { id?: string }): Promise<SendAuthorization> {
+  const now = nowIso();
+  const row = { ...rec, id: rec.id ?? newId("sauth"), createdAt: now, updatedAt: now } as any as SendAuthorization;
+  await SendAuths.insert(row);
+  return row;
+}
+/** The latest ACTIVE (unconsumed, unrevoked) send authorization for a version, or null. */
+export async function getActiveSendAuthorization(agreementId: string, version: number): Promise<SendAuthorization | null> {
+  const all = hasDb()
+    ? ((await getDb().select().from(t.agreementSendAuthorizations).where(eq(t.agreementSendAuthorizations.agreementId, agreementId))) as any as SendAuthorization[])
+    : memSendAuths().filter((a) => a.agreementId === agreementId);
+  const active = all
+    .filter((a) => a.agreementVersion === version && !a.revokedAt && !a.consumedAt)
+    .sort((a, b) => (b.authorizedAt || "").localeCompare(a.authorizedAt || ""));
+  return active[0] ?? null;
+}
+export async function getSendAuthorization(id: string): Promise<SendAuthorization | null> {
+  if (hasDb()) return ((await getDb().select().from(t.agreementSendAuthorizations).where(eq(t.agreementSendAuthorizations.id, id)))[0] as any) ?? null;
+  return memSendAuths().find((a) => a.id === id) ?? null;
+}
+/** Consume an authorization exactly once, binding the created document id. */
+export async function consumeSendAuthorization(id: string, esignRequestId: string): Promise<void> {
+  const patch = { consumedAt: nowIso(), esignRequestId, updatedAt: nowIso() };
+  if (hasDb()) await getDb().update(t.agreementSendAuthorizations).set(patch).where(eq(t.agreementSendAuthorizations.id, id));
+  else { const r = memSendAuths().find((a) => a.id === id); if (r) Object.assign(r, patch); }
+}
+export async function revokeSendAuthorization(id: string): Promise<void> {
+  const patch = { revokedAt: nowIso(), updatedAt: nowIso() };
+  if (hasDb()) await getDb().update(t.agreementSendAuthorizations).set(patch).where(eq(t.agreementSendAuthorizations.id, id));
+  else { const r = memSendAuths().find((a) => a.id === id); if (r) Object.assign(r, patch); }
 }
 
 /** Insert-or-get an agreement webhook event by dedupeKey. `inserted:false` = dup. */

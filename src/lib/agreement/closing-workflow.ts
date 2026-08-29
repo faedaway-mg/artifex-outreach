@@ -8,7 +8,9 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import {
   getAgreement, getAgreementApproval, insertAgreementApproval, updateAgreement,
+  getActiveSendAuthorization, consumeSendAuthorization,
 } from "../repo";
+import { isSendAuthorizationUsable } from "./send-authorization";
 import { nowIso } from "../store";
 import { buildApprovalBinding, approvalDigest, bindingDriftReasons, type StripeMode, type AgreementApproval } from "./approval";
 import { canSetEsignMode, signwellTestModeFor, type EsignMode } from "../esign/mode";
@@ -139,6 +141,12 @@ export async function sendApprovedAgreementForSignature(input: SendInput): Promi
   // Idempotency: never create a second SignWell document.
   if (agreement.esignRequestId) return { ok: true, idempotent: true, requestId: agreement.esignRequestId };
 
+  // Gate 3: a separate, usable send authorization MUST exist (approval alone cannot send).
+  const sendAuth = await getActiveSendAuthorization(agreement.id, agreement.version);
+  if (!sendAuth || !isSendAuthorizationUsable(sendAuth, nowIso())) {
+    return { ok: false, blocked: true, reason: "No usable send authorization (approve, then authorize sending)." };
+  }
+
   const approval = await getAgreementApproval(agreement.id, agreement.version);
   const providerConfig = resolveProviderSignerConfig(input.env ?? process.env, input.esignMode === "production");
 
@@ -150,6 +158,10 @@ export async function sendApprovedAgreementForSignature(input: SendInput): Promi
   });
   if (!preflight.ok || !preflight.recipients) {
     return { ok: false, blocked: true, preflight, reason: `Preflight blocked: ${preflight.blockedReasons.join("; ")}` };
+  }
+  // The authorization must bind the exact PDF being sent (drift guard).
+  if (sendAuth.unsignedPdfSha256 !== input.unsignedPdfSha256) {
+    return { ok: false, blocked: true, preflight, reason: "Send authorization does not match the current PDF (drift) — re-authorize." };
   }
 
   // Build + send via the INJECTED provider (intercepted in tests). test_mode from mode.
@@ -170,6 +182,8 @@ export async function sendApprovedAgreementForSignature(input: SendInput): Promi
     return { ok: false, blocked: true, preflight, reason: result.error ?? "provider send failed" };
   }
 
+  // Consume the authorization exactly once, binding the created document id, then mark sent.
+  await consumeSendAuthorization(sendAuth.id, result.requestId);
   await updateAgreement(agreement.id, { status: "sent", sentAt: nowIso(), esignProvider: "signwell", esignRequestId: result.requestId, esignMode: input.esignMode });
   return { ok: true, requestId: result.requestId, preflight };
 }

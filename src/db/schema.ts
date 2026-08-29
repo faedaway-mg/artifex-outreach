@@ -994,6 +994,38 @@ export const livePaymentAuthorizations = pgTable(
   }),
 );
 
+// Gate 3 (closing UI): one-time, version-bound, exact-approval/recipient/PDF-bound send
+// authorization. Separate from approval; consumed exactly once when a document is created.
+export const agreementSendAuthorizations = pgTable(
+  "agreement_send_authorizations",
+  {
+    id: text("id").primaryKey(),
+    agreementId: text("agreement_id").notNull(),
+    agreementVersion: integer("agreement_version").notNull().default(1),
+    approvalId: text("approval_id").notNull(),
+    approvalDigest: text("approval_digest").notNull(),
+    unsignedPdfSha256: text("unsigned_pdf_sha256").notNull(),
+    esignMode: text("esign_mode").notNull().default("test"),
+    providerEmail: text("provider_email").notNull().default(""),
+    clientEmail: text("client_email").notNull().default(""),
+    recipientDigest: text("recipient_digest").notNull().default(""),
+    operatorId: text("operator_id").notNull(),
+    authorizedAt: ts("authorized_at").notNull(),
+    expiresAt: ts("expires_at"),
+    revokedAt: ts("revoked_at"),
+    consumedAt: ts("consumed_at"),
+    esignRequestId: text("esign_request_id"),
+    authorizationVersion: integer("authorization_version").notNull().default(1),
+    idempotencyKey: text("idempotency_key").notNull(),
+    createdAt: ts("created_at").notNull(),
+    updatedAt: ts("updated_at").notNull(),
+  },
+  (t) => ({
+    agreementIdx: index("send_auth_agreement_idx").on(t.agreementId),
+    keyIdx: uniqueIndex("send_auth_idempotency_key_idx").on(t.idempotencyKey),
+  }),
+);
+
 // ── Relationship Memory — persistent, provenance-carrying business knowledge ──
 export const relationshipMemory = pgTable(
   "relationship_memory",
