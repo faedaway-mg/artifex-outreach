@@ -461,6 +461,9 @@ export interface ReviewVideoJob {
   previewKey: string | null;
   audioKey: string | null;
   audioDurationSeconds: number | null;
+  /** True when the imported audio is DEV/TEST (not real Lucas). A test-audio job can render technically
+   *  but can NEVER be approved for private delivery. Renderer acceptance ≠ sendable review. */
+  audioIsTest?: boolean;
   finalKey: string | null;
   finalDurationSeconds: number | null;
   /** Findings preserved for the finding-reaction feedback loop. */

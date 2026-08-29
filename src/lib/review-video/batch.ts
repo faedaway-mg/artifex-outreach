@@ -89,13 +89,14 @@ export async function markVisualRendered(jobId: string, keys: { planKey?: string
   return advance(jobId, "LUCAS_REQUIRED", keys);
 }
 
-/** Import the operator's Lucas audio for a job (duration-validated, id-bound). Refuses a blocked file. */
-export async function importJobAudio(jobId: string, audio: { audioKey: string; durationSeconds: number }) {
+/** Import the operator's Lucas audio for a job (duration-validated, id-bound). Refuses a blocked file.
+ *  `isTest` marks DEV/TEST audio (not real Lucas) — it renders technically but can never be approved. */
+export async function importJobAudio(jobId: string, audio: { audioKey: string; durationSeconds: number; isTest?: boolean }) {
   const job = await getReviewVideoJob(jobId);
   if (!job) throw new Error(`job not found: ${jobId}`);
   const v = validateAudioDuration(audio.durationSeconds, job.targetSeconds);
   if (!v.ok) throw new Error(`audio rejected: ${v.reason}`);
-  const res = await advance(jobId, "AUDIO_IMPORTED", { audioKey: audio.audioKey, audioDurationSeconds: audio.durationSeconds });
+  const res = await advance(jobId, "AUDIO_IMPORTED", { audioKey: audio.audioKey, audioDurationSeconds: audio.durationSeconds, audioIsTest: !!audio.isTest });
   await recordVideoEvent(jobId, "review-video.voice-added", { durationSeconds: audio.durationSeconds, warn: v.level === "warn" });
   // Valid audio automatically continues to the final render (no separate "start" click needed).
   getRenderQueue().enqueue({ jobId, mode: "final", outputPrefix: outputPrefix(jobId) });
@@ -117,6 +118,9 @@ export async function markFinalRendered(jobId: string, final: { finalKey: string
 export async function approveReviewVideo(jobId: string) {
   const job = await getReviewVideoJob(jobId);
   if (!job) throw new Error(`job not found: ${jobId}`);
+  // Hard safety: a video voiced with DEV/TEST audio is a RENDERER acceptance artifact, never a sendable
+  // private review. It can never be approved (nor reach DELIVERY_READY).
+  if (job.audioIsTest) throw new Error("cannot approve a TEST_AUDIO video — re-render with a real Lucas voiceover first");
   if ((job.status === "APPROVED_PRIVATE" || job.status === "DELIVERY_READY") && job.approvedVersion === job.renderVersion) return job; // idempotent for the SAME version
   const res = await advance(jobId, "APPROVED_PRIVATE", { approvedVersion: job.renderVersion });
   await recordVideoEvent(jobId, "review-video.approved", { version: job.renderVersion });
