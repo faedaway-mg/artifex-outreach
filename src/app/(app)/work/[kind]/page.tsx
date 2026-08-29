@@ -164,6 +164,7 @@ export default async function BatchPage({ params, searchParams }: { params: { ki
             </ul>
           </div>
         )}
+        {kind === "email" && <Link href="/schedule" className="btn-secondary mt-6 justify-center !py-2.5"><CalendarClock size={16} /> Schedule ready emails for Monday</Link>}
         <Link href="/" className="btn-secondary mt-6 justify-center !py-2.5"><ArrowLeft size={16} /> Back to today's work</Link>
       </div>
     );

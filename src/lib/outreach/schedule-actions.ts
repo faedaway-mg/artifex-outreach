@@ -9,17 +9,17 @@ import { currentActor } from "../auth";
 import { newId } from "../store";
 import { scheduleBatch, cancelScheduled, type ScheduleResult } from "./scheduled-batch";
 
-export const MONDAY_TARGET = "2026-08-31"; // the requested one-time date
+const MONDAY_TARGET = "2026-08-31"; // the requested one-time date (a "use server" file exports only async fns)
 
 export async function scheduleMondayBatchAction(leadIds: string[]): Promise<ScheduleResult & { deliveryBlocked: true; note: string }> {
   const res = await scheduleBatch(leadIds, { dateKey: MONDAY_TARGET, by: currentActor(), batchId: newId("batch") });
-  revalidatePath("/work/email");
+  revalidatePath("/schedule"); revalidatePath("/work/email");
   // Honest: the batch is persisted + validated, but nothing will send — no approved transport exists.
   return { ...res, deliveryBlocked: true, note: "Delivery blocked — a business-approved delivering transport is required before this batch can send." };
 }
 
 export async function cancelScheduledAction(leadId: string): Promise<{ ok: boolean }> {
   const ok = await cancelScheduled(leadId);
-  revalidatePath("/work/email");
+  revalidatePath("/schedule"); revalidatePath("/work/email");
   return { ok };
 }
