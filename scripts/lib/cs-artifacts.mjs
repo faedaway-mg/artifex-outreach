@@ -59,6 +59,12 @@ export async function putArtifact(key, body, contentType, { artifactClass, jobId
   const hashLocal = sha256(body);
   if (mode() === "local") {
     const p = localPath(key); mkdirSync(path.dirname(p), { recursive: true });
+    // Ownership fence (mirrors the pg ON CONFLICT WHERE job_id): a DIFFERENT job may not overwrite an
+    // existing object. A retry of the SAME job (or an un-owned object) republishes idempotently.
+    let existing = null;
+    try { existing = JSON.parse(await fs.readFile(metaPath(key), "utf8")); } catch { /* no prior object */ }
+    if (existing && existing.jobId != null && jobId != null && existing.jobId !== jobId)
+      throw new Error(`cs-artifacts: ownership-fenced — ${key} owned by job ${existing.jobId}`);
     const tmp = `${p}.tmp-${process.pid}`; await fs.writeFile(tmp, body); await fs.rename(tmp, p); // atomic
     await fs.writeFile(metaPath(key), JSON.stringify({ key, size: body.length, contentType, sha256: hashLocal, artifactClass, jobId, shareToken }));
     return { key, sha256: hashLocal, bytes: body.length };

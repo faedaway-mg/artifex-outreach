@@ -12,10 +12,19 @@ import { execFileSync, execSync } from "node:child_process";
 import { NOTES } from "./lib/notes.mjs";
 import { renderFrames, readSpeech, warpTimeline, embedThumbnailFrameZero, buildPalette, mixBed, voToWav, mixVoiceCues, dur } from "./lib/fieldnote.mjs";
 import { buildTemplateTimeline, buildTemplateCues } from "./lib/template.mjs";
-import { materializeArtifact, closeArtifacts } from "./lib/cs-artifacts.mjs";
+import { materializeArtifact, putArtifact, buildObjectKey, closeArtifacts } from "./lib/cs-artifacts.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const FPS = 24;
+
+// Environment for object keys — mirrors src/lib/content-studio/env-guard.ts csEnvironment().
+function csEnv() {
+  const e = (process.env.CS_ENV ?? "").trim().toLowerCase();
+  if (["staging", "production", "development", "test"].includes(e)) return e;
+  if (process.env.NODE_ENV === "production") return "production";
+  if (process.env.NODE_ENV === "test") return "test";
+  return "development";
+}
 const ff = (args) => execFileSync("ffmpeg", ["-y", ...args], { stdio: "ignore" });
 const jobId = process.argv[2];
 if (!jobId) { console.error("usage: content-studio-render.mjs <jobId>"); process.exit(1); }
@@ -36,6 +45,17 @@ async function materializeVoiceover(job) {
     return p;
   }
   return job.audioFile; // LEGACY dev fallback (no persisted key)
+}
+
+// Publish a rendered artifact to the ArtifactStore by canonical key (ownership-fenced by jobId,
+// atomic + idempotent). Throws with a clear label on failure so the job fails and retries rather than
+// completing without a durable object. Returns { key, sha, bytes }.
+async function publishFile(key, localFile, contentType, artifactClass, jobId) {
+  try {
+    return await putArtifact(key, readFileSync(localFile), contentType, { artifactClass, jobId });
+  } catch (e) {
+    throw new Error(`${artifactClass} publication failed for ${key}: ${e?.message || e}`);
+  }
 }
 function patchJob(patch) {
   const j = { ...readJob(), ...patch, updatedAt: new Date().toISOString() };
@@ -137,11 +157,25 @@ async function main() {
 
   rmSync(tmp, { recursive: true, force: true });
   const outRel = "/content/" + out.slice(out.indexOf(`field-note-${note}/`));
+
+  // DURABLE PUBLICATION — the job is NOT complete until both the rendered mp4 and the frame-zero poster
+  // are published to the ArtifactStore by canonical key (ownership-fenced by jobId, so a stale attempt can
+  // never overwrite a newer one). Keys are deterministic per (job, inputVersion) so a retry re-publishes
+  // idempotently to the SAME key. The poster must publish too — if it fails, the whole job fails and
+  // retries (we never mark ready with a video but no poster).
+  patchJob({ stage: "Publishing", progress: 0.96 });
+  const env = csEnv();
+  const outputKey = buildObjectKey({ artifactClass: "render-output", env, jobId, version: job.inputVersion, ext: "mp4" });
+  const posterKey = buildObjectKey({ artifactClass: "poster", env, jobId, version: job.inputVersion, ext: "png" });
+  const videoPub = await publishFile(outputKey, out, "video/mp4", "render-output", jobId);
+  const posterPub = await publishFile(posterKey, thumbPath, "image/png", "poster", jobId);
+
   patchJob({
     status: "ready", stage: "Ready", progress: 1, outputFile: out, outputRel: outRel,
+    outputKey, posterKey,
     finishedAt: new Date().toISOString(), error: null, audioLabel: job.audioLabel || audioNote,
   });
-  console.log(`job ${jobId} ready → ${out} (${audioNote}); duration ${dur(out).toFixed(2)}s`);
+  console.log(`job ${jobId} ready → ${outputKey} (${videoPub.bytes}B, sha ${videoPub.sha.slice(0, 12)}…) + poster ${posterKey} (${posterPub.bytes}B); ${audioNote}; duration ${dur(out).toFixed(2)}s`);
 }
 
 main()

@@ -88,6 +88,8 @@ export async function createRenderJob(pieceId: string, opts: { useUpload: boolea
     audioLabel,
     outputFile: null,
     outputRel: null,
+    outputKey: null,
+    posterKey: null,
     thumbRel: `/content/thumbnails/field-note-${pieceId}-thumbnail.png`,
     error: null,
     attempt: 1,

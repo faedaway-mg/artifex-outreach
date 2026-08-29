@@ -123,7 +123,9 @@ function realRenderFn(job, { signal }) {
       try {
         const out = JSON.parse(readFileSync(jf, "utf8"));
         rmSync(jf, { force: true });
-        if (out.status === "ready" && out.outputFile) resolve({ outputKey: out.outputRel || out.outputFile, videoHash: null });
+        // Prefer the DURABLE ArtifactStore key the render worker published; fall back to the legacy
+        // rel/path only in dev where no key was produced.
+        if (out.status === "ready" && (out.outputKey || out.outputFile)) resolve({ outputKey: out.outputKey || out.outputRel || out.outputFile, videoHash: null });
         else reject(new Error(out.error || `render exited ${code}`));
       } catch (e) { reject(new Error("render output unreadable: " + e.message)); }
     });
@@ -132,7 +134,7 @@ function realRenderFn(job, { signal }) {
 function dbToFileJob(job) {
   return { id: job.id, pieceId: job.piece_id, inputVersion: job.input_version, status: "queued", progress: 0,
     stage: "Queued", mode: job.mode, audioKind: "uploaded", audioFile: null, audioKey: job.audio_key ?? null,
-    audioSha: job.audio_sha ?? null, outputFile: null, outputRel: null,
+    audioSha: job.audio_sha ?? null, outputFile: null, outputRel: null, outputKey: null, posterKey: null,
     thumbRel: null, error: null, attempt: job.attempt, pid: null, createdAt: job.created_at, updatedAt: job.created_at,
     startedAt: null, finishedAt: null };
 }

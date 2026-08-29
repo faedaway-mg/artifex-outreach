@@ -23,8 +23,10 @@ export interface RenderJob {
   audioKey: string | null; // canonical ArtifactStore key for the uploaded VO — the cross-process reference
   audioSha: string | null; // integrity of the uploaded VO bytes (worker validates before rendering)
   audioLabel: string | null; // display name of the audio used
-  outputFile: string | null; // absolute path to the rendered mp4 (recommended posting file)
-  outputRel: string | null; // public URL of the rendered mp4 (/content/...)
+  outputFile: string | null; // LEGACY absolute path to the rendered mp4 (dev fallback / ffmpeg scratch)
+  outputRel: string | null; // LEGACY public URL of the rendered mp4 (/content/...) — dev only
+  outputKey: string | null; // canonical ArtifactStore key for the rendered mp4 (durable, ownership-fenced)
+  posterKey: string | null; // canonical ArtifactStore key for the frame-zero poster (durable)
   thumbRel: string | null; // public URL of the thumbnail
   error: string | null;
   attempt: number;
