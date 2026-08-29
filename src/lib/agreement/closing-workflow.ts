@@ -7,15 +7,17 @@
 // server config. Everything stays dormant behind the production flags.
 // ─────────────────────────────────────────────────────────────────────────────
 import {
-  getAgreement, getAgreementApproval, insertAgreementApproval,
+  getAgreement, getAgreementApproval, insertAgreementApproval, updateAgreement,
 } from "../repo";
 import { nowIso } from "../store";
 import { buildApprovalBinding, approvalDigest, bindingDriftReasons, type StripeMode, type AgreementApproval } from "./approval";
-import { canSetEsignMode, type EsignMode } from "../esign/mode";
+import { canSetEsignMode, signwellTestModeFor, type EsignMode } from "../esign/mode";
 import { resolveProviderSignerConfig } from "../esign/provider-config";
 import { validateProductionRecipients, validateTestRecipients } from "../billing/recipient-policy";
 import { closingCan } from "../billing/authz";
 import type { Role } from "../operators/roles";
+import { sendPreflight, type PreflightReceipt } from "./send-preflight";
+import type { CreateSignatureRequestInput, CreateSignatureRequestResult } from "../esign/provider";
 
 export interface ApproveResult {
   ok: boolean;
@@ -88,4 +90,86 @@ export async function approveAgreementForSigning(input: ApproveInput): Promise<A
     approvedBy: input.actor, approvedAt: nowIso(), revokedAt: null,
   } as Omit<AgreementApproval, "id">);
   return { ok: true, approvalId: rec.id, digest };
+}
+
+// ── Gate 5: real send action wiring ──────────────────────────────────────────
+export interface SendResult {
+  ok: boolean;
+  requestId?: string | null;
+  preflight?: PreflightReceipt;
+  blocked?: boolean;
+  reason?: string;
+  idempotent?: boolean;
+}
+
+export interface SendInput {
+  agreementId: string;
+  actor: string;
+  actorRole: Role;
+  esignMode: EsignMode; // derived SERVER-SIDE by the caller
+  stripeMode: StripeMode;
+  client: { name: string; email: string; verified: boolean; recordEmail: string | null };
+  /** The exact frozen PDF to upload + its SHA-256 (bound into the approval). */
+  pdfBase64: string;
+  unsignedPdfSha256: string;
+  subject: string;
+  message: string;
+  productionGateOn: boolean; // PRODUCTION_SIGNING_ENABLED
+  sendingGateOn: boolean; // AGREEMENT_SENDING_ENABLED
+  env?: NodeJS.ProcessEnv;
+  operatorEmails?: string[];
+  knownTestRecipients?: string[];
+  /** INJECTED provider send. Production passes getEsignProvider().createSignatureRequest;
+   *  tests/simulation pass an intercepted mock. No provider is called unless preflight passes. */
+  sender: (input: CreateSignatureRequestInput) => Promise<CreateSignatureRequestResult>;
+}
+
+/**
+ * Send an approved agreement for signature THROUGH the authoritative preflight + shared
+ * two-signer builder. Never reconstructs request fields; never calls the provider unless
+ * preflight fully passes; idempotent — an agreement that already has an esignRequestId is
+ * not re-sent (no duplicate SignWell document).
+ */
+export async function sendApprovedAgreementForSignature(input: SendInput): Promise<SendResult> {
+  if (!closingCan(input.actorRole, "sendSignature")) return { ok: false, blocked: true, reason: `Role '${input.actorRole}' cannot send for signature.` };
+
+  const agreement = await getAgreement(input.agreementId);
+  if (!agreement) return { ok: false, blocked: true, reason: "Agreement not found." };
+
+  // Idempotency: never create a second SignWell document.
+  if (agreement.esignRequestId) return { ok: true, idempotent: true, requestId: agreement.esignRequestId };
+
+  const approval = await getAgreementApproval(agreement.id, agreement.version);
+  const providerConfig = resolveProviderSignerConfig(input.env ?? process.env, input.esignMode === "production");
+
+  const preflight = sendPreflight({
+    agreement, esignMode: input.esignMode, approval, unsignedPdfSha256: input.unsignedPdfSha256,
+    providerConfig, client: input.client, operatorEmails: input.operatorEmails, knownTestRecipients: input.knownTestRecipients,
+    productionGateOn: input.productionGateOn, sendingGateOn: input.sendingGateOn, stripeMode: input.stripeMode,
+    alreadySent: false, nowIso: nowIso(),
+  });
+  if (!preflight.ok || !preflight.recipients) {
+    return { ok: false, blocked: true, preflight, reason: `Preflight blocked: ${preflight.blockedReasons.join("; ")}` };
+  }
+
+  // Build + send via the INJECTED provider (intercepted in tests). test_mode from mode.
+  const result = await input.sender({
+    agreementId: agreement.id,
+    agreementNumber: agreement.agreementNumber,
+    pdfBase64: input.pdfBase64,
+    subject: input.subject,
+    message: input.message,
+    signer: { name: input.client.name, email: input.client.email }, // legacy field; recipients takes precedence
+    recipients: preflight.recipients,
+    remindersDisabled: true,
+    testMode: signwellTestModeFor(input.esignMode),
+    metadata: { approvalDigest: preflight.approvalDigest ?? "", pdf_sha256: input.unsignedPdfSha256, esignMode: input.esignMode },
+  });
+  if (!result.ok || !result.requestId) {
+    // No sent state on failure — the operator may retry after fixing the cause.
+    return { ok: false, blocked: true, preflight, reason: result.error ?? "provider send failed" };
+  }
+
+  await updateAgreement(agreement.id, { status: "sent", sentAt: nowIso(), esignProvider: "signwell", esignRequestId: result.requestId, esignMode: input.esignMode });
+  return { ok: true, requestId: result.requestId, preflight };
 }

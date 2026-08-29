@@ -81,3 +81,62 @@ describe("approveAgreementForSigning (Gate 3 wiring)", () => {
     expect(r.ok, r.reason).toBe(true);
   });
 });
+
+import { sendApprovedAgreementForSignature, type SendInput } from "./closing-workflow";
+import { getAgreement } from "../repo";
+
+function sendBase(agreementId: string, sender: any, over: Partial<SendInput> = {}): SendInput {
+  return {
+    agreementId, actor: "jordan", actorRole: "founder", esignMode: "test", stripeMode: "test",
+    client: { name: "Jordan", email: "jordant.jackson@gmail.com", verified: false, recordEmail: null },
+    pdfBase64: "BASE64", unsignedPdfSha256: PDF_SHA, subject: "s", message: "m",
+    productionGateOn: false, sendingGateOn: false, env: PROD_ENV, operatorEmails: [], knownTestRecipients: [], sender,
+    ...over,
+  };
+}
+
+describe("sendApprovedAgreementForSignature (Gate 5 wiring)", () => {
+  beforeEach(() => __resetStoreForTests());
+
+  it("test-mode: passes preflight, calls the injected provider, persists sent state", async () => {
+    const a = await mkAgreement();
+    let calls = 0; let captured: any = null;
+    const sender = async (inp: any) => { calls++; captured = inp; return { ok: true, requestId: "doc_x", signingUrl: null }; };
+    const r = await sendApprovedAgreementForSignature(sendBase(a.id, sender));
+    expect(r.ok, r.reason).toBe(true);
+    expect(calls).toBe(1);
+    expect(captured.recipients.map((x: any) => x.order)).toEqual([1, 2]); // two-signer via the shared builder
+    expect(captured.testMode).toBe(true);
+    const after = await getAgreement(a.id);
+    expect(after?.status).toBe("sent");
+    expect(after?.esignRequestId).toBe("doc_x");
+  });
+
+  it("does NOT call the provider when preflight fails (production, no approval)", async () => {
+    const a = await mkAgreement();
+    let calls = 0;
+    const sender = async () => { calls++; return { ok: true, requestId: "doc_y", signingUrl: null }; };
+    const r = await sendApprovedAgreementForSignature(sendBase(a.id, sender, { esignMode: "production", stripeMode: "live", productionGateOn: true, sendingGateOn: true, client: { name: "Dana", email: "dana@copperoak.com", verified: true, recordEmail: "dana@copperoak.com" } }));
+    expect(r.ok).toBe(false);
+    expect(calls).toBe(0); // provider never invoked on preflight failure
+    expect((await getAgreement(a.id))?.esignRequestId).toBeFalsy(); // no false sent state
+  });
+
+  it("is idempotent — a second send does not create a second document", async () => {
+    const a = await mkAgreement();
+    let calls = 0;
+    const sender = async () => { calls++; return { ok: true, requestId: "doc_once", signingUrl: null }; };
+    await sendApprovedAgreementForSignature(sendBase(a.id, sender));
+    const second = await sendApprovedAgreementForSignature(sendBase(a.id, sender));
+    expect(second.idempotent).toBe(true);
+    expect(calls).toBe(1);
+  });
+
+  it("provider failure leaves no sent state", async () => {
+    const a = await mkAgreement();
+    const sender = async () => ({ ok: false, requestId: null, signingUrl: null, error: "boom" });
+    const r = await sendApprovedAgreementForSignature(sendBase(a.id, sender));
+    expect(r.ok).toBe(false);
+    expect((await getAgreement(a.id))?.esignRequestId).toBeFalsy();
+  });
+});
