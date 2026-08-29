@@ -155,6 +155,13 @@ export async function handleSignwellWebhook(input: {
   /** The webhook id used as the HMAC key (SIGNWELL_WEBHOOK_SECRET). */
   secret?: string | null;
   isProduction?: boolean;
+  /**
+   * Gate 7: invoked AFTER the terminal `signed` transition commits (all signers complete).
+   * Used to enqueue/run the idempotent retention job. It must NOT create a payment. Errors
+   * here never fail the webhook (the completion is already durably recorded; retention is
+   * retried separately) — retention stays PENDING until it succeeds.
+   */
+  onSigned?: (agreementId: string) => Promise<void> | void;
 }): Promise<EsignWebhookResult> {
   // Parse first — the signature (event.hash) lives inside the body.
   let payload: any;
@@ -209,6 +216,18 @@ export async function handleSignwellWebhook(input: {
   if (!target) return { ok: true, status: 200, kind: event.type, result: "no-op" };
 
   await applyTransition(agreement, target, event);
+
+  // Gate 7: on completion (all signers), kick off retention. The deposit is created
+  // PENDING by applyTransition but is NOT charged (a separate live-payment authorization
+  // + firewall is still required). Retention failures never fail the webhook — the signed
+  // state is durable and retention is retried; billing stays blocked until RETAINED.
+  if (target === "signed" && input.onSigned) {
+    try {
+      await input.onSigned(agreement.id);
+    } catch {
+      /* retention is retried out-of-band; do not fail the acknowledged completion */
+    }
+  }
   return { ok: true, status: 200, kind: event.type, result: "applied" };
 }
 
