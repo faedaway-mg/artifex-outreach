@@ -1,0 +1,73 @@
+// Content Studio — Node-side PostgreSQL artifact store for the render WORKER (which is plain .mjs and
+// can't import the TS ArtifactStore). Mirrors src/lib/content-studio/cs-storage-pg.ts exactly against the
+// SAME content_studio_artifacts table, so web (TS) and worker (Node) exchange only object keys and read
+// identical bytes. Atomic publish (one INSERT), SHA-256, ownership fence, server-side Range slice.
+import postgres from "postgres";
+import { createHash } from "node:crypto";
+
+let _sql = null;
+function db() {
+  if (_sql) return _sql;
+  const url = process.env.CS_DATABASE_URL || process.env.DATABASE_URL;
+  if (!url) throw new Error("cs-artifacts: CS_DATABASE_URL/DATABASE_URL not set");
+  const ssl = /proxy\.rlwy\.net|railway/.test(url) ? { rejectUnauthorized: false } : undefined;
+  _sql = postgres(url, { max: 4, prepare: false, ssl });
+  return _sql;
+}
+export async function closeArtifacts() { if (_sql) { await _sql.end(); _sql = null; } }
+const sha256 = (b) => createHash("sha256").update(b).digest("hex");
+
+// Canonical, safe, version-bound object key (mirrors src/lib/content-studio/cs-object-key.ts).
+const SAFE = /^[a-z0-9][a-z0-9_-]{0,63}$/i, EXT = /^[a-z0-9]{1,8}$/i;
+const ENVS = new Set(["development", "test", "staging", "production"]);
+export function buildObjectKey({ artifactClass, env, version, ext, operatorId, jobId, shareToken }) {
+  env = (env || "").toLowerCase();
+  if (!ENVS.has(env)) throw new Error("cs-artifacts: unknown env " + env);
+  ext = String(ext).replace(/^\./, "").toLowerCase();
+  if (!EXT.test(ext)) throw new Error("cs-artifacts: unsafe ext " + ext);
+  const seg = (n, v) => { if (!v || !SAFE.test(v)) throw new Error(`cs-artifacts: unsafe ${n} ${JSON.stringify(v)}`); return v; };
+  const ver = seg("version", version);
+  if (artifactClass === "upload") return `content-studio/${env}/upload/${seg("operatorId", operatorId || "op")}/${ver}.${ext}`;
+  if (artifactClass === "render-input" || artifactClass === "render-output" || artifactClass === "poster")
+    return `content-studio/${env}/${artifactClass}/${seg("jobId", jobId || "")}/${ver}.${ext}`;
+  if (artifactClass === "share-media") return `content-studio/${env}/share-media/${seg("shareToken", shareToken || "")}/${ver}.${ext}`;
+  throw new Error("cs-artifacts: unknown class " + artifactClass);
+}
+
+// Atomic + idempotent publish; ownership-fenced (a different job can't overwrite).
+export async function putArtifact(key, body, contentType, { artifactClass, jobId = null, shareToken = null, expiresAt = null, metadata = {} }) {
+  const sql = db();
+  const hash = sha256(body);
+  const rows = await sql`
+    INSERT INTO content_studio_artifacts (object_key, content_type, byte_size, sha256, data, artifact_class, job_id, share_token, metadata, published_at, expires_at)
+    VALUES (${key}, ${contentType}, ${body.length}, ${hash}, ${body}, ${artifactClass}, ${jobId}, ${shareToken}, ${sql.json(metadata)}, now(), ${expiresAt})
+    ON CONFLICT (object_key) DO UPDATE
+      SET content_type=EXCLUDED.content_type, byte_size=EXCLUDED.byte_size, sha256=EXCLUDED.sha256,
+          data=EXCLUDED.data, published_at=now(), expires_at=EXCLUDED.expires_at, deleted_at=NULL
+      WHERE content_studio_artifacts.job_id IS NOT DISTINCT FROM EXCLUDED.job_id OR content_studio_artifacts.job_id IS NULL
+    RETURNING object_key`;
+  if (!rows.length) throw new Error(`cs-artifacts: ownership-fenced — ${key} owned by another job`);
+  return { key, sha256: hash, bytes: body.length };
+}
+
+const LIVE = (sql) => sql`deleted_at IS NULL AND (expires_at IS NULL OR expires_at > now())`;
+export async function getArtifactMeta(key) {
+  const sql = db();
+  const r = await sql`SELECT object_key, byte_size, content_type, sha256, artifact_class, job_id, share_token
+    FROM content_studio_artifacts WHERE object_key=${key} AND ${LIVE(sql)}`;
+  if (!r.length) return null;
+  const x = r[0];
+  return { key: x.object_key, size: Number(x.byte_size), contentType: x.content_type, sha256: x.sha256, artifactClass: x.artifact_class, jobId: x.job_id, shareToken: x.share_token };
+}
+export async function readArtifactRange(key, start, end) {
+  const sql = db();
+  const len = end - start + 1; if (len <= 0) return Buffer.alloc(0);
+  const r = await sql`SELECT substring(data from ${start + 1} for ${len}) AS chunk FROM content_studio_artifacts WHERE object_key=${key} AND ${LIVE(sql)}`;
+  return r.length ? Buffer.from(r[0].chunk) : null;
+}
+export async function readArtifactFull(key) {
+  const sql = db();
+  const r = await sql`SELECT data FROM content_studio_artifacts WHERE object_key=${key} AND ${LIVE(sql)}`;
+  return r.length ? Buffer.from(r[0].data) : null;
+}
+export async function deleteArtifact(key) { await db()`UPDATE content_studio_artifacts SET deleted_at=now() WHERE object_key=${key}`; }
