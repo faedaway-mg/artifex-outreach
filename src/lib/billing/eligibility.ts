@@ -82,6 +82,7 @@ export function evaluateBillingEligibility(ctx: EligibilityContext): Eligibility
   if (!ctx.modeConsistent) return { state: "BLOCKED_MODE_MISMATCH", reason: "SignWell test_mode disagrees with the persisted agreement mode." };
 
   // Completion gate — must be signed by ALL required signers (document_completed).
+  // Applies to BOTH modes: nothing bills until the whole document is complete.
   if (ctx.agreementStatus !== "signed") {
     return { state: "BLOCKED_UNSIGNED", reason: `Agreement is '${ctx.agreementStatus}', not signed.` };
   }
@@ -89,20 +90,18 @@ export function evaluateBillingEligibility(ctx: EligibilityContext): Eligibility
     return { state: "BLOCKED_PARTIAL_SIGNATURE", reason: "Not all required signers have completed (no document_completed)." };
   }
 
-  // Approval + exact-document integrity.
+  // TEST agreements can never proceed to live — they are test-eligible only, and the
+  // firewall permits them solely against a test key. Approval/document/recipient/amount
+  // binding + retention are PRODUCTION gates (a test rehearsal has no approval record).
+  if (ctx.esignMode === "test") {
+    return { state: "ELIGIBLE_TEST_PAYMENT", reason: "Test agreement — eligible for TEST payment only." };
+  }
+
+  // ── PRODUCTION path from here: full binding + retention + explicit live authorization ──
   if (!ctx.approvalPresentAndValid) return { state: "BLOCKED_APPROVAL_MISSING", reason: "No valid, bound owner approval." };
   if (!ctx.documentMatchesApproval) return { state: "BLOCKED_DOCUMENT_MISMATCH", reason: "The completed document/terms drifted from the approved binding." };
   if (!ctx.recipientsMatchApproval) return { state: "BLOCKED_RECIPIENT_MISMATCH", reason: "Recipients differ from the approved recipients." };
   if (!ctx.amountMatchesApproval) return { state: "BLOCKED_AMOUNT_MISMATCH", reason: "Deposit amount/currency differs from the approved amount." };
-
-  // TEST agreements can never proceed past here to live — they are test-eligible only.
-  if (ctx.esignMode === "test") {
-    // A test agreement is eligible for TEST payment once signed+matched. Retention is
-    // not a hard gate in test, but mode/approval integrity still hold.
-    return { state: "ELIGIBLE_TEST_PAYMENT", reason: "Test agreement — eligible for TEST payment only." };
-  }
-
-  // ── PRODUCTION path from here ──
   if (!ctx.recipientsPolicyOk) return { state: "BLOCKED_RECIPIENT_MISMATCH", reason: "Production recipients failed the recipient policy." };
   if (ctx.retention === "pending") return { state: "BLOCKED_RETENTION_PENDING", reason: "Signed PDF / audit certificate retention is still pending." };
   if (ctx.retention === "failed") return { state: "BLOCKED_RETENTION_FAILED", reason: "Signed PDF / audit certificate retention failed." };

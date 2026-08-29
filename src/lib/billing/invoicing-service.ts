@@ -21,6 +21,9 @@ import {
   getInvoice,
   updateInvoice,
   appendAudit,
+  getAgreementApproval,
+  signedArtifactsForAgreement,
+  hasLivePaymentAuthorization,
 } from "../repo";
 import { resolveIssuerForSnapshot } from "./issuer";
 import { deriveSchedule, reconcileSchedule, isMilestoneEligible } from "./milestones";
@@ -30,6 +33,9 @@ import { prepareInvoice, finalizeInvoice, type FetchImpl } from "../payments/str
 import { reconcileInvoiceFromEvents } from "../payments/reconcile";
 import { nowIso } from "../store";
 import { closingCan } from "./authz";
+import { assertAgreementBillingAllowed } from "./firewall-gate";
+import { buildApprovalBinding } from "../agreement/approval";
+import { retentionStatus } from "./retention";
 import type { Role } from "../operators/roles";
 
 export interface PrepareOpts {
@@ -159,7 +165,43 @@ export async function issueMilestoneInvoice(invoiceId: string, opts: IssueOpts):
   }
 
   const agreement = await getAgreement(invoice.agreementId);
-  const snap = agreement?.contentSnapshot;
+  if (!agreement) return { ok: false, blocked: true, reason: "Agreement not found." };
+  const snap = agreement.contentSnapshot;
+
+  // ── LIVE-PAYMENT FIREWALL (Gate 3) ── Before ANY Stripe object is created, resolve the
+  // issuer's intended Stripe mode and refuse if the agreement is not eligible for it. A
+  // TEST agreement (or null-mode/legacy) can only ever proceed against a TEST key; a
+  // PRODUCTION agreement needs the full production evidence (approval + retention + live
+  // auth) — absent here, it is blocked. Fail closed on any refusal.
+  try {
+    const approval = await getAgreementApproval(agreement.id, agreement.version);
+    const decision = assertAgreementBillingAllowed(agreement, invoice.issuerId, "issueMilestoneInvoice", {
+      approval,
+      // Recompute the binding from the CURRENT agreement to detect drift vs the approval.
+      currentBinding: approval
+        ? buildApprovalBinding(agreement, {
+            providerSignerEmail: approval.binding.providerSignerEmail,
+            clientEmail: approval.binding.clientEmail,
+            esignMode: approval.binding.esignMode,
+            stripeMode: approval.binding.stripeMode,
+            unsignedPdfSha256: approval.binding.unsignedPdfSha256,
+            expiresAt: approval.binding.expiresAt,
+          })
+        : null,
+      retention: retentionStatus(await signedArtifactsForAgreement(agreement.id), agreement),
+      recipientsPolicyOk: approval != null, // recipients were policy-validated when the approval was created (production)
+      ownerLivePaymentAuthorized: approval?.binding.esignMode === "production" ? await hasLivePaymentAuthorization(agreement.id) : false,
+      amountMatchesApproval: approval == null || approval.binding.depositAmountCents === invoice.amountCents,
+      modeConsistent: true,
+      alreadyPaid: false,
+      nowIso: nowIso(),
+    });
+    // Defense in depth: force the adapter onto the mode the firewall permits.
+    opts = { ...opts, requireTestMode: decision.allowedMode === "test" };
+  } catch (e) {
+    return { ok: false, blocked: true, reason: (e as Error).message };
+  }
+
   const prepared = await prepareInvoice({
     issuerId: invoice.issuerId,
     requireTestMode: opts.requireTestMode,

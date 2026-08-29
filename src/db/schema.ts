@@ -751,6 +751,7 @@ export const agreements = pgTable(
     esignProvider: text("esign_provider"),
     esignRequestId: text("esign_request_id"),
     esignUrl: text("esign_url"),
+    esignMode: text("esign_mode"), // "test" | "production" | null (null → treated as test)
     approvedAt: ts("approved_at"),
     sentAt: ts("sent_at"),
     viewedAt: ts("viewed_at"),
@@ -901,6 +902,67 @@ export const paymentEvents = pgTable(
   (t) => ({
     eventIdx: uniqueIndex("payment_events_event_id_idx").on(t.eventId),
     invoiceIdx: index("payment_events_invoice_idx").on(t.providerInvoiceId),
+  }),
+);
+
+// ── Closing hardening (Gates 4/9): bound owner approvals, retained signed artifacts,
+//    and explicit live-payment authorizations. ──
+export const agreementApprovals = pgTable(
+  "agreement_approvals",
+  {
+    id: text("id").primaryKey(),
+    agreementId: text("agreement_id").notNull(),
+    agreementVersion: integer("agreement_version").notNull().default(1),
+    binding: jsonb("binding").notNull(),
+    digest: text("digest").notNull(),
+    approvedBy: text("approved_by").notNull(),
+    approvedAt: ts("approved_at").notNull(),
+    revokedAt: ts("revoked_at"),
+    createdAt: ts("created_at").notNull(),
+  },
+  (t) => ({
+    agreementIdx: index("agreement_approvals_agreement_idx").on(t.agreementId),
+    versionIdx: index("agreement_approvals_version_idx").on(t.agreementId, t.agreementVersion),
+  }),
+);
+
+export const signedArtifacts = pgTable(
+  "signed_artifacts",
+  {
+    id: text("id").primaryKey(),
+    agreementId: text("agreement_id").notNull(),
+    esignRequestId: text("esign_request_id").notNull().default(""),
+    kind: text("kind").notNull(),
+    sha256: text("sha256").notNull().default(""),
+    byteSize: integer("byte_size").notNull().default(0),
+    storageKey: text("storage_key").notNull().default(""),
+    approvalDigest: text("approval_digest"),
+    esignMode: text("esign_mode").notNull().default("test"),
+    status: text("status").notNull().default("failed"),
+    retryCount: integer("retry_count").notNull().default(0),
+    retrievedAt: ts("retrieved_at").notNull(),
+    createdAt: ts("created_at").notNull(),
+  },
+  (t) => ({
+    agreementIdx: index("signed_artifacts_agreement_idx").on(t.agreementId),
+    kindIdx: index("signed_artifacts_kind_idx").on(t.agreementId, t.kind),
+  }),
+);
+
+export const livePaymentAuthorizations = pgTable(
+  "live_payment_authorizations",
+  {
+    id: text("id").primaryKey(),
+    agreementId: text("agreement_id").notNull(),
+    agreementVersion: integer("agreement_version").notNull().default(1),
+    approvalDigest: text("approval_digest"),
+    authorizedBy: text("authorized_by").notNull(),
+    authorizedAt: ts("authorized_at").notNull(),
+    revokedAt: ts("revoked_at"),
+    createdAt: ts("created_at").notNull(),
+  },
+  (t) => ({
+    agreementIdx: index("live_payment_auth_agreement_idx").on(t.agreementId),
   }),
 );
 

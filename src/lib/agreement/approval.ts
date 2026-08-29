@@ -64,6 +64,18 @@ export interface AgreementApproval {
   revokedAt: string | null;
 }
 
+/** An explicit, separate owner authorization to take a LIVE payment (Gate 3/10). */
+export interface LivePaymentAuthorization {
+  id: string;
+  agreementId: string;
+  agreementVersion: number;
+  approvalDigest: string | null;
+  authorizedBy: string;
+  authorizedAt: string;
+  revokedAt: string | null;
+  createdAt: string;
+}
+
 export const APPROVAL_RECORD_VERSION = 1;
 
 /** Deterministic JSON: object keys sorted recursively; arrays preserved in order. */

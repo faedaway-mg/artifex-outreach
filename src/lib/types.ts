@@ -610,6 +610,12 @@ export interface Agreement {
   esignProvider: string | null;
   esignRequestId: string | null;
   esignUrl: string | null;
+  /**
+   * Signing mode — derived SERVER-SIDE (esign/mode.ts), frozen with the agreement and
+   * immutable after send. null (legacy) is treated as "test" (fail closed): a test-signed
+   * agreement can never unlock live payment. The SignWell doc's test_mode must agree.
+   */
+  esignMode?: "test" | "production" | null;
   approvedAt: string | null;
   sentAt: string | null;
   viewedAt: string | null;

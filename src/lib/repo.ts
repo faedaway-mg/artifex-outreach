@@ -13,6 +13,8 @@ import { eq, and, inArray, lte, isNull } from "drizzle-orm";
 import { hasDb, getDb } from "@/db/client";
 import * as t from "@/db/schema";
 import { db as mem, newId, nowIso, normalizeName, domainFromUrl, normalizePhone, defaultSettings, defaultProspecting } from "./store";
+import type { AgreementApproval, LivePaymentAuthorization } from "./agreement/approval";
+import type { SignedArtifact } from "./billing/retention";
 import { ARTIFEX_IDENTITY } from "./identity";
 import type {
   Operator,
@@ -131,6 +133,12 @@ const memAgreementEvents = () => ((mem() as any).agreementEvents ??= []) as Agre
 const Payments = collection<Payment>(t.payments, () => ((mem() as any).payments ??= []));
 const Invoices = collection<Invoice>(t.invoices, () => ((mem() as any).invoices ??= []));
 const PaymentEvents = collection<PaymentEvent>(t.paymentEvents, () => ((mem() as any).paymentEvents ??= []));
+const AgreementApprovals = collection<AgreementApproval & { id: string }>(t.agreementApprovals as any, () => ((mem() as any).agreementApprovals ??= []));
+const memAgreementApprovals = () => ((mem() as any).agreementApprovals ??= []) as AgreementApproval[];
+const SignedArtifacts = collection<SignedArtifact>(t.signedArtifacts as any, () => ((mem() as any).signedArtifacts ??= []));
+const memSignedArtifacts = () => ((mem() as any).signedArtifacts ??= []) as SignedArtifact[];
+const LivePaymentAuths = collection<LivePaymentAuthorization>(t.livePaymentAuthorizations as any, () => ((mem() as any).livePaymentAuthorizations ??= []));
+const memLivePaymentAuths = () => ((mem() as any).livePaymentAuthorizations ??= []) as LivePaymentAuthorization[];
 
 // ── Leads ────────────────────────────────────────────────────────────────────
 export async function listLeads(): Promise<Lead[]> {
@@ -421,6 +429,49 @@ export async function getAgreementByEsignRequestId(esignRequestId: string): Prom
   if (!esignRequestId) return undefined;
   if (hasDb()) return (await getDb().select().from(t.agreements).where(eq(t.agreements.esignRequestId, esignRequestId)))[0] as any;
   return (await Agreements.all()).find((a) => a.esignRequestId === esignRequestId);
+}
+
+// ── Closing hardening: approvals / signed artifacts / live-payment authorizations ──
+export async function insertAgreementApproval(rec: Omit<AgreementApproval, "id"> & { id?: string }): Promise<AgreementApproval> {
+  const row = { ...rec, id: rec.id ?? newId("appr"), createdAt: nowIso() } as any as AgreementApproval;
+  await AgreementApprovals.insert(row as any);
+  return row;
+}
+/** The latest non-revoked approval bound to this exact agreement version, or null. */
+export async function getAgreementApproval(agreementId: string, version: number): Promise<AgreementApproval | null> {
+  const all = hasDb()
+    ? ((await getDb().select().from(t.agreementApprovals).where(eq(t.agreementApprovals.agreementId, agreementId))) as any as AgreementApproval[])
+    : memAgreementApprovals().filter((a) => a.agreementId === agreementId);
+  const match = all
+    .filter((a) => a.agreementVersion === version && !a.revokedAt)
+    .sort((a, b) => (b.approvedAt || "").localeCompare(a.approvedAt || ""));
+  return match[0] ?? null;
+}
+export async function revokeAgreementApproval(id: string): Promise<void> {
+  if (hasDb()) await getDb().update(t.agreementApprovals).set({ revokedAt: nowIso() }).where(eq(t.agreementApprovals.id, id));
+  else {
+    const r = memAgreementApprovals().find((a) => a.id === id);
+    if (r) r.revokedAt = nowIso();
+  }
+}
+export async function signedArtifactsForAgreement(agreementId: string): Promise<SignedArtifact[]> {
+  if (hasDb()) return (await getDb().select().from(t.signedArtifacts).where(eq(t.signedArtifacts.agreementId, agreementId))) as any;
+  return memSignedArtifacts().filter((a) => a.agreementId === agreementId);
+}
+export async function insertSignedArtifact(rec: SignedArtifact): Promise<SignedArtifact> {
+  await SignedArtifacts.insert(rec);
+  return rec;
+}
+export async function hasLivePaymentAuthorization(agreementId: string): Promise<boolean> {
+  const all = hasDb()
+    ? ((await getDb().select().from(t.livePaymentAuthorizations).where(eq(t.livePaymentAuthorizations.agreementId, agreementId))) as any as LivePaymentAuthorization[])
+    : memLivePaymentAuths().filter((a) => a.agreementId === agreementId);
+  return all.some((a) => !a.revokedAt);
+}
+export async function insertLivePaymentAuthorization(rec: Omit<LivePaymentAuthorization, "id" | "createdAt"> & { id?: string }): Promise<LivePaymentAuthorization> {
+  const row = { ...rec, id: rec.id ?? newId("lpa"), createdAt: nowIso() } as any as LivePaymentAuthorization;
+  await LivePaymentAuths.insert(row);
+  return row;
 }
 
 /** Insert-or-get an agreement webhook event by dedupeKey. `inserted:false` = dup. */
