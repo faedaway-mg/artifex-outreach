@@ -19,7 +19,12 @@ async function shot(state, label, viewport, mobile) {
   // Invariants
   const checks = {};
   if (state === "partial") checks.partialNotComplete = /Partially signed/i.test(body) && !/2 of 2/.test(body);
-  if (["draft","approved","send_authorized","partial","completed"].includes(state)) checks.noLivePayForNonEligible = !/Authorize this exact live payment/i.test(body);
+  // Live-payment control must be ABSENT when not ready for authorization (unsigned/partial/
+  // retention-failed) and PRESENT for a completed+retained production agreement
+  // (BLOCKED_LIVE_AUTH_MISSING → authorize-payment is the legitimate next step).
+  const hasLivePay = /Authorize this exact live payment/i.test(body);
+  if (["draft","approved","send_authorized","partial","retention_failed"].includes(state)) checks.noLivePayWhenNotReady = !hasLivePay;
+  if (state === "completed") checks.livePayShownWhenAuthMissing = hasLivePay;
   // horizontal overflow check
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 2);
   checks.noHorizontalOverflow = !overflow;
