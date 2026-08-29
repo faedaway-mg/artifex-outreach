@@ -33,7 +33,7 @@ export async function putArtifactPg(key: string, body: Buffer, contentType: stri
   const hash = sha256(body);
   const rows = await sql`
     INSERT INTO content_studio_artifacts (object_key, content_type, byte_size, sha256, data, artifact_class, job_id, share_token, metadata, published_at, expires_at)
-    VALUES (${key}, ${contentType}, ${body.length}, ${hash}, ${body}, ${opts.artifactClass}, ${opts.jobId ?? null}, ${opts.shareToken ?? null}, ${sql.json(opts.metadata ?? {})}, now(), ${opts.expiresAt ?? null})
+    VALUES (${key}, ${contentType}, ${body.length}, ${hash}, ${body}, ${opts.artifactClass}, ${opts.jobId ?? null}, ${opts.shareToken ?? null}, ${sql.json((opts.metadata ?? {}) as Record<string, never>)}, now(), ${opts.expiresAt ?? null})
     ON CONFLICT (object_key) DO UPDATE
       SET content_type = EXCLUDED.content_type, byte_size = EXCLUDED.byte_size, sha256 = EXCLUDED.sha256,
           data = EXCLUDED.data, published_at = now(), expires_at = EXCLUDED.expires_at, deleted_at = NULL
