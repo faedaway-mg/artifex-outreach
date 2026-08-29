@@ -16,13 +16,26 @@ export interface EsignSigner {
   email: string;
 }
 
+/** One SignWell recipient. `order` maps to the text-tag signer number ({{signature:N}}). */
+export interface EsignRecipient {
+  id: "provider" | "client";
+  role: "provider" | "client";
+  name: string;
+  email: string;
+  order: number; // 1 = provider, 2 = client
+}
+
 export interface CreateSignatureRequestInput {
   agreementId: string;
   agreementNumber: string;
-  pdfBase64: string; // the generated agreement PDF (with {{sig_*}} text-tag anchors)
+  pdfBase64: string; // the generated agreement PDF (with {{signature:N:y}} text-tag anchors)
   subject: string;
   message: string;
-  signer: EsignSigner;
+  signer: EsignSigner; // legacy single-signer (still used by the test rehearsal path)
+  /** Two-signer model (provider order 1, client order 2). When present, takes precedence. */
+  recipients?: EsignRecipient[];
+  /** Disable automatic reminders (default true — no reminders unless explicitly enabled). */
+  remindersDisabled?: boolean;
   ccEmail?: string | null; // Artifex counter-signer / cc
   testMode: boolean; // SignWell test mode (no legal weight, free) — used for rehearsal
   // Embedded signing: return a signing URL and DO NOT email the recipient

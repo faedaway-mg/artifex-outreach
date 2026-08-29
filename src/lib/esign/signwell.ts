@@ -63,13 +63,20 @@ export function createSignwellProvider(): EsignProvider {
     async createSignatureRequest(input: CreateSignatureRequestInput): Promise<CreateSignatureRequestResult> {
       if (!configured) return { ok: false, requestId: null, signingUrl: null, error: "SIGNWELL_API_KEY not set.", errorCode: "auth" };
 
-      // SignWell "create document" payload. draft:false → sends immediately and
-      // emails the signer. text_tags → detect {{sig_*}} anchors in the PDF.
-      const recipients: Array<Record<string, unknown>> = [
-        // Embedded signing suppresses the email (send_email defaults false when
-        // embedded_signing is on); the response carries an embedded_signing_url.
-        { id: "client", name: input.signer.name, email: input.signer.email, order: 1, ...(input.embedded ? { send_email: false } : {}) },
-      ];
+      // SignWell "create document" payload. draft:false → sends immediately and emails
+      // the signer(s). text_tags → detect {{signature:N:y}} anchors in the PDF.
+      // Two-signer model (input.recipients) takes precedence over the legacy single signer.
+      const recipients: Array<Record<string, unknown>> =
+        input.recipients && input.recipients.length
+          ? input.recipients
+              .slice()
+              .sort((a, b) => a.order - b.order)
+              .map((r) => ({ id: r.id, name: r.name, email: r.email, order: r.order }))
+          : [
+              // Embedded signing suppresses the email (send_email defaults false when
+              // embedded_signing is on); the response carries an embedded_signing_url.
+              { id: "client", name: input.signer.name, email: input.signer.email, order: 1, ...(input.embedded ? { send_email: false } : {}) },
+            ];
       const body: Record<string, unknown> = {
         test_mode: input.testMode,
         draft: false,
@@ -77,6 +84,8 @@ export function createSignwellProvider(): EsignProvider {
         embedded_signing: Boolean(input.embedded),
         allow_decline: true,
         text_tags: true,
+        reminders: input.remindersDisabled === false ? true : false, // no reminders unless explicitly enabled
+        apply_signing_order: false,
         name: `Artifex Labs — Professional Services Agreement ${input.agreementNumber}`,
         subject: input.subject,
         message: input.message,
