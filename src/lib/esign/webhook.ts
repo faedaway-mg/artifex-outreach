@@ -41,16 +41,26 @@ export function verifySignwellEventHash(webhookId: string, type: string, time: s
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
-export type AgreementEventType = "viewed" | "signed" | "declined" | "voided";
+// `recipient_signed` = ONE signer finished their part; it does NOT mean the document is
+// complete. `signed` is our terminal, deposit-unlocking state and must map ONLY from the
+// document-level "all required signers completed" event.
+export type AgreementEventType = "viewed" | "recipient_signed" | "signed" | "declined" | "voided";
 
+// SignWell fires `document_signed` per SIGNER (verified live: it arrived with
+// provider:viewed while only the client had completed). Only `document_completed` means
+// EVERY required signer finished. Mapping `document_signed` → signed unlocked the deposit
+// after just one of two signers — so recipient-level signature events map to the
+// non-terminal `recipient_signed` (recorded, but never completes the agreement), and only
+// the document-completion events map to `signed`.
 const EVENT_ALIASES: Record<string, AgreementEventType> = {
   document_viewed: "viewed",
   recipient_viewed: "viewed",
   viewed: "viewed",
   document_completed: "signed",
-  document_signed: "signed",
   completed: "signed",
-  signed: "signed",
+  document_signed: "recipient_signed",
+  recipient_signed: "recipient_signed",
+  signed: "recipient_signed",
   document_declined: "declined",
   declined: "declined",
   document_canceled: "voided",
@@ -69,6 +79,26 @@ interface ParsedEvent {
   certificateUrl: string | null;
 }
 
+/**
+ * Normalize a SignWell time value to an ISO-8601 string. SignWell sends `event.time`
+ * as a Unix EPOCH (integer seconds — e.g. 1787990119), not ISO; stored verbatim, Postgres
+ * misreads the digits as a year (→ "178799-01-19"). Accept epoch seconds/ms or an already-
+ * ISO string; fall back to now for anything unparseable.
+ */
+export function signwellTimeToIso(t: unknown): string {
+  if (typeof t === "number" || (typeof t === "string" && /^\d{9,13}$/.test(t.trim()))) {
+    const n = Number(t);
+    const ms = n < 1e12 ? n * 1000 : n; // 10-digit → seconds, 13-digit → ms
+    const d = new Date(ms);
+    if (!Number.isNaN(d.getTime())) return d.toISOString();
+  }
+  if (typeof t === "string" && t.trim()) {
+    const d = new Date(t);
+    if (!Number.isNaN(d.getTime())) return d.toISOString();
+  }
+  return nowIso();
+}
+
 /** Tolerantly parse a SignWell webhook payload into a normalized event. */
 export function parseSignwellEvent(payload: any): ParsedEvent | null {
   if (!payload || typeof payload !== "object") return null;
@@ -80,7 +110,7 @@ export function parseSignwellEvent(payload: any): ParsedEvent | null {
   const documentId = String(doc.id ?? payload.document_id ?? payload.data?.id ?? "");
   if (!documentId) return null;
 
-  const occurredAt = String(payload.event?.time ?? payload.created_at ?? doc.updated_at ?? nowIso());
+  const occurredAt = signwellTimeToIso(payload.event?.time ?? payload.created_at ?? doc.updated_at ?? nowIso());
   const eventId = String(payload.event?.id ?? payload.id ?? `${rawType}:${documentId}:${occurredAt}`);
   const signedPdfUrl = doc.completed_pdf_url ?? doc.signed_pdf_url ?? null;
   const certificateUrl = doc.audit_page_url ?? doc.certificate_url ?? null;
@@ -99,6 +129,10 @@ const FORWARD_RANK: Record<AgreementStatus, number> = {
  */
 export function nextAgreementStatus(current: AgreementStatus, event: AgreementEventType): AgreementStatus | null {
   if (current === "signed" || current === "declined" || current === "voided") return null; // terminal — ignore
+  // A single recipient finishing (document_signed) is NOT completion — it must never
+  // advance the agreement to `signed` or unlock the deposit. Recorded upstream for audit,
+  // but produces no status transition. Only `document_completed` (event → "signed") does.
+  if (event === "recipient_signed") return null;
   if (event === "signed") return "signed";
   if (event === "declined") return "declined";
   if (event === "voided") return "voided";

@@ -16,6 +16,7 @@
 // generated agreement records exactly which revision it was produced from.
 // ─────────────────────────────────────────────────────────────────────────────
 import type { AgreementContentSnapshot } from "../types";
+import { signwellSigTag, signwellDateTag } from "./signature-fields";
 
 // Increment on ANY change to the clause text below. Format: draft-vN or v1 once
 // counsel signs off. Kept as a string so a lawyer's revision is unambiguous.
@@ -249,15 +250,15 @@ export function buildAgreementSections(c: AgreementContentSnapshot): AgreementSe
       body: [
         `IN WITNESS WHEREOF, the Parties have executed this Agreement as of the Effective Date.`,
         `ARTIFEX LABS (${artifex})`,
-        `Signature: {{sig_artifex}}`,
+        `Signature: ${signwellSigTag(1)}`,
         `Name: ${c.artifexSignatory}`,
-        `Date: {{date_artifex}}`,
+        `Date: ${signwellDateTag(1)}`,
         ``,
         `CLIENT (${c.clientLegalName})`,
-        `Signature: {{sig_client}}`,
+        `Signature: ${signwellSigTag(2)}`,
         `Name: ${c.clientContactName || "____________________"}`,
         `Title / Company: ${c.clientBusinessName || ""}`,
-        `Date: {{date_client}}`,
+        `Date: ${signwellDateTag(2)}`,
       ],
     },
   ];

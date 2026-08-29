@@ -46,14 +46,23 @@ describe("commercial consistency (deposit % / amount / balance)", () => {
 });
 
 describe("signature field mapping (single source; distinct signers)", () => {
-  it("maps {{sig_artifex}}/{{date_artifex}} to the provider and {{sig_client}}/{{date_client}} to the client", () => {
+  it("maps VALID SignWell tags: provider = recipient 1, client = recipient 2", () => {
     const fields = agreementSignatureFields(makeAgreement().contentSnapshot);
     const provider = fields.find((f) => f.role === "provider")!;
     const client = fields.find((f) => f.role === "client")!;
-    expect(provider.sigTag).toBe("{{sig_artifex}}");
-    expect(provider.dateTag).toBe("{{date_artifex}}");
-    expect(client.sigTag).toBe("{{sig_client}}");
-    expect(client.dateTag).toBe("{{date_client}}");
+    // Valid SignWell text-tag format {{fieldtype:signer:required}}, signer = recipient order.
+    expect(provider.signerNumber).toBe(1);
+    expect(client.signerNumber).toBe(2);
+    expect(provider.sigTag).toBe("{{signature:1:y}}");
+    expect(provider.dateTag).toBe("{{date:1:y}}");
+    expect(client.sigTag).toBe("{{signature:2:y}}");
+    expect(client.dateTag).toBe("{{date:2:y}}");
+    // Every anchor is a well-formed SignWell tag (guards against invalid tokens that
+    // would silently place no field).
+    for (const f of fields) {
+      expect(f.sigTag).toMatch(/^\{\{signature:[12]:y\}\}$/);
+      expect(f.dateTag).toMatch(/^\{\{date:[12]:y\}\}$/);
+    }
     // Distinct anchors + distinct parties/signers — no cross-assignment.
     expect(provider.sigTag).not.toBe(client.sigTag);
     expect(provider.party).not.toBe(client.party);

@@ -6,10 +6,11 @@
 // Auth is the X-Api-Key header. Nothing sends unless SIGNWELL_API_KEY is set AND
 // the actions layer has already passed the AGREEMENT_SENDING_ENABLED gate.
 //
-// Field placement uses SignWell TEXT TAGS: the agreement PDF embeds {{sig_client}},
-// {{date_client}}, {{sig_artifex}}, {{date_artifex}} anchors (see AgreementDocument
-// signature block). We ask SignWell to auto-detect them so signature/date fields
-// land without manual coordinate math. SignWell emails the signer the request.
+// Field placement uses SignWell TEXT TAGS in the VALID documented format
+// {{fieldtype:signer:required}} — the PDF embeds {{signature:1:y}}/{{date:1:y}} for
+// recipient 1 (provider) and {{signature:2:y}}/{{date:2:y}} for recipient 2 (client)
+// (see agreementSignatureFields). With text_tags=true SignWell auto-places each field
+// on the correct signer without manual coordinate math. SignWell emails the signer.
 //
 // Logs never include the API key, the PDF bytes, or signer PII beyond a redacted
 // email domain.
