@@ -107,3 +107,21 @@ export async function deleteArtifact(key) {
   if (mode() === "local") { for (const f of [localPath(key), metaPath(key)]) if (existsSync(f)) await fs.rm(f, { force: true }); return; }
   await db()`UPDATE content_studio_artifacts SET deleted_at=now() WHERE object_key=${key}`;
 }
+
+// Materialize a stored artifact to a LOCAL file (for tools that need a real path, e.g. ffmpeg). Reads the
+// bytes by key, VERIFIES existence + integrity (an optional expected sha AND the store's own meta sha),
+// then writes a unique file under destDir. Throws on missing / deleted / expired / tampered input. The
+// CALLER owns cleanup of destDir (and must never persist the returned path). Returns { path, sha, bytes }.
+export async function materializeArtifact(key, { destDir, filename, expectedSha = null }) {
+  const meta = await getArtifactMeta(key);
+  if (!meta) throw new Error("artifact unavailable (missing / expired / deleted): " + key);
+  const bytes = await readArtifactFull(key);
+  if (!bytes) throw new Error("artifact unreadable: " + key);
+  const hash = sha256(bytes);
+  if (expectedSha && hash !== expectedSha) throw new Error("integrity check failed (sha ≠ expected): " + key);
+  if (meta.sha256 && hash !== meta.sha256) throw new Error("integrity check failed (sha ≠ stored meta): " + key);
+  mkdirSync(destDir, { recursive: true });
+  const p = path.join(destDir, filename);
+  await fs.writeFile(p, bytes);
+  return { path: p, sha: hash, bytes: bytes.length };
+}

@@ -131,7 +131,8 @@ function realRenderFn(job, { signal }) {
 }
 function dbToFileJob(job) {
   return { id: job.id, pieceId: job.piece_id, inputVersion: job.input_version, status: "queued", progress: 0,
-    stage: "Queued", mode: job.mode, audioKind: "uploaded", audioFile: job.audio_key, outputFile: null, outputRel: null,
+    stage: "Queued", mode: job.mode, audioKind: "uploaded", audioFile: null, audioKey: job.audio_key ?? null,
+    audioSha: job.audio_sha ?? null, outputFile: null, outputRel: null,
     thumbRel: null, error: null, attempt: job.attempt, pid: null, createdAt: job.created_at, updatedAt: job.created_at,
     startedAt: null, finishedAt: null };
 }

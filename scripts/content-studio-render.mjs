@@ -12,6 +12,7 @@ import { execFileSync, execSync } from "node:child_process";
 import { NOTES } from "./lib/notes.mjs";
 import { renderFrames, readSpeech, warpTimeline, embedThumbnailFrameZero, buildPalette, mixBed, voToWav, mixVoiceCues, dur } from "./lib/fieldnote.mjs";
 import { buildTemplateTimeline, buildTemplateCues } from "./lib/template.mjs";
+import { materializeArtifact, closeArtifacts } from "./lib/cs-artifacts.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const FPS = 24;
@@ -20,7 +21,22 @@ const jobId = process.argv[2];
 if (!jobId) { console.error("usage: content-studio-render.mjs <jobId>"); process.exit(1); }
 
 const JOB_FILE = join(ROOT, ".data", "content-studio", "jobs", `${jobId}.json`);
+const TMP = join(ROOT, `.tmp-cs-${jobId}`); // unique per job — holds frames, cues, and the materialized VO
 const readJob = () => JSON.parse(readFileSync(JOB_FILE, "utf8"));
+
+// Resolve the uploaded voiceover to a LOCAL path the render pipeline can read. Preferred source is the
+// persisted object key (the cross-process ArtifactStore the web wrote via getArtifactStore) — bytes are
+// read + integrity-verified + written into the job's tmp dir (removed with it) by materializeArtifact,
+// which rejects a missing / deleted / expired / tampered input. The legacy job.audioFile path is only a
+// dev fallback. The temp path is NEVER persisted back into the job.
+async function materializeVoiceover(job) {
+  if (job.audioKey) {
+    const ext = (String(job.audioKey).split(".").pop() || "mp3").toLowerCase().replace(/[^a-z0-9]/g, "") || "mp3";
+    const { path: p } = await materializeArtifact(job.audioKey, { destDir: TMP, filename: `vo-input.${ext}`, expectedSha: job.audioSha ?? null });
+    return p;
+  }
+  return job.audioFile; // LEGACY dev fallback (no persisted key)
+}
 function patchJob(patch) {
   const j = { ...readJob(), ...patch, updatedAt: new Date().toISOString() };
   const tmp = JOB_FILE + ".tmp-" + process.pid;
@@ -44,7 +60,7 @@ async function main() {
   mkdirSync(dir, { recursive: true });
   const thumbPath = join(ROOT, "public", "content", "thumbnails", `field-note-${note}-thumbnail.png`);
   if (!existsSync(thumbPath)) throw new Error("thumbnail missing (generate it at template-create time): " + thumbPath);
-  const tmp = join(ROOT, `.tmp-cs-${jobId}`), FRAMES = join(tmp, "frames"), CUE = join(tmp, "cue");
+  const tmp = TMP, FRAMES = join(tmp, "frames"), CUE = join(tmp, "cue");
   rmSync(tmp, { recursive: true, force: true }); [FRAMES, CUE].forEach((d) => mkdirSync(d, { recursive: true }));
 
   const tplPath = templatePath(note);
@@ -53,10 +69,11 @@ async function main() {
   if (tplPath) {
     // ── DATA-DRIVEN TEMPLATE PATH ──────────────────────────────────────────────
     const tpl = JSON.parse(readFileSync(tplPath, "utf8"));
-    if (job.mode !== "uploaded-vo" || !job.audioFile) throw new Error("template pieces require an uploaded voiceover");
-    if (!existsSync(job.audioFile)) throw new Error("voiceover not found: " + job.audioFile);
+    if (job.mode !== "uploaded-vo" || (!job.audioFile && !job.audioKey)) throw new Error("template pieces require an uploaded voiceover");
     patchJob({ stage: "Analyzing voiceover", progress: 0.06 });
-    const speech = readSpeech(job.audioFile);
+    const voPath = await materializeVoiceover(job);
+    if (!voPath || !existsSync(voPath)) throw new Error("voiceover not found: " + (job.audioKey || job.audioFile));
+    const speech = readSpeech(voPath);
     newTL = buildTemplateTimeline(tpl, speech);
     patchJob({ stage: "Rendering frames", progress: 0.08 });
     await renderFrames({
@@ -70,7 +87,7 @@ async function main() {
     const C = buildPalette(CUE, newTL.end);
     const cuesWav = join(tmp, "cues.wav");
     mixBed(buildTemplateCues(tpl, C, newTL), newTL.end, cuesWav);
-    const voWav = join(tmp, "vo.wav"); voToWav(job.audioFile, voWav);
+    const voWav = join(tmp, "vo.wav"); voToWav(voPath, voWav);
     const mixWav = join(tmp, "mix.wav"); mixVoiceCues({ voWav, cuesWav, endSec: newTL.end, outWav: mixWav });
     out = join(dir, `field-note-${note}-final.mp4`);
     ff(["-framerate", String(FPS), "-i", join(FRAMES, "f_%05d.png"), "-i", mixWav,
@@ -81,8 +98,8 @@ async function main() {
     // ── LEGACY WIRED-SCENE PATH (#004–#006) ────────────────────────────────────
     const cfg = NOTES[note];
     if (!cfg) throw new Error(`no scene or template wired for #${note}`);
-    const voPath = job.mode === "uploaded-vo" ? job.audioFile : join(dir, `field-note-${note}-voiceover-input.mp3`);
-    if (!existsSync(voPath)) throw new Error("voiceover not found: " + voPath);
+    const voPath = job.mode === "uploaded-vo" ? await materializeVoiceover(job) : join(dir, `field-note-${note}-voiceover-input.mp3`);
+    if (!voPath || !existsSync(voPath)) throw new Error("voiceover not found: " + (job.audioKey || job.audioFile || voPath));
     patchJob({ stage: "Analyzing voiceover", progress: 0.06 });
     const speech = readSpeech(voPath);
     newTL = warpTimeline(cfg.TL, cfg.narrTimes, speech);
@@ -127,8 +144,13 @@ async function main() {
   console.log(`job ${jobId} ready → ${out} (${audioNote}); duration ${dur(out).toFixed(2)}s`);
 }
 
-main().catch((e) => {
-  try { patchJob({ status: "failed", stage: "Failed", error: String(e?.message || e) }); } catch {}
-  console.error("job failed:", e);
-  process.exit(1);
-});
+main()
+  .then(async () => { await closeArtifacts().catch(() => {}); })
+  .catch(async (e) => {
+    // Clean the temporary render directory (incl. the materialized VO) on failure — never leave it behind.
+    try { rmSync(TMP, { recursive: true, force: true }); } catch {}
+    await closeArtifacts().catch(() => {});
+    try { patchJob({ status: "failed", stage: "Failed", error: String(e?.message || e) }); } catch {}
+    console.error("job failed:", e);
+    process.exit(1);
+  });
