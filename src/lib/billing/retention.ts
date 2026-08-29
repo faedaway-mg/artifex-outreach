@@ -32,6 +32,17 @@ export interface SignedArtifact {
   createdAt: string;
 }
 
+/** Durable BYTES for a signed artifact, keyed by its stable storage key (artifactId). */
+export interface SignedArtifactBlob {
+  id: string;
+  artifactId: string;
+  contentType: string;
+  byteSize: number;
+  sha256: string;
+  data: Uint8Array;
+  createdAt: string;
+}
+
 /** The kinds required for a production agreement to be billing-eligible. */
 export const REQUIRED_PRODUCTION_ARTIFACTS: ArtifactKind[] = ["signed_pdf", "audit_certificate"];
 

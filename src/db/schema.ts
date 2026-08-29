@@ -16,9 +16,18 @@ import {
   pgEnum,
   index,
   uniqueIndex,
+  customType,
 } from "drizzle-orm/pg-core";
 
 const ts = (name: string) => timestamp(name, { mode: "string" });
+
+// Raw binary column. Drizzle has no first-class `bytea`, so we declare one that
+// reads/writes Node Buffers — the driver returns a Buffer, which is a Uint8Array.
+const bytea = customType<{ data: Buffer; driverData: Buffer }>({
+  dataType() {
+    return "bytea";
+  },
+});
 
 export const tierEnum = pgEnum("tier", ["A", "B", "C"]);
 export const pipelineStageEnum = pgEnum("pipeline_stage", [
@@ -946,6 +955,25 @@ export const signedArtifacts = pgTable(
   (t) => ({
     agreementIdx: index("signed_artifacts_agreement_idx").on(t.agreementId),
     kindIdx: index("signed_artifacts_kind_idx").on(t.agreementId, t.kind),
+  }),
+);
+
+// Durable BYTES for a signed artifact (Gate 9). One row per artifact key; the
+// `artifact_id` (the stable storage key) is UNIQUE so a re-upload of the same
+// document is a no-op rather than a duplicate. `data` holds the raw PDF bytes.
+export const signedArtifactBlobs = pgTable(
+  "signed_artifact_blobs",
+  {
+    id: text("id").primaryKey(),
+    artifactId: text("artifact_id").notNull(),
+    contentType: text("content_type").notNull().default("application/pdf"),
+    byteSize: integer("byte_size").notNull().default(0),
+    sha256: text("sha256").notNull().default(""),
+    data: bytea("data").notNull(),
+    createdAt: ts("created_at").notNull(),
+  },
+  (t) => ({
+    artifactIdx: uniqueIndex("signed_artifact_blobs_artifact_idx").on(t.artifactId),
   }),
 );
 

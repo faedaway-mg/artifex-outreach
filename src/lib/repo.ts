@@ -14,7 +14,7 @@ import { hasDb, getDb } from "@/db/client";
 import * as t from "@/db/schema";
 import { db as mem, newId, nowIso, normalizeName, domainFromUrl, normalizePhone, defaultSettings, defaultProspecting } from "./store";
 import type { AgreementApproval, LivePaymentAuthorization } from "./agreement/approval";
-import type { SignedArtifact } from "./billing/retention";
+import type { SignedArtifact, SignedArtifactBlob } from "./billing/retention";
 import { ARTIFEX_IDENTITY } from "./identity";
 import type {
   Operator,
@@ -137,6 +137,7 @@ const AgreementApprovals = collection<AgreementApproval & { id: string }>(t.agre
 const memAgreementApprovals = () => ((mem() as any).agreementApprovals ??= []) as AgreementApproval[];
 const SignedArtifacts = collection<SignedArtifact>(t.signedArtifacts as any, () => ((mem() as any).signedArtifacts ??= []));
 const memSignedArtifacts = () => ((mem() as any).signedArtifacts ??= []) as SignedArtifact[];
+const memSignedArtifactBlobs = () => ((mem() as any).signedArtifactBlobs ??= []) as SignedArtifactBlob[];
 const LivePaymentAuths = collection<LivePaymentAuthorization>(t.livePaymentAuthorizations as any, () => ((mem() as any).livePaymentAuthorizations ??= []));
 const memLivePaymentAuths = () => ((mem() as any).livePaymentAuthorizations ??= []) as LivePaymentAuthorization[];
 
@@ -461,6 +462,44 @@ export async function signedArtifactsForAgreement(agreementId: string): Promise<
 export async function insertSignedArtifact(rec: SignedArtifact): Promise<SignedArtifact> {
   await SignedArtifacts.insert(rec);
   return rec;
+}
+// ── Durable signed-artifact BYTES (Gate 9) ───────────────────────────────────
+export async function insertSignedArtifactBlob(rec: {
+  id?: string;
+  artifactId: string;
+  contentType: string;
+  byteSize: number;
+  sha256: string;
+  data: Uint8Array;
+}): Promise<SignedArtifactBlob> {
+  const row: SignedArtifactBlob = {
+    id: rec.id ?? newId("blob"),
+    artifactId: rec.artifactId,
+    contentType: rec.contentType,
+    byteSize: rec.byteSize,
+    sha256: rec.sha256,
+    data: rec.data,
+    createdAt: nowIso(),
+  };
+  if (hasDb()) await getDb().insert(t.signedArtifactBlobs).values({ ...row, data: Buffer.from(row.data) } as any);
+  else memSignedArtifactBlobs().push(row);
+  return row;
+}
+export async function getSignedArtifactBlob(
+  artifactId: string,
+): Promise<{ contentType: string; byteSize: number; sha256: string; data: Uint8Array } | null> {
+  if (hasDb()) {
+    const r = (await getDb().select().from(t.signedArtifactBlobs).where(eq(t.signedArtifactBlobs.artifactId, artifactId)))[0] as any;
+    if (!r) return null;
+    return { contentType: r.contentType, byteSize: r.byteSize, sha256: r.sha256, data: new Uint8Array(r.data) };
+  }
+  const r = memSignedArtifactBlobs().find((b) => b.artifactId === artifactId);
+  if (!r) return null;
+  return { contentType: r.contentType, byteSize: r.byteSize, sha256: r.sha256, data: r.data };
+}
+export async function signedArtifactBlobExists(artifactId: string): Promise<boolean> {
+  if (hasDb()) return (await getDb().select().from(t.signedArtifactBlobs).where(eq(t.signedArtifactBlobs.artifactId, artifactId))).length > 0;
+  return memSignedArtifactBlobs().some((b) => b.artifactId === artifactId);
 }
 export async function hasLivePaymentAuthorization(agreementId: string): Promise<boolean> {
   const all = hasDb()
