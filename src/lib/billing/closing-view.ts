@@ -13,6 +13,11 @@ import { deriveSchedule, isMilestoneEligible, type MilestoneTerm } from "./miles
 import { moneyView, PAYOUT_CAVEAT, type MoneyView } from "./payout";
 import { retainerReadiness, type RetainerReadiness } from "./retainer";
 import { shouldSkipForPaidCheckoutDeposit } from "./invoice";
+import { esignModeOf, agreementEligibilityContext, type ProductionEvidence } from "./firewall-gate";
+import { evaluateBillingEligibility, type EligibilityState } from "./eligibility";
+import { retentionStatus, type SignedArtifact } from "./retention";
+import { signwellTestModeFor } from "../esign/mode";
+import type { AgreementApproval } from "../agreement/approval";
 
 export type ActionKind = "draft" | "move-money" | "await-external" | "none";
 
@@ -44,6 +49,16 @@ export interface ClosingView {
   retainer: RetainerReadiness;
   /** "live" when external issuing would really send/charge; "test" otherwise. */
   mode: "live" | "test";
+  /** Signing mode + payment safety, surfaced explicitly for the operator UI (Gate 11). */
+  signing: {
+    esignMode: "test" | "production";
+    legallyBinding: boolean;
+    signwellTestMode: boolean;
+    retention: "not-required" | "pending" | "failed" | "retained";
+    billingEligibility: EligibilityState;
+    billingBlockedReason: string;
+    stripeMode: "live" | "test";
+  };
   nextAction: NextAction;
   payoutCaveat: string;
 }
@@ -54,6 +69,11 @@ export function buildClosingView(input: {
   payments: Payment[];
   acceptedKeys?: string[];
   sendingEnabled: boolean;
+  /** Optional pre-loaded production evidence for an accurate billing-eligibility badge. */
+  approval?: AgreementApproval | null;
+  signedArtifacts?: SignedArtifact[];
+  livePaymentAuthorized?: boolean;
+  nowIso?: string;
 }): ClosingView {
   const { agreement, invoices, payments } = input;
   const snap = agreement.contentSnapshot;
@@ -81,6 +101,21 @@ export function buildClosingView(input: {
     };
   });
 
+  // Gate 11: explicit signing-mode + payment-safety badge for the operator UI.
+  const esignMode = esignModeOf(agreement);
+  const artifacts = input.signedArtifacts ?? [];
+  const evidence: ProductionEvidence = {
+    approval: input.approval ?? null,
+    currentBinding: input.approval?.binding ?? null,
+    retention: retentionStatus(artifacts, agreement),
+    recipientsPolicyOk: input.approval != null,
+    ownerLivePaymentAuthorized: input.livePaymentAuthorized ?? false,
+    amountMatchesApproval: true,
+    modeConsistent: true,
+    nowIso: input.nowIso ?? agreement.updatedAt,
+  };
+  const eligibility = evaluateBillingEligibility(agreementEligibilityContext(agreement, evidence));
+
   return {
     entity: { issuerId: issuer.id, legalEntity: issuer.legalEntity },
     agreement: { number: snap.agreementNumber, version: agreement.version, status: agreement.status, signed },
@@ -88,6 +123,15 @@ export function buildClosingView(input: {
     money: moneyView(invoices, snap.currency),
     retainer: retainerReadiness(snap),
     mode: input.sendingEnabled ? "live" : "test",
+    signing: {
+      esignMode,
+      legallyBinding: esignMode === "production",
+      signwellTestMode: signwellTestModeFor(esignMode),
+      retention: retentionStatus(artifacts, agreement),
+      billingEligibility: eligibility.state,
+      billingBlockedReason: eligibility.reason,
+      stripeMode: esignMode === "production" ? "live" : "test",
+    },
     nextAction: computeNextAction(agreement, schedule),
     payoutCaveat: PAYOUT_CAVEAT,
   };

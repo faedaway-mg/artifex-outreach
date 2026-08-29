@@ -17,6 +17,7 @@ function base(over: Partial<ClosingView> = {}): ClosingView {
     money: { ...money0 },
     retainer: { present: false, monthlyAmountCents: null, currency: "usd", activationBlocked: true, missingDecisions: [], note: "" },
     mode: "test",
+    signing: { esignMode: "test", legallyBinding: false, signwellTestMode: true, retention: "not-required", billingEligibility: "ELIGIBLE_TEST_PAYMENT", billingBlockedReason: "Test agreement — eligible for TEST payment only.", stripeMode: "test" },
     nextAction: { label: "Prepare the deposit invoice", kind: "draft" },
     payoutCaveat: "Collected = confirmed by Stripe. Payout to Relay and bank receipt are separate, aggregate across payments and fees, and are not verified here.",
     ...over,

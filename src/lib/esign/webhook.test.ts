@@ -144,6 +144,28 @@ describe("handleSignwellWebhook", () => {
     expect(res.status).toBe(200);
   });
 
+  it("REJECTS an event whose test_mode disagrees with the persisted agreement mode (Gate 8)", async () => {
+    const lead = await insertLead(baseLeadSeed());
+    // Persisted PRODUCTION agreement; a test_mode:true completion must be refused, never applied.
+    const a = makeAgreement({ status: "sent", esignRequestId: "doc_mode", leadId: lead.id });
+    const { id, createdAt, updatedAt, ...rest } = a;
+    const agreement = await insertAgreement({ ...rest, esignMode: "production" } as any);
+    void id; void createdAt; void updatedAt;
+
+    const testEvent = payload("document_completed", "doc_mode", "evt_mode", { test_mode: true });
+    const res = await handleSignwellWebhook({ rawBody: testEvent, secret: WEBHOOK_ID });
+    expect(res.status).toBe(409);
+    expect(res.kind).toBe("mode_mismatch");
+    expect((await getAgreement(agreement.id))?.status).not.toBe("signed");
+    expect(await paymentsForAgreement(agreement.id)).toHaveLength(0);
+
+    // The matching production event (test_mode:false) is accepted.
+    const prodEvent = payload("document_completed", "doc_mode", "evt_mode_ok", { test_mode: false });
+    const ok = await handleSignwellWebhook({ rawBody: prodEvent, secret: WEBHOOK_ID });
+    expect(ok.result).toBe("applied");
+    expect((await getAgreement(agreement.id))?.status).toBe("signed");
+  });
+
   it("does NOT complete or unlock the deposit on a per-signer document_signed (regression: gate only on all signers)", async () => {
     const lead = await insertLead(baseLeadSeed());
     const a = makeAgreement({ status: "sent", esignRequestId: "doc_multi", leadId: lead.id });

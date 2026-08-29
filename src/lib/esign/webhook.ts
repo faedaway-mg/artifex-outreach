@@ -28,6 +28,7 @@ import {
 } from "../repo";
 import { nowIso } from "../store";
 import type { Agreement, AgreementStatus } from "../types";
+import { modeMismatchReason, type EsignMode } from "./mode";
 
 /**
  * Verify SignWell's `event.hash` = HMAC-SHA256(key = webhook id, msg = `type@time`),
@@ -77,6 +78,8 @@ interface ParsedEvent {
   eventId: string;
   signedPdfUrl: string | null;
   certificateUrl: string | null;
+  /** The SignWell document's test_mode, when present (used for mode-consistency). */
+  signwellTestMode: boolean | null;
 }
 
 /**
@@ -114,7 +117,8 @@ export function parseSignwellEvent(payload: any): ParsedEvent | null {
   const eventId = String(payload.event?.id ?? payload.id ?? `${rawType}:${documentId}:${occurredAt}`);
   const signedPdfUrl = doc.completed_pdf_url ?? doc.signed_pdf_url ?? null;
   const certificateUrl = doc.audit_page_url ?? doc.certificate_url ?? null;
-  return { type, documentId, occurredAt, eventId, signedPdfUrl, certificateUrl };
+  const signwellTestMode = typeof doc.test_mode === "boolean" ? doc.test_mode : typeof payload.test_mode === "boolean" ? payload.test_mode : null;
+  return { type, documentId, occurredAt, eventId, signedPdfUrl, certificateUrl, signwellTestMode };
 }
 
 // Monotonic ranking of the FORWARD lifecycle. Terminal side-states (declined,
@@ -177,6 +181,16 @@ export async function handleSignwellWebhook(input: {
   if (!agreement) {
     // Record nothing to apply — unknown document. Ack so SignWell stops retrying.
     return { ok: true, status: 200, kind: event.type, result: "unmatched" };
+  }
+
+  // Gate 8: the SignWell document's test_mode MUST agree with the persisted agreement
+  // mode (null legacy → test). A mismatch means either a test event is targeting a
+  // production agreement or vice-versa — never process it (a test doc must never be able
+  // to advance/complete a production agreement or unlock its payment). Fail closed.
+  if (event.signwellTestMode != null) {
+    const persisted: EsignMode = agreement.esignMode === "production" ? "production" : "test";
+    const reason = modeMismatchReason(persisted, event.signwellTestMode);
+    if (reason) return { ok: false, status: 409, kind: "mode_mismatch", result: reason };
   }
 
   // Dedupe on the provider event id, scoped by agreement.
