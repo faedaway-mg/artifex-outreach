@@ -7,7 +7,11 @@
 import postgres from "postgres";
 import { createHash } from "node:crypto";
 
-export type ArtifactClass = "upload" | "input" | "output" | "poster" | "share-media";
+// One source of truth for the artifact classes — the canonical object-key builder. The artifact_class
+// column mirrors the class segment in the object key (upload | render-input | render-output | poster |
+// share-media), so the stored label and the key never disagree.
+export type { ArtifactClass } from "./cs-object-key";
+import type { ArtifactClass } from "./cs-object-key";
 
 let _sql: ReturnType<typeof postgres> | null = null;
 function db() {

@@ -14,7 +14,7 @@ CREATE TABLE IF NOT EXISTS "content_studio_artifacts" (
   "byte_size"     bigint NOT NULL,
   "sha256"        text NOT NULL,                          -- hex; verified on read
   "data"          bytea NOT NULL,                         -- the durable bytes (atomic with the row)
-  "artifact_class" text NOT NULL,                         -- upload | input | output | poster | share-media
+  "artifact_class" text NOT NULL,                         -- upload | render-input | render-output | poster | share-media
   "job_id"        text,                                   -- owning render job (ownership-fenced writes)
   "share_token"   text,                                   -- owning share (revoke → route returns 410)
   "metadata"      jsonb NOT NULL DEFAULT '{}'::jsonb,

@@ -17,7 +17,7 @@ d("cs-storage-pg (real Postgres)", () => {
   const body = Buffer.from("ARTIFEX-VIDEO-BYTES-0123456789-abcdefghijklmnopqrstuvwxyz"); // 57 bytes
 
   it("atomic publish stores bytes + correct sha256 + size", async () => {
-    const r = await S.putArtifactPg("content-studio/output/t1.mp4", body, "video/mp4", { artifactClass: "output", jobId: "job1" });
+    const r = await S.putArtifactPg("content-studio/output/t1.mp4", body, "video/mp4", { artifactClass: "render-output", jobId: "job1" });
     expect(r.bytes).toBe(body.length);
     expect(r.sha256).toBe(sha(body));
     const meta = await S.getArtifactMetaPg("content-studio/output/t1.mp4");
@@ -39,13 +39,13 @@ d("cs-storage-pg (real Postgres)", () => {
 
   it("idempotent re-publish (same key) overwrites cleanly", async () => {
     const body2 = Buffer.from("NEW-BYTES");
-    await S.putArtifactPg("content-studio/output/t1.mp4", body2, "video/mp4", { artifactClass: "output", jobId: "job1" });
+    await S.putArtifactPg("content-studio/output/t1.mp4", body2, "video/mp4", { artifactClass: "render-output", jobId: "job1" });
     const full = await S.readArtifactFullPg("content-studio/output/t1.mp4");
     expect(full!.equals(body2)).toBe(true);
   });
 
   it("ownership-fenced: a DIFFERENT job cannot overwrite the artifact", async () => {
-    await expect(S.putArtifactPg("content-studio/output/t1.mp4", Buffer.from("HOSTILE"), "video/mp4", { artifactClass: "output", jobId: "OTHER-JOB" }))
+    await expect(S.putArtifactPg("content-studio/output/t1.mp4", Buffer.from("HOSTILE"), "video/mp4", { artifactClass: "render-output", jobId: "OTHER-JOB" }))
       .rejects.toThrow(/ownership-fenced/);
   });
 

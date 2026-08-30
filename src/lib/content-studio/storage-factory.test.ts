@@ -45,7 +45,7 @@ describe("local ArtifactStore round-trip (unified interface)", () => {
     process.env.CONTENT_STUDIO_DATA_DIR = dir; // localRoot() reads this dynamically
     const store = getArtifactStore(env({ NODE_ENV: "test", CS_STORAGE_PROVIDER: "local" }));
     const body = Buffer.from("hello-artifact-bytes-0123456789");
-    await store.put("content-studio/output/x.mp4", body, { artifactClass: "output", contentType: "video/mp4", jobId: "j1" });
+    await store.put("content-studio/output/x.mp4", body, { artifactClass: "render-output", contentType: "video/mp4", jobId: "j1" });
     const meta = await store.getMeta("content-studio/output/x.mp4");
     expect(meta?.size).toBe(body.length);
     expect(meta?.contentType).toBe("video/mp4");
