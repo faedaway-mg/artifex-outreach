@@ -6,6 +6,7 @@
 
 import postgres from "postgres";
 import { createHash } from "node:crypto";
+import { evaluateQuota, quotaLimits, QuotaError } from "./cs-quota";
 
 // One source of truth for the artifact classes — the canonical object-key builder. The artifact_class
 // column mirrors the class segment in the object key (upload | render-input | render-output | poster |
@@ -34,6 +35,11 @@ const liveClause = (sql: ReturnType<typeof postgres>) => sql`deleted_at IS NULL 
 // Ownership fence: when jobId is given, an existing row owned by a DIFFERENT job is not overwritten.
 export async function putArtifactPg(key: string, body: Buffer, contentType: string, opts: { artifactClass: ArtifactClass; jobId?: string | null; shareToken?: string | null; expiresAt?: Date | null; metadata?: Record<string, unknown> } ): Promise<{ key: string; sha256: string; bytes: number }> {
   const sql = db();
+  // MINIMUM hard guard: fail closed before writing bytes if this publish would breach the per-artifact
+  // cap or the total-storage reservation. Keeps a runaway render / oversized upload from filling the volume.
+  const usage = await storageUsagePg();
+  const verdict = evaluateQuota(usage.usedBytes, body.length, quotaLimits());
+  if (!verdict.ok) throw new QuotaError(verdict.reason);
   const hash = sha256(body);
   const rows = await sql`
     INSERT INTO content_studio_artifacts (object_key, content_type, byte_size, sha256, data, artifact_class, job_id, share_token, metadata, published_at, expires_at)

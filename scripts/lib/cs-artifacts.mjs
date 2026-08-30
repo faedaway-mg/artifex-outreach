@@ -37,6 +37,17 @@ function db() {
 export async function closeArtifacts() { if (_sql) { await _sql.end(); _sql = null; } }
 const sha256 = (b) => createHash("sha256").update(b).digest("hex");
 
+// MINIMUM hard storage guard (mirrors src/lib/content-studio/cs-quota.ts): per-artifact cap + total-usage
+// reservation, both fail-closed before the worker publishes bytes. Defaults are well under the volume.
+const CS_MAX_ARTIFACT_BYTES = (() => { const n = Number(process.env.CS_MAX_ARTIFACT_BYTES); return Number.isFinite(n) && n > 0 ? n : 200 * 1024 * 1024; })();
+const CS_STORAGE_QUOTA_BYTES = (() => { const n = Number(process.env.CS_STORAGE_QUOTA_BYTES); return Number.isFinite(n) && n > 0 ? n : 3 * 1024 * 1024 * 1024; })();
+async function assertWithinQuota(sql, incomingBytes) {
+  if (incomingBytes > CS_MAX_ARTIFACT_BYTES) throw new Error(`Content Studio storage quota: artifact ${incomingBytes}B exceeds per-artifact cap ${CS_MAX_ARTIFACT_BYTES}B`);
+  const r = await sql`SELECT COALESCE(sum(byte_size),0)::bigint AS used FROM content_studio_artifacts WHERE deleted_at IS NULL`;
+  const used = Number(r[0].used);
+  if (used + incomingBytes > CS_STORAGE_QUOTA_BYTES) throw new Error(`Content Studio storage quota: used ${used}B + incoming ${incomingBytes}B > ${CS_STORAGE_QUOTA_BYTES}B`);
+}
+
 // Canonical, safe, version-bound object key (mirrors src/lib/content-studio/cs-object-key.ts).
 const SAFE = /^[a-z0-9][a-z0-9_-]{0,63}$/i, EXT = /^[a-z0-9]{1,8}$/i;
 const ENVS = new Set(["development", "test", "staging", "production"]);
@@ -70,6 +81,7 @@ export async function putArtifact(key, body, contentType, { artifactClass, jobId
     return { key, sha256: hashLocal, bytes: body.length };
   }
   const sql = db();
+  await assertWithinQuota(sql, body.length); // fail closed before writing bytes
   const hash = sha256(body);
   const rows = await sql`
     INSERT INTO content_studio_artifacts (object_key, content_type, byte_size, sha256, data, artifact_class, job_id, share_token, metadata, published_at, expires_at)
