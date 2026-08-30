@@ -12,7 +12,8 @@ import { execFileSync, execSync } from "node:child_process";
 import { NOTES } from "./lib/notes.mjs";
 import { renderFrames, readSpeech, warpTimeline, embedThumbnailFrameZero, buildPalette, mixBed, voToWav, mixVoiceCues, dur } from "./lib/fieldnote.mjs";
 import { buildTemplateTimeline, buildTemplateCues } from "./lib/template.mjs";
-import { materializeArtifact, putArtifact, buildObjectKey, closeArtifacts } from "./lib/cs-artifacts.mjs";
+import { materializeArtifact, putArtifact, buildObjectKey, closeArtifacts, getArtifactMeta, loadTemplatePgDoc } from "./lib/cs-artifacts.mjs";
+import { renderTemplateThumbnail } from "./render-template-thumbnail.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const FPS = 24;
@@ -71,6 +72,30 @@ function templatePath(id) {
 }
 const PORT = 9320 + (process.pid % 40);
 
+// Resolve the cover thumbnail to a local path the frame renderer can embed as frame zero. Order:
+//   1) committed seed file (seeded pieces #001–#007) — read-only, always present in the image;
+//   2) a previously-published DURABLE thumbnail in the ArtifactStore (survives restart) → materialize;
+//   3) GENERATE it from the operator-authored template's thumbnail spec (worker has Chrome), publish it
+//      durably to the ArtifactStore, and use it. So an authored template's cover survives web+worker restarts
+//      with no writable-container dependency. Throws only if there's genuinely nothing to render a cover from.
+async function resolveThumbnail(note, tplDoc) {
+  const committed = join(ROOT, "public", "content", "thumbnails", `field-note-${note}-thumbnail.png`);
+  if (existsSync(committed)) return committed;
+  const key = `content-studio/${csEnv()}/thumbnail/${String(note).replace(/[^0-9a-z_-]/gi, "-")}/cover.png`;
+  if (await getArtifactMeta(key)) {
+    const { path: p } = await materializeArtifact(key, { destDir: TMP, filename: "cover.png" });
+    return p;
+  }
+  if (tplDoc && tplDoc.thumbnail) {
+    mkdirSync(TMP, { recursive: true });
+    const gen = join(TMP, "cover.png");
+    await renderTemplateThumbnail({ tpl: tplDoc, outPng: gen, thumbDir: join(ROOT, "public", "content", "thumbnails") });
+    await putArtifact(key, readFileSync(gen), "image/png", { artifactClass: "poster" });
+    return gen;
+  }
+  throw new Error("no thumbnail and no template thumbnail spec to generate one: " + note);
+}
+
 async function main() {
   const job = readJob();
   const note = job.pieceId;
@@ -78,17 +103,20 @@ async function main() {
 
   const dir = join(ROOT, "public", "content", `field-note-${note}`);
   mkdirSync(dir, { recursive: true });
-  const thumbPath = join(ROOT, "public", "content", "thumbnails", `field-note-${note}-thumbnail.png`);
-  if (!existsSync(thumbPath)) throw new Error("thumbnail missing (generate it at template-create time): " + thumbPath);
   const tmp = TMP, FRAMES = join(tmp, "frames"), CUE = join(tmp, "cue");
   rmSync(tmp, { recursive: true, force: true }); [FRAMES, CUE].forEach((d) => mkdirSync(d, { recursive: true }));
 
-  const tplPath = templatePath(note);
+  // Template doc: operator-authored templates live in Postgres (survive restart); a committed piece falls
+  // back to its seed file. Resolve the cover thumbnail durably (may generate + publish it).
+  const filePath = templatePath(note);
+  const tplDoc = (await loadTemplatePgDoc(note)) ?? (filePath ? JSON.parse(readFileSync(filePath, "utf8")) : null);
+  const thumbPath = await resolveThumbnail(note, tplDoc);
+
   let out, audioNote, newTL;
 
-  if (tplPath) {
+  if (tplDoc) {
     // ── DATA-DRIVEN TEMPLATE PATH ──────────────────────────────────────────────
-    const tpl = JSON.parse(readFileSync(tplPath, "utf8"));
+    const tpl = tplDoc;
     if (job.mode !== "uploaded-vo" || (!job.audioFile && !job.audioKey)) throw new Error("template pieces require an uploaded voiceover");
     patchJob({ stage: "Analyzing voiceover", progress: 0.06 });
     const voPath = await materializeVoiceover(job);

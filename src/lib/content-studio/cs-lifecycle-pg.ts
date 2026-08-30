@@ -6,6 +6,8 @@
 // object keys. store.ts / share.ts delegate here when CS_STORAGE_PROVIDER=postgres; local/test keep files.
 import postgres from "postgres";
 import type { RenderJob, AudioUpload, Approval, AudioKind } from "./types";
+import type { ContentTemplate } from "./template-schema";
+import type { DraftPiece } from "./store";
 
 let _sql: ReturnType<typeof postgres> | null = null;
 function db() {
@@ -131,6 +133,40 @@ export async function writeUploadPg(meta: AudioUpload): Promise<void> {
 export async function listUploadsPg(pieceId: string): Promise<AudioUpload[]> {
   const rows = await db()`SELECT * FROM content_studio_uploads WHERE piece_id = ${pieceId} ORDER BY uploaded_at DESC`;
   return rows.map(rowToUpload);
+}
+
+// ── Templates (operator-authored; committed templates stay read-only seeds, not stored here) ──
+export async function saveTemplatePg(t: ContentTemplate): Promise<void> {
+  const businessId = (t as { businessId?: string | null }).businessId ?? null;
+  await db()`INSERT INTO content_studio_templates (id, doc, business_id, updated_at)
+    VALUES (${t.id}, ${db().json(t as unknown as Record<string, never>)}, ${businessId}, now())
+    ON CONFLICT (id) DO UPDATE SET doc = EXCLUDED.doc, business_id = EXCLUDED.business_id, updated_at = now()`;
+}
+export async function loadTemplatePg(id: string): Promise<ContentTemplate | null> {
+  const rows = await db()`SELECT doc FROM content_studio_templates WHERE id = ${id}`;
+  return rows.length ? (rows[0].doc as ContentTemplate) : null;
+}
+export async function listTemplateIdsPg(): Promise<string[]> {
+  const rows = await db()`SELECT id FROM content_studio_templates`;
+  return rows.map((r) => String(r.id));
+}
+export async function hasTemplatePg(id: string): Promise<boolean> {
+  const rows = await db()`SELECT 1 FROM content_studio_templates WHERE id = ${id}`;
+  return rows.length > 0;
+}
+
+// ── Drafts (operator-created concepts) ────────────────────────────────────────
+export async function readDraftsPg(): Promise<DraftPiece[]> {
+  const rows = await db()`SELECT id, title, concept, narration, created_at FROM content_studio_drafts ORDER BY created_at`;
+  return rows.map((r) => ({
+    id: String(r.id), title: String(r.title), concept: (r.concept as string) ?? "",
+    narration: Array.isArray(r.narration) ? (r.narration as string[]) : [], createdAt: iso(r.created_at),
+  }));
+}
+export async function addDraftPg(d: DraftPiece): Promise<void> {
+  await db()`INSERT INTO content_studio_drafts (id, title, concept, narration, created_at)
+    VALUES (${d.id}, ${d.title}, ${d.concept}, ${db().json(d.narration as unknown as Record<string, never>)}, ${d.createdAt})
+    ON CONFLICT (id) DO UPDATE SET title = EXCLUDED.title, concept = EXCLUDED.concept, narration = EXCLUDED.narration`;
 }
 
 // ── Shares (record persistence; frozen bytes live in content_studio_artifacts) ─

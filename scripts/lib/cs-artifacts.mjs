@@ -37,6 +37,15 @@ function db() {
 export async function closeArtifacts() { if (_sql) { await _sql.end(); _sql = null; } }
 const sha256 = (b) => createHash("sha256").update(b).digest("hex");
 
+// Worker-side template loader: in postgres mode an operator-authored template lives in
+// content_studio_templates (survives restarts, no file). Returns the parsed doc or null (caller falls back
+// to a committed public seed file). Mirrors store.ts loadTemplate resolution for the .mjs render worker.
+export async function loadTemplatePgDoc(id) {
+  if (mode() !== "postgres") return null;
+  const rows = await db()`SELECT doc FROM content_studio_templates WHERE id = ${id}`;
+  return rows.length ? rows[0].doc : null;
+}
+
 // MINIMUM hard storage guard (mirrors src/lib/content-studio/cs-quota.ts): per-artifact cap + total-usage
 // reservation, both fail-closed before the worker publishes bytes. Defaults are well under the volume.
 const CS_MAX_ARTIFACT_BYTES = (() => { const n = Number(process.env.CS_MAX_ARTIFACT_BYTES); return Number.isFinite(n) && n > 0 ? n : 200 * 1024 * 1024; })();

@@ -20,6 +20,8 @@ const ORDER = [
   "content_studio_uploads.sql",
   "content_studio_approvals.sql",
   "content_studio_posted.sql",
+  "content_studio_templates.sql",
+  "content_studio_drafts.sql",
 ];
 
 const url = process.env.CS_DATABASE_URL || process.env.DATABASE_URL;
