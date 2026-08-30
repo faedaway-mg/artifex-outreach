@@ -8,9 +8,16 @@
 // TEST-mode agreement (the runtime derives test mode with the production flags OFF),
 // never sends anything, and never touches a real provider or Stripe.
 // ─────────────────────────────────────────────────────────────────────────────
+import { createHash, randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
-import { insertAgreement, getAgreement, updateAgreement } from "@/lib/repo";
+import {
+  insertAgreement, getAgreement, updateAgreement,
+  getAgreementApproval, getLatestSendAuthorization, getSignedArtifactBlob,
+  insertOperatorIfAbsent,
+} from "@/lib/repo";
 import { makeAgreement } from "@/lib/agreement/test-fixtures";
+import { SEED_OPERATORS, normalizeOperator } from "@/lib/operators/model";
+import { frozenUnsignedPdfKey } from "@/lib/agreement/frozen-pdf";
 import { nowIso } from "@/lib/store";
 
 export const runtime = "nodejs";
@@ -30,9 +37,14 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "invalid json" }, { status: 400 });
   }
 
-  // Seed a fresh DRAFT agreement (test mode) and return its id.
+  // Seed a fresh DRAFT agreement (test mode) and return its id. The number is uniquified
+  // (the DB persists across runs, so a fixed number would collide on the unique index).
   if (body.op === "seed") {
-    const suffix = (body.suffix ?? "").replace(/[^a-zA-Z0-9]/g, "").slice(0, 12) || "0001";
+    // Ensure the founding operator exists so the session's role resolves to "founder"
+    // (the in-memory store seeds this; a minimal DB may not). Idempotent, dev-only.
+    await insertOperatorIfAbsent(normalizeOperator(SEED_OPERATORS[0]));
+    const base = (body.suffix ?? "").replace(/[^a-zA-Z0-9]/g, "").slice(0, 12) || "0001";
+    const suffix = `${base}-${randomUUID().slice(0, 8)}`;
     const template = makeAgreement({
       status: "draft",
       esignRequestId: null,
@@ -58,6 +70,28 @@ export async function POST(req: Request) {
     }
     const updated = await updateAgreement(body.id, { status: "signed", signedAt: nowIso() });
     return NextResponse.json({ ok: true, id: body.id, status: updated?.status ?? "signed" });
+  }
+
+  // Report the FROZEN unsigned PDF identity (recomputed from the persisted bytes) plus the
+  // SHA bound by the approval and the latest send authorization — so the rehearsal can prove
+  // one identical artifact spans approval → authorization → send.
+  if (body.op === "frozen-pdf-info") {
+    if (!body.id) return NextResponse.json({ ok: false, error: "id required" }, { status: 400 });
+    const agreement = await getAgreement(body.id);
+    if (!agreement) return NextResponse.json({ ok: false, error: "not found" }, { status: 404 });
+    const blob = await getSignedArtifactBlob(frozenUnsignedPdfKey(agreement.id, agreement.version));
+    const approval = await getAgreementApproval(agreement.id, agreement.version);
+    const sendAuth = await getLatestSendAuthorization(agreement.id, agreement.version);
+    const recomputedSha = blob ? createHash("sha256").update(Buffer.from(blob.data)).digest("hex") : null;
+    return NextResponse.json({
+      ok: true,
+      frozen: blob ? { storedSha: blob.sha256, recomputedSha, byteSize: blob.byteSize } : null,
+      approvalBindingSha: approval?.binding.unsignedPdfSha256 ?? null,
+      sendAuthSha: sendAuth?.unsignedPdfSha256 ?? null,
+      sendAuthConsumedAt: sendAuth?.consumedAt ?? null,
+      esignRequestId: agreement.esignRequestId ?? null,
+      status: agreement.status,
+    });
   }
 
   return NextResponse.json({ ok: false, error: `unknown op '${body.op}'` }, { status: 400 });
