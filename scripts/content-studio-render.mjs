@@ -183,7 +183,8 @@ async function main() {
     }
   }
 
-  rmSync(tmp, { recursive: true, force: true });
+  // NOTE: do NOT delete TMP here — for an operator-authored template the frame-zero cover lives in TMP
+  // (materialized/generated) and is the poster source below. TMP is cleaned AFTER publication (and on failure).
   const outRel = "/content/" + out.slice(out.indexOf(`field-note-${note}/`));
 
   // DURABLE PUBLICATION — the job is NOT complete until both the rendered mp4 and the frame-zero poster
@@ -197,6 +198,7 @@ async function main() {
   const posterKey = buildObjectKey({ artifactClass: "poster", env, jobId, version: job.inputVersion, ext: "png" });
   const videoPub = await publishFile(outputKey, out, "video/mp4", "render-output", jobId);
   const posterPub = await publishFile(posterKey, thumbPath, "image/png", "poster", jobId);
+  rmSync(TMP, { recursive: true, force: true }); // durable publish done → drop the render scratch (frames + cover)
 
   patchJob({
     status: "ready", stage: "Ready", progress: 1, outputFile: out, outputRel: outRel,
