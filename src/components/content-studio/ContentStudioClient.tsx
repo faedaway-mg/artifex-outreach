@@ -1,27 +1,34 @@
 "use client";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
   Film, Upload, Copy, Check, Download, Play, RefreshCw, Loader2, Plus, X,
-  CircleCheck, CircleAlert, Clapperboard, Users, ExternalLink, Clock, Radio,
+  CircleCheck, CircleAlert, Clapperboard, Users, ExternalLink, Clock, Radio, Eye,
 } from "lucide-react";
 import { SectionHeader } from "@/components/ui";
 import type { StudioItem, SafeJob } from "./types";
+
+// PREVIEW MODE — a read-only, disabled-by-default visibility build. When on, EVERY mutating control is
+// disabled and EVERY network call is short-circuited (belt: handlers return early; suspenders: buttons
+// are disabled). Nothing enqueues a job, writes storage, sends, or claims success. Fixtures only.
+const PreviewCtx = createContext(false);
+const usePreview = () => useContext(PreviewCtx);
 
 const POLL_MS = 1500;
 const fmtBytes = (b: number) => (b > 1024 * 1024 ? (b / 1024 / 1024).toFixed(1) + " MB" : Math.round(b / 1024) + " KB");
 const fmtDur = (s: number | null) => (s == null ? "—" : `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, "0")}`);
 
-export function ContentStudioClient({ initialItems }: { initialItems: StudioItem[] }) {
+export function ContentStudioClient({ initialItems, preview = false }: { initialItems: StudioItem[]; preview?: boolean }) {
   const [items, setItems] = useState<StudioItem[]>(initialItems);
   const [selectedId, setSelectedId] = useState<string>(initialItems[0]?.piece.id ?? "");
   const [jobOverride, setJobOverride] = useState<Record<string, SafeJob>>({});
   const [creating, setCreating] = useState(false);
 
   const refetch = useCallback(async () => {
+    if (preview) return; // preview never re-fetches server state — fixtures only
     const r = await fetch("/api/content-studio/pieces", { cache: "no-store" });
     if (r.ok) { const { items } = await r.json(); setItems(items); }
-  }, []);
+  }, [preview]);
 
   // Merge any polled job overrides onto the snapshot jobs.
   const mergedItems = useMemo(
@@ -35,7 +42,7 @@ export function ContentStudioClient({ initialItems }: { initialItems: StudioItem
 
   // Poll active jobs; refetch the snapshot when any finishes (survives refresh — jobs are server-side).
   useEffect(() => {
-    if (!activeJobIds.length) return;
+    if (preview || !activeJobIds.length) return; // no polling in preview
     let stop = false;
     const tick = async () => {
       let terminal = false;
@@ -49,11 +56,12 @@ export function ContentStudioClient({ initialItems }: { initialItems: StudioItem
     };
     const iv = setInterval(tick, POLL_MS); tick();
     return () => { stop = true; clearInterval(iv); };
-  }, [activeJobIds.join(","), refetch]);
+  }, [activeJobIds.join(","), refetch, preview]);
 
   const selected = mergedItems.find((it) => it.piece.id === selectedId) ?? mergedItems[0];
 
   return (
+    <PreviewCtx.Provider value={preview}>
     <div className="space-y-5">
       <SectionHeader
         title="Content Studio"
@@ -63,10 +71,26 @@ export function ContentStudioClient({ initialItems }: { initialItems: StudioItem
             <Link href="/portfolio" className="btn-ghost flex items-center gap-1.5 text-xs" title="Per-business review videos live on each business page">
               <Users size={14} /> Client videos
             </Link>
-            <button onClick={() => setCreating(true)} className="btn-secondary flex items-center gap-1.5 text-xs"><Plus size={14} /> New video</button>
+            <button disabled={preview} onClick={() => !preview && setCreating(true)} title={preview ? "Disabled in preview" : ""} className="btn-secondary flex items-center gap-1.5 text-xs disabled:opacity-40"><Plus size={14} /> New video</button>
           </div>
         }
       />
+
+      {preview && (
+        <div className="card flex items-start gap-3 border-amber-400/30 bg-amber-400/[0.06] p-3.5">
+          <span className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-amber-400/30 bg-amber-400/10 text-amber-300"><Eye size={16} /></span>
+          <div className="min-w-0 flex-1 text-xs leading-relaxed">
+            <p className="font-semibold text-amber-200">Preview — rendering not connected.</p>
+            <p className="mt-0.5 text-amber-100/80">
+              This is a read-only visibility build showing the real Presentation Video and Social Content
+              interfaces with demo content. Upload, generate, approve, publish, share and send are
+              <span className="font-medium text-amber-100"> disabled</span> here — no jobs are enqueued, no
+              storage is written, nothing is sent. The functional loop (upload → render → publish → download)
+              deploys to an isolated environment next.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Prospect/client workflow signpost — preserved, not replaced. */}
       <div className="card flex items-start gap-3 p-3.5">
@@ -94,12 +118,14 @@ export function ContentStudioClient({ initialItems }: { initialItems: StudioItem
         {selected && <PieceDetail key={selected.piece.id} item={selected} onChanged={refetch} setJobOverride={setJobOverride} />}
       </div>
 
-      {creating && <NewPieceModal onClose={() => setCreating(false)} onCreated={async () => { setCreating(false); await refetch(); }} />}
+      {creating && !preview && <NewPieceModal onClose={() => setCreating(false)} onCreated={async () => { setCreating(false); await refetch(); }} />}
     </div>
+    </PreviewCtx.Provider>
   );
 }
 
 function ClientVideosPanel({ onPrepared, onSelect }: { onPrepared: () => Promise<void>; onSelect: (id: string) => void }) {
+  const preview = usePreview();
   const [open, setOpen] = useState(false);
   const [cands, setCands] = useState<any[] | null>(null);
   const [leadId, setLeadId] = useState("");
@@ -107,12 +133,14 @@ function ClientVideosPanel({ onPrepared, onSelect }: { onPrepared: () => Promise
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
+    if (preview) { setCands([]); return; } // preview: no server read, show the empty-state copy
     const r = await fetch("/api/content-studio/client/candidates", { cache: "no-store" });
     if (r.ok) { const d = await r.json(); setCands(d.candidates ?? []); }
-  }, []);
+  }, [preview]);
   useEffect(() => { if (open && cands === null) load(); }, [open, cands, load]);
 
   const prepare = async (id: string, allowOverride = false) => {
+    if (preview) { setMsg({ tone: "err", text: "Disabled in preview — connect the functional environment to prepare client videos." }); return; }
     setBusy(true); setMsg(null);
     try {
       const r = await fetch("/api/content-studio/client/prepare", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ leadId: id, allowOverride }) });
@@ -150,9 +178,9 @@ function ClientVideosPanel({ onPrepared, onSelect }: { onPrepared: () => Promise
                   <span className="min-w-0 flex-1 truncate text-chalk-200">{c.businessName}</span>
                   <span className={`rounded-full border px-1.5 py-0.5 text-[10px] ${c.eligible ? "border-teal-400/25 bg-teal-400/10 text-teal-300" : "border-white/10 text-chalk-400"}`}>{c.readiness}</span>
                   {c.eligible ? (
-                    <button disabled={busy} onClick={() => prepare(c.leadId)} className="btn-secondary text-[11px]">Prepare</button>
+                    <button disabled={busy || preview} onClick={() => prepare(c.leadId)} className="btn-secondary text-[11px] disabled:opacity-40">Prepare</button>
                   ) : c.overridable ? (
-                    <button disabled={busy} onClick={() => prepare(c.leadId, true)} className="btn-ghost text-[11px]" title={c.blockers?.join("; ")}>Override</button>
+                    <button disabled={busy || preview} onClick={() => prepare(c.leadId, true)} className="btn-ghost text-[11px] disabled:opacity-40" title={c.blockers?.join("; ")}>Override</button>
                   ) : (
                     <span className="text-[10px] text-chalk-600" title={c.blockers?.join("; ")}>blocked</span>
                   )}
@@ -161,8 +189,8 @@ function ClientVideosPanel({ onPrepared, onSelect }: { onPrepared: () => Promise
             </div>
           )}
           <div className="flex items-center gap-2">
-            <input value={leadId} onChange={(e) => setLeadId(e.target.value)} placeholder="business / lead ID" className="input text-xs" />
-            <button disabled={busy || !leadId.trim()} onClick={() => prepare(leadId.trim())} className="btn-secondary flex items-center gap-1.5 text-xs disabled:opacity-50">{busy ? <Loader2 size={13} className="animate-spin" /> : <Clapperboard size={13} />} Prepare</button>
+            <input value={leadId} onChange={(e) => setLeadId(e.target.value)} placeholder="business / lead ID" disabled={preview} className="input text-xs disabled:opacity-40" />
+            <button disabled={busy || preview || !leadId.trim()} onClick={() => prepare(leadId.trim())} className="btn-secondary flex items-center gap-1.5 text-xs disabled:opacity-50">{busy ? <Loader2 size={13} className="animate-spin" /> : <Clapperboard size={13} />} Prepare</button>
           </div>
           <p className="text-[11px] text-chalk-600">The readiness gate is unchanged — insufficient-evidence businesses stay blocked with reasons. Prepared videos are bound to their business and appear in the list above.</p>
         </div>
@@ -172,6 +200,7 @@ function ClientVideosPanel({ onPrepared, onSelect }: { onPrepared: () => Promise
 }
 
 function SharePanel({ item }: { item: StudioItem }) {
+  const preview = usePreview();
   const pieceId = item.piece.id;
   const [shares, setShares] = useState<any[] | null>(null);
   const [busy, setBusy] = useState(false);
@@ -179,20 +208,23 @@ function SharePanel({ item }: { item: StudioItem }) {
   const [email, setEmail] = useState<any | null>(null);
 
   const load = useCallback(async () => {
+    if (preview) { setShares([]); return; } // preview: no server read
     const r = await fetch(`/api/content-studio/share?pieceId=${encodeURIComponent(pieceId)}`, { cache: "no-store" });
     if (r.ok) setShares((await r.json()).shares ?? []);
-  }, [pieceId]);
+  }, [pieceId, preview]);
   useEffect(() => { load(); }, [load]);
 
   const create = async () => {
+    if (preview) { setMsg("Disabled in preview — hosted viewing links are created in the functional environment."); return; }
     setBusy(true); setMsg(null);
     const r = await fetch("/api/content-studio/share", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pieceId }) });
     const d = await r.json();
     if (!r.ok) setMsg(d.error); else { setMsg("Viewing link created."); await load(); }
     setBusy(false);
   };
-  const revoke = async (token: string) => { await fetch(`/api/content-studio/share/${token}/revoke`, { method: "POST" }); setEmail(null); await load(); };
+  const revoke = async (token: string) => { if (preview) return; await fetch(`/api/content-studio/share/${token}/revoke`, { method: "POST" }); setEmail(null); await load(); };
   const prepare = async (token: string) => {
+    if (preview) return;
     setBusy(true); setMsg(null);
     const r = await fetch(`/api/content-studio/share/${token}/email`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}) });
     const d = await r.json();
@@ -209,7 +241,7 @@ function SharePanel({ item }: { item: StudioItem }) {
           <h4 className="text-sm font-semibold text-chalk-100">Sharing &amp; outreach</h4>
           <p className="text-xs text-chalk-500">Host the approved video on a branded link — no MP4 attached to email.</p>
         </div>
-        <button disabled={busy} onClick={create} className="btn-secondary flex items-center gap-1.5 text-xs disabled:opacity-50"><ExternalLink size={13} /> Create viewing link</button>
+        <button disabled={busy || preview} onClick={create} title={preview ? "Disabled in preview" : ""} className="btn-secondary flex items-center gap-1.5 text-xs disabled:opacity-40"><ExternalLink size={13} /> Create viewing link</button>
       </div>
       {msg && <p className="mb-2 text-xs text-chalk-400">{msg}</p>}
       {live.length === 0 ? (
@@ -221,8 +253,8 @@ function SharePanel({ item }: { item: StudioItem }) {
               <div className="flex items-center gap-2 text-xs">
                 <a href={s.viewUrl} target="_blank" rel="noopener noreferrer" className="min-w-0 flex-1 truncate text-azure-300 hover:underline">{s.viewUrl}</a>
                 <CopyBtn text={s.viewUrl} label="Copy link" />
-                <button onClick={() => prepare(s.token)} className="btn-secondary text-[11px]">Prepare email</button>
-                <button onClick={() => revoke(s.token)} className="btn-ghost text-[11px] text-coral-300">Revoke</button>
+                <button disabled={preview} onClick={() => prepare(s.token)} className="btn-secondary text-[11px] disabled:opacity-40">Prepare email</button>
+                <button disabled={preview} onClick={() => revoke(s.token)} className="btn-ghost text-[11px] text-coral-300 disabled:opacity-40">Revoke</button>
               </div>
               <p className="mt-1 text-[10px] text-chalk-600">video {s.videoHash} · version {s.inputVersion} · unlisted link (anyone with it can forward; revoke to disable)</p>
             </div>
@@ -297,6 +329,7 @@ function CopyBtn({ text, label = "Copy" }: { text: string; label?: string }) {
 }
 
 function PieceDetail({ item, onChanged, setJobOverride }: { item: StudioItem; onChanged: () => Promise<void>; setJobOverride: (f: (o: Record<string, SafeJob>) => Record<string, SafeJob>) => void }) {
+  const preview = usePreview();
   const { piece } = item;
   const [msg, setMsg] = useState<{ tone: "ok" | "err"; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -306,6 +339,7 @@ function PieceDetail({ item, onChanged, setJobOverride }: { item: StudioItem; on
   const narrationText = piece.narration.join("\n");
 
   const startRender = async (useUpload: boolean) => {
+    if (preview) { setMsg({ tone: "err", text: "Disabled in preview — rendering runs only in the connected functional environment." }); return; }
     setBusy(true); setMsg(null);
     try {
       const r = await fetch("/api/content-studio/render", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pieceId: piece.id, useUpload }) });
@@ -321,11 +355,13 @@ function PieceDetail({ item, onChanged, setJobOverride }: { item: StudioItem; on
   };
 
   const markPosted = async () => {
+    if (preview) { setMsg({ tone: "err", text: "Disabled in preview." }); return; }
     const r = await fetch(`/api/content-studio/pieces/${piece.id}/posted`, { method: "POST" });
     if (!r.ok) { const d = await r.json().catch(() => ({})); setMsg({ tone: "err", text: d.error || "Could not mark posted." }); return; }
     await onChanged();
   };
   const approve = async () => {
+    if (preview) { setMsg({ tone: "err", text: "Disabled in preview." }); return; }
     const r = await fetch(`/api/content-studio/pieces/${piece.id}/approve`, { method: "POST" });
     const d = await r.json().catch(() => ({}));
     if (!r.ok) setMsg({ tone: "err", text: d.error || "Could not approve." });
@@ -405,14 +441,14 @@ function PieceDetail({ item, onChanged, setJobOverride }: { item: StudioItem; on
                 {/* Only #004–#006 have a previously-approved voiceover to reuse; template pieces render
                     from an uploaded VO. */}
                 {["004", "005", "006"].includes(piece.id) && (
-                  <button disabled={busy} onClick={() => startRender(false)} className="btn-primary flex items-center gap-1.5 text-sm disabled:opacity-50">
+                  <button disabled={busy || preview} onClick={() => startRender(false)} className="btn-primary flex items-center gap-1.5 text-sm disabled:opacity-40">
                     {busy ? <Loader2 size={15} className="animate-spin" /> : <RefreshCw size={15} />} Generate (approved voiceover)
                   </button>
                 )}
-                <button disabled={busy || !hasUpload} onClick={() => startRender(true)} className={`flex items-center gap-1.5 text-sm disabled:opacity-40 ${["004", "005", "006"].includes(piece.id) ? "btn-secondary" : "btn-primary"}`} title={hasUpload ? "" : "Upload a voiceover first"}>
+                <button disabled={busy || preview || !hasUpload} onClick={() => startRender(true)} className={`flex items-center gap-1.5 text-sm disabled:opacity-40 ${["004", "005", "006"].includes(piece.id) ? "btn-secondary" : "btn-primary"}`} title={preview ? "Disabled in preview" : hasUpload ? "" : "Upload a voiceover first"}>
                   <Film size={15} /> Generate with my voiceover
                 </button>
-                {lastFailed && <button disabled={busy || !hasUpload} onClick={() => startRender(true)} className="btn-ghost flex items-center gap-1.5 text-xs text-coral-300"><RefreshCw size={13} /> Retry</button>}
+                {lastFailed && <button disabled={busy || preview || !hasUpload} onClick={() => startRender(true)} className="btn-ghost flex items-center gap-1.5 text-xs text-coral-300 disabled:opacity-40"><RefreshCw size={13} /> Retry</button>}
               </div>
             )}
             {lastFailed && !activeJob && <p className="mt-2 text-xs text-coral-300">Last render failed: {lastFailed.error}</p>}
@@ -444,9 +480,9 @@ function PieceDetail({ item, onChanged, setJobOverride }: { item: StudioItem; on
                 <a href={piece.recommendedRel} download className={`flex w-full items-center justify-center gap-1.5 text-sm sm:w-auto ${isPlaceholder ? "btn-secondary" : "btn-primary"}`}><Download size={15} /> {isPlaceholder ? "Download preview" : "Download video"}</a>
                 {piece.thumbRel && <a href={piece.thumbRel} download className="btn-secondary flex w-full items-center justify-center gap-1.5 text-sm sm:w-auto"><Download size={15} /> Download thumbnail</a>}
                 {!isPlaceholder && !pv.approved && pv.audioKind === "uploaded" && (
-                  <button onClick={approve} className="btn-primary flex w-full items-center justify-center gap-1.5 text-sm sm:w-auto"><CircleCheck size={15} /> Approve for posting</button>
+                  <button disabled={preview} onClick={approve} title={preview ? "Disabled in preview" : ""} className="btn-primary flex w-full items-center justify-center gap-1.5 text-sm disabled:opacity-40 sm:w-auto"><CircleCheck size={15} /> Approve for posting</button>
                 )}
-                <button disabled={!postable} onClick={markPosted} title={postable ? "" : "Approve a non-placeholder render first"} className="btn-ghost flex w-full items-center justify-center gap-1.5 text-xs disabled:opacity-40 sm:w-auto"><Radio size={13} /> {item.postedAt ? "Update posted date" : "Mark as posted"}</button>
+                <button disabled={preview || !postable} onClick={markPosted} title={preview ? "Disabled in preview" : postable ? "" : "Approve a non-placeholder render first"} className="btn-ghost flex w-full items-center justify-center gap-1.5 text-xs disabled:opacity-40 sm:w-auto"><Radio size={13} /> {item.postedAt ? "Update posted date" : "Mark as posted"}</button>
                 {isPlaceholder
                   ? <p className="pt-1 text-[11px] leading-relaxed text-amber-300/90">This render uses a placeholder voiceover for layout/timing preview only. Upload your real voiceover to produce a postable video — it is not an approved or final asset.</p>
                   : <p className="pt-1 text-[11px] leading-relaxed text-chalk-500">The thumbnail is also embedded as the first frame — still upload it as the cover when posting; platforms don’t all pick frame zero.</p>}
@@ -499,12 +535,14 @@ function RenderProgress({ job }: { job: SafeJob }) {
 }
 
 function UploadPanel({ item, onChanged, setMsg }: { item: StudioItem; onChanged: () => Promise<void>; setMsg: (m: { tone: "ok" | "err"; text: string } | null) => void }) {
+  const preview = usePreview();
   const { piece } = item;
   const [uploading, setUploading] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const latest = item.uploads[0];
 
   const onFile = async (file: File) => {
+    if (preview) { setMsg({ tone: "err", text: "Disabled in preview — voiceover upload runs in the functional environment." }); return; }
     setUploading(true); setMsg(null);
     try {
       // Detect duration client-side (mobile-friendly) before sending.
@@ -526,8 +564,8 @@ function UploadPanel({ item, onChanged, setMsg }: { item: StudioItem; onChanged:
       <h4 className="mb-1 text-sm font-semibold text-chalk-100">Your voiceover</h4>
       <p className="mb-3 text-xs leading-relaxed text-chalk-500">Record narration on your phone, then upload the MP3 (or M4A / WAV, ≤25 MB, 5–90s). You produce the voice — Content Studio never generates it.</p>
       <div className="flex flex-wrap items-center gap-2">
-        <input ref={inputRef} type="file" accept="audio/*,.mp3,.m4a,.wav,.aac" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) onFile(f); }} />
-        <button disabled={uploading} onClick={() => inputRef.current?.click()} className="btn-secondary flex items-center gap-1.5 text-sm disabled:opacity-50">
+        <input ref={inputRef} type="file" accept="audio/*,.mp3,.m4a,.wav,.aac" className="hidden" disabled={preview} onChange={(e) => { const f = e.target.files?.[0]; if (f) onFile(f); }} />
+        <button disabled={uploading || preview} onClick={() => inputRef.current?.click()} title={preview ? "Disabled in preview" : ""} className="btn-secondary flex items-center gap-1.5 text-sm disabled:opacity-40">
           {uploading ? <Loader2 size={15} className="animate-spin" /> : <Upload size={15} />} {uploading ? "Uploading…" : latest ? "Replace voiceover" : "Upload voiceover"}
         </button>
         {latest && <span className="text-xs text-chalk-400">{latest.name} · {fmtDur(latest.durationSeconds)} · {fmtBytes(latest.bytes)}</span>}
