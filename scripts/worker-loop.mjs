@@ -53,7 +53,8 @@ export async function claimOne(sql, { leaseMs }) {
 // Ownership-checked, idempotent success publish: only writes if we still hold the lease for this attempt.
 export async function publishSuccess(sql, job, result) {
   const rows = await sql`UPDATE content_studio_jobs
-    SET status='ready', progress=1, output_key=${result.outputKey},
+    SET status='ready', progress=1, stage='Ready', output_key=${result.outputKey},
+        poster_key=${result.posterKey ?? null},
         error=null, finished_at=now(), updated_at=now()
     WHERE id=${job.id} AND worker_id=${WORKER_ID} AND attempt=${job.attempt} AND status='rendering'
     RETURNING id`;
@@ -125,7 +126,7 @@ function realRenderFn(job, { signal }) {
         rmSync(jf, { force: true });
         // Prefer the DURABLE ArtifactStore key the render worker published; fall back to the legacy
         // rel/path only in dev where no key was produced.
-        if (out.status === "ready" && (out.outputKey || out.outputFile)) resolve({ outputKey: out.outputKey || out.outputRel || out.outputFile, videoHash: null });
+        if (out.status === "ready" && (out.outputKey || out.outputFile)) resolve({ outputKey: out.outputKey || out.outputRel || out.outputFile, posterKey: out.posterKey ?? null, videoHash: null });
         else reject(new Error(out.error || `render exited ${code}`));
       } catch (e) { reject(new Error("render output unreadable: " + e.message)); }
     });

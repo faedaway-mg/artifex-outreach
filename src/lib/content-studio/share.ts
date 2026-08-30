@@ -18,6 +18,14 @@ import { ARTIFEX_IDENTITY, ARTIFEX_ADDRESS } from "../identity";
 import { getArtifactStore } from "./storage-factory";
 import { buildObjectKey } from "./cs-object-key";
 import { csEnvironment } from "./env-guard";
+import * as pgShares from "./cs-lifecycle-pg";
+
+// Postgres mode → share RECORDS persist in content_studio_shares (bytes already live in the ArtifactStore);
+// dev/test keep the JSON files below. This is what makes hosted links durable across restarts in staging/prod.
+function pgMode(): boolean {
+  const p = (process.env.CS_STORAGE_PROVIDER ?? "").trim().toLowerCase();
+  return p === "postgres" || p === "pg";
+}
 
 const APPROVED_MASTER = ["001", "002", "003", "004", "005", "006"];
 function approvedMasterFile(pieceId: string): string | null {
@@ -69,7 +77,7 @@ async function pieceMeta(pieceId: string): Promise<{ title: string; businessId: 
 // source that has no key in the store yet, the bytes are published ONCE under a token-scoped share-media
 // key — immutability comes from the token→key binding (a regenerate makes a NEW key, never mutating this).
 export async function createShare(pieceId: string): Promise<{ ok: true; share: ShareRecord } | { ok: false; error: string }> {
-  ensure();
+  if (!pgMode()) ensure(); // file mode needs the dirs; pg mode never touches container disk
   const store = getArtifactStore();
   const env = csEnvironment();
   const [jobs, approvals] = await Promise.all([listJobs(), readApprovals()]);
@@ -135,7 +143,8 @@ export async function createShare(pieceId: string): Promise<{ ok: true; share: S
     videoKey, posterKey, posterContentType,
     posterRel: meta.posterRel, emailThumbRel, createdAt: new Date().toISOString(), revokedAt: null,
   };
-  await fs.writeFile(recPath(token), JSON.stringify(share, null, 2), "utf8");
+  if (pgMode()) await pgShares.insertSharePg(share);
+  else await fs.writeFile(recPath(token), JSON.stringify(share, null, 2), "utf8");
   return { ok: true, share };
 }
 
@@ -179,9 +188,11 @@ async function generateAndPublishPoster(store: ReturnType<typeof getArtifactStor
 }
 
 export async function getShare(token: string): Promise<ShareRecord | null> {
+  if (pgMode()) return pgShares.getSharePg(token);
   try { return JSON.parse(await fs.readFile(recPath(token), "utf8")); } catch { return null; }
 }
 export async function revokeShare(token: string): Promise<boolean> {
+  if (pgMode()) return pgShares.revokeSharePg(token);
   const s = await getShare(token);
   if (!s) return false;
   s.revokedAt = new Date().toISOString();
@@ -189,6 +200,7 @@ export async function revokeShare(token: string): Promise<boolean> {
   return true;
 }
 export async function sharesForPiece(pieceId: string): Promise<ShareRecord[]> {
+  if (pgMode()) return pgShares.sharesForPiecePg(pieceId);
   ensure();
   try {
     const files = (await fs.readdir(SHARES_DIR)).filter((f) => f.endsWith(".json"));

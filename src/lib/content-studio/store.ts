@@ -12,6 +12,14 @@ import type { AudioUpload, Piece, RenderJob } from "./types";
 import { CATALOG, baseCatalogPiece, recommendedCandidates } from "./catalog";
 import { jobsForPiece, latestReadyJob } from "./job";
 import type { ContentTemplate } from "./template-schema";
+import * as pg from "./cs-lifecycle-pg";
+
+// Storage mode: in staging/production the lifecycle records (jobs, uploads, approvals, posted) are durable
+// in Postgres so web enqueue + worker claim share the SAME rows; dev/test keep the file store below.
+function pgMode(): boolean {
+  const p = (process.env.CS_STORAGE_PROVIDER ?? "").trim().toLowerCase();
+  return p === "postgres" || p === "pg";
+}
 
 export const REPO_ROOT = process.cwd();
 export const PUBLIC_DIR = path.join(REPO_ROOT, "public");
@@ -59,9 +67,11 @@ async function writeAtomic(file: string, data: string) {
 
 // ── Jobs ─────────────────────────────────────────────────────────────────────
 export async function writeJob(job: RenderJob): Promise<void> {
+  if (pgMode()) return pg.writeJobPg(job);
   await writeAtomic(path.join(jobsDir(), `${job.id}.json`), JSON.stringify(job, null, 2));
 }
 export async function readJob(id: string): Promise<RenderJob | null> {
+  if (pgMode()) return pg.readJobPg(id);
   try {
     const raw = await fs.readFile(path.join(jobsDir(), `${id}.json`), "utf8");
     return JSON.parse(raw) as RenderJob;
@@ -70,6 +80,7 @@ export async function readJob(id: string): Promise<RenderJob | null> {
   }
 }
 export async function listJobs(): Promise<RenderJob[]> {
+  if (pgMode()) return pg.listJobsPg();
   ensureDirs();
   const files = (await fs.readdir(JOBS_DIR)).filter((f) => f.endsWith(".json") && !f.includes(".tmp-"));
   const out: RenderJob[] = [];
@@ -83,6 +94,7 @@ export async function listJobs(): Promise<RenderJob[]> {
 
 // ── Posted markers ───────────────────────────────────────────────────────────
 export async function readPosted(): Promise<Record<string, string>> {
+  if (pgMode()) return pg.readPostedPg();
   try {
     return JSON.parse(await fs.readFile(POSTED_FILE, "utf8"));
   } catch {
@@ -90,6 +102,7 @@ export async function readPosted(): Promise<Record<string, string>> {
   }
 }
 export async function setPosted(pieceId: string, when: string): Promise<void> {
+  if (pgMode()) return pg.setPostedPg(pieceId, when);
   const cur = await readPosted();
   cur[pieceId] = when;
   await writeAtomic(POSTED_FILE, JSON.stringify(cur, null, 2));
@@ -97,14 +110,17 @@ export async function setPosted(pieceId: string, when: string): Promise<void> {
 
 // ── Approvals (explicit operator action, version-bound) ──────────────────────
 export async function readApprovals(): Promise<Record<string, import("./types").Approval>> {
+  if (pgMode()) return pg.readApprovalsPg();
   try { return JSON.parse(await fs.readFile(APPROVALS_FILE, "utf8")); } catch { return {}; }
 }
 export async function setApproval(a: import("./types").Approval): Promise<void> {
+  if (pgMode()) return pg.setApprovalPg(a);
   const cur = await readApprovals();
   cur[a.pieceId] = a;
   await writeAtomic(APPROVALS_FILE, JSON.stringify(cur, null, 2));
 }
 export async function clearApproval(pieceId: string): Promise<void> {
+  if (pgMode()) return pg.clearApprovalPg(pieceId);
   const cur = await readApprovals();
   delete cur[pieceId];
   await writeAtomic(APPROVALS_FILE, JSON.stringify(cur, null, 2));
@@ -112,6 +128,7 @@ export async function clearApproval(pieceId: string): Promise<void> {
 
 // ── Uploads ──────────────────────────────────────────────────────────────────
 export async function listUploads(pieceId: string): Promise<AudioUpload[]> {
+  if (pgMode()) return pg.listUploadsPg(pieceId);
   const dir = uploadsDirFor(pieceId);
   try {
     const metas = (await fs.readdir(dir)).filter((f) => f.endsWith(".meta.json"));
@@ -123,6 +140,7 @@ export async function listUploads(pieceId: string): Promise<AudioUpload[]> {
   }
 }
 export async function writeUploadMeta(meta: AudioUpload): Promise<void> {
+  if (pgMode()) return pg.writeUploadPg(meta);
   await writeAtomic(meta.file + ".meta.json", JSON.stringify(meta, null, 2));
 }
 export async function latestUpload(pieceId: string): Promise<AudioUpload | null> {
