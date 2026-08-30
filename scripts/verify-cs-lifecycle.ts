@@ -62,7 +62,7 @@ try {
   await L.insertSharePg({ token, pieceId: piece, businessId: null, businessName: null, title: "t", intro: "i",
     videoHash: "h", inputVersion: "v-verify", videoKey: "content-studio/staging/render-output/" + jobId + "/v.mp4",
     posterKey: null, posterContentType: "image/jpeg", posterRel: "/x.png", emailThumbRel: null, createdAt: now, revokedAt: null });
-  ok((await L.getSharePg(token))?.videoKey.includes(jobId), "share record persisted + read");
+  ok((await L.getSharePg(token))?.videoKey?.includes(jobId) ?? false, "share record persisted + read");
   ok(await L.revokeSharePg(token), "share revoked");
   ok((await L.getSharePg(token))?.revokedAt != null, "revocation durable");
 } finally {

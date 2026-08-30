@@ -49,11 +49,15 @@ export async function POST(req: NextRequest) {
   }
 
   // LEGACY dev fallback path (retained so existing dev readers work during the caller cutover). In
-  // production the objectKey is authoritative; nothing reads the local path.
-  const safe = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
-  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-  const abs = path.join(uploadsDirFor(pieceId), `${stamp}__${safe}`);
-  try { await fs.writeFile(abs, buf); } catch { /* production has no local uploads dir — objectKey covers it */ }
+  // production/staging the objectKey is authoritative; nothing reads the local path and the container has
+  // no writable .data — so the directory creation AND write are best-effort inside one guard (never 500).
+  let abs = "";
+  try {
+    const safe = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    abs = path.join(uploadsDirFor(pieceId), `${stamp}__${safe}`);
+    await fs.writeFile(abs, buf);
+  } catch { abs = ""; /* production has no local uploads dir — objectKey covers it */ }
 
   const kind = String(form.get("kind") ?? "uploaded") === "placeholder" ? "placeholder" : "uploaded";
   const meta: AudioUpload = {
