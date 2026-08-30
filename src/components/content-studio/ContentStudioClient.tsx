@@ -425,6 +425,11 @@ function PieceDetail({ item, onChanged, setJobOverride }: { item: StudioItem; on
         const pv = item.provenance;
         const isPlaceholder = pv.audioKind === "placeholder";
         const postable = pv.postingAllowed;
+        // When the media is store-served (keyed), download via the dedicated route (proper filename +
+        // Content-Disposition); otherwise the recommended URL itself is the download.
+        const downloadHref = piece.recommendedRel!.startsWith("/api/content-studio/media/")
+          ? `/api/content-studio/download/${piece.id}`
+          : piece.recommendedRel!;
         return (
           <div className="card p-4">
             <div className="mb-3 flex items-center justify-between gap-2">
@@ -441,7 +446,7 @@ function PieceDetail({ item, onChanged, setJobOverride }: { item: StudioItem; on
             <div className="grid gap-4 sm:grid-cols-[220px_1fr]">
               <video src={piece.recommendedRel} poster={piece.thumbRel || undefined} controls playsInline className="w-full rounded-lg border border-white/[0.08] bg-black" style={{ aspectRatio: "9 / 16" }} />
               <div className="space-y-2">
-                <a href={piece.recommendedRel} download className={`flex w-full items-center justify-center gap-1.5 text-sm sm:w-auto ${isPlaceholder ? "btn-secondary" : "btn-primary"}`}><Download size={15} /> {isPlaceholder ? "Download preview" : "Download video"}</a>
+                <a href={downloadHref} download className={`flex w-full items-center justify-center gap-1.5 text-sm sm:w-auto ${isPlaceholder ? "btn-secondary" : "btn-primary"}`}><Download size={15} /> {isPlaceholder ? "Download preview" : "Download video"}</a>
                 {piece.thumbRel && <a href={piece.thumbRel} download className="btn-secondary flex w-full items-center justify-center gap-1.5 text-sm sm:w-auto"><Download size={15} /> Download thumbnail</a>}
                 {!isPlaceholder && !pv.approved && pv.audioKind === "uploaded" && (
                   <button onClick={approve} className="btn-primary flex w-full items-center justify-center gap-1.5 text-sm sm:w-auto"><CircleCheck size={15} /> Approve for posting</button>

@@ -199,8 +199,11 @@ export async function getPieces(): Promise<Piece[]> {
     const ready = latestReadyJob(jobs, entry.id);
     let recommendedRel: string | null = null;
     let hasThumbnailFirst = false;
-    if (ready?.outputRel) {
-      recommendedRel = ready.outputRel; // freshly rendered → always thumbnail-first
+    if (ready?.outputKey) {
+      recommendedRel = `/api/content-studio/media/${entry.id}`; // served from the store by key (prod-safe)
+      hasThumbnailFirst = true;
+    } else if (ready?.outputRel) {
+      recommendedRel = ready.outputRel; // dev fallback (local /content path) — freshly rendered, thumbnail-first
       hasThumbnailFirst = true;
     } else {
       recommendedRel = firstExisting(recommendedCandidates(entry.id));
@@ -217,7 +220,8 @@ export async function getPieces(): Promise<Piece[]> {
     const ready = latestReadyJob(jobs, id);
     let recommendedRel: string | null = null;
     let hasThumbnailFirst = false;
-    if (ready?.outputRel) { recommendedRel = ready.outputRel; hasThumbnailFirst = true; }
+    if (ready?.outputKey) { recommendedRel = `/api/content-studio/media/${id}`; hasThumbnailFirst = true; }
+    else if (ready?.outputRel) { recommendedRel = ready.outputRel; hasThumbnailFirst = true; }
     else { recommendedRel = firstExisting(recommendedCandidates(id)); hasThumbnailFirst = Boolean(recommendedRel); }
     templatePieces.push({
       id, title: t.title, concept: t.concept, narration: t.narration,
