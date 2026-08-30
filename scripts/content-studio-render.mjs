@@ -175,7 +175,7 @@ async function main() {
     outputKey, posterKey,
     finishedAt: new Date().toISOString(), error: null, audioLabel: job.audioLabel || audioNote,
   });
-  console.log(`job ${jobId} ready → ${outputKey} (${videoPub.bytes}B, sha ${videoPub.sha.slice(0, 12)}…) + poster ${posterKey} (${posterPub.bytes}B); ${audioNote}; duration ${dur(out).toFixed(2)}s`);
+  console.log(`job ${jobId} ready → ${outputKey} (${videoPub.bytes}B, sha ${String(videoPub.sha256).slice(0, 12)}…) + poster ${posterKey} (${posterPub.bytes}B); ${audioNote}; duration ${dur(out).toFixed(2)}s`);
 }
 
 main()
