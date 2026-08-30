@@ -5,12 +5,18 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Scheduled-outreach RUNNER — reads the PERSISTED scheduled batch and would dispatch each due item at
-// its staggered time, but is DELIVERY-DISABLED by construction:
-//   ENTRY  — requires QR_AUTOSEND_ENABLED=1 (off by default) → otherwise it only REPORTS the due count.
-//   FINAL  — no business-approved delivering transport is configured, so every due item resolves to
-//            "delivery-blocked" (the slot is never consumed, nothing reaches a provider).
-// Activating real delivery requires a separate, explicitly-authorized transport decision.
+// Scheduled-outreach RUNNER — reads the PERSISTED scheduled batch and dispatches each due item at its
+// staggered time through the ONE canonical compliant transport (sendCompliantOutreach → Graph MIME
+// only: CAN-SPAM footer + hardened one-click unsubscribe + permanent-suppression rechecks). It is
+// DORMANT by construction — nothing can reach a prospect until every gate is explicitly opened:
+//   ENTRY     — requires QR_AUTOSEND_ENABLED=1 (off by default) → otherwise it only REPORTS the due count.
+//   PAUSE     — the DB/env pause halts the tick before any per-lead work.
+//   TRANSPORT — with Microsoft Graph unconfigured (no GRAPH_* env), there is no delivering transport,
+//               so every due item is delivery-blocked (the slot is never consumed).
+//   RECIPIENT — even once Graph IS configured, the transport's allowlist refuses every address except
+//               COMMS_TEST_RECIPIENT until the owner sets COMMS_PROSPECT_DELIVERY_ENABLED=1.
+// The runner re-authorizes + re-verifies (fingerprint, suppression, window, quota) at the final
+// boundary; the transport fails closed (no postal/secret → no message). No Resend path exists here.
 // ─────────────────────────────────────────────────────────────────────────────
 export async function POST(req: NextRequest) {
   const secret = process.env.CRON_SECRET;
@@ -33,21 +39,35 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, dispatched: false, due: due.length, sent: 0, reason: "paused" });
   }
 
-  // Flag on + not paused: re-verify + reserve, but the transport is non-delivering (no approved
-  // transport). Every due item → delivery-blocked; the reserved slot is released (nothing shipped).
-  const { validateScheduled } = await import("@/lib/outreach/scheduled-batch");
-  const { reserveDailySlot, releaseSlot } = await import("@/lib/comms/send-quota");
-  const { DAILY_CAP } = await import("@/lib/outreach/outreach-scheduler");
-  const counts = { due: due.length, sent: 0, held: 0, blocked: 0 };
-  for (const { leadId, binding } of due) {
-    const v = await validateScheduled(leadId, binding);
-    if (!v.ok) { counts.held += 1; continue; }
-    const slot = await reserveDailySlot({ now, cap: DAILY_CAP, leadId });
-    if (!slot.granted) { counts.held += 1; continue; }
-    // FINAL boundary: no delivering transport → refuse, release the slot. Never a provider path.
-    if (slot.reservationId) await releaseSlot(slot.reservationId);
-    counts.blocked += 1;
+  // TRANSPORT gate: with Resend unconfigured there is no delivering transport. Re-verify + reserve to
+  // prove the pipeline, then release every slot (nothing reaches a provider).
+  if (!process.env.RESEND_API_KEY) {
+    const { validateScheduled } = await import("@/lib/outreach/scheduled-batch");
+    const { reserveDailySlot, releaseSlot } = await import("@/lib/comms/send-quota");
+    const { DAILY_CAP } = await import("@/lib/outreach/outreach-scheduler");
+    const counts = { due: due.length, sent: 0, held: 0, blocked: 0 };
+    for (const { leadId, binding } of due) {
+      const v = await validateScheduled(leadId, binding);
+      if (!v.ok) { counts.held += 1; continue; }
+      const slot = await reserveDailySlot({ now, cap: DAILY_CAP, leadId });
+      if (!slot.granted) { counts.held += 1; continue; }
+      if (slot.reservationId) await releaseSlot(slot.reservationId);
+      counts.blocked += 1;
+    }
+    await appendAudit({ action: "outreach.runner.delivery-blocked", actor: "cron", targetType: "comms", targetId: null, meta: counts, ip: null });
+    return NextResponse.json({ ok: true, dispatched: false, ...counts, reason: "No delivering transport configured (RESEND_API_KEY missing). Due items are delivery-blocked; nothing was sent." });
   }
-  await appendAudit({ action: "outreach.runner.delivery-blocked", actor: "cron", targetType: "comms", targetId: null, meta: counts, ip: null });
-  return NextResponse.json({ ok: true, dispatched: false, ...counts, reason: "No business-approved delivering transport configured. Due items are delivery-blocked; nothing was sent." });
+
+  // Transport configured → run the canonical compliant transport. The runner enforces window/quota/pause
+  // + re-authorization; the transport enforces compliance (footer + signed unsubscribe + suppression) and
+  // the recipient gate (prospects still refused unless COMMS_PROSPECT_DELIVERY_ENABLED=1). Resend only.
+  const { runScheduledOutreach } = await import("@/lib/outreach/outreach-scheduler");
+  const { sendCompliantOutreach } = await import("@/lib/comms/outreach-transport");
+  const campaignId = due[0]?.binding.batchId ?? "scheduled-outreach";
+  const summary = await runScheduledOutreach(due.map((d) => d.leadId), {
+    now, campaignId,
+    send: ({ leadId, auth, pdf }) => sendCompliantOutreach({ leadId, auth, pdf }),
+  });
+  await appendAudit({ action: "outreach.runner.dispatched", actor: "cron", targetType: "comms", targetId: null, meta: { laDay: summary.laDay, sent: summary.sent, quotaRemaining: summary.quotaRemaining }, ip: null });
+  return NextResponse.json({ ok: true, dispatched: true, due: due.length, sent: summary.sent, quotaRemaining: summary.quotaRemaining, outcomes: summary.outcomes });
 }

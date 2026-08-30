@@ -2,12 +2,12 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { listUnsubscribeHeaders } from "./unsubscribe";
 import { insertLead, insertPlan, insertStep } from "../repo";
 import { dispatchStep } from "./dispatch";
-import { resetEmailProvider } from "./provider";
+import { configureResendTestEnv, clearResendTestEnv, resendFetch, sentBody } from "./resend-test-harness";
 import { __resetStoreForTests } from "../store";
 import type { Lead } from "../types";
 
 const realFetch = global.fetch;
-afterEach(() => { global.fetch = realFetch; resetEmailProvider(); vi.restoreAllMocks(); delete process.env.PUBLIC_BASE_URL; });
+afterEach(() => { global.fetch = realFetch; clearResendTestEnv(); vi.restoreAllMocks(); delete process.env.PUBLIC_BASE_URL; });
 
 describe("listUnsubscribeHeaders (Phase 7 deliverability)", () => {
   it("includes a one-click HTTPS link + mailto when a public base + secret are set", () => {
@@ -28,11 +28,14 @@ describe("listUnsubscribeHeaders (Phase 7 deliverability)", () => {
 });
 
 describe("dispatch attaches List-Unsubscribe to the outbound message", () => {
-  beforeEach(() => { __resetStoreForTests(); process.env.RESEND_API_KEY = "re_test"; process.env.RESEND_FROM = "J <j@artifexlabs.tech>"; process.env.AUTH_SECRET = "secret"; process.env.PUBLIC_BASE_URL = "https://outreach.artifexlabs.tech"; resetEmailProvider(); });
+  // Resend send: List-Unsubscribe is derived from the hardened, recipient-bound URL by the
+  // compliant transport and rides in the Resend request body headers (COMMS_UNSUBSCRIBE_SECRET +
+  // PUBLIC_BASE_URL come from configureResendTestEnv).
+  beforeEach(() => { __resetStoreForTests(); configureResendTestEnv(); });
 
-  it("passes compliant headers through to the provider payload", async () => {
-    const fetchMock = vi.fn((_u: string | URL | Request, _i?: RequestInit) => Promise.resolve({ ok: true, status: 200, json: async () => ({ id: "m" }), text: async () => "{}" } as unknown as Response));
-    global.fetch = fetchMock as unknown as typeof fetch;
+  it("carries compliant List-Unsubscribe headers on the outbound message", async () => {
+    const rf = resendFetch();
+    global.fetch = rf.fn;
     const lead: Lead = await insertLead({
       googlePlaceId: null, businessName: "Hdr Co", normalizedName: "hdrco", industry: "Auto repair",
       normalizedCategory: "auto-repair", categoryGroup: "Automotive", address: "1 St", city: "LA", state: "CA", postalCode: "90012",
@@ -53,8 +56,10 @@ describe("dispatch attaches List-Unsubscribe to the outbound message", () => {
     });
     const step = await insertStep({ planId: plan.id, stepNumber: 1, channel: "email", delayDays: 0, subject: "s", content: "b {{unsubscribe}}", approvalRequired: false, approvalStatus: "approved", scheduledAt: "2026-07-01T00:00:00Z", sentAt: null, providerMessageId: null, deliveryStatus: null, stoppedAt: null, stopReason: null });
     await dispatchStep(step.id);
-    const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
-    expect(body.headers["List-Unsubscribe"]).toContain("/api/comms/unsubscribe?lead=");
+    expect(rf.calls.send).toBe(1);
+    const body = sentBody(rf.calls, 1);
+    // The recipient-bound one-click unsubscribe URL rides as the List-Unsubscribe header on the message.
+    expect(body.headers["List-Unsubscribe"]).toMatch(/^<https:\/\/[^>]*\/api\/comms\/unsubscribe\?lead=[^>]+>/);
     expect(body.headers["List-Unsubscribe-Post"]).toBe("List-Unsubscribe=One-Click");
   });
 });

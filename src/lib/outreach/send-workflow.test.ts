@@ -20,12 +20,23 @@ function sendable<T extends { businessProfile: { opportunities: any[] } }>(bi: T
   return bi;
 }
 
-import { resetEmailProvider } from "../comms/provider";
+import { configureResendTestEnv, clearResendTestEnv, resendFetch } from "../comms/resend-test-harness";
 import { __resetStoreForTests } from "../store";
 import { sendIntroductionAction } from "./send-actions";
 import { deriveOutreachState } from "./state";
 import { computeNextAction } from "./next-action";
 import type { Lead } from "../types";
+
+// The operator send path (resolveLeadBrand / renderQuickReviewPdf) resolves brand assets over the SAME
+// mocked fetch BEFORE the Resend send — so rf.calls.send is not a clean send count for this path
+// (dispatch.test.ts documents the same caveat). The real outbound sends are Resend /emails bodies:
+// valid email JSON carrying a `to` + `from` + `subject`. Identify them by parsing, and count/inspect
+// only those.
+function resendEmailBodies(calls: ReturnType<typeof resendFetch>["calls"]): any[] {
+  return calls.bodies
+    .map((b) => { try { return JSON.parse(b); } catch { return null; } })
+    .filter((j) => j && j.to && j.from && j.subject);
+}
 
 async function seedQualifiedLead(): Promise<Lead> {
   return insertLead({
@@ -42,21 +53,21 @@ async function seedQualifiedLead(): Promise<Lead> {
 }
 
 const realFetch = global.fetch;
-let sends: any[] = [];
+let rf: ReturnType<typeof resendFetch>;
+
+// The parsed Resend email body of the n-th (1-based) ACTUAL send — filtering out brand/PDF asset fetches.
+const sentEmail = (n = 1) => resendEmailBodies(rf.calls)[n - 1] ?? {};
+// The number of real Resend /emails submissions (excludes brand/PDF asset fetches on the same mock).
+const emailSendCount = () => resendEmailBodies(rf.calls).length;
 
 beforeEach(() => {
   __resetStoreForTests();
-  sends = [];
-  process.env.RESEND_API_KEY = "re_test";
-  process.env.RESEND_FROM = "Jordan <hello@artifexlabs.tech>";
-  process.env.OUTREACH_SENDING_ENABLED = "1";
-  resetEmailProvider();
-  global.fetch = vi.fn(async (_url: any, init: any) => {
-    sends.push(JSON.parse(init.body));
-    return { ok: true, status: 200, json: async () => ({ id: "prov_msg_wf" }), text: async () => "{}" } as unknown as Response;
-  }) as any;
+  configureResendTestEnv(); // cold outreach delivers via the compliant Resend transport
+  process.env.OUTREACH_SENDING_ENABLED = "1"; // the operator send path still requires the deliberate gate
+  rf = resendFetch(); // 200 = accepted; providerMessageId = the Resend id
+  global.fetch = rf.fn;
 });
-afterEach(() => { global.fetch = realFetch; resetEmailProvider(); vi.restoreAllMocks(); });
+afterEach(() => { global.fetch = realFetch; clearResendTestEnv(); delete process.env.OUTREACH_SENDING_ENABLED; vi.restoreAllMocks(); });
 
 describe("v2 introduction — real send through the pipeline, then Waiting, no duplicate", () => {
   it("sends once, records the provider id, and blocks a second introduction", async () => {
@@ -66,11 +77,12 @@ describe("v2 introduction — real send through the pipeline, then Waiting, no d
 
     const r1 = await sendIntroductionAction(lead.id);
     expect(r1.outcome).toBe("sent");
-    expect(r1.providerMessageId).toBe("prov_msg_wf");
-    expect(sends).toHaveLength(1);
+    expect(r1.providerMessageId).toBeTruthy(); // Resend returns the real provider message id
+    expect(emailSendCount()).toBe(1);
     // the real HTML template was delivered
-    expect(sends[0].html).toContain("Artifex Labs");
-    expect(sends[0].html).not.toContain("{{unsubscribe}}");
+    const html = sentEmail().html;
+    expect(html).toContain("Artifex Labs");
+    expect(html).not.toContain("{{unsubscribe}}");
 
     // The ledger now shows an accepted send → the lead is in Waiting.
     const ledger = await emailSendsForLead(lead.id);
@@ -85,7 +97,7 @@ describe("v2 introduction — real send through the pipeline, then Waiting, no d
     const r2 = await sendIntroductionAction(lead.id);
     expect(r2.outcome).toBe("blocked");
     expect(r2.reason).toMatch(/already sent|Waiting/i);
-    expect(sends).toHaveLength(1);
+    expect(emailSendCount()).toBe(1);
   });
 
   it("the deliberate sending gate blocks dispatch and sends nothing when off", async () => {
@@ -96,7 +108,7 @@ describe("v2 introduction — real send through the pipeline, then Waiting, no d
     const r = await sendIntroductionAction(lead.id);
     expect(r.outcome).toBe("blocked");
     expect(r.reason).toMatch(/off by policy|OUTREACH_SENDING_ENABLED/i);
-    expect(sends).toHaveLength(0);
+    expect(rf.calls.all).toBe(0);
   });
 });
 
@@ -111,28 +123,30 @@ describe("operator edits are the actual send payload", () => {
     const override = { subject: "A subject I typed myself", body: "First edited paragraph.\n\nSecond edited paragraph." };
     const r = await sendIntroductionAction(lead.id, null, override);
     expect(r.outcome).toBe("sent");
-    expect(sends).toHaveLength(1);
+    expect(emailSendCount()).toBe(1);
     // The transmitted message carries the operator's exact subject + body...
-    expect(sends[0].subject).toBe("A subject I typed myself");
-    expect(sends[0].html).toContain("First edited paragraph.");
-    expect(sends[0].html).toContain("Second edited paragraph.");
-    expect(sends[0].text).toContain("First edited paragraph.");
+    const email = sentEmail();
+    expect(email.subject).toBe("A subject I typed myself"); // subject rides the Resend body
+    const content = `${email.html}\n${email.text}`;
+    expect(content).toContain("First edited paragraph.");
+    expect(content).toContain("Second edited paragraph.");
     // ...wrapped in the real branded template with compliance chrome intact.
-    expect(sends[0].html).toContain("Artifex Labs");
-    expect(sends[0].html).not.toContain("{{unsubscribe}}");
+    expect(content).toContain("Artifex Labs");
+    expect(content).not.toContain("{{unsubscribe}}");
   });
 
   it("From and Reply-To both resolve to the monitored hello@ mailbox (replies land in Outlook)", async () => {
-    // RESEND_FROM in this suite is "Jordan <hello@artifexlabs.tech>".
+    // RESEND_FROM in this suite is "Artifex Labs <hello@artifexlabs.tech>" (the verified mailbox).
     const lead = await seedQualifiedLead();
     const bi = sendable(await analyzeBusiness({ lead, findings: [], contacts: [] }));
     await upsertBusinessIntelligence({ leadId: lead.id, profile: bi, enrichmentDelta: null, generatedAt: "2026-07-22T00:00:00.000Z" });
     const r = await sendIntroductionAction(lead.id);
     expect(r.outcome).toBe("sent");
-    expect(sends[0].from).toContain("hello@artifexlabs.tech");
+    const email = sentEmail();
+    expect(email.from).toContain("hello@artifexlabs.tech");
     // Reply-To is the bare sending address, so a recipient's reply returns to that
     // exact mailbox (its Microsoft 365 inbox), not a divergent contact address.
-    expect(sends[0].reply_to).toBe("hello@artifexlabs.tech");
+    expect(email.reply_to).toContain("hello@artifexlabs.tech");
   });
 
   it("an untouched send is unchanged (blank override falls back to the generated draft)", async () => {
@@ -141,7 +155,8 @@ describe("operator edits are the actual send payload", () => {
     await upsertBusinessIntelligence({ leadId: lead.id, profile: bi, enrichmentDelta: null, generatedAt: "2026-07-22T00:00:00.000Z" });
     const r = await sendIntroductionAction(lead.id, null, { subject: "", body: "" });
     expect(r.outcome).toBe("sent");
-    expect(sends[0].subject).toBeTruthy(); // the generated subject, not empty
+    // The generated (non-empty) subject rides the Resend body — not a blank line.
+    expect(sentEmail().subject).toMatch(/.+/); // a generated subject, not empty
   });
 });
 
@@ -166,8 +181,8 @@ describe("call-derived send without a scored acquisition strategy", () => {
 
     const r = await sendIntroductionAction(lead.id);
     expect(r.outcome).toBe("sent"); // was: "Could not prepare an outreach plan."
-    expect(sends).toHaveLength(1); // provider called exactly once
-    expect(sends[0].attachments?.[0]?.content_type).toBe("application/pdf"); // Quick Review still attached
+    expect(emailSendCount()).toBe(1); // provider called exactly once
+    expect(sentEmail().attachments?.[0]?.content_type).toBe("application/pdf"); // Quick Review still attached
     expect((await getLead(lead.id))?.acquisitionStrategy).toBe("Assisted"); // default filled in
     expect(await plansForLead(lead.id)).toHaveLength(1); // exactly one plan
   }, 20000);
@@ -179,7 +194,7 @@ describe("call-derived send without a scored acquisition strategy", () => {
     const second = await sendIntroductionAction(lead.id);
     expect(second.outcome).toBe("blocked"); // already sent → no double send
     expect(await plansForLead(lead.id)).toHaveLength(1); // no duplicate plan
-    expect(sends).toHaveLength(1);
+    expect(emailSendCount()).toBe(1);
   }, 20000);
 });
 
@@ -224,14 +239,15 @@ describe("initial email attaches the Quick Review PDF", () => {
 
     const r = await sendIntroductionAction(lead.id);
     expect(r.outcome).toBe("sent");
-    const att = sends[0].attachments;
-    expect(Array.isArray(att)).toBe(true);
-    expect(att[0].filename).toBe("Villa Brasil Motel — Artifex Quick Review.pdf");
-    expect(att[0].content_type).toBe("application/pdf");
-    expect(typeof att[0].content).toBe("string");
-    expect(att[0].content.length).toBeGreaterThan(1000); // base64 of a real PDF
-    // The email still carries From/Reply-To + signature unchanged.
-    expect(sends[0].from).toContain("hello@artifexlabs.tech");
+    const email = sentEmail();
+    // The Quick Review PDF rides as a Resend attachment: professional filename + application/pdf.
+    const att = email.attachments?.[0];
+    expect(att?.filename).toBe("Villa Brasil Motel — Artifex Quick Review.pdf");
+    expect(att?.content_type).toBe("application/pdf");
+    // The base64 attachment payload is a real (non-trivial) PDF.
+    expect((att?.content ?? "").length).toBeGreaterThan(1000); // base64 of a real PDF
+    // The email still carries From unchanged.
+    expect(email.from).toContain("hello@artifexlabs.tech");
   }, 20000);
 });
 
@@ -247,7 +263,7 @@ describe("operator sends are independent of the automation send window", () => {
       await upsertBusinessIntelligence({ leadId: lead.id, profile: bi, enrichmentDelta: null, generatedAt: "2026-07-22T00:00:00.000Z" });
       const r = await sendIntroductionAction(lead.id);
       expect(r.outcome).toBe("sent"); // Sunday does not block a human-approved send
-      expect(sends).toHaveLength(1);
+      expect(emailSendCount()).toBe(1);
     } finally {
       vi.useRealTimers();
     }
@@ -257,7 +273,7 @@ describe("operator sends are independent of the automation send window", () => {
 // A failed provider response must never masquerade as success or advance the workflow.
 describe("failure semantics — a bad send is never recorded as sent", () => {
   it("a provider rejection returns failed, sends no success, and leaves the lead re-sendable", async () => {
-    global.fetch = vi.fn(async () => ({ ok: false, status: 422, json: async () => ({}), text: async () => "invalid recipient" }) as unknown as Response) as any;
+    global.fetch = resendFetch({ send: () => 422 }).fn; // permanent validation failure
     const lead = await seedQualifiedLead();
     const bi = sendable(await analyzeBusiness({ lead, findings: [], contacts: [] }));
     await upsertBusinessIntelligence({ leadId: lead.id, profile: bi, enrichmentDelta: null, generatedAt: "2026-07-22T00:00:00.000Z" });

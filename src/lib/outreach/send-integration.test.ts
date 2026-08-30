@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { insertLead, insertPlan, insertStep } from "../repo";
 import { dispatchStep } from "../comms/dispatch";
-import { resetEmailProvider } from "../comms/provider";
+import { configureResendTestEnv, clearResendTestEnv, resendFetch, sentBody } from "../comms/resend-test-harness";
 import { __resetStoreForTests } from "../store";
 import type { Lead } from "../types";
 
@@ -42,53 +42,51 @@ async function seedStep(leadId: string) {
 }
 
 const realFetch = global.fetch;
-let sends: any[] = [];
 
 beforeEach(() => {
   __resetStoreForTests();
-  sends = [];
-  process.env.RESEND_API_KEY = "re_test";
-  process.env.RESEND_FROM = "Jordan <hello@artifexlabs.tech>";
-  resetEmailProvider();
-  global.fetch = vi.fn(async (_url: any, init: any) => {
-    sends.push(JSON.parse(init.body));
-    return { ok: true, status: 200, json: async () => ({ id: "prov_msg_1" }), text: async () => "{}" } as unknown as Response;
-  }) as any;
+  configureResendTestEnv(); // cold outreach delivers via the compliant Resend transport
 });
-afterEach(() => { global.fetch = realFetch; resetEmailProvider(); vi.restoreAllMocks(); });
+afterEach(() => { global.fetch = realFetch; clearResendTestEnv(); vi.restoreAllMocks(); });
 
 describe("v2 send reuses the real dispatch pipeline", () => {
   it("sends HTML + text through the provider and records the provider id", async () => {
+    const rf = resendFetch(); // 200 = accepted; providerMessageId = the Resend id
+    global.fetch = rf.fn;
     const lead = await seedLead();
     const step = await seedStep(lead.id);
     const res = await dispatchStep(step.id);
     expect(res.outcome).toBe("sent");
-    expect(res.providerMessageId).toBe("prov_msg_1");
-    expect(sends).toHaveLength(1);
-    // HTML delivered, with the {{unsubscribe}} token resolved to a real URL
-    expect(sends[0].html).toContain("<p>Hi there.</p>");
-    expect(sends[0].html).not.toContain("{{unsubscribe}}");
-    expect(sends[0].text).toContain("I spent ten minutes");
+    expect(res.providerMessageId).toBe("resend-1"); // the real provider message id
+    expect(rf.calls.send).toBe(1);
+    // The HTML + text ride the Resend body, with {{unsubscribe}} resolved to a real URL.
+    const body = sentBody(rf.calls, 1);
+    expect(body.html).toContain("<p>Hi there.</p>");
+    expect(body.html).not.toContain("{{unsubscribe}}");
+    expect(body.text).toContain("I spent ten minutes");
   });
 
   it("is idempotent — a second dispatch does not send again", async () => {
+    const rf = resendFetch();
+    global.fetch = rf.fn;
     const lead = await seedLead();
     const step = await seedStep(lead.id);
     const first = await dispatchStep(step.id);
     const second = await dispatchStep(step.id);
     expect(first.outcome).toBe("sent");
     expect(second.outcome).toBe("deduped");
-    expect(sends).toHaveLength(1); // exactly one real send
+    expect(rf.calls.send).toBe(1); // exactly one real send
   });
 
-  it("never fakes a send when the provider is disabled", async () => {
+  it("never fakes a send when the transport is unconfigured", async () => {
     delete process.env.RESEND_API_KEY;
-    resetEmailProvider();
+    const rf = resendFetch();
+    global.fetch = rf.fn;
     const lead = await seedLead();
     const step = await seedStep(lead.id);
     const res = await dispatchStep(step.id);
     expect(res.outcome).toBe("skipped");
-    expect(res.reason).toMatch(/disabled/i);
-    expect(sends).toHaveLength(0);
+    expect(res.reason).toMatch(/unconfigured/i);
+    expect(rf.calls.all).toBe(0);
   });
 });

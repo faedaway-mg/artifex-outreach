@@ -7,8 +7,10 @@
 // the durable send ledger (email_sends) keyed by a unique idempotencyKey plus
 // compare-and-set status transitions — never from in-memory locks.
 //
-// Fully provider-agnostic: it calls getEmailProvider() and never knows about
-// Resend. The acquisition engine never imports this file.
+// Cold outreach is COMPLIANT-ONLY: this dispatcher classifies the message, then submits it through the
+// single canonical compliant transport (submitCompliantDispatch → Resend) which enforces the footer,
+// signed unsubscribe, suppression rechecks, recipient gate, and ambiguous protection. It never selects
+// an arbitrary provider and cannot bypass compliance. The acquisition engine never imports this file.
 // ─────────────────────────────────────────────────────────────────────────────
 import {
   getStep, getPlan, getLead, getSettings, updateStep, updatePlan, stepsForPlan, isSuppressed,
@@ -17,15 +19,17 @@ import {
 import { sha256, SEND_RECEIPT_ACTION, type SendReceiptMeta } from "./receipt";
 import { validEmail } from "../acquisition/compliance";
 import { stopPlansForLead } from "../acquisition/stop";
-import { getEmailProvider } from "./provider";
+import { unsubscribeUrl as hardenedUnsubUrl } from "./commercial-message";
+import { classifyLeadSource, transportRouteFor } from "./transport-policy";
+import { buildColdDispatchFromEmail, submitCompliantDispatch } from "./outreach-transport";
 import { renderBody } from "./render";
+import { escapeHtml } from "../outreach/email-render";
 import { renderQuickReviewPdf } from "../pdf/render";
 import { buildQuickReview, resolveLeadBrand, quickReviewFilename } from "../outreach/quick-review";
 import { quickReviewApproved } from "../outreach/review-approval";
 import { sendGate, verifyArtifact, deliveryReadiness } from "../outreach/review-revisions";
 import type { BusinessProfile } from "../business-intelligence/types";
 import { isSent, backoffMs, MAX_ATTEMPTS, STUCK_SENDING_MS } from "./state";
-import { unsubscribeUrlFor, listUnsubscribeHeaders } from "./unsubscribe";
 import { threadingHeaders, priorEmailSteps, reSubject, domainFromAddress } from "./threading";
 import { receptivitySignalsFrom, receptivityScore } from "../acquisition/receptivity";
 import { marketTierOf } from "../geo-market";
@@ -44,7 +48,7 @@ export interface DispatchResult {
 const iso = (d: Date) => d.toISOString();
 const keyFor = (stepId: string) => `step:${stepId}`;
 
-/** The verified From address. Prefers the provider's configured sender. */
+/** The verified From address for cold outreach — the configured Resend sender (RESEND_FROM). */
 function senderFrom(settingsEmail: string): string {
   return process.env.RESEND_FROM || settingsEmail;
 }
@@ -108,7 +112,7 @@ export async function dispatchStep(stepId: string, opts: { now?: Date } = {}): P
   const claim = await insertEmailSendIfAbsent({
     idempotencyKey: key, stepId: step.id, planId: plan.id, leadId: lead.id,
     toAddr: lead.publicEmail!, fromAddr: from, subject: step.subject,
-    status: "sending", provider: getEmailProvider().name, providerMessageId: null,
+    status: "sending", provider: "resend", providerMessageId: null,
     attempts: 1, lastError: null, lastErrorCode: null, nextAttemptAt: null,
     queuedAt: nowIso, sendingAt: nowIso, sentAt: null, deliveredAt: null, openedAt: null,
     clickedAt: null, bouncedAt: null, complainedAt: null, unsubscribedAt: null, failedAt: null,
@@ -134,26 +138,36 @@ export async function dispatchStep(stepId: string, opts: { now?: Date } = {}): P
     }
   }
 
-  // ── Send ────────────────────────────────────────────────────────────────────
-  const provider = getEmailProvider();
-  if (!provider.canSend) {
-    // No provider configured — release the claim back to the queue (not a failure)
-    // so a later, configured run can pick it up. Nothing is lost.
-    await casEmailSendStatus(sendRow.id, "sending", { status: "queued", nextAttemptAt: nowIso, lastError: "provider disabled", lastErrorCode: "disabled" });
-    return { stepId, outcome: "skipped", reason: "provider disabled", sendId: sendRow.id };
+  // ── Send (Microsoft Graph ONLY — cold outreach never selects a provider / never Resend) ──────
+  // Classification → routing policy. An Acquisition OS plan/step email is cold outreach (or the
+  // internal-test rehearsal); both route to the compliant Graph transport. Anything that does not
+  // resolve to "graph-compliant" fails closed and is never sent.
+  const classification = classifyLeadSource(lead.source);
+  if (transportRouteFor(classification) !== "compliant") {
+    await updateEmailSend(sendRow.id, { status: "failed", failedAt: nowIso, lastError: `route refused for classification ${classification}`, lastErrorCode: "route_refused" });
+    return { stepId, outcome: "failed", reason: "message classification is not permitted on the cold-outreach transport", sendId: sendRow.id };
+  }
+  if (!process.env.RESEND_API_KEY) {
+    // No transport configured — release the claim back to the queue (not a failure) so a later,
+    // configured run can pick it up. Nothing is lost.
+    await casEmailSendStatus(sendRow.id, "sending", { status: "queued", nextAttemptAt: nowIso, lastError: "resend transport unconfigured", lastErrorCode: "unconfigured" });
+    return { stepId, outcome: "skipped", reason: "resend transport unconfigured", sendId: sendRow.id };
   }
 
-  const text = renderBody(step.content, { replyEmail: settings.contactEmail, unsubscribeUrl: unsubscribeUrlFor(lead.id) });
-  // Optional pre-rendered HTML (e.g. the v2 premium template). The {{unsubscribe}}
-  // token is replaced here so the ledger/idempotency path is unchanged.
-  const html = step.html ? step.html.split("{{unsubscribe}}").join(unsubscribeUrlFor(lead.id) ?? "") : undefined;
+  // The hardened, recipient-bound unsubscribe URL (COMMS_UNSUBSCRIBE_SECRET + public base). The
+  // in-body {{unsubscribe}} token uses it; the compliant footer (appended by the adapter) repeats it.
+  const unsub = hardenedUnsubUrl(lead.id, lead.publicEmail!);
+  const text = renderBody(step.content, { replyEmail: settings.contactEmail, unsubscribeUrl: unsub });
+  const html = step.html ? step.html.split("{{unsubscribe}}").join(unsub ?? "") : undefined;
   // Threading: our own Message-ID, plus In-Reply-To/References + "Re:" subject on
   // follow-ups so the whole exchange stays in one conversation (never a new chain).
   const planSteps = await stepsForPlan(plan.id);
   const domain = domainFromAddress(from);
   const isFollowUp = priorEmailSteps(step, planSteps).length > 0;
   const subject = isFollowUp ? reSubject(priorEmailSteps(step, planSteps)[0].subject) : step.subject;
-  const headers = { ...listUnsubscribeHeaders(lead.id, settings.contactEmail), ...threadingHeaders(step, planSteps, domain) };
+  // Threading headers ride the MIME message (Message-ID / In-Reply-To / References); List-Unsubscribe
+  // is derived from the hardened URL by the compliant transport, not stitched here.
+  const threading = threadingHeaders(step, planSteps, domain);
   // Reply-To follows the SENDING identity, not a separate contact knob, so a recipient
   // who hits Reply always reaches the monitored mailbox the mail was sent from
   // (hello@artifexlabs.tech → its Microsoft 365 inbox). Same address as From by design.
@@ -243,8 +257,32 @@ export async function dispatchStep(stepId: string, opts: { now?: Date } = {}): P
     }
   }
 
-  const msg: EmailMessage = { to: lead.publicEmail!, from, replyTo, subject, text, ...(html ? { html } : {}), ...(attachments ? { attachments } : {}), headers, idempotencyKey: key };
-  const res = await provider.send(msg);
+  // Build the canonical compliant request (CAN-SPAM footer + hardened one-click unsubscribe) and
+  // submit via Microsoft Graph MIME ONLY. The Quick Review PDF (initial sends) rides as a MIME
+  // attachment; threading headers keep follow-ups in one conversation. No provider selection, no Resend.
+  const htmlBody = html ?? `<div>${escapeHtml(text).replace(/\n/g, "<br>")}</div>`;
+  const pdfAttachment = attachments && attachments[0] ? { base64: attachments[0].content, filename: attachments[0].filename } : null;
+  const built = buildColdDispatchFromEmail({
+    leadId: lead.id, recipient: lead.publicEmail!, subject, bodyText: text, bodyHtml: htmlBody,
+    classification, idempotencyKey: key, pdf: pdfAttachment,
+    threading: { messageId: threading["Message-ID"], inReplyTo: threading["In-Reply-To"], references: threading["References"] },
+  });
+  if (!built.ok) {
+    // FAIL CLOSED — no postal address or unsubscribe secret means no compliant message can exist.
+    await updateEmailSend(sendRow.id, { status: "failed", failedAt: nowIso, lastError: `compliance assembly failed: ${built.reason}`, lastErrorCode: "compliance_incomplete" });
+    return { stepId, outcome: "failed", reason: `Message could not be assembled compliantly (${built.reason}).`, sendId: sendRow.id };
+  }
+  const toAddr = lead.publicEmail!;
+  const sentBodyText = built.req.bodyText; // the exact text (with footer) that leaves Artifex
+  const res = await submitCompliantDispatch(built.req, built.unsubscribeUrl);
+
+  if (res.ambiguous) {
+    // Uncertain post-submit result — Graph MAY have accepted it. Never blindly resend: mark it
+    // terminal-ambiguous (not auto-retried; the ledger row also blocks any operator re-send) and
+    // surface it for reconciliation against the mailbox Sent Items.
+    await updateEmailSend(sendRow.id, { status: "failed", failedAt: nowIso, nextAttemptAt: null, lastError: res.reason ?? "ambiguous submit", lastErrorCode: "ambiguous_submit" });
+    return { stepId, outcome: "failed", reason: res.reason ?? "Uncertain provider response — not resent (reconcile before any retry).", sendId: sendRow.id };
+  }
 
   if (res.sent) {
     await updateEmailSend(sendRow.id, { status: "sent", providerMessageId: res.providerMessageId, sentAt: nowIso, nextAttemptAt: null, lastError: null, lastErrorCode: null });
@@ -255,8 +293,8 @@ export async function dispatchStep(stepId: string, opts: { now?: Date } = {}): P
     // Append-only; hashed so a later draft regeneration can never rewrite what was sent.
     const receipt: SendReceiptMeta = {
       leadId: lead.id, businessName: lead.businessName,
-      toAddr: msg.to, fromAddr: from, replyTo,
-      subject, bodyText: text, bodySha256: sha256(text),
+      toAddr, fromAddr: from, replyTo,
+      subject, bodyText: sentBodyText, bodySha256: sha256(sentBodyText),
       attachmentFilename, attachmentSha256,
       providerMessageId: res.providerMessageId ?? null, sentAt: nowIso,
       stepId: step.id, planId: plan.id, isFollowUp, sendId: sendRow.id,

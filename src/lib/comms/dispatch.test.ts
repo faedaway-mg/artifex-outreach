@@ -7,7 +7,7 @@ import {
 import { analyzeBusiness } from "../intelligence/engine";
 import { dispatchStep } from "./dispatch";
 import { sha256, SEND_RECEIPT_ACTION } from "./receipt";
-import { resetEmailProvider } from "./provider";
+import { configureResendTestEnv, clearResendTestEnv, resendFetch } from "./resend-test-harness";
 import { __resetStoreForTests } from "../store";
 import type { Lead, AcquisitionPlan, AcquisitionStep } from "../types";
 
@@ -42,45 +42,36 @@ async function seedApprovedPlan(leadId: string): Promise<{ plan: AcquisitionPlan
   return { plan, step };
 }
 
-function okResponse(id = "resend-1"): Response {
-  return { ok: true, status: 200, json: async () => ({ id }), text: async () => JSON.stringify({ id }) } as unknown as Response;
-}
-function errResponse(status: number): Response {
-  return { ok: false, status, json: async () => ({}), text: async () => "err" } as unknown as Response;
-}
-
 const realFetch = global.fetch;
 beforeEach(() => {
   __resetStoreForTests();
-  process.env.RESEND_API_KEY = "re_test";
-  process.env.RESEND_FROM = "Jordan <jordan@artifexlabs.tech>";
-  resetEmailProvider();
+  configureResendTestEnv(); // cold outreach delivers via the compliant Resend transport
 });
-afterEach(() => { global.fetch = realFetch; resetEmailProvider(); vi.restoreAllMocks(); });
+afterEach(() => { global.fetch = realFetch; clearResendTestEnv(); vi.restoreAllMocks(); });
 
 describe("dispatchStep — idempotent sending (Phase 2)", () => {
   it("sends exactly once and marks the step + ledger row sent", async () => {
-    const fetchMock = vi.fn((_u: string | URL | Request, _i?: RequestInit) => Promise.resolve(okResponse("m1")));
-    global.fetch = fetchMock as unknown as typeof fetch;
+    const rf = resendFetch(); // 200 = accepted; providerMessageId = the Resend id
+    global.fetch = rf.fn;
     const lead = await seedLead();
     const { plan, step } = await seedApprovedPlan(lead.id);
-    fetchMock.mockClear(); // ignore analyzeBusiness website fetches — count only the send
     const r = await dispatchStep(step.id);
     expect(r.outcome).toBe("sent");
-    expect(r.providerMessageId).toBe("m1");
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(r.providerMessageId).toBe("resend-1"); // truthful state: the real provider message id
+    expect(rf.calls.send).toBe(1);
 
     const sends = await emailSendsForPlan(plan.id);
     expect(sends).toHaveLength(1);
     expect(sends[0].status).toBe("sent");
     expect(sends[0].idempotencyKey).toBe(`step:${step.id}`);
+    expect(sends[0].provider).toBe("resend");
     const after = await getStep(step.id);
     expect(after!.sentAt).toBeTruthy();
-    expect(after!.providerMessageId).toBe("m1");
+    expect(after!.providerMessageId).toBe("resend-1");
   });
 
   it("writes an immutable receipt bound to the business, and marks the lead contacted", async () => {
-    global.fetch = vi.fn(() => Promise.resolve(okResponse("m1"))) as unknown as typeof fetch;
+    global.fetch = resendFetch().fn;
     const lead = await seedLead();
     const { step } = await seedApprovedPlan(lead.id);
     await dispatchStep(step.id);
@@ -90,17 +81,17 @@ describe("dispatchStep — idempotent sending (Phase 2)", () => {
     const m = receipts[0].meta as { leadId: string; subject: string; bodyText: string; bodySha256: string; providerMessageId: string };
     expect(m.leadId).toBe(lead.id);
     expect(m.subject).toBeTruthy();
-    expect(m.bodySha256).toBe(sha256(m.bodyText)); // body hash matches the recorded body
-    expect(m.providerMessageId).toBe("m1");
+    expect(m.bodySha256).toBe(sha256(m.bodyText)); // body hash matches the recorded (footer-included) body
+    expect(m.bodyText).toContain("Artifex Labs Systems LLC"); // compliant footer is part of what shipped
+    expect(m.providerMessageId).toBe("resend-1");
 
-    // Pipeline visibility: the emailed business is no longer indistinguishable from an untouched one.
     const after = await getLead(lead.id);
     expect(after!.lastContactAt).toBeTruthy();
     expect(after!.pipelineStage).toBe("Contacted");
   });
 
   it("a FAILED send writes NO receipt and does not mark the lead contacted", async () => {
-    global.fetch = vi.fn(() => Promise.resolve(errResponse(400))) as unknown as typeof fetch; // permanent
+    global.fetch = resendFetch({ send: () => 400 }).fn; // permanent
     const lead = await seedLead();
     const { step } = await seedApprovedPlan(lead.id);
     const r = await dispatchStep(step.id);
@@ -110,7 +101,7 @@ describe("dispatchStep — idempotent sending (Phase 2)", () => {
   });
 
   it("an idempotent retry does not write a second receipt", async () => {
-    global.fetch = vi.fn(() => Promise.resolve(okResponse("m1"))) as unknown as typeof fetch;
+    global.fetch = resendFetch().fn;
     const lead = await seedLead();
     const { step } = await seedApprovedPlan(lead.id);
     await dispatchStep(step.id);
@@ -119,34 +110,33 @@ describe("dispatchStep — idempotent sending (Phase 2)", () => {
   });
 
   it("never sends twice — a second dispatch is deduped, no second provider call", async () => {
-    const fetchMock = vi.fn((_u: string | URL | Request, _i?: RequestInit) => Promise.resolve(okResponse()));
-    global.fetch = fetchMock as unknown as typeof fetch;
+    const rf = resendFetch();
+    global.fetch = rf.fn;
     const lead = await seedLead();
     const { plan, step } = await seedApprovedPlan(lead.id);
 
     await dispatchStep(step.id);
     const second = await dispatchStep(step.id);
     expect(second.outcome).toBe("deduped");
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(rf.calls.send).toBe(1);
     expect(await emailSendsForPlan(plan.id)).toHaveLength(1);
   });
 
   it("survives concurrent duplicate dispatch (double-submit / duplicate scheduler run)", async () => {
-    const fetchMock = vi.fn((_u: string | URL | Request, _i?: RequestInit) => Promise.resolve(okResponse()));
-    global.fetch = fetchMock as unknown as typeof fetch;
+    const rf = resendFetch();
+    global.fetch = rf.fn;
     const lead = await seedLead();
     const { plan, step } = await seedApprovedPlan(lead.id);
 
     const results = await Promise.all([dispatchStep(step.id), dispatchStep(step.id), dispatchStep(step.id)]);
     const sent = results.filter((r) => r.outcome === "sent");
     expect(sent).toHaveLength(1); // exactly one send wins
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(rf.calls.send).toBe(1);
     expect(await emailSendsForPlan(plan.id)).toHaveLength(1);
   });
 
   it("re-queues a transient failure and sends once on the following attempt", async () => {
-    let call = 0;
-    global.fetch = vi.fn((_u: string | URL | Request, _i?: RequestInit) => Promise.resolve(++call === 1 ? errResponse(429) : okResponse("m2"))) as unknown as typeof fetch;
+    global.fetch = resendFetch({ send: (n) => (n === 1 ? 429 : 200) }).fn;
     const lead = await seedLead();
     const { plan, step } = await seedApprovedPlan(lead.id);
 
@@ -166,7 +156,7 @@ describe("dispatchStep — idempotent sending (Phase 2)", () => {
   });
 
   it("marks a permanent (validation) failure as failed with no retry", async () => {
-    global.fetch = vi.fn((_u: string | URL | Request, _i?: RequestInit) => Promise.resolve(errResponse(422))) as unknown as typeof fetch;
+    global.fetch = resendFetch({ send: () => 422 }).fn;
     const lead = await seedLead();
     const { plan, step } = await seedApprovedPlan(lead.id);
     const r = await dispatchStep(step.id);
@@ -176,43 +166,54 @@ describe("dispatchStep — idempotent sending (Phase 2)", () => {
     expect((await getStep(step.id))!.sentAt).toBeNull();
   });
 
-  it("skips (and releases the claim) when no provider is configured — nothing lost", async () => {
+  it("an AMBIGUOUS send (network fault after submit) fails closed — never blindly resent", async () => {
+    global.fetch = resendFetch({ send: () => ({ throw: true }) }).fn;
+    const lead = await seedLead();
+    const { step } = await seedApprovedPlan(lead.id);
+    const r = await dispatchStep(step.id);
+    expect(r.outcome).toBe("failed");
+    const row = await getEmailSendByKey(`step:${step.id}`);
+    expect(row!.status).toBe("failed");
+    expect(row!.lastErrorCode).toBe("ambiguous_submit"); // terminal — the ledger blocks any resend
+  });
+
+  it("skips (and releases the claim) when the transport is unconfigured — nothing lost", async () => {
     delete process.env.RESEND_API_KEY;
-    resetEmailProvider();
-    const fetchMock = vi.fn();
-    global.fetch = fetchMock as unknown as typeof fetch;
+    const rf = resendFetch();
+    global.fetch = rf.fn;
     const lead = await seedLead();
     const { step } = await seedApprovedPlan(lead.id);
     const r = await dispatchStep(step.id);
     expect(r.outcome).toBe("skipped");
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(rf.calls.all).toBe(0); // nothing attempted
     const row = await getEmailSendByKey(`step:${step.id}`);
     expect(row!.status).toBe("queued"); // released for a later configured run
+    expect(row!.provider).toBe("resend");
   });
 
   it("skips a suppressed recipient and stops the plan (never sends)", async () => {
-    const fetchMock = vi.fn();
-    global.fetch = fetchMock as unknown as typeof fetch;
+    const rf = resendFetch();
+    global.fetch = rf.fn;
     const lead = await seedLead({ publicEmail: "stop@d.example" });
     const { plan, step } = await seedApprovedPlan(lead.id);
     await addSuppression({ email: "stop@d.example", domain: null, phone: null, reason: "opt-out" });
     const r = await dispatchStep(step.id);
     expect(r.outcome).toBe("skipped");
     expect(r.reason).toBe("suppressed");
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(rf.calls.all).toBe(0);
     const { getPlan } = await import("../repo");
     expect((await getPlan(plan.id))!.status).toBe("stopped");
   });
 
   it("skips a paused plan", async () => {
-    const fetchMock = vi.fn();
-    global.fetch = fetchMock as unknown as typeof fetch;
+    const rf = resendFetch();
+    global.fetch = rf.fn;
     const lead = await seedLead();
     const { plan, step } = await seedApprovedPlan(lead.id);
     await updatePlan(plan.id, { status: "paused" });
     const r = await dispatchStep(step.id);
     expect(r.outcome).toBe("skipped");
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(rf.calls.all).toBe(0);
   });
 });
 
@@ -232,12 +233,8 @@ function makeSendable<T extends { businessProfile: { opportunities: any[] } }>(b
 
 describe("dispatchStep — Gate 7 universal review delivery protection", () => {
   it("BLOCKS (never bare-sends) an initial email when its review-bearing lead has NO delivery-ready Quick Review", async () => {
-    const fetchMock = vi.fn((_u: string | URL | Request, _i?: RequestInit) => Promise.resolve(okResponse("nope")));
-    global.fetch = fetchMock as unknown as typeof fetch;
+    global.fetch = resendFetch().fn;
     const lead = await seedLead();
-    // No evidence-backed opportunities → 0 findings → INSUFFICIENT_EVIDENCE → NOT delivery-ready.
-    // (Explicitly emptied: a lead can otherwise yield one strong Observed finding, which the
-    // one-strong-finding policy now makes SENDABLE — that would defeat this "no ready review" case.)
     const bi = await analyzeBusiness({ lead, findings: [], contacts: [] } as any);
     (bi as any).businessProfile.opportunities = [];
     await upsertBusinessIntelligence({ leadId: lead.id, profile: bi as any, enrichmentDelta: null, generatedAt: "2026-07-22T00:00:00.000Z" });
@@ -247,23 +244,18 @@ describe("dispatchStep — Gate 7 universal review delivery protection", () => {
     const send = await getEmailSendByKey(`step:${step.id}`);
     expect(send!.status).toBe("failed");
     expect(send!.lastErrorCode).toBe("review_not_ready");
-    // Canonical proof no bare email shipped: a blocked send writes NO immutable receipt and the
-    // step is never marked sent. (fetch count is not a clean signal — the legacy path resolves brand
-    // assets over the network before the readiness check.)
     expect((await listAudit(50)).filter((a) => a.action === SEND_RECEIPT_ACTION && a.targetId === lead.id)).toHaveLength(0);
     expect((await getStep(step.id))!.sentAt).toBeNull();
   });
 
   it("SENDS with the review attached when the legacy (unedited) review IS delivery-ready", async () => {
-    const fetchMock = vi.fn((_u: string | URL | Request, _i?: RequestInit) => Promise.resolve(okResponse("m-ready")));
-    global.fetch = fetchMock as unknown as typeof fetch;
+    global.fetch = resendFetch().fn;
     const lead = await seedLead();
     const bi = makeSendable(await analyzeBusiness({ lead, findings: [], contacts: [] } as any));
     await upsertBusinessIntelligence({ leadId: lead.id, profile: bi as any, enrichmentDelta: null, generatedAt: "2026-07-22T00:00:00.000Z" });
     const { step } = await seedApprovedPlan(lead.id);
     const r = await dispatchStep(step.id);
     expect(r.outcome).toBe("sent");
-    // The immutable receipt proves the exact Quick Review PDF (by filename + hash) actually shipped — not bare.
     const receipt = (await listAudit(50)).find((a) => a.action === SEND_RECEIPT_ACTION && a.targetId === lead.id);
     expect(receipt).toBeTruthy();
     expect((receipt!.meta as any).attachmentFilename).toBeTruthy();
@@ -271,12 +263,12 @@ describe("dispatchStep — Gate 7 universal review delivery protection", () => {
   });
 
   it("still bare-sends a lead with NO review profile at all (non-review outreach is unaffected)", async () => {
-    const fetchMock = vi.fn((_u: string | URL | Request, _i?: RequestInit) => Promise.resolve(okResponse("m-plain")));
-    global.fetch = fetchMock as unknown as typeof fetch;
+    const rf = resendFetch();
+    global.fetch = rf.fn;
     const lead = await seedLead(); // no BI seeded → profile is null → guard does not apply
     const { step } = await seedApprovedPlan(lead.id);
     const r = await dispatchStep(step.id);
     expect(r.outcome).toBe("sent");
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(rf.calls.send).toBe(1);
   });
 });

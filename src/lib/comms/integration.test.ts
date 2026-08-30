@@ -14,22 +14,22 @@ import { handleResendWebhook } from "./webhook";
 import { ingestInboundReply } from "./reply";
 import { conversationState } from "./conversation";
 import { commsMetrics } from "./monitoring";
-import { resetEmailProvider } from "./provider";
+import { configureResendTestEnv, clearResendTestEnv, resendFetch } from "./resend-test-harness";
 import { __resetStoreForTests } from "../store";
 import type { Lead } from "../types";
 
 const realFetch = global.fetch;
 const SECRET = "whsec_" + Buffer.from("integration-secret").toString("base64");
-beforeEach(() => { __resetStoreForTests(); process.env.RESEND_API_KEY = "re_test"; process.env.RESEND_FROM = "J <j@artifexlabs.tech>"; resetEmailProvider(); });
-afterEach(() => { global.fetch = realFetch; resetEmailProvider(); vi.restoreAllMocks(); });
+beforeEach(() => { __resetStoreForTests(); configureResendTestEnv(); }); // cold outreach delivers via the compliant Resend transport
+afterEach(() => { global.fetch = realFetch; clearResendTestEnv(); vi.restoreAllMocks(); });
 
-let pmidSeq = 0;
+// A Resend 200 sets providerMessageId to the real provider id (`resend-<n>`); the inbound
+// delivery webhook correlates on that same stored id, so no synthetic per-send id is needed.
 function fetchSends() {
-  // Each send returns a unique provider id so webhooks can target it.
-  global.fetch = vi.fn((_u: string | URL | Request, _i?: RequestInit) => Promise.resolve({ ok: true, status: 200, json: async () => ({ id: `pm-${++pmidSeq}` }), text: async () => "{}" } as unknown as Response)) as unknown as typeof fetch;
+  global.fetch = resendFetch().fn;
 }
 function fetchFails(status: number) {
-  global.fetch = vi.fn((_u: string | URL | Request, _i?: RequestInit) => Promise.resolve({ ok: false, status, json: async () => ({}), text: async () => "e" } as unknown as Response)) as unknown as typeof fetch;
+  global.fetch = resendFetch({ send: () => status }).fn;
 }
 function signedWebhook(evtId: string, type: string, emailId: string, now: Date) {
   const body = JSON.stringify({ type, created_at: now.toISOString(), data: { email_id: emailId } });
@@ -181,6 +181,9 @@ describe("Phase 10 — integration scenarios", () => {
     expect(await isSuppressed({ email: "unsub@x.example" })).toBe(true);
     expect((await getPlan(plan.id))!.status).toBe("stopped");
 
+    // The cold send went via Resend (fetchSends). The monitoring layer's provider-HEALTH abstraction
+    // still reports the configured Resend health provider — this asserts monitoring "reflects the
+    // fleet".
     const m = await commsMetrics({ now: T(18) });
     expect(m.volume.sentTotal).toBe(1);
     expect(m.provider.name).toBe("resend");

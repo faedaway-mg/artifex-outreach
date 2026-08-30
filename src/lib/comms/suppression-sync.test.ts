@@ -6,13 +6,13 @@ import { isHardBounce, syncSuppressionFromDelivery, ensureLeadSuppressed } from 
 import { handleResendWebhook } from "./webhook";
 import { ingestInboundReply } from "./reply";
 import { unsubscribeToken, verifyUnsubscribeToken } from "./unsubscribe";
-import { resetEmailProvider } from "./provider";
+import { configureResendTestEnv, clearResendTestEnv, resendFetch } from "./resend-test-harness";
 import { __resetStoreForTests } from "../store";
 import type { Lead } from "../types";
 
 const realFetch = global.fetch;
-beforeEach(() => { __resetStoreForTests(); process.env.RESEND_API_KEY = "re_test"; process.env.RESEND_FROM = "J <j@artifexlabs.tech>"; process.env.AUTH_SECRET = "test-secret"; resetEmailProvider(); });
-afterEach(() => { global.fetch = realFetch; resetEmailProvider(); vi.restoreAllMocks(); });
+beforeEach(() => { __resetStoreForTests(); configureResendTestEnv(); process.env.AUTH_SECRET = "test-secret"; }); // cold outreach delivers via the compliant Resend transport
+afterEach(() => { global.fetch = realFetch; clearResendTestEnv(); delete process.env.AUTH_SECRET; vi.restoreAllMocks(); });
 
 async function seedLead(email = "owner@sup.example"): Promise<Lead> {
   return insertLead({
@@ -27,7 +27,9 @@ async function seedLead(email = "owner@sup.example"): Promise<Lead> {
     assignedTo: "jordan", assignedAt: null, assignmentReason: null, lastOperatorActivityAt: null, note: null, lastContactAt: null, nextFollowUpAt: null,
   } as any);
 }
-async function seedSentPlusPending(leadId: string, pmid: string) {
+// Dispatches step 1 via Resend; returns the plan, the pending step 2, and the RECORDED providerMessageId
+// (the real Resend id, e.g. "resend-1"), which delivery/webhook payloads must reference.
+async function seedSentPlusPending(leadId: string) {
   const plan = await insertPlan({
     leadId, strategy: "Assisted", objective: "o", assetPackage: "Focused", primaryChannel: "email", secondaryChannel: null,
     status: "active", approvalStatus: "approved", currentStep: 1, maxTouches: 3, nextScheduledAt: null, replyState: null,
@@ -37,9 +39,9 @@ async function seedSentPlusPending(leadId: string, pmid: string) {
   });
   const step1 = await insertStep({ planId: plan.id, stepNumber: 1, channel: "email", delayDays: 0, subject: "s1", content: "b {{unsubscribe}}", approvalRequired: false, approvalStatus: "approved", scheduledAt: "2026-07-01T00:00:00Z", sentAt: null, providerMessageId: null, deliveryStatus: null, stoppedAt: null, stopReason: null });
   const step2 = await insertStep({ planId: plan.id, stepNumber: 2, channel: "email", delayDays: 4, subject: "s2", content: "b2 {{unsubscribe}}", approvalRequired: false, approvalStatus: "approved", scheduledAt: "2026-07-30T00:00:00Z", sentAt: null, providerMessageId: null, deliveryStatus: null, stoppedAt: null, stopReason: null });
-  global.fetch = vi.fn((_u: string | URL | Request, _i?: RequestInit) => Promise.resolve({ ok: true, status: 200, json: async () => ({ id: pmid }), text: async () => "{}" } as unknown as Response)) as unknown as typeof fetch;
-  await dispatchStep(step1.id);
-  return { plan, step2 };
+  global.fetch = resendFetch().fn;
+  const r = await dispatchStep(step1.id);
+  return { plan, step2, pmid: r.providerMessageId! };
 }
 
 describe("isHardBounce (Phase 6)", () => {
@@ -56,8 +58,8 @@ describe("isHardBounce (Phase 6)", () => {
 describe("syncSuppressionFromDelivery (Phase 6)", () => {
   it("suppresses on complaint and stops the sequence, blocking future sends", async () => {
     const lead = await seedLead();
-    const { plan, step2 } = await seedSentPlusPending(lead.id, "m-c");
-    const did = await syncSuppressionFromDelivery({ type: "complained", providerMessageId: "m-c", at: "x" }, {});
+    const { plan, step2, pmid } = await seedSentPlusPending(lead.id);
+    const did = await syncSuppressionFromDelivery({ type: "complained", providerMessageId: pmid, at: "x" }, {});
     expect(did).toBe(true);
     expect(await isSuppressed({ email: lead.publicEmail })).toBe(true);
     expect((await getPlan(plan.id))!.status).toBe("stopped");
@@ -69,15 +71,15 @@ describe("syncSuppressionFromDelivery (Phase 6)", () => {
 
   it("suppresses on hard bounce", async () => {
     const lead = await seedLead("hb@sup.example");
-    await seedSentPlusPending(lead.id, "m-hb");
-    await syncSuppressionFromDelivery({ type: "bounced", providerMessageId: "m-hb", at: "x" }, { data: { type: "hard" } });
+    const { pmid } = await seedSentPlusPending(lead.id);
+    await syncSuppressionFromDelivery({ type: "bounced", providerMessageId: pmid, at: "x" }, { data: { type: "hard" } });
     expect(await isSuppressed({ email: "hb@sup.example" })).toBe(true);
   });
 
   it("does NOT suppress on a soft bounce", async () => {
     const lead = await seedLead("sb@sup.example");
-    await seedSentPlusPending(lead.id, "m-sb");
-    const did = await syncSuppressionFromDelivery({ type: "bounced", providerMessageId: "m-sb", at: "x" }, { data: { type: "soft" } });
+    const { pmid } = await seedSentPlusPending(lead.id);
+    const did = await syncSuppressionFromDelivery({ type: "bounced", providerMessageId: pmid, at: "x" }, { data: { type: "soft" } });
     expect(did).toBe(false);
     expect(await isSuppressed({ email: "sb@sup.example" })).toBe(false);
   });
@@ -95,9 +97,9 @@ describe("webhook + reply suppression wiring (Phase 6)", () => {
   it("suppresses end-to-end through the signed webhook on a complaint", async () => {
     const secret = "whsec_" + Buffer.from("s6secret").toString("base64");
     const lead = await seedLead("w6@sup.example");
-    await seedSentPlusPending(lead.id, "m-w6");
+    const { pmid } = await seedSentPlusPending(lead.id);
     const now = new Date("2026-07-15T10:00:00Z");
-    const body = JSON.stringify({ type: "email.complained", data: { email_id: "m-w6" } });
+    const body = JSON.stringify({ type: "email.complained", data: { email_id: pmid } });
     const key = Buffer.from(secret.slice("whsec_".length), "base64");
     const sig = createHmac("sha256", key).update(`evt_c.${Math.floor(now.getTime() / 1000)}.${body}`).digest("base64");
     const r = await handleResendWebhook({ rawBody: body, headers: { id: "evt_c", timestamp: String(Math.floor(now.getTime() / 1000)), signature: `v1,${sig}` }, secret, now });
@@ -107,7 +109,7 @@ describe("webhook + reply suppression wiring (Phase 6)", () => {
 
   it("suppresses on an unsubscribe reply", async () => {
     const lead = await seedLead("u6@sup.example");
-    await seedSentPlusPending(lead.id, "m-u6");
+    await seedSentPlusPending(lead.id);
     const r = await ingestInboundReply({ from: "u6@sup.example", subject: "re", body: "please unsubscribe me" });
     expect(r.classification).toBe("Unsubscribe");
     expect(await isSuppressed({ email: "u6@sup.example" })).toBe(true);

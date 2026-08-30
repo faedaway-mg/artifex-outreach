@@ -2,13 +2,13 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { insertLead, insertPlan, insertStep, getPlan, inboundForLead, emailSendsForPlan } from "../repo";
 import { dispatchStep } from "./dispatch";
 import { classifyReply, ingestInboundReply, normalizeInbound } from "./reply";
-import { resetEmailProvider } from "./provider";
+import { configureResendTestEnv, clearResendTestEnv, resendFetch } from "./resend-test-harness";
 import { __resetStoreForTests } from "../store";
 import type { Lead } from "../types";
 
 const realFetch = global.fetch;
-beforeEach(() => { __resetStoreForTests(); process.env.RESEND_API_KEY = "re_test"; process.env.RESEND_FROM = "J <j@artifexlabs.tech>"; resetEmailProvider(); });
-afterEach(() => { global.fetch = realFetch; resetEmailProvider(); vi.restoreAllMocks(); });
+beforeEach(() => { __resetStoreForTests(); configureResendTestEnv(); }); // cold outreach delivers via the compliant Resend transport
+afterEach(() => { global.fetch = realFetch; clearResendTestEnv(); vi.restoreAllMocks(); });
 
 async function seedLead(email = "owner@r.example"): Promise<Lead> {
   return insertLead({
@@ -23,7 +23,9 @@ async function seedLead(email = "owner@r.example"): Promise<Lead> {
     assignedTo: "jordan", assignedAt: null, assignmentReason: null, lastOperatorActivityAt: null, note: null, lastContactAt: null, nextFollowUpAt: null,
   } as any);
 }
-async function seedActivePlan(leadId: string, providerMessageId?: string) {
+// Returns the plan + step. When `send` is true, dispatches step 1 via Resend and returns the recorded
+// providerMessageId (the real Resend id, e.g. "resend-1") as `pmid` so a reply can reference it via In-Reply-To.
+async function seedActivePlan(leadId: string, send = false): Promise<{ plan: Awaited<ReturnType<typeof insertPlan>>; step: Awaited<ReturnType<typeof insertStep>>; pmid: string | null }> {
   const plan = await insertPlan({
     leadId, strategy: "Assisted", objective: "o", assetPackage: "Focused", primaryChannel: "email", secondaryChannel: null,
     status: "active", approvalStatus: "approved", currentStep: 1, maxTouches: 3, nextScheduledAt: null, replyState: null,
@@ -41,11 +43,13 @@ async function seedActivePlan(leadId: string, providerMessageId?: string) {
     planId: plan.id, stepNumber: 2, channel: "email", delayDays: 4, subject: "s2", content: "b2 {{unsubscribe}}",
     approvalRequired: false, approvalStatus: "approved", scheduledAt: "2026-07-30T00:00:00Z", sentAt: null, providerMessageId: null, deliveryStatus: null, stoppedAt: null, stopReason: null,
   });
-  if (providerMessageId) {
-    global.fetch = vi.fn((_u: string | URL | Request, _i?: RequestInit) => Promise.resolve({ ok: true, status: 200, json: async () => ({ id: providerMessageId }), text: async () => "{}" } as unknown as Response)) as unknown as typeof fetch;
-    await dispatchStep(step.id);
+  let pmid: string | null = null;
+  if (send) {
+    global.fetch = resendFetch().fn;
+    const r = await dispatchStep(step.id);
+    pmid = r.providerMessageId!; // Resend records the real message id (e.g. "resend-1")
   }
-  return { plan, step };
+  return { plan, step, pmid };
 }
 
 describe("classifyReply (Phase 5)", () => {
@@ -74,11 +78,11 @@ describe("classifyReply (Phase 5)", () => {
 describe("ingestInboundReply (Phase 5)", () => {
   it("associates by In-Reply-To, stores raw body separately, and stops the sequence", async () => {
     const lead = await seedLead();
-    const { plan } = await seedActivePlan(lead.id, "sent-1");
+    const { plan, pmid } = await seedActivePlan(lead.id, true);
     expect((await emailSendsForPlan(plan.id))[0].status).toBe("sent");
 
     const raw = "Yes! Can we schedule a call? — Best, Owner";
-    const r = await ingestInboundReply({ from: "owner@r.example", subject: "Re: s", body: raw, providerMessageId: "in-1", inReplyTo: "sent-1" });
+    const r = await ingestInboundReply({ from: "owner@r.example", subject: "Re: s", body: raw, providerMessageId: "in-1", inReplyTo: pmid! });
     expect(r.leadId).toBe(lead.id);
     expect(r.classification).toBe("Meeting Requested");
     expect(r.stoppedSequence).toBe(true);

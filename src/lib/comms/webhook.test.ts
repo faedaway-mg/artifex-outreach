@@ -5,15 +5,18 @@ import { dispatchStep } from "./dispatch";
 import { getEmailSendByProviderMessageId } from "../repo";
 import { verifySvixSignature, parseResendEvent, handleResendWebhook } from "./webhook";
 import { applyDeliveryEvent } from "./events";
-import { resetEmailProvider } from "./provider";
+import { configureResendTestEnv, clearResendTestEnv, resendFetch } from "./resend-test-harness";
 import { __resetStoreForTests } from "../store";
 import type { Lead } from "../types";
 
 const realFetch = global.fetch;
-beforeEach(() => { __resetStoreForTests(); process.env.RESEND_API_KEY = "re_test"; process.env.RESEND_FROM = "J <j@artifexlabs.tech>"; resetEmailProvider(); });
-afterEach(() => { global.fetch = realFetch; resetEmailProvider(); vi.restoreAllMocks(); });
+beforeEach(() => { __resetStoreForTests(); configureResendTestEnv(); }); // cold outreach delivers via the compliant Resend transport
+afterEach(() => { global.fetch = realFetch; clearResendTestEnv(); vi.restoreAllMocks(); });
 
-async function seedSentStep(providerMessageId = "m1"): Promise<{ pmid: string }> {
+// The seeded send now leaves via Resend, whose providerMessageId is the REAL Resend id `resend-<n>`
+// (first success = "resend-1"). The webhook payloads reference THAT id, so we return the recorded pmid
+// for the caller to post back. (The `providerMessageId` arg is now ignored — kept for call-site parity.)
+async function seedSentStep(_providerMessageId = "m1"): Promise<{ pmid: string }> {
   const lead: Lead = await insertLead({
     googlePlaceId: null, businessName: "Hook Co", normalizedName: "hookco", industry: "Auto repair",
     normalizedCategory: "auto-repair", categoryGroup: "Automotive", address: "1 St", city: "LA", state: "CA", postalCode: "90012",
@@ -36,9 +39,9 @@ async function seedSentStep(providerMessageId = "m1"): Promise<{ pmid: string }>
     planId: plan.id, stepNumber: 1, channel: "email", delayDays: 0, subject: "s", content: "b {{unsubscribe}}",
     approvalRequired: false, approvalStatus: "approved", scheduledAt: "2026-07-01T00:00:00Z", sentAt: null, providerMessageId: null, deliveryStatus: null, stoppedAt: null, stopReason: null,
   });
-  global.fetch = vi.fn((_u: string | URL | Request, _i?: RequestInit) => Promise.resolve({ ok: true, status: 200, json: async () => ({ id: providerMessageId }), text: async () => "{}" } as unknown as Response)) as unknown as typeof fetch;
-  await dispatchStep(step.id);
-  return { pmid: providerMessageId };
+  global.fetch = resendFetch().fn;
+  const r = await dispatchStep(step.id);
+  return { pmid: r.providerMessageId! }; // Resend records the real message id (e.g. "resend-1")
 }
 
 function signed(secret: string, id: string, body: string, tsSec: number): { headers: any } {

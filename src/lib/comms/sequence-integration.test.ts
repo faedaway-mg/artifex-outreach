@@ -9,7 +9,7 @@ import {
   upsertBusinessIntelligence, insertEmailSendIfAbsent, emailSendsForLead, getStep, getTask,
 } from "../repo";
 import { materializeDueSteps } from "./task-projection";
-import { resetEmailProvider } from "./provider";
+import { configureResendTestEnv, clearResendTestEnv, resendFetch } from "./resend-test-harness";
 import { scheduleFollowUps } from "../followups";
 import { analyzeBusiness } from "../intelligence/engine";
 import { sendFollowUpAction } from "../outreach/send-actions";
@@ -87,23 +87,18 @@ describe("9. the legacy follow-up scheduler never competes with the real sequenc
 
 describe("8. sending through the projected task reconciles step, task, and ledger", () => {
   const realFetch = global.fetch;
-  let sends: any[] = [];
+  let rf: ReturnType<typeof resendFetch>;
 
   beforeEach(() => {
     __resetStoreForTests();
-    sends = [];
-    process.env.RESEND_API_KEY = "re_test";
-    process.env.RESEND_FROM = "Jordan <hello@artifexlabs.tech>";
+    configureResendTestEnv(); // cold outreach delivers via the compliant Resend transport
     process.env.OUTREACH_SENDING_ENABLED = "1";
-    resetEmailProvider();
-    global.fetch = vi.fn(async (_url: any, init: any) => {
-      sends.push(JSON.parse(init.body));
-      return { ok: true, status: 200, json: async () => ({ id: "prov_msg_fu" }), text: async () => "{}" } as unknown as Response;
-    }) as any;
+    rf = resendFetch();
+    global.fetch = rf.fn;
   });
   afterEach(() => {
     global.fetch = realFetch;
-    resetEmailProvider();
+    clearResendTestEnv();
     delete process.env.OUTREACH_SENDING_ENABLED;
     vi.restoreAllMocks();
   });
@@ -139,7 +134,7 @@ describe("8. sending through the projected task reconciles step, task, and ledge
     // The operator sends it deliberately.
     const res = await sendFollowUpAction(lead.id);
     expect(res.outcome).toBe("sent");
-    expect(sends).toHaveLength(1);
+    expect(rf.calls.send).toBe(1); // exactly one send (Resend makes a single POST /emails)
 
     // The authoritative step is now sent, and the ledger records both touches.
     expect((await getStep(s2.id))!.sentAt).toBeTruthy();

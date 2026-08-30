@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { insertLead, insertPlan, insertStep, updateEmailSend, getEmailSendByKey } from "../repo";
 import { withinSendingWindow, dueStepIds, runDueSends } from "./scheduler";
 import { dispatchStep } from "./dispatch";
-import { resetEmailProvider } from "./provider";
+import { configureResendTestEnv, clearResendTestEnv, resendFetch } from "./resend-test-harness";
 import { backoffMs } from "./state";
 import { __resetStoreForTests } from "../store";
 import type { Lead, SendingWindow } from "../types";
@@ -34,12 +34,9 @@ async function seedStep(leadId: string, scheduledAt: string) {
   });
   return { plan, step };
 }
-const okResponse = (): Response => ({ ok: true, status: 200, json: async () => ({ id: "m" }), text: async () => "{}" } as unknown as Response);
-const errResponse = (s: number): Response => ({ ok: false, status: s, json: async () => ({}), text: async () => "e" } as unknown as Response);
-
 const realFetch = global.fetch;
-beforeEach(() => { __resetStoreForTests(); process.env.RESEND_API_KEY = "re_test"; process.env.RESEND_FROM = "Jordan <jordan@artifexlabs.tech>"; resetEmailProvider(); });
-afterEach(() => { global.fetch = realFetch; resetEmailProvider(); vi.restoreAllMocks(); });
+beforeEach(() => { __resetStoreForTests(); configureResendTestEnv(); }); // cold outreach delivers via the compliant Resend transport
+afterEach(() => { global.fetch = realFetch; clearResendTestEnv(); vi.restoreAllMocks(); });
 
 const UTC_WINDOW: SendingWindow = { timezone: "UTC", startHour: 8, endHour: 17, weekdays: [1, 2, 3, 4, 5] };
 
@@ -69,7 +66,7 @@ describe("dueStepIds (Phase 3)", () => {
     expect(ids).not.toContain(step.id);
   });
   it("excludes a queued retry until its backoff elapses", async () => {
-    global.fetch = vi.fn((_u: string | URL | Request, _i?: RequestInit) => Promise.resolve(errResponse(429))) as unknown as typeof fetch;
+    global.fetch = resendFetch({ send: () => 429 }).fn;
     const lead = await seedLead();
     const now = new Date("2026-07-15T10:00:00Z");
     const { step } = await seedStep(lead.id, "2026-07-15T09:00:00Z");
@@ -84,7 +81,7 @@ describe("dueStepIds (Phase 3)", () => {
     expect(await dueStepIds(later)).toContain(step.id);
   });
   it("excludes an already-sent step", async () => {
-    global.fetch = vi.fn((_u: string | URL | Request, _i?: RequestInit) => Promise.resolve(okResponse())) as unknown as typeof fetch;
+    global.fetch = resendFetch().fn;
     const lead = await seedLead();
     const now = new Date("2026-07-15T10:00:00Z");
     const { step } = await seedStep(lead.id, "2026-07-15T09:00:00Z");
@@ -95,27 +92,27 @@ describe("dueStepIds (Phase 3)", () => {
 
 describe("runDueSends (Phase 3)", () => {
   it("sends all due steps once when forced past the window", async () => {
-    const fetchMock = vi.fn((_u: string | URL | Request, _i?: RequestInit) => Promise.resolve(okResponse()));
-    global.fetch = fetchMock as unknown as typeof fetch;
+    const rf = resendFetch();
+    global.fetch = rf.fn;
     const lead = await seedLead();
     await seedStep(lead.id, "2026-07-15T09:00:00Z");
     const summary = await runDueSends({ now: new Date("2026-07-15T10:00:00Z"), force: true });
     expect(summary.sent).toBe(1);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(rf.calls.send).toBe(1); // exactly one send (Resend makes a single POST /emails)
   });
   it("does nothing when the business-hours window is closed", async () => {
-    const fetchMock = vi.fn();
-    global.fetch = fetchMock as unknown as typeof fetch;
+    const rf = resendFetch();
+    global.fetch = rf.fn;
     const lead = await seedLead();
     await seedStep(lead.id, "2026-07-12T00:00:00Z");
     // Sunday 05:00 America/Los_Angeles → window closed (default settings window).
     const summary = await runDueSends({ now: new Date("2026-07-12T12:00:00Z") });
     expect(summary.windowOpen).toBe(false);
     expect(summary.considered).toBe(0);
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(rf.calls.all).toBe(0); // nothing attempted
   });
   it("surfaces permanent failures in the summary", async () => {
-    global.fetch = vi.fn((_u: string | URL | Request, _i?: RequestInit) => Promise.resolve(errResponse(422))) as unknown as typeof fetch;
+    global.fetch = resendFetch({ send: () => 422 }).fn;
     const lead = await seedLead();
     const { step } = await seedStep(lead.id, "2026-07-15T09:00:00Z");
     const summary = await runDueSends({ now: new Date("2026-07-15T10:00:00Z"), force: true });

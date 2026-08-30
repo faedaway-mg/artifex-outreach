@@ -35,7 +35,7 @@ describe("/api/cron/outreach — scheduled runner is delivery-disabled at both b
     expect(r.ok).toBe(true);
     expect(r.dispatched).toBe(false);
     expect(r.sent).toBe(0);
-    expect(r.reason).toMatch(/no business-approved delivering transport/i);
+    expect(r.reason).toMatch(/no delivering transport configured/i);
   });
 
   it("ENABLED + paused → paused (no run)", async () => {

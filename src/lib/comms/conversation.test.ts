@@ -4,13 +4,13 @@ import { dispatchStep } from "./dispatch";
 import { applyDeliveryEvent } from "./events";
 import { ingestInboundReply } from "./reply";
 import { conversationState } from "./conversation";
-import { resetEmailProvider } from "./provider";
+import { configureResendTestEnv, clearResendTestEnv, resendFetch } from "./resend-test-harness";
 import { __resetStoreForTests } from "../store";
 import type { Lead } from "../types";
 
 const realFetch = global.fetch;
-beforeEach(() => { __resetStoreForTests(); process.env.RESEND_API_KEY = "re_test"; process.env.RESEND_FROM = "J <j@artifexlabs.tech>"; resetEmailProvider(); });
-afterEach(() => { global.fetch = realFetch; resetEmailProvider(); vi.restoreAllMocks(); });
+beforeEach(() => { __resetStoreForTests(); configureResendTestEnv(); });
+afterEach(() => { global.fetch = realFetch; clearResendTestEnv(); vi.restoreAllMocks(); });
 
 async function seedLead(email = "owner@conv.example"): Promise<Lead> {
   return insertLead({
@@ -48,13 +48,15 @@ describe("conversationState (Phase 7)", () => {
   });
 
   it("advances through Sent → Delivered → Opened → Clicked with timestamps", async () => {
-    global.fetch = vi.fn((_u: string | URL | Request, _i?: RequestInit) => Promise.resolve({ ok: true, status: 200, json: async () => ({ id: "cm1" }), text: async () => "{}" } as unknown as Response)) as unknown as typeof fetch;
+    global.fetch = resendFetch().fn;
     const lead = await seedLead();
     const { step1 } = await seedActivePlan(lead.id);
     await dispatchStep(step1.id);
-    await applyDeliveryEvent({ type: "delivered", providerMessageId: "cm1", at: "2026-07-15T10:00:00Z" });
-    await applyDeliveryEvent({ type: "opened", providerMessageId: "cm1", at: "2026-07-15T10:05:00Z" });
-    await applyDeliveryEvent({ type: "clicked", providerMessageId: "cm1", at: "2026-07-15T10:06:00Z" });
+    // Resend returns a real provider message id (resend-<n>); the send is recorded under it.
+    const pmid = "resend-1";
+    await applyDeliveryEvent({ type: "delivered", providerMessageId: pmid, at: "2026-07-15T10:00:00Z" });
+    await applyDeliveryEvent({ type: "opened", providerMessageId: pmid, at: "2026-07-15T10:05:00Z" });
+    await applyDeliveryEvent({ type: "clicked", providerMessageId: pmid, at: "2026-07-15T10:06:00Z" });
 
     const cs = await conversationState(lead.id);
     expect(cs.currentStage).toBe("Clicked");
@@ -65,11 +67,11 @@ describe("conversationState (Phase 7)", () => {
   });
 
   it("advances to Replied on a human reply, then Meeting, Proposal, Won", async () => {
-    global.fetch = vi.fn((_u: string | URL | Request, _i?: RequestInit) => Promise.resolve({ ok: true, status: 200, json: async () => ({ id: "cm2" }), text: async () => "{}" } as unknown as Response)) as unknown as typeof fetch;
+    global.fetch = resendFetch().fn;
     const lead = await seedLead();
     const { step1 } = await seedActivePlan(lead.id);
     await dispatchStep(step1.id);
-    await ingestInboundReply({ from: "owner@conv.example", subject: "re", body: "Yes, let's schedule a call", inReplyTo: "cm2" });
+    await ingestInboundReply({ from: "owner@conv.example", subject: "re", body: "Yes, let's schedule a call", inReplyTo: "resend-1" });
     let cs = await conversationState(lead.id);
     expect(cs.currentStage).toBe("Replied");
 
@@ -85,12 +87,13 @@ describe("conversationState (Phase 7)", () => {
   });
 
   it("does not advance for an out-of-office reply, but records negative flags", async () => {
-    global.fetch = vi.fn((_u: string | URL | Request, _i?: RequestInit) => Promise.resolve({ ok: true, status: 200, json: async () => ({ id: "cm3" }), text: async () => "{}" } as unknown as Response)) as unknown as typeof fetch;
+    global.fetch = resendFetch().fn;
     const lead = await seedLead();
     const { step1 } = await seedActivePlan(lead.id);
     await dispatchStep(step1.id);
-    await ingestInboundReply({ from: "owner@conv.example", subject: "auto", body: "I am out of office", inReplyTo: "cm3" });
-    await applyDeliveryEvent({ type: "bounced", providerMessageId: "cm3", at: "2026-07-15T11:00:00Z" });
+    const pmid = "resend-1";
+    await ingestInboundReply({ from: "owner@conv.example", subject: "auto", body: "I am out of office", inReplyTo: pmid });
+    await applyDeliveryEvent({ type: "bounced", providerMessageId: pmid, at: "2026-07-15T11:00:00Z" });
     const cs = await conversationState(lead.id);
     expect(cs.transitions.map((t) => t.stage)).not.toContain("Replied");
     expect(cs.flags).toContain("bounced");
