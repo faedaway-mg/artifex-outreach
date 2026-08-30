@@ -17,16 +17,15 @@ WORKDIR /app
 ENV NODE_ENV=production
 # Chromium in a container: no sandbox, redirect shared memory to /tmp (Railway can't set --shm-size).
 ENV CHROME_FLAGS="--no-sandbox --disable-setuid-sandbox --disable-dev-shm-usage"
-# Point the engine at the image's Chromium (replace the hardcoded macOS path via env — see note below).
-ENV CHROME_PATH="/ms-playwright/chromium-*/chrome-linux/chrome"
 ENV NODE_OPTIONS="--max-old-space-size=2048"
 
 COPY package.json pnpm-lock.yaml ./
 RUN corepack enable && pnpm install --prod --frozen-lockfile
 COPY . .
 
-# The worker drains the job queue; each job runs the existing render pipeline.
-CMD ["node", "scripts/worker-loop.mjs"]
+# Resolve the image's Chromium at START (the versioned path is a glob) and export it as CHROME_PATH, then
+# run the worker. fieldnote.mjs reads CHROME_PATH (binary) + CHROME_FLAGS (--no-sandbox …) at launch.
+CMD ["sh","-c","export CHROME_PATH=$(ls -d /ms-playwright/chromium-*/chrome-linux/chrome 2>/dev/null | head -1); echo \"CHROME_PATH=$CHROME_PATH\"; exec node scripts/worker-loop.mjs"]
 
 # ── PORTING NOTE (one code change needed before this runs) ──────────────────────────────────────────
 # scripts/lib/fieldnote.mjs currently hardcodes the macOS Chrome path:

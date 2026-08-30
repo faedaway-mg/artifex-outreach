@@ -144,14 +144,22 @@ function dbToFileJob(job) {
 async function main() {
   const url = process.env.PG_URL || process.env.DATABASE_URL;
   if (!url) { console.error("PG_URL/DATABASE_URL required"); process.exit(1); }
-  const sql = postgres(url, { max: 4, prepare: false });
+  const ssl = /proxy\.rlwy\.net|railway/.test(url) ? { rejectUnauthorized: false } : undefined;
+  const sql = postgres(url, { max: 4, prepare: false, ssl });
   let stopping = false;
   const shutdown = () => { stopping = true; };
   process.on("SIGTERM", shutdown); process.on("SIGINT", shutdown);
+  // CS_WORKER_LOOP_MS>0 → persistent service: drain, sleep, repeat (recoverStale each pass requeues jobs
+  // orphaned by a crash). Unset/0 → cron model: drain once, then EXIT. Either way one worker, bounded work.
+  const loopMs = Number(process.env.CS_WORKER_LOOP_MS ?? 0);
+  console.log(`worker ${WORKER_ID} up (${loopMs > 0 ? `persistent, every ${loopMs}ms` : "drain-once"})`);
   try {
     const opts = cfg();
-    const result = await drainQueue(sql, (job, ctx) => (stopping ? Promise.reject(new Error("worker stopping")) : realRenderFn(job, ctx)), opts);
-    console.log(`worker ${WORKER_ID} drained:`, JSON.stringify(result));
+    do {
+      const result = await drainQueue(sql, (job, ctx) => (stopping ? Promise.reject(new Error("worker stopping")) : realRenderFn(job, ctx)), opts);
+      if (result.rendered || result.failed || result.recovered) console.log(`worker ${WORKER_ID} drained:`, JSON.stringify(result));
+      if (loopMs > 0 && !stopping) await new Promise((r) => setTimeout(r, loopMs));
+    } while (loopMs > 0 && !stopping);
   } finally {
     await sql.end();
   }
