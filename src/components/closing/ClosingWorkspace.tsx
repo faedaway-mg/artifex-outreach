@@ -22,6 +22,16 @@ import {
 const APPROVE_CONFIRM = "I approve this exact agreement, pricing, scope, recipients, and PDF for signing.";
 const AUTHORIZE_SEND_CONFIRM = "Send this exact agreement for signature.";
 const AUTHORIZE_PAYMENT_CONFIRM = "Authorize this exact live payment/invoice.";
+// Readable send-authorization badge labels. A sent agreement is "Sent" (its one-time
+// authorization was consumed) — never "none".
+const SEND_AUTH_LABEL: Record<string, string> = {
+  none: "Not authorized",
+  active: "Authorized",
+  consumed: "Sent",
+  revoked: "Revoked",
+  expired: "Expired",
+  legacy: "Legacy (imported)",
+};
 
 function money(cents: number, currency = "usd"): string {
   const v = (cents / 100).toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 2 });
@@ -257,8 +267,8 @@ export function ClosingWorkspace({ view, agreementId }: { view: ClosingWorkspace
         title="Approval"
         icon={<CheckCircle2 className="h-4 w-4" />}
         badge={
-          <span className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-medium ${readiness.approvalCurrent ? "bg-emerald-100 text-emerald-800" : "bg-neutral-100 text-neutral-600"}`}>
-            {readiness.approvalCurrent ? "Approved" : "Not approved"}
+          <span className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-medium ${readiness.approvalCurrent ? "bg-emerald-100 text-emerald-800" : approvalDrifted ? "bg-amber-100 text-amber-800" : "bg-neutral-100 text-neutral-600"}`}>
+            {readiness.approvalCurrent ? "Approved" : approvalDrifted ? "Invalidated" : "Not approved"}
           </span>
         }
       >
@@ -272,7 +282,10 @@ export function ClosingWorkspace({ view, agreementId }: { view: ClosingWorkspace
           // Approval was revoked/drifted — surface status + a re-review/re-approve action.
           <>
             <p className="flex items-start gap-1 text-sm text-amber-800" data-testid="approval-drifted">
-              <AlertTriangle className="mt-px h-4 w-4 shrink-0" /> The prior approval is no longer current (revoked or drifted). Re-review and re-approve before sending.
+              <AlertTriangle className="mt-px h-4 w-4 shrink-0" />
+              {clientUnverifiedBlock
+                ? "Invalidated — client/recipient drift. The client verification or recipients changed after approval, so the prior approval is no longer valid. The historical approval receipt remains in the audit timeline; a new approval is required (verify the client first)."
+                : "The prior approval is no longer current (revoked or drifted). The historical receipt remains in the audit timeline; re-review and re-approve before sending."}
             </p>
             <div className="mt-3">
               <ActionButton
@@ -313,8 +326,8 @@ export function ClosingWorkspace({ view, agreementId }: { view: ClosingWorkspace
         title="Send authorization"
         icon={<Send className="h-4 w-4" />}
         badge={
-          <span className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-medium ${readiness.sendAuthorizationCurrent ? "bg-emerald-100 text-emerald-800" : "bg-neutral-100 text-neutral-600"}`}>
-            {doc.sendAuthorizationState}
+          <span className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-medium ${readiness.sendAuthorizationCurrent ? "bg-emerald-100 text-emerald-800" : doc.sendAuthorizationState === "consumed" ? "bg-blue-100 text-blue-800" : "bg-neutral-100 text-neutral-700"}`}>
+            {SEND_AUTH_LABEL[doc.sendAuthorizationState] ?? doc.sendAuthorizationState}
           </span>
         }
       >

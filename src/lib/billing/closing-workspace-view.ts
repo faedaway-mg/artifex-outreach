@@ -28,7 +28,7 @@ export interface ClosingWorkspaceView {
   terms: { scope: string[]; deliverables: string[]; totalCents: number; depositCents: number; remainingCents: number; currency: string; monthlyCents: number | null };
   document: {
     unsignedPdfSha256: string | null; approvalId: string | null; approvalDigest: string | null;
-    sendAuthorizationState: "none" | "active" | "consumed" | "revoked" | "expired";
+    sendAuthorizationState: "none" | "active" | "consumed" | "revoked" | "expired" | "legacy";
     esignRequestId: string | null; signedPdfSha256: string | null; auditPage: "none" | "embedded" | "separate";
   };
   signing: {
@@ -197,6 +197,16 @@ export function assertWorkspaceInvariants(view: ClosingWorkspaceView): void {
   // A TEST agreement can never reach ELIGIBLE_LIVE_PAYMENT.
   if (billing.eligibility === "ELIGIBLE_LIVE_PAYMENT" && a.esignMode === "test")
     fail("LIVE_PAYMENT_FOR_TEST_AGREEMENT", "ELIGIBLE_LIVE_PAYMENT on a test agreement is impossible.");
+
+  // A SENT agreement (has a SignWell document) must have a CONSUMED send authorization —
+  // except an explicitly-typed legacy/imported record. "none" while sent is impossible.
+  if (view.document.esignRequestId && view.document.sendAuthorizationState !== "consumed" && view.document.sendAuthorizationState !== "legacy")
+    fail("SENT_WITHOUT_CONSUMED_AUTH", `sent (esignRequestId set) but sendAuthorizationState='${view.document.sendAuthorizationState}' (expected consumed/legacy).`);
+
+  // Client-verification / recipient drift must INVALIDATE the approval — it can never remain
+  // "current" (usable) once the client is unverified on a production agreement.
+  if (production && !client.verified && view.readiness.approvalCurrent)
+    fail("DRIFT_WITH_USABLE_APPROVAL", "production + unverified client + approvalCurrent=true is impossible (drift must invalidate the approval).");
 
   // Paid requires a payment authorization to have occurred.
   if (billing.paid && !billing.paymentAuthorized)

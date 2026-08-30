@@ -173,17 +173,48 @@ describe("ClosingWorkspace", () => {
   });
 
   // ── Contradiction #1 — unverified production client is a BLOCKED error state ─────
+  // The client became unverified AFTER a prior approval, so the approval must be INVALIDATED
+  // (drift) — never a currently-valid "Approved" badge/receipt.
   it("unverified production client: blocked error + 'Verify client identity' + no consequential actions", () => {
     const out = html(production({
       client: { ...base().client, verified: false },
       document: { ...base().document, approvalId: "appr_1", approvalDigest: DIGEST },
       billing: { ...base().billing, eligibility: "BLOCKED_RECIPIENT_MISMATCH", blockedReason: "unverified", stripeMode: "live" },
-      readiness: { ...base().readiness, approvalCurrent: true, productionFlagsEnabled: true, clientVerified: false, nextAction: "Verify client identity" },
+      readiness: { ...base().readiness, approvalCurrent: false, productionFlagsEnabled: true, clientVerified: false, nextAction: "Verify client identity" },
     }));
     expect(out).toContain("Blocked — client identity not verified");
     expect(out).toContain("Verify client identity");
     expect(out).not.toContain("Authorize live payment");
     expect(out).not.toContain("Send agreement");
+  });
+
+  it("unverified/drifted approval is INVALIDATED, never a currently-valid Approved receipt", () => {
+    const out = html(production({
+      client: { ...base().client, verified: false },
+      document: { ...base().document, approvalId: "appr_1", approvalDigest: DIGEST },
+      billing: { ...base().billing, eligibility: "BLOCKED_RECIPIENT_MISMATCH", blockedReason: "unverified", stripeMode: "live" },
+      readiness: { ...base().readiness, approvalCurrent: false, productionFlagsEnabled: true, clientVerified: false, nextAction: "Verify client identity" },
+    }));
+    // Badge reads "Invalidated" — NOT a valid Approved state or receipt.
+    expect(out).toContain(">Invalidated<");
+    expect(out).toContain("Invalidated — client/recipient drift");
+    expect(out).not.toContain("Approved · receipt digest");
+    expect(out).not.toContain(">Approved<");
+    // The historical receipt is preserved in the audit timeline (referenced in the copy).
+    expect(out).toContain("historical approval receipt remains in the audit timeline");
+  });
+
+  // ── send authorization badge maps state → label; 'sent' never reads "Not authorized" ──
+  it("a sent agreement shows a 'Sent' (consumed) send-authorization badge, never 'Not authorized'", () => {
+    const out = html(production({
+      agreement: { ...production().agreement, status: "sent" },
+      document: { ...base().document, approvalId: "appr_1", approvalDigest: DIGEST, sendAuthorizationState: "consumed", esignRequestId: "doc_1" },
+      signing: { provider: "signed", client: "viewed", completedSigners: 1, requiredSigners: 2, lastEventAt: "t", overall: "Partially signed" },
+      readiness: { ...base().readiness, approvalCurrent: true, productionFlagsEnabled: true, nextAction: "Await remaining signature" },
+    }));
+    expect(out).toContain("Agreement has already been sent");
+    expect(out).toContain(">Sent<");
+    expect(out).not.toContain(">Not authorized<");
   });
 
   // ── Contradiction #6 — the header next action reflects the exact state ───────────

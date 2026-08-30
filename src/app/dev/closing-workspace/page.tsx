@@ -82,7 +82,7 @@ const STATES: Record<string, ClosingWorkspaceView> = {
   })),
   retention_failed: production(base({
     agreement: { ...base().agreement, status: "signed" },
-    document: { ...base().document, approvalId: "appr_1", approvalDigest: DIGEST, esignRequestId: "doc_1", auditPage: "none" },
+    document: { ...base().document, approvalId: "appr_1", approvalDigest: DIGEST, sendAuthorizationState: "consumed", esignRequestId: "doc_1", auditPage: "none" },
     signing: { provider: "signed", client: "signed", completedSigners: 2, requiredSigners: 2, lastEventAt: "2026-08-22T00:00:00Z", overall: "Completed" },
     retention: { status: "failed", failureReason: "retrieval failed — retry available", retryAvailable: true, auditPageEmbedded: false, signedPdf: false, certificate: false },
     billing: { ...base().billing, eligibility: "BLOCKED_RETENTION_FAILED", blockedReason: "Signed PDF / audit certificate retention failed.", stripeMode: "live" },
@@ -90,7 +90,7 @@ const STATES: Record<string, ClosingWorkspaceView> = {
   })),
   retained: production(base({
     agreement: { ...base().agreement, status: "signed" },
-    document: { ...base().document, approvalId: "appr_1", approvalDigest: DIGEST, esignRequestId: "doc_1", signedPdfSha256: SHA, auditPage: "embedded" },
+    document: { ...base().document, approvalId: "appr_1", approvalDigest: DIGEST, sendAuthorizationState: "consumed", esignRequestId: "doc_1", signedPdfSha256: SHA, auditPage: "embedded" },
     signing: { provider: "signed", client: "signed", completedSigners: 2, requiredSigners: 2, lastEventAt: "2026-08-22T00:00:00Z", overall: "Completed" },
     retention: { status: "retained", failureReason: null, retryAvailable: false, auditPageEmbedded: true, signedPdf: true, certificate: false },
     billing: { ...base().billing, eligibility: "BLOCKED_LIVE_AUTH_MISSING", blockedReason: "Explicit owner live-payment authorization is required.", stripeMode: "live" },
@@ -98,7 +98,7 @@ const STATES: Record<string, ClosingWorkspaceView> = {
   })),
   eligible_live: production(base({
     agreement: { ...base().agreement, status: "signed" },
-    document: { ...base().document, approvalId: "appr_1", approvalDigest: DIGEST, esignRequestId: "doc_1", signedPdfSha256: SHA, auditPage: "separate" },
+    document: { ...base().document, approvalId: "appr_1", approvalDigest: DIGEST, sendAuthorizationState: "consumed", esignRequestId: "doc_1", signedPdfSha256: SHA, auditPage: "separate" },
     signing: { provider: "signed", client: "signed", completedSigners: 2, requiredSigners: 2, lastEventAt: "2026-08-22T00:00:00Z", overall: "Completed" },
     retention: { status: "retained", failureReason: null, retryAvailable: false, auditPageEmbedded: false, signedPdf: true, certificate: true },
     billing: { ...base().billing, eligibility: "ELIGIBLE_LIVE_PAYMENT", blockedReason: "Production agreement — all live-payment gates satisfied.", stripeMode: "live", paymentAuthorized: true },
@@ -106,7 +106,7 @@ const STATES: Record<string, ClosingWorkspaceView> = {
   })),
   paid: production(base({
     agreement: { ...base().agreement, status: "signed" },
-    document: { ...base().document, approvalId: "appr_1", approvalDigest: DIGEST, esignRequestId: "doc_1", signedPdfSha256: SHA, auditPage: "separate" },
+    document: { ...base().document, approvalId: "appr_1", approvalDigest: DIGEST, sendAuthorizationState: "consumed", esignRequestId: "doc_1", signedPdfSha256: SHA, auditPage: "separate" },
     signing: { provider: "signed", client: "signed", completedSigners: 2, requiredSigners: 2, lastEventAt: "2026-08-22T00:00:00Z", overall: "Completed" },
     retention: { status: "retained", failureReason: null, retryAvailable: false, auditPageEmbedded: false, signedPdf: true, certificate: true },
     billing: { ...base().billing, eligibility: "PAID", blockedReason: "Deposit already collected.", stripeMode: "live", paymentAuthorized: true, paid: true },
@@ -122,7 +122,7 @@ const STATES: Record<string, ClosingWorkspaceView> = {
     document: { ...base().document, approvalId: "appr_1", approvalDigest: DIGEST, sendAuthorizationState: "none" },
     signing: { ...base().signing, overall: "Draft" },
     billing: { ...base().billing, eligibility: "BLOCKED_RECIPIENT_MISMATCH", blockedReason: "Client identity is not verified — recipients cannot be confirmed.", stripeMode: "live" },
-    readiness: { ...base().readiness, approvalCurrent: true, productionFlagsEnabled: true, clientVerified: false, nextAction: "Verify client identity", blockedReason: "Client identity is not verified." },
+    readiness: { ...base().readiness, approvalCurrent: false, productionFlagsEnabled: true, clientVerified: false, nextAction: "Verify client identity", blockedReason: "Client identity is not verified." },
   }),
 };
 

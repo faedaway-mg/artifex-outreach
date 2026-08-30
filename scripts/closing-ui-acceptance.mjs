@@ -39,6 +39,9 @@ async function shot(state, label, viewport, mobile) {
   if (["partial","completed","retention_failed","retained","eligible_live","paid"].includes(state)) {
     checks.noReauthorizeCopyWhenSent = !/Authorize sending first/i.test(body);
     checks.saysAlreadySent = sentAlready;
+    // A sent agreement has a CONSUMED send authorization — its badge reads "Sent", never
+    // "Not authorized". "Already been sent" can never coexist with an unauthorized badge.
+    checks.sentBadgeConsumedNotNone = /\bSent\b/.test(body) && !/Not authorized/i.test(body);
   }
   // Retention failed → enabled retry with the correct next-action copy.
   if (state === "retention_failed") checks.retryOfferedOnFailure = /Retry signed-document retention/i.test(body);
@@ -48,6 +51,10 @@ async function shot(state, label, viewport, mobile) {
   if (state === "unverified") {
     checks.unverifiedBlocked = /Verify client identity|not verified|identity not verified/i.test(body);
     checks.unverifiedNoLivePay = !hasLivePay;
+    // Verification/recipient drift INVALIDATES the approval — the UI must never display a
+    // currently-valid Approved badge or receipt for an unverified client.
+    checks.unverifiedApprovalInvalidated = /Invalidated/i.test(body);
+    checks.unverifiedNoValidApproval = !/Approved · receipt digest/i.test(body);
   }
   // No horizontal overflow at any viewport.
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 2);
