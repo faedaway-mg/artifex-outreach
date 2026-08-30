@@ -3,7 +3,7 @@
 // client workspace. Auth is inherited from the (app) layout (redirects to /login).
 import { notFound } from "next/navigation";
 import {
-  getAgreement, getAgreementApproval, getActiveSendAuthorization, signedArtifactsForAgreement,
+  getAgreement, getAgreementApproval, getLatestSendAuthorization, signedArtifactsForAgreement,
   hasLivePaymentAuthorization, invoicesForAgreement, paymentsForAgreement, auditForTarget,
 } from "@/lib/repo";
 import { buildClosingWorkspaceView } from "@/lib/billing/closing-workspace-view";
@@ -24,7 +24,7 @@ export default async function ClosingPage({ params }: { params: { id: string } }
 
   const [approval, sendAuth, signedArtifacts, livePaymentAuthorized, invoices, payments, audit] = await Promise.all([
     getAgreementApproval(agreement.id, agreement.version),
-    getActiveSendAuthorization(agreement.id, agreement.version),
+    getLatestSendAuthorization(agreement.id, agreement.version),
     signedArtifactsForAgreement(agreement.id),
     hasLivePaymentAuthorization(agreement.id),
     invoicesForAgreement(agreement.id),

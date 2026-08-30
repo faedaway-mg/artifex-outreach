@@ -19,6 +19,7 @@ import { validateProductionRecipients, validateTestRecipients } from "../billing
 import { closingCan } from "../billing/authz";
 import type { Role } from "../operators/roles";
 import { sendPreflight, type PreflightReceipt } from "./send-preflight";
+import { storeFrozenUnsignedPdf } from "./frozen-pdf";
 import type { CreateSignatureRequestInput, CreateSignatureRequestResult } from "../esign/provider";
 
 export interface ApproveResult {
@@ -39,6 +40,9 @@ export interface ApproveInput {
   stripeMode: StripeMode;
   client: { name: string; email: string; verified: boolean; recordEmail: string | null };
   unsignedPdfSha256: string;
+  /** The exact rendered unsigned PDF (base64) that this approval binds. Frozen at approval
+   *  and reused verbatim by authorize/send (the renderer is not byte-deterministic). */
+  unsignedPdfBase64?: string;
   /** The operator's explicit "I approve this exact agreement…" confirmation. */
   confirmed: boolean;
   operatorEmails?: string[];
@@ -78,6 +82,10 @@ export async function approveAgreementForSigning(input: ApproveInput): Promise<A
     esignMode: input.esignMode, stripeMode: input.stripeMode, unsignedPdfSha256: input.unsignedPdfSha256, expiresAt: input.expiresAt ?? null,
   });
   const digest = approvalDigest(binding);
+
+  // Freeze the exact approved unsigned PDF so authorize/send reuse it byte-for-byte
+  // (the renderer is not deterministic — re-rendering would break the drift guards).
+  if (input.unsignedPdfBase64) await storeFrozenUnsignedPdf(agreement.id, agreement.version, input.unsignedPdfBase64);
 
   // Idempotency + conflict: an existing approval for this version must match exactly.
   const existing = await getAgreementApproval(agreement.id, agreement.version);

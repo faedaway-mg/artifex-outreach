@@ -537,6 +537,21 @@ export async function getSendAuthorization(id: string): Promise<SendAuthorizatio
   if (hasDb()) return ((await getDb().select().from(t.agreementSendAuthorizations).where(eq(t.agreementSendAuthorizations.id, id)))[0] as any) ?? null;
   return memSendAuths().find((a) => a.id === id) ?? null;
 }
+/**
+ * The latest send authorization for a version REGARDLESS of state (active, consumed, or
+ * revoked). Used by the read-only workspace VIEW so a SENT agreement can display its
+ * consumed authorization — unlike getActiveSendAuthorization, which the send workflow uses
+ * and which (correctly) excludes consumed/revoked records.
+ */
+export async function getLatestSendAuthorization(agreementId: string, version: number): Promise<SendAuthorization | null> {
+  const all = hasDb()
+    ? ((await getDb().select().from(t.agreementSendAuthorizations).where(eq(t.agreementSendAuthorizations.agreementId, agreementId))) as any as SendAuthorization[])
+    : memSendAuths().filter((a) => a.agreementId === agreementId);
+  const forVersion = all
+    .filter((a) => a.agreementVersion === version)
+    .sort((a, b) => (b.authorizedAt || "").localeCompare(a.authorizedAt || ""));
+  return forVersion[0] ?? null;
+}
 /** Consume an authorization exactly once, binding the created document id. */
 export async function consumeSendAuthorization(id: string, esignRequestId: string): Promise<void> {
   const patch = { consumedAt: nowIso(), esignRequestId, updatedAt: nowIso() };

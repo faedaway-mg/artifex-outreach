@@ -187,7 +187,20 @@ export function AgreementDocument({ agreement, showDraftMarking }: { agreement: 
   const proposalRef = c.proposalNumber ? `${c.proposalNumber} · v${c.proposalVersion}` : c.proposalId;
 
   return (
-    <Document title={`Professional Services Agreement — ${number}`} author="Artifex Labs Systems LLC" subject={`Agreement ${number} v${c.version}`}>
+    <Document
+      title={`Professional Services Agreement — ${number}`}
+      author="Artifex Labs Systems LLC"
+      subject={`Agreement ${number} v${c.version}`}
+      creator="Artifex Labs"
+      producer="Artifex Labs"
+      // Pin the PDF metadata dates to the FROZEN snapshot generation time so the render is
+      // byte-for-byte deterministic for a given agreement. Without this, @react-pdf embeds
+      // the wall-clock creation/modification date (and a time-seeded file /ID), so every
+      // re-render produced a different SHA-256 — which permanently tripped the approval /
+      // send-authorization PDF-binding drift guards (no agreement could ever be sent).
+      creationDate={new Date(c.generatedAt)}
+      modificationDate={new Date(c.generatedAt)}
+    >
       {/* ── Cover + key terms ── */}
       <Page size="A4" style={s.page}>
         <TopBar number={number} />

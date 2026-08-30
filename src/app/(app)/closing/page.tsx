@@ -4,7 +4,7 @@
 // so a row can never contradict /closing/[id]. Read-only.
 import Link from "next/link";
 import {
-  allAgreements, getAgreementApproval, getActiveSendAuthorization, signedArtifactsForAgreement,
+  allAgreements, getAgreementApproval, getLatestSendAuthorization, signedArtifactsForAgreement,
   hasLivePaymentAuthorization, invoicesForAgreement, paymentsForAgreement, auditForTarget,
 } from "@/lib/repo";
 import { resolveProviderSignerConfig } from "@/lib/esign/provider-config";
@@ -42,7 +42,7 @@ async function loadRows(): Promise<{ rows: ClosingRowSummary[]; error: string | 
       agreements.map(async (agreement) => {
         const [approval, sendAuth, signedArtifacts, livePaymentAuthorized, invoices, payments, audit] = await Promise.all([
           getAgreementApproval(agreement.id, agreement.version),
-          getActiveSendAuthorization(agreement.id, agreement.version),
+          getLatestSendAuthorization(agreement.id, agreement.version),
           signedArtifactsForAgreement(agreement.id),
           hasLivePaymentAuthorization(agreement.id),
           invoicesForAgreement(agreement.id),

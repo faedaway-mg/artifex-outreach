@@ -21,6 +21,7 @@ import { SignwellCompletionFetcher } from "../esign/completion-retrieval";
 import { PostgresBlobStorage } from "../billing/postgres-storage";
 import { approveAgreementForSigning, sendApprovedAgreementForSignature } from "./closing-workflow";
 import { authorizeAgreementSend } from "./send-authorization";
+import { loadFrozenUnsignedPdf } from "./frozen-pdf";
 import { authorizeLivePayment } from "../billing/live-payment-auth";
 import { processCompletionRetention } from "../billing/completion-retention";
 import type { StripeMode } from "./approval";
@@ -53,6 +54,16 @@ async function renderPdfAndSha(agreement: Agreement): Promise<{ pdfBase64: strin
   return { pdfBase64: Buffer.from(buffer).toString("base64"), sha256 };
 }
 
+/**
+ * The exact unsigned PDF to authorize/send: the FROZEN artifact captured at approval,
+ * reused byte-for-byte (the renderer is not deterministic). Falls back to a fresh render
+ * only for a legacy agreement approved before freezing existed.
+ */
+async function frozenOrRenderedPdf(agreement: Agreement): Promise<{ pdfBase64: string; sha256: string }> {
+  const frozen = await loadFrozenUnsignedPdf(agreement.id, agreement.version);
+  return frozen ?? renderPdfAndSha(agreement);
+}
+
 /** Client identity used by the closing actions comes from the persisted snapshot. */
 function clientOf(agreement: Agreement): { name: string; email: string; verified: boolean; recordEmail: string | null } {
   const c = agreement.contentSnapshot;
@@ -66,10 +77,10 @@ export async function approveAction(agreementId: string, opts: { confirmed: bool
     const agreement = await getAgreement(agreementId);
     if (!agreement) return { ok: false, code: "not_found", message: "Agreement not found." };
     const esignMode = deriveEsignModeFromEnv(productionSigningEnabled());
-    const { sha256 } = await renderPdfAndSha(agreement);
+    const { pdfBase64, sha256 } = await renderPdfAndSha(agreement);
     const res = await approveAgreementForSigning({
       agreementId, actor, actorRole: role, esignMode, stripeMode: stripeModeFor(esignMode),
-      client: clientOf(agreement), unsignedPdfSha256: sha256, confirmed: opts.confirmed, env: process.env,
+      client: clientOf(agreement), unsignedPdfSha256: sha256, unsignedPdfBase64: pdfBase64, confirmed: opts.confirmed, env: process.env,
     });
     revalidatePath(CLOSING_PATH(agreementId));
     if (!res.ok) return { ok: false, code: "blocked", message: res.reason ?? "Approval was blocked." };
@@ -86,7 +97,7 @@ export async function authorizeSendAction(agreementId: string): Promise<ActionRe
     const agreement = await getAgreement(agreementId);
     if (!agreement) return { ok: false, code: "not_found", message: "Agreement not found." };
     const esignMode = deriveEsignModeFromEnv(productionSigningEnabled());
-    const { sha256 } = await renderPdfAndSha(agreement);
+    const { sha256 } = await frozenOrRenderedPdf(agreement);
     const res = await authorizeAgreementSend({
       agreementId, actor, actorRole: role, esignMode, stripeMode: stripeModeFor(esignMode),
       client: clientOf(agreement), unsignedPdfSha256: sha256,
@@ -107,7 +118,7 @@ export async function sendAction(agreementId: string): Promise<ActionResult> {
     const agreement = await getAgreement(agreementId);
     if (!agreement) return { ok: false, code: "not_found", message: "Agreement not found." };
     const esignMode = deriveEsignModeFromEnv(productionSigningEnabled());
-    const { pdfBase64, sha256 } = await renderPdfAndSha(agreement);
+    const { pdfBase64, sha256 } = await frozenOrRenderedPdf(agreement);
     const c = agreement.contentSnapshot;
     const res = await sendApprovedAgreementForSignature({
       agreementId, actor, actorRole: role, esignMode, stripeMode: stripeModeFor(esignMode),
