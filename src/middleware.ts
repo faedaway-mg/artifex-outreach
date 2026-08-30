@@ -7,6 +7,9 @@ export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
   const isPublic =
     pathname.startsWith("/login") ||
+    // DEV-ONLY component preview (the page itself 404s in production). Public so
+    // headless screenshot tooling can reach it without a session.
+    pathname.startsWith("/dev/") ||
     // The public inbound front door: the Business Technology Review request landing (and its
     // server action, which posts to the same /review path). Creates a lead in the existing
     // model; sends nothing. Kept public so real prospects can reach it.

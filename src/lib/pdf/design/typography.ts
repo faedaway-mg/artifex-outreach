@@ -14,6 +14,11 @@
  * / Courier). The document renders identically-structured either way —
  * only the letterforms differ — so nothing ever breaks in CI or prod.
  */
+// MUST precede the @react-pdf import: fontkit's utils.js captures a module-level
+// `new TextDecoder('ascii')` when it first loads, so the Node 23.4.0 single-byte
+// TextDecoder defect must be patched before that import evaluates — otherwise brand
+// fonts fail to parse and the PDF falls back to unembedded standard-14 fonts.
+import "./textdecoder-fix";
 import path from "path";
 import fs from "fs";
 import { Font } from "@react-pdf/renderer";

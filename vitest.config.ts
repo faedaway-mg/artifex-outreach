@@ -8,5 +8,8 @@ export default defineConfig({
   esbuild: { jsx: "automatic" },
   // testTimeout raised above the default 5s: the @react-pdf renderer is CPU-heavy
   // and can exceed 20s under heavy parallel load, causing spurious timeouts in CI.
-  test: { environment: "node", include: ["src/**/*.test.ts"], setupFiles: ["src/test-setup.ts"], testTimeout: 30000 },
+  // Default environment is node (the whole existing suite). Component tests opt into a
+  // jsdom environment per-file with a `// @vitest-environment jsdom` docblock, so nothing
+  // else pays the DOM cost. `.test.tsx` is included alongside `.test.ts`.
+  test: { environment: "node", include: ["src/**/*.test.ts", "src/**/*.test.tsx"], setupFiles: ["src/test-setup.ts"], testTimeout: 30000 },
 });

@@ -10,8 +10,8 @@
 // computed here (never hand-entered). All monetary fields are in cents.
 // ─────────────────────────────────────────────────────────────────────────────
 import type { Lead, Contact, Proposal, Deliverable, Settings, AgreementContentSnapshot, AgreementDefaults } from "../types";
-import { ARTIFEX_IDENTITY } from "../identity";
 import { AGREEMENT_TEMPLATE_VERSION } from "./template";
+import { currentIssuer } from "../billing/issuer";
 
 export const DEFAULT_AGREEMENT_DEFAULTS: AgreementDefaults = {
   depositPercent: 50,
@@ -110,6 +110,11 @@ export function buildAgreementContent(input: BuildAgreementInput): BuildAgreemen
 
   if (errors.length) return { content: null, errors };
 
+  // Freeze the issuer of record at generation. NEW agreements are issued by the
+  // current entity; the frozen id + legal entity make historical records immune to
+  // future issuer changes (see billing/issuer.ts).
+  const issuer = currentIssuer();
+
   const content: AgreementContentSnapshot = {
     agreementNumber: input.agreementNumber,
     templateVersion: AGREEMENT_TEMPLATE_VERSION,
@@ -122,8 +127,9 @@ export function buildAgreementContent(input: BuildAgreementInput): BuildAgreemen
     clientContactName,
     clientEmail,
     clientBusinessAddress,
-    artifexSignatory: trimOr(defaults.projectManagerName, "Jordan Jackson"),
-    artifexLegalEntity: ARTIFEX_IDENTITY.legalEntity,
+    artifexSignatory: trimOr(defaults.projectManagerName, issuer.signatory),
+    artifexLegalEntity: issuer.legalEntity,
+    issuerId: issuer.id,
     projectName,
     projectSummary,
     scope,

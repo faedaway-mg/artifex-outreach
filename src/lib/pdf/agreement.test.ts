@@ -29,7 +29,8 @@ describe("agreement PDF", () => {
     expect(sections[0].heading).toBe("Parties");
     const sig = sections[26];
     expect(sig.heading).toBe("Signature Blocks");
-    expect(sig.body.join("\n")).toContain("{{sig_client}}");
-    expect(sig.body.join("\n")).toContain("{{sig_artifex}}");
+    // Valid SignWell text tags (signer 1 = provider, signer 2 = client).
+    expect(sig.body.join("\n")).toContain("{{signature:2:y}}");
+    expect(sig.body.join("\n")).toContain("{{signature:1:y}}");
   });
 });
