@@ -10,6 +10,7 @@
 // tests/mock mode without any risk of a real send.
 // ─────────────────────────────────────────────────────────────────────────────
 import { createSignwellProvider } from "./signwell";
+import { shouldUseFakeEsignProvider, fakeEsignProvider } from "./fake-provider";
 
 export interface EsignSigner {
   name: string;
@@ -84,8 +85,15 @@ export const disabledEsignProvider: EsignProvider = {
 let cached: EsignProvider | null = null;
 let cachedForKey: string | undefined;
 
-/** Live SignWell provider when the key is set; otherwise the disabled no-op. */
+/**
+ * Live SignWell provider when the key is set; otherwise the disabled no-op. In a
+ * dev/rehearsal runtime (never production) the guarded fake double may stand in so the
+ * UI click-through can exercise sending without a real SignWell call — see
+ * shouldUseFakeEsignProvider (requires ESIGN_FAKE_PROVIDER + non-prod + no live key).
+ */
 export function getEsignProvider(): EsignProvider {
+  // Guarded dev/rehearsal double (never in production; never with a live key set).
+  if (shouldUseFakeEsignProvider()) return fakeEsignProvider;
   const key = process.env.SIGNWELL_API_KEY;
   if (cached && cachedForKey === key) return cached;
   cachedForKey = key;
