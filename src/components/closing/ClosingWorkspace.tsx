@@ -63,6 +63,9 @@ const SIGNER_STYLE: Record<SignerState, string> = {
   signed: "bg-emerald-100 text-emerald-800",
 };
 
+const RETENTION_LABEL: Record<ClosingWorkspaceView["retention"]["status"], string> = {
+  "not-required": "Not required", pending: "Pending", retrieving: "Retrieving", retained: "Retained", failed: "Failed",
+};
 const RETENTION_STYLE: Record<ClosingWorkspaceView["retention"]["status"], string> = {
   "not-required": "bg-neutral-100 text-neutral-600",
   pending: "bg-amber-100 text-amber-800",
@@ -114,6 +117,25 @@ export function ClosingWorkspace({ view, agreementId }: { view: ClosingWorkspace
   const productionSendOff = isProduction && !readiness.productionFlagsEnabled;
   const showLivePaymentAuth = billing.eligibility === "BLOCKED_LIVE_AUTH_MISSING";
 
+  // ── Derived, state-authoritative flags — every section reads these so the UI can never
+  //    contradict itself. A production agreement whose client is not verified is a hard
+  //    blocked (error) state that disables all consequential actions.
+  const clientUnverifiedBlock = isProduction && !client.verified;
+  const isSigned = agreement.status === "signed";
+  const isPartiallySigned = signing.overall === "Partially signed" || signing.completedSigners === 1;
+  const isSent = !isSigned && !isPartiallySigned && (!!doc.esignRequestId || agreement.status === "sent" || agreement.status === "viewed");
+  const sendState = doc.sendAuthorizationState;
+  // Show the pre-approval action only before approval; once approved (or drifted) we show
+  // status + receipt / re-review instead.
+  const approvalDrifted = !readiness.approvalCurrent && !!doc.approvalId; // had an approval that is no longer current
+  const showApproveAction = !clientUnverifiedBlock && !readiness.approvalCurrent && !isSent && !isPartiallySigned && !isSigned;
+  // Send section: only meaningful before the document is sent, and never when blocked.
+  const sendAuthGatesPass = !clientUnverifiedBlock && readiness.approvalCurrent && !productionSendOff;
+  const showSendPhase = !isSent && !isPartiallySigned && !isSigned;
+  const retentionFailed = retention.status === "failed";
+  const retentionInProgress = retention.status === "pending" || retention.status === "retrieving";
+  const showRetryRetention = retentionFailed && retention.retryAvailable && !clientUnverifiedBlock;
+
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-4" data-testid="closing-workspace">
       {/* ── Header ─────────────────────────────────────────────────────────── */}
@@ -141,11 +163,19 @@ export function ClosingWorkspace({ view, agreementId }: { view: ClosingWorkspace
             </span>
           </div>
         </div>
+        {clientUnverifiedBlock && (
+          <div className="mt-3 rounded-lg border border-red-200 bg-red-50 p-3" data-testid="client-unverified-block">
+            <p className="flex items-center gap-1 text-sm font-semibold text-red-900"><ShieldAlert className="h-4 w-4" /> Blocked — client identity not verified</p>
+            <p className="mt-1 text-xs text-red-800 break-words">
+              This is a production agreement, but the client&apos;s identity has not been verified. Approval, sending, and payment are disabled until the client is verified.
+            </p>
+          </div>
+        )}
         {readiness.nextAction && (
-          <div className="mt-3 rounded-lg bg-neutral-50 p-3">
-            <p className="text-[11px] font-medium uppercase tracking-wide text-neutral-500">Next action</p>
-            <p className="mt-0.5 text-sm font-medium text-neutral-900">{readiness.nextAction}</p>
-            {readiness.blockedReason && (
+          <div className={`mt-3 rounded-lg p-3 ${clientUnverifiedBlock ? "bg-red-50" : "bg-neutral-50"}`}>
+            <p className={`text-[11px] font-medium uppercase tracking-wide ${clientUnverifiedBlock ? "text-red-700" : "text-neutral-500"}`}>Next action</p>
+            <p className={`mt-0.5 text-sm font-medium ${clientUnverifiedBlock ? "text-red-900" : "text-neutral-900"}`} data-testid="next-action">{readiness.nextAction}</p>
+            {readiness.blockedReason && !clientUnverifiedBlock && (
               <p className="mt-1 flex items-start gap-1 text-xs text-amber-700"><AlertTriangle className="mt-px h-3 w-3 shrink-0" /> {readiness.blockedReason}</p>
             )}
           </div>
@@ -233,23 +263,49 @@ export function ClosingWorkspace({ view, agreementId }: { view: ClosingWorkspace
         }
       >
         {readiness.approvalCurrent ? (
-          <p className="text-sm text-neutral-700 break-all" data-testid="approval-receipt">
-            Approval receipt · digest {shortHash(doc.approvalDigest)}
-          </p>
+          // Already approved — show the receipt (digest), NO active approve button.
+          <div className="flex items-center gap-2 text-sm text-emerald-800" data-testid="approval-receipt">
+            <CheckCircle2 className="h-4 w-4 shrink-0" />
+            <span className="break-all">Approved · receipt digest {shortHash(doc.approvalDigest)}</span>
+          </div>
+        ) : approvalDrifted ? (
+          // Approval was revoked/drifted — surface status + a re-review/re-approve action.
+          <>
+            <p className="flex items-start gap-1 text-sm text-amber-800" data-testid="approval-drifted">
+              <AlertTriangle className="mt-px h-4 w-4 shrink-0" /> The prior approval is no longer current (revoked or drifted). Re-review and re-approve before sending.
+            </p>
+            <div className="mt-3">
+              <ActionButton
+                variant="primary"
+                disabled={clientUnverifiedBlock}
+                confirm={APPROVE_CONFIRM}
+                onRun={async () => setApproveRes(await approveAction(agreementId, { confirmed: true }))}
+              >
+                <CheckCircle2 className="h-4 w-4" /> Re-review &amp; approve
+              </ActionButton>
+              <p className="mt-1 text-[11px] text-neutral-500 break-words">Confirmation required: “{APPROVE_CONFIRM}”</p>
+              <ActionFeedback result={approveRes} />
+            </div>
+          </>
         ) : (
-          <p className="text-sm text-neutral-600">This exact agreement, pricing, scope, recipients, and PDF must be approved before it can be sent.</p>
+          <>
+            <p className="text-sm text-neutral-600">This exact agreement, pricing, scope, recipients, and PDF must be approved before it can be sent.</p>
+            {showApproveAction && (
+              <div className="mt-3">
+                <ActionButton
+                  variant="primary"
+                  disabled={clientUnverifiedBlock}
+                  confirm={APPROVE_CONFIRM}
+                  onRun={async () => setApproveRes(await approveAction(agreementId, { confirmed: true }))}
+                >
+                  <CheckCircle2 className="h-4 w-4" /> Approve for signing
+                </ActionButton>
+                <p className="mt-1 text-[11px] text-neutral-500 break-words">Confirmation required: “{APPROVE_CONFIRM}”</p>
+                <ActionFeedback result={approveRes} />
+              </div>
+            )}
+          </>
         )}
-        <div className="mt-3">
-          <ActionButton
-            variant="primary"
-            confirm={APPROVE_CONFIRM}
-            onRun={async () => setApproveRes(await approveAction(agreementId, { confirmed: true }))}
-          >
-            <CheckCircle2 className="h-4 w-4" /> Approve for signing
-          </ActionButton>
-          <p className="mt-1 text-[11px] text-neutral-500 break-words">Confirmation required: “{APPROVE_CONFIRM}”</p>
-          <ActionFeedback result={approveRes} />
-        </div>
       </Card>
 
       {/* ── Send authorization ─────────────────────────────────────────────── */}
@@ -262,14 +318,28 @@ export function ClosingWorkspace({ view, agreementId }: { view: ClosingWorkspace
           </span>
         }
       >
-        {productionSendOff ? (
+        {isPartiallySigned || isSent || isSigned ? (
+          // The document has already been sent (or is complete). Send-auth copy derives
+          // from the CONSUMED/complete state — never "Authorize sending first".
+          <p className="flex items-start gap-1 text-sm text-neutral-700" data-testid="send-consumed">
+            <CheckCircle2 className="mt-px h-4 w-4 shrink-0 text-emerald-600" /> Agreement has already been sent — no further send action is needed here.
+          </p>
+        ) : sendState === "revoked" ? (
+          <p className="flex items-start gap-1 text-sm text-red-700" data-testid="send-revoked">
+            <AlertTriangle className="mt-px h-4 w-4 shrink-0" /> Send authorization was revoked. Re-authorize sending to proceed.
+          </p>
+        ) : sendState === "expired" ? (
+          <p className="flex items-start gap-1 text-sm text-amber-800" data-testid="send-expired">
+            <Clock className="mt-px h-4 w-4 shrink-0" /> Send authorization has expired. Re-authorize sending to proceed.
+          </p>
+        ) : productionSendOff ? (
           <div className="rounded-lg border border-amber-200 bg-amber-50 p-3" data-testid="production-sending-off">
             <p className="flex items-center gap-1 text-sm font-medium text-amber-900"><ShieldAlert className="h-4 w-4" /> Production sending is OFF</p>
             <p className="mt-1 text-xs text-amber-800 break-words">
               Live agreement sending is disabled. Set the production signing + sending flags (and complete legal review) to enable sending to clients.
             </p>
           </div>
-        ) : (
+        ) : showSendPhase ? (
           <>
             <p className="text-sm text-neutral-600">Authorizing sending is a separate step from sending. Both are shown distinctly and are never combined.</p>
             <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-start">
@@ -277,6 +347,7 @@ export function ClosingWorkspace({ view, agreementId }: { view: ClosingWorkspace
               <div className="flex-1">
                 <ActionButton
                   variant="secondary"
+                  disabled={!sendAuthGatesPass}
                   confirm={AUTHORIZE_SEND_CONFIRM}
                   onRun={async () => setAuthSendRes(await authorizeSendAction(agreementId))}
                 >
@@ -285,22 +356,27 @@ export function ClosingWorkspace({ view, agreementId }: { view: ClosingWorkspace
                 <p className="mt-1 text-[11px] text-neutral-500 break-words">Confirmation: “{AUTHORIZE_SEND_CONFIRM}”</p>
                 <ActionFeedback result={authSendRes} />
               </div>
-              {/* Step 2 — send (primary, distinct) */}
+              {/* Step 2 — send (primary, distinct). Shown only when send is authorized. */}
               <div className="flex-1">
-                <ActionButton
-                  variant="primary"
-                  disabled={!readiness.sendAuthorizationCurrent}
-                  onRun={async () => setSendRes(await sendAction(agreementId))}
-                >
-                  <Send className="h-4 w-4" /> Send agreement
-                </ActionButton>
-                {!readiness.sendAuthorizationCurrent && (
-                  <p className="mt-1 text-[11px] text-neutral-500">Authorize sending first.</p>
+                {sendState === "active" && readiness.sendAuthorizationCurrent ? (
+                  <>
+                    <ActionButton
+                      variant="primary"
+                      disabled={!sendAuthGatesPass}
+                      onRun={async () => setSendRes(await sendAction(agreementId))}
+                    >
+                      <Send className="h-4 w-4" /> Send agreement
+                    </ActionButton>
+                    <ActionFeedback result={sendRes} />
+                  </>
+                ) : (
+                  <p className="mt-1 text-[11px] text-neutral-500" data-testid="authorize-sending-first">Authorize sending first.</p>
                 )}
-                <ActionFeedback result={sendRes} />
               </div>
             </div>
           </>
+        ) : (
+          <p className="text-sm text-neutral-600">No send action is available in the current state.</p>
         )}
       </Card>
 
@@ -319,8 +395,13 @@ export function ClosingWorkspace({ view, agreementId }: { view: ClosingWorkspace
           <SignerRow icon={<User className="h-4 w-4 text-neutral-500" />} label="Client" state={signing.client} />
         </div>
         <p className="mt-2 text-xs text-neutral-500" data-testid="signers-count">
-          {signing.completedSigners} of {signing.requiredSigners} signers
+          {signing.completedSigners} of {signing.requiredSigners} signers complete
         </p>
+        {isPartiallySigned && (
+          <p className="mt-1 flex items-start gap-1 text-xs text-amber-800" data-testid="awaiting-remaining-signer">
+            <Clock className="mt-px h-3 w-3 shrink-0" /> Awaiting the remaining signer.
+          </p>
+        )}
       </Card>
 
       {/* ── Retention ──────────────────────────────────────────────────────── */}
@@ -329,7 +410,7 @@ export function ClosingWorkspace({ view, agreementId }: { view: ClosingWorkspace
         icon={<Archive className="h-4 w-4" />}
         badge={
           <span data-testid="retention-status" className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-medium ${RETENTION_STYLE[retention.status]}`}>
-            {retention.status}
+            {RETENTION_LABEL[retention.status]}
           </span>
         }
       >
@@ -338,13 +419,18 @@ export function ClosingWorkspace({ view, agreementId }: { view: ClosingWorkspace
           <Flag on={retention.certificate} label="Audit certificate" />
           <Flag on={retention.auditPageEmbedded} label="Audit page embedded" />
         </div>
-        {retention.failureReason && (
-          <p className="mt-2 flex items-start gap-1 text-xs text-red-700"><AlertTriangle className="mt-px h-3 w-3 shrink-0" /> {retention.failureReason}</p>
+        {retentionInProgress && (
+          <p className="mt-2 flex items-start gap-1 text-xs text-blue-700" data-testid="retention-in-progress">
+            <Clock className="mt-px h-3 w-3 shrink-0" /> Retention in progress — no retry needed.
+          </p>
         )}
-        {retention.retryAvailable && (
+        {retentionFailed && retention.failureReason && (
+          <p className="mt-2 flex items-start gap-1 text-xs text-red-700" data-testid="retention-failure-reason"><AlertTriangle className="mt-px h-3 w-3 shrink-0" /> {retention.failureReason}</p>
+        )}
+        {showRetryRetention && (
           <div className="mt-3">
             <ActionButton variant="secondary" onRun={async () => setRetentionRes(await retryRetentionAction(agreementId))}>
-              <RotateCw className="h-4 w-4" /> Retry retention
+              <RotateCw className="h-4 w-4" /> Retry signed-document retention
             </ActionButton>
             <ActionFeedback result={retentionRes} />
           </div>
@@ -370,7 +456,7 @@ export function ClosingWorkspace({ view, agreementId }: { view: ClosingWorkspace
       </Card>
 
       {/* ── Live-payment authorization ─────────────────────────────────────── */}
-      {showLivePaymentAuth && (
+      {showLivePaymentAuth && !clientUnverifiedBlock && (
         <Card title="Live-payment authorization" icon={<CircleDollarSign className="h-4 w-4" />}>
           <p className="text-sm text-neutral-600 break-words">
             Signing completion and retention do not authorize payment. This is a separate, explicit authorization for a LIVE payment.
@@ -378,6 +464,8 @@ export function ClosingWorkspace({ view, agreementId }: { view: ClosingWorkspace
           <div className="mt-3">
             <ActionButton
               variant="danger"
+              /* Accessible on the white card (the app's btn-danger is tuned for dark surfaces). */
+              className="!border-red-300 !bg-red-50 !text-red-700 hover:!bg-red-100"
               confirm={AUTHORIZE_PAYMENT_CONFIRM}
               onRun={async () => setPayRes(await authorizePaymentAction(agreementId))}
             >
@@ -421,7 +509,7 @@ function SignerRow({ icon, label, state }: { icon: React.ReactNode; label: strin
 
 function Flag({ on, label }: { on: boolean; label: string }) {
   return (
-    <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-medium ${on ? "bg-emerald-100 text-emerald-800" : "bg-neutral-100 text-neutral-500"}`}>
+    <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-medium ${on ? "bg-emerald-100 text-emerald-800" : "bg-neutral-100 text-neutral-700"}`}>
       {on ? <CheckCircle2 className="h-3 w-3" /> : <Clock className="h-3 w-3" />} {label}
     </span>
   );

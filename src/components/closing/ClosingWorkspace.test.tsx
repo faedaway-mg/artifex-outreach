@@ -26,17 +26,19 @@ function base(over: Partial<ClosingWorkspaceView> = {}): ClosingWorkspaceView {
   return {
     agreement: { id: "agr1", number: "AL-A-2026-001", version: 1, status: "approved", esignMode: "test", legallyBinding: false, signwellTestMode: true, createdAt: "t", updatedAt: "t" },
     provider: { legalEntity: "Artifex Labs Systems LLC", signerName: "Jordan", signerEmail: "contracts@artifexlabs.tech" },
-    client: { legalName: "Copper Oak LLC", businessName: "Copper Oak", signerName: "Dana", signerEmail: "dana@copperoak.com", verified: false },
+    client: { legalName: "Copper Oak LLC", businessName: "Copper Oak", signerName: "Dana", signerEmail: "dana@copperoak.com", verified: true },
     terms: { scope: ["Brand"], deliverables: ["Logo"], totalCents: 1_450_000, depositCents: 725_000, remainingCents: 725_000, currency: "usd", monthlyCents: null },
     document: { unsignedPdfSha256: SHA, approvalId: null, approvalDigest: null, sendAuthorizationState: "none", esignRequestId: null, signedPdfSha256: null, auditPage: "none" },
     signing: { provider: "not_sent", client: "not_sent", completedSigners: 0, requiredSigners: 2, lastEventAt: null, overall: "Draft" },
     retention: { status: "not-required", failureReason: null, retryAvailable: false, auditPageEmbedded: false, signedPdf: false, certificate: false },
     billing: { eligibility: "BLOCKED_UNSIGNED", blockedReason: "not signed", stripeMode: "test", amountCents: 725_000, currency: "usd", paymentAuthorized: false, paid: false },
-    readiness: { providerConfigReady: true, clientVerified: false, approvalCurrent: false, sendAuthorizationCurrent: false, productionFlagsEnabled: false, nextAction: "Review & approve the agreement", blockedReason: null },
+    readiness: { providerConfigReady: true, clientVerified: true, approvalCurrent: false, sendAuthorizationCurrent: false, productionFlagsEnabled: false, nextAction: "Review agreement", blockedReason: null },
     audit: [],
     ...over,
   };
 }
+const production = (over: Partial<ClosingWorkspaceView> = {}): ClosingWorkspaceView =>
+  base({ agreement: { ...base().agreement, esignMode: "production", legallyBinding: true, signwellTestMode: false }, ...over });
 const html = (v: ClosingWorkspaceView) => renderToStaticMarkup(<ClosingWorkspace view={v} agreementId="agr1" />);
 
 function withBilling(eligibility: EligibilityState, over: Partial<ClosingWorkspaceView> = {}): ClosingWorkspaceView {
@@ -86,17 +88,108 @@ describe("ClosingWorkspace", () => {
   });
 
   it("shows the live-payment authorization action ONLY for BLOCKED_LIVE_AUTH_MISSING", () => {
-    const out = html(withBilling("BLOCKED_LIVE_AUTH_MISSING", { agreement: { ...base().agreement, esignMode: "production", legallyBinding: true, signwellTestMode: false } }));
+    const out = html(withBilling("BLOCKED_LIVE_AUTH_MISSING", {
+      agreement: { ...base().agreement, status: "signed", esignMode: "production", legallyBinding: true, signwellTestMode: false },
+      signing: { provider: "signed", client: "signed", completedSigners: 2, requiredSigners: 2, lastEventAt: "t", overall: "Completed" },
+    }));
     expect(out).toContain("Authorize live payment");
   });
 
-  it("includes the exact approval confirmation text", () => {
+  it("includes the exact approval confirmation text (pre-approval)", () => {
     expect(html(base())).toContain("I approve this exact agreement, pricing, scope, recipients, and PDF for signing.");
   });
 
-  it("shows Retry retention only when retryAvailable", () => {
-    expect(html(base({ retention: { ...base().retention, status: "failed", failureReason: "x", retryAvailable: true } }))).toContain("Retry retention");
-    expect(html(base({ retention: { ...base().retention, status: "pending", retryAvailable: false } }))).not.toContain("Retry retention");
+  // ── Contradiction #2 — approval action after approval ──────────────────────────
+  it("once approved, shows 'Approved' + receipt and NO active approve button", () => {
+    const out = html(base({
+      document: { ...base().document, approvalId: "appr_1", approvalDigest: DIGEST, sendAuthorizationState: "active" },
+      signing: { ...base().signing, overall: "Approved" },
+      readiness: { ...base().readiness, approvalCurrent: true, sendAuthorizationCurrent: true, nextAction: "Send agreement" },
+    }));
+    expect(out).toContain("Approved · receipt digest");
+    expect(out).not.toContain("Approve for signing");
+    expect(out).not.toContain("Re-review");
+  });
+
+  it("shows a pre-approval Approve action only when not yet approved", () => {
+    expect(html(base())).toContain("Approve for signing");
+  });
+
+  // ── Contradiction #3 — consumed send-auth copy ─────────────────────────────────
+  it("consumed send-auth shows 'already been sent', never 'Authorize sending first'", () => {
+    const out = html(production({
+      agreement: { ...production().agreement, status: "sent" },
+      document: { ...base().document, approvalId: "appr_1", approvalDigest: DIGEST, sendAuthorizationState: "consumed", esignRequestId: "doc_1" },
+      signing: { provider: "signed", client: "viewed", completedSigners: 1, requiredSigners: 2, lastEventAt: "t", overall: "Partially signed" },
+      readiness: { ...base().readiness, approvalCurrent: true, productionFlagsEnabled: true, nextAction: "Await remaining signature" },
+    }));
+    expect(out).toContain("Agreement has already been sent");
+    expect(out).not.toContain("Authorize sending first");
+  });
+
+  // ── Contradiction #4 — partial-signature state ─────────────────────────────────
+  it("partial signature: no approval/authorize/send actions, shows awaiting remaining signer", () => {
+    const out = html(production({
+      agreement: { ...production().agreement, status: "sent" },
+      document: { ...base().document, approvalId: "appr_1", approvalDigest: DIGEST, sendAuthorizationState: "consumed", esignRequestId: "doc_1" },
+      signing: { provider: "signed", client: "viewed", completedSigners: 1, requiredSigners: 2, lastEventAt: "t", overall: "Partially signed" },
+      billing: { ...base().billing, eligibility: "BLOCKED_PARTIAL_SIGNATURE", blockedReason: "not all signers", stripeMode: "live" },
+      readiness: { ...base().readiness, approvalCurrent: true, productionFlagsEnabled: true, nextAction: "Await remaining signature" },
+    }));
+    expect(out).toContain("Awaiting the remaining signer");
+    expect(out).toContain("1 of 2 signers complete");
+    expect(out).not.toContain("Approve for signing");
+    expect(out).not.toContain("Authorize send");
+    expect(out).not.toContain("Send agreement");
+    expect(out).not.toContain("Authorize sending first");
+    expect(out).toContain("Blocked — not all signers complete");
+  });
+
+  // ── Contradiction #5 — retention failed ────────────────────────────────────────
+  it("retention failed: Failed badge + reason + ENABLED retry with the exact label", () => {
+    const out = html(production({
+      agreement: { ...production().agreement, status: "signed" },
+      signing: { provider: "signed", client: "signed", completedSigners: 2, requiredSigners: 2, lastEventAt: "t", overall: "Completed" },
+      retention: { status: "failed", failureReason: "retrieval failed — retry available", retryAvailable: true, auditPageEmbedded: false, signedPdf: false, certificate: false },
+      billing: { ...base().billing, eligibility: "BLOCKED_RETENTION_FAILED", blockedReason: "retention failed", stripeMode: "live" },
+      readiness: { ...base().readiness, approvalCurrent: true, productionFlagsEnabled: true, nextAction: "Retry signed-document retention" },
+    }));
+    expect(out).toContain("Retry signed-document retention");
+    expect(out).toContain("retrieval failed");
+    // retention badge label is 'Failed' (capitalized), not the raw status.
+    expect(out).toContain(">Failed<");
+  });
+
+  it("retention pending: shows in-progress and NO retry", () => {
+    const out = html(production({
+      agreement: { ...production().agreement, status: "signed" },
+      signing: { provider: "signed", client: "signed", completedSigners: 2, requiredSigners: 2, lastEventAt: "t", overall: "Completed" },
+      retention: { status: "pending", failureReason: null, retryAvailable: false, auditPageEmbedded: false, signedPdf: false, certificate: false },
+      billing: { ...base().billing, eligibility: "BLOCKED_RETENTION_PENDING", blockedReason: "pending", stripeMode: "live" },
+      readiness: { ...base().readiness, approvalCurrent: true, productionFlagsEnabled: true, nextAction: "Retain signed documents" },
+    }));
+    expect(out).toContain("Retention in progress");
+    expect(out).not.toContain("Retry signed-document retention");
+  });
+
+  // ── Contradiction #1 — unverified production client is a BLOCKED error state ─────
+  it("unverified production client: blocked error + 'Verify client identity' + no consequential actions", () => {
+    const out = html(production({
+      client: { ...base().client, verified: false },
+      document: { ...base().document, approvalId: "appr_1", approvalDigest: DIGEST },
+      billing: { ...base().billing, eligibility: "BLOCKED_RECIPIENT_MISMATCH", blockedReason: "unverified", stripeMode: "live" },
+      readiness: { ...base().readiness, approvalCurrent: true, productionFlagsEnabled: true, clientVerified: false, nextAction: "Verify client identity" },
+    }));
+    expect(out).toContain("Blocked — client identity not verified");
+    expect(out).toContain("Verify client identity");
+    expect(out).not.toContain("Authorize live payment");
+    expect(out).not.toContain("Send agreement");
+  });
+
+  // ── Contradiction #6 — the header next action reflects the exact state ───────────
+  it("renders the top-level next action from the view-model", () => {
+    expect(html(base({ readiness: { ...base().readiness, nextAction: "Review agreement" } }))).toContain("Review agreement");
+    expect(html(base({ readiness: { ...base().readiness, nextAction: "No action required" } }))).toContain("No action required");
   });
 
   it("embedded audit shows 'Includes audit page' and NO separate certificate link", () => {

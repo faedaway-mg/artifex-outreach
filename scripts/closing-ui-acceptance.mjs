@@ -6,7 +6,7 @@ const BASE = process.env.BASE_URL || "http://localhost:3000";
 const OUT = process.env.HOME + "/acq-os-audit/closing-ui-screenshots";
 import fs from "fs";
 fs.mkdirSync(OUT, { recursive: true });
-const STATES = ["draft", "approved", "send_authorized", "partial", "completed", "retention_failed", "retained", "eligible_live", "paid"];
+const STATES = ["draft", "approved", "send_authorized", "partial", "completed", "retention_failed", "retained", "eligible_live", "paid", "unverified"];
 const browser = await chromium.launch();
 const results = [];
 async function shot(state, label, viewport, mobile) {
@@ -16,16 +16,40 @@ async function shot(state, label, viewport, mobile) {
   const resp = await page.goto(url, { waitUntil: "networkidle", timeout: 45000 });
   await page.waitForTimeout(500);
   const body = (await page.evaluate(() => document.body?.innerText || "")).replace(/\s+/g, " ");
-  // Invariants
+  // ── Gate-5 invariant assertions (the UI must tell one coherent truth) ──
   const checks = {};
-  if (state === "partial") checks.partialNotComplete = /Partially signed/i.test(body) && !/2 of 2/.test(body);
-  // Live-payment control must be ABSENT when not ready for authorization (unsigned/partial/
-  // retention-failed) and PRESENT for a completed+retained production agreement
-  // (BLOCKED_LIVE_AUTH_MISSING → authorize-payment is the legitimate next step).
   const hasLivePay = /Authorize this exact live payment/i.test(body);
-  if (["draft","approved","send_authorized","partial","retention_failed"].includes(state)) checks.noLivePayWhenNotReady = !hasLivePay;
-  if (state === "completed") checks.livePayShownWhenAuthMissing = hasLivePay;
-  // horizontal overflow check
+  const hasApproveBtn = /Approve for signing/i.test(body);
+  const sentAlready = /Agreement has already been sent/i.test(body);
+
+  // 1/2 never renders as complete.
+  if (state === "partial") {
+    checks.partialNotComplete = /Partially signed/i.test(body) && !/2 of 2/.test(body);
+    checks.partialAwaitsRemaining = /Awaiting the remaining signer/i.test(body);
+    checks.partialNoActions = !hasApproveBtn && !/Authorize sending first/i.test(body);
+  }
+  // Completed production must NOT show an unverified client, and shows the authorize step.
+  if (state === "completed") {
+    checks.completedClientVerified = !/not verified|identity not verified/i.test(body);
+    checks.livePayShownWhenAuthMissing = hasLivePay;
+  }
+  // Approved → receipt, no active approve action.
+  if (state === "approved") checks.approvedNoApproveButton = /Approved/i.test(body) && !hasApproveBtn;
+  // Consumed/sent states never say "Authorize sending first".
+  if (["partial","completed","retention_failed","retained","eligible_live","paid"].includes(state)) {
+    checks.noReauthorizeCopyWhenSent = !/Authorize sending first/i.test(body);
+    checks.saysAlreadySent = sentAlready;
+  }
+  // Retention failed → enabled retry with the correct next-action copy.
+  if (state === "retention_failed") checks.retryOfferedOnFailure = /Retry signed-document retention/i.test(body);
+  // Live-payment control absent when not ready for authorization.
+  if (["draft","approved","send_authorized","partial","retention_failed","unverified"].includes(state)) checks.noLivePayWhenNotReady = !hasLivePay;
+  // Unverified production client is blocked and cannot progress.
+  if (state === "unverified") {
+    checks.unverifiedBlocked = /Verify client identity|not verified|identity not verified/i.test(body);
+    checks.unverifiedNoLivePay = !hasLivePay;
+  }
+  // No horizontal overflow at any viewport.
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 2);
   checks.noHorizontalOverflow = !overflow;
   const file = `${OUT}/${state}-${label}.png`;

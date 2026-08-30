@@ -74,8 +74,11 @@ export function buildClosingWorkspaceView(input: BuildWorkspaceInput): ClosingWo
   // Signer states from the latest recorded webhook payload if present, else lifecycle.
   const latestRecips: Array<{ id?: string; status?: string }> =
     (input.audit.find((e) => e.action === "signwell.recipients")?.meta as any)?.recipients ?? [];
-  const providerSigner = signerStateFrom(a, "provider", latestRecips);
-  const clientSigner = a.status === "signed" ? "signed" : signerStateFrom(a, "client", latestRecips);
+  // A terminal document_completed (status "signed") means EVERY required signer completed —
+  // even if per-recipient webhook rows were never recorded. Deriving both signers from the
+  // lifecycle here keeps overall="Completed" and completedSigners=2 consistent (an invariant).
+  const providerSigner: SignerState = a.status === "signed" ? "signed" : signerStateFrom(a, "provider", latestRecips);
+  const clientSigner: SignerState = a.status === "signed" ? "signed" : signerStateFrom(a, "client", latestRecips);
   const completed = [providerSigner, clientSigner].filter((s) => s === "signed").length;
 
   const retention = retentionStatus(input.signedArtifacts, a);
@@ -91,25 +94,44 @@ export function buildClosingWorkspaceView(input: BuildWorkspaceInput): ClosingWo
   const sendAuthState: ClosingWorkspaceView["document"]["sendAuthorizationState"] =
     !input.sendAuth ? "none" : input.sendAuth.revokedAt ? "revoked" : input.sendAuth.consumedAt ? "consumed" : input.sendAuth.expiresAt && input.sendAuth.expiresAt <= input.nowIso ? "expired" : "active";
 
+  const approvalCurrent = input.approval != null && !input.approval.revokedAt;
+  const sendAuthUsable = !!(input.sendAuth && isSendAuthorizationUsable(input.sendAuth, input.nowIso));
+
   const overall =
     a.status === "signed" ? "Completed" :
     a.status === "declined" ? "Declined" : a.status === "voided" ? "Cancelled" :
     completed === 1 ? "Partially signed" :
     a.status === "sent" || a.status === "viewed" ? "Sent" :
-    input.sendAuth && isSendAuthorizationUsable(input.sendAuth, input.nowIso) ? "Send authorized" :
-    input.approval ? "Approved" : a.status === "approved" ? "Needs review" : "Draft";
+    sendAuthUsable ? "Send authorized" :
+    approvalCurrent ? "Approved" : a.status === "approved" ? "Needs review" : "Draft";
 
+  // ── Top-level next action — derived from the EXACT authoritative state so it can never
+  //    contradict the section controls. Ordered by precedence (terminal → blocked →
+  //    lifecycle → billing). A production agreement whose client is unverified is a hard
+  //    blocked state before any other action can be considered.
+  const paid = input.payments.some((p) => p.type === "deposit" && p.status === "paid");
+  const productionUnverified = mode === "production" && !input.clientVerified;
   const nextAction =
-    !input.approval ? "Review & approve the agreement" :
-    !(input.sendAuth && isSendAuthorizationUsable(input.sendAuth, input.nowIso)) && a.status !== "signed" && !a.esignRequestId ? "Authorize sending" :
-    !a.esignRequestId ? "Send for signature" :
-    a.status !== "signed" ? "Awaiting signatures" :
-    retention !== "retained" && mode === "production" ? "Retention in progress" :
-    elig.state === "BLOCKED_LIVE_AUTH_MISSING" ? "Authorize live payment" :
+    paid ? "No action required" :
+    a.status === "declined" ? "Agreement declined — no further action" :
+    a.status === "voided" ? "Agreement cancelled — no further action" :
+    productionUnverified ? "Verify client identity" :
+    !approvalCurrent && a.status === "approved" ? "Complete operator review" :
+    !approvalCurrent ? "Review agreement" :
+    completed === 1 ? "Await remaining signature" :
+    a.status === "sent" || a.status === "viewed" || (a.esignRequestId && a.status !== "signed") ? "Await signatures" :
+    !sendAuthUsable && !a.esignRequestId ? "Authorize sending" :
+    !a.esignRequestId ? "Send agreement" :
+    // signed from here
+    mode === "production" && retention === "failed" ? "Retry signed-document retention" :
+    mode === "production" && retention === "pending" ? "Retain signed documents" :
+    mode === "production" && retention === "not-required" ? "Retain signed documents" :
+    elig.state === "BLOCKED_LIVE_AUTH_MISSING" ? "Authorize exact payment" :
     elig.state === "ELIGIBLE_TEST_PAYMENT" ? "Collect test deposit" :
-    elig.state === "ELIGIBLE_LIVE_PAYMENT" ? "Collect deposit" : "—";
+    elig.state === "ELIGIBLE_LIVE_PAYMENT" ? "Authorize exact payment" :
+    "No action required";
 
-  return {
+  const view: ClosingWorkspaceView = {
     agreement: { id: a.id, number: c.agreementNumber, version: a.version, status: a.status, esignMode: mode, legallyBinding: mode === "production", signwellTestMode: signwellTestModeFor(mode), createdAt: a.createdAt, updatedAt: a.updatedAt },
     provider: { legalEntity: issuer.legalEntity, signerName: input.approval?.binding.providerSignerEmail ? c.artifexSignatory : c.artifexSignatory, signerEmail: input.approval?.binding.providerSignerEmail ?? null },
     client: { legalName: c.clientLegalName, businessName: c.clientBusinessName, signerName: c.clientContactName, signerEmail: input.approval?.binding.clientEmail ?? c.clientEmail, verified: input.clientVerified },
@@ -122,14 +144,114 @@ export function buildClosingWorkspaceView(input: BuildWorkspaceInput): ClosingWo
     },
     signing: { provider: providerSigner, client: clientSigner, completedSigners: completed, requiredSigners: 2, lastEventAt: a.signedAt ?? a.viewedAt ?? null, overall },
     retention: { status: retention === "not-required" ? "not-required" : retention, failureReason: retention === "failed" ? "retrieval failed — retry available" : null, retryAvailable: retention === "failed", auditPageEmbedded: signedPdf && !cert, signedPdf, certificate: cert },
-    billing: { eligibility: elig.state, blockedReason: elig.reason, stripeMode: mode === "production" ? "live" : "test", amountCents: c.depositAmountCents, currency: c.currency, paymentAuthorized: input.livePaymentAuthorized, paid: input.payments.some((p) => p.type === "deposit" && p.status === "paid") },
+    billing: { eligibility: elig.state, blockedReason: elig.reason, stripeMode: mode === "production" ? "live" : "test", amountCents: c.depositAmountCents, currency: c.currency, paymentAuthorized: input.livePaymentAuthorized, paid },
     readiness: {
       providerConfigReady: input.providerConfigReady, clientVerified: input.clientVerified,
-      approvalCurrent: input.approval != null && !input.approval.revokedAt,
-      sendAuthorizationCurrent: !!(input.sendAuth && isSendAuthorizationUsable(input.sendAuth, input.nowIso)),
+      approvalCurrent,
+      sendAuthorizationCurrent: sendAuthUsable,
       productionFlagsEnabled: input.productionFlagsEnabled, nextAction, blockedReason: elig.state.startsWith("BLOCKED") ? elig.reason : null,
     },
     audit: input.audit.slice().sort((x, y) => (y.createdAt || "").localeCompare(x.createdAt || "")).slice(0, 40).map((e) => ({ action: e.action, actor: e.actor, at: e.createdAt, outcome: (e.meta as any)?.outcome ?? null, meta: safeMeta(e.meta) })),
+  };
+
+  // Fail closed: if the PERSISTED data assembled into an impossible combination, this
+  // throws rather than rendering a self-contradicting workspace.
+  assertWorkspaceInvariants(view);
+  return view;
+}
+
+/**
+ * Guard the assembled view against impossible state combinations. Throws
+ * WorkspaceInvariantError on any contradiction so we fail closed rather than render a
+ * workspace whose sections disagree with each other. Called at the end of
+ * `buildClosingWorkspaceView`; also exported for direct testing.
+ */
+export class WorkspaceInvariantError extends Error {
+  readonly code: string;
+  constructor(code: string, message: string) {
+    super(`[workspace-invariant:${code}] ${message}`);
+    this.name = "WorkspaceInvariantError";
+    this.code = code;
+  }
+}
+
+export function assertWorkspaceInvariants(view: ClosingWorkspaceView): void {
+  const { agreement: a, client, signing, retention, billing } = view;
+  const production = a.esignMode === "production";
+  const paymentEligible = billing.eligibility === "ELIGIBLE_LIVE_PAYMENT" || billing.eligibility === "BLOCKED_LIVE_AUTH_MISSING";
+  const fail = (code: string, msg: string): never => { throw new WorkspaceInvariantError(code, msg); };
+
+  // A production agreement that has reached a live-payment-eligible state cannot have an
+  // unverified client — verification is a prerequisite for any live-payment path.
+  if (production && paymentEligible && !client.verified)
+    fail("PROD_PAYMENT_ELIGIBLE_UNVERIFIED_CLIENT", "production + live-payment-eligible + client.verified=false is impossible.");
+
+  // "Completed"/2-of-2 requires two completed signers.
+  if ((signing.overall === "Completed" || signing.completedSigners >= signing.requiredSigners) && signing.completedSigners < 2)
+    fail("COMPLETED_WITH_INSUFFICIENT_SIGNERS", `overall='${signing.overall}' but completedSigners=${signing.completedSigners} (<2).`);
+
+  // Retention cannot be "retained" unless signing itself completed.
+  if (retention.status === "retained" && signing.overall !== "Completed")
+    fail("RETAINED_BEFORE_SIGNING_COMPLETE", `retention retained while signing overall='${signing.overall}' (not Completed).`);
+
+  // A TEST agreement can never reach ELIGIBLE_LIVE_PAYMENT.
+  if (billing.eligibility === "ELIGIBLE_LIVE_PAYMENT" && a.esignMode === "test")
+    fail("LIVE_PAYMENT_FOR_TEST_AGREEMENT", "ELIGIBLE_LIVE_PAYMENT on a test agreement is impossible.");
+
+  // Paid requires a payment authorization to have occurred.
+  if (billing.paid && !billing.paymentAuthorized)
+    fail("PAID_WITHOUT_AUTHORIZATION", "billing.paid=true while paymentAuthorized=false is impossible.");
+
+  // A legally-binding agreement cannot be in SignWell test mode.
+  if (a.legallyBinding && a.signwellTestMode)
+    fail("LEGALLY_BINDING_IN_TEST_MODE", "legallyBinding=true while signwellTestMode=true is impossible.");
+
+  // "Retained" requires the required signed artifact to be present.
+  if (retention.status === "retained" && !retention.signedPdf)
+    fail("RETAINED_MISSING_ARTIFACT", "retention retained while the signed PDF artifact is missing.");
+}
+
+// A compact per-row projection of the authoritative view, for the overview/list route.
+// Derived from the SAME view-model so a row can never contradict the detail page.
+export interface ClosingRowSummary {
+  id: string;
+  number: string;
+  client: string;
+  mode: "test" | "production";
+  legallyBinding: boolean;
+  totalCents: number;
+  depositCents: number;
+  currency: string;
+  overall: string;
+  completedSigners: number;
+  requiredSigners: number;
+  retention: ClosingWorkspaceView["retention"]["status"];
+  eligibility: EligibilityState;
+  eligibilityBlocked: boolean;
+  nextAction: string;
+  clientVerified: boolean;
+  updatedAt: string;
+}
+
+export function summarizeWorkspaceRow(view: ClosingWorkspaceView): ClosingRowSummary {
+  return {
+    id: view.agreement.id,
+    number: view.agreement.number,
+    client: view.client.businessName || view.client.legalName,
+    mode: view.agreement.esignMode,
+    legallyBinding: view.agreement.legallyBinding,
+    totalCents: view.terms.totalCents,
+    depositCents: view.terms.depositCents,
+    currency: view.terms.currency,
+    overall: view.signing.overall,
+    completedSigners: view.signing.completedSigners,
+    requiredSigners: view.signing.requiredSigners,
+    retention: view.retention.status,
+    eligibility: view.billing.eligibility,
+    eligibilityBlocked: view.billing.eligibility.startsWith("BLOCKED"),
+    nextAction: view.readiness.nextAction,
+    clientVerified: view.client.verified,
+    updatedAt: view.agreement.updatedAt,
   };
 }
 

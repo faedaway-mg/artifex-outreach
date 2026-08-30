@@ -115,6 +115,13 @@ body {
     @apply btn border border-coral-500/30 bg-coral-500/10 text-coral-300 hover:bg-coral-500/[0.18];
   }
 
+  /* The closing workspace renders on WHITE cards, but the app's buttons are tuned for the
+     dark theme (low contrast on white). Scope an accessible on-white secondary button to the
+     closing surface only — does not affect any other surface (a11y: WCAG AA contrast). */
+  [data-testid="closing-workspace"] .btn-secondary {
+    @apply border-neutral-300 bg-white text-neutral-800 hover:bg-neutral-50;
+  }
+
   /* ── Inputs ───────────────────────────────────────────────────────────── */
   .input {
     @apply w-full rounded-xl border border-white/[0.09] bg-ink-950/60 px-3.5 py-2.5 text-sm text-chalk-100 outline-none transition duration-200 placeholder:text-chalk-500 focus:border-azure-500/60 focus:bg-ink-950/80 focus:ring-2 focus:ring-azure-500/20;
