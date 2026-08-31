@@ -24,9 +24,7 @@ import { classifyLeadSource, transportRouteFor } from "./transport-policy";
 import { buildColdDispatchFromEmail, submitCompliantDispatch } from "./outreach-transport";
 import { renderBody } from "./render";
 import { escapeHtml } from "../outreach/email-render";
-import { renderQuickReviewPdf } from "../pdf/render";
-import { buildQuickReview, resolveLeadBrand, quickReviewFilename } from "../outreach/quick-review";
-import { quickReviewApproved } from "../outreach/review-approval";
+import { ensureFrozenReviewForSend } from "../outreach/quick-review-freeze";
 import { sendGate, verifyArtifact, deliveryReadiness } from "../outreach/review-revisions";
 import type { BusinessProfile } from "../business-intelligence/types";
 import { isSent, backoffMs, MAX_ATTEMPTS, STUCK_SENDING_MS } from "./state";
@@ -219,29 +217,19 @@ export async function dispatchStep(stepId: string, opts: { now?: Date } = {}): P
         attachments = [{ filename: attachmentFilename, content: gate.pdf.toString("base64"), contentType: "application/pdf" }];
       }
     } else if (profile) {
-      // Legacy path — UNEDITED review: build fresh from BI + old-style approval (SENDABLE, or
-      // NEEDS_REVIEW the operator explicitly approved). Behavior unchanged.
-      let review: import("../outreach/quick-review").QuickReview | null = null;
-      try {
-        const brand = await resolveLeadBrand(lead);
-        const approved = await quickReviewApproved(lead.id);
-        review = buildQuickReview(lead, profile, brand, { approved, observedAt: bi?.generatedAt ?? null });
-      } catch {
-        review = null;
-      }
-      if (review?.ready) {
-        try {
-          const dateStr = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
-          const pdf = await renderQuickReviewPdf(review, dateStr);
-          attachmentFilename = quickReviewFilename(lead.businessName);
-          attachmentSha256 = sha256(pdf);
-          attachments = [{ filename: attachmentFilename, content: pdf.toString("base64"), contentType: "application/pdf" }];
-        } catch {
-          if (lead.source !== "internal-test") {
-            await updateEmailSend(sendRow.id, { status: "failed", failedAt: nowIso, lastError: "quick review render failed", lastErrorCode: "artifact_render_failed" });
-            return { stepId, outcome: "failed", reason: "Could not render the Quick Review attachment.", sendId: sendRow.id };
-          }
-        }
+      // Canonical FROZEN path — UNEDITED review: the approved Quick Review PDF was rendered EXACTLY
+      // ONCE at operator approval and frozen (immutable artifact). This dispatcher loads those exact
+      // bytes and NEVER re-renders (re-rendering would drift the SHA). Fail closed for a review-bearing
+      // lead whose review is not approved/frozen, or has drifted, or whose bytes are tampered/missing —
+      // an internal-test rehearsal (no live review) is exempt and may proceed bare.
+      const frozen = await ensureFrozenReviewForSend(lead.id);
+      if (frozen.ok) {
+        attachmentFilename = frozen.filename!;
+        attachmentSha256 = frozen.sha256!; // the exact frozen bytes (rendered once, reused)
+        attachments = [{ filename: frozen.filename!, content: frozen.pdfBase64!, contentType: "application/pdf" }];
+      } else if (lead.source !== "internal-test") {
+        await updateEmailSend(sendRow.id, { status: "failed", failedAt: nowIso, lastError: `frozen review unavailable: ${frozen.reason}`, lastErrorCode: "review_not_ready" });
+        return { stepId, outcome: "failed", reason: `Quick Review is not delivery-ready: ${frozen.reason}`, sendId: sendRow.id };
       }
     }
     // M2 Gate 7 — UNIVERSAL delivery protection. An initial, review-bearing outreach (a lead with a

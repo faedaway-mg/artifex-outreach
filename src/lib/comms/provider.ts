@@ -8,6 +8,7 @@
 // defined now so the live layer slots in cleanly.
 // ─────────────────────────────────────────────────────────────────────────────
 import { createResendProvider } from "./resend";
+import { shouldUseFakeOutreachProvider, fakeOutreachProvider } from "./fake-outreach-provider";
 
 export interface EmailMessage {
   to: string;
@@ -106,6 +107,8 @@ export const disabledEmailProvider: EmailProvider = {
 let cached: EmailProvider | null = null;
 let cachedForKey: string | undefined;
 export function getEmailProvider(): EmailProvider {
+  // Guarded dev/rehearsal intercepted double (never in production; never with a live key set).
+  if (shouldUseFakeOutreachProvider()) return fakeOutreachProvider;
   const key = process.env.RESEND_API_KEY;
   if (cached && cachedForKey === key) return cached;
   cachedForKey = key;

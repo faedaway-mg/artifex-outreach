@@ -19,8 +19,8 @@ import { effectiveReviewFor } from "../outreach/review-revisions";
 import { escapeHtml } from "../outreach/email-render";
 import { quickReviewFilename } from "../outreach/quick-review";
 import { assembleCommercialMessage } from "./commercial-message";
-import { createResendProvider } from "./resend";
-import type { EmailMessage } from "./provider";
+import { getEmailProvider } from "./provider";
+import type { EmailMessage, EmailProvider } from "./provider";
 import { isEmailSuppressed } from "./suppression";
 import { sha256 } from "./receipt";
 import { validEmail } from "../acquisition/compliance";
@@ -39,6 +39,7 @@ export interface TransportDeps {
   isSuppressed?: (email: string) => Promise<boolean>;       // final-boundary suppression check
   loadLead?: (leadId: string) => Promise<Lead | null>;      // default: repo.getLead
   loadReview?: (leadId: string) => Promise<{ lead: Lead; review: QuickReview } | null>; // default: effectiveReviewFor
+  provider?: EmailProvider;                                 // intercepted transport (rehearsal only)
 }
 
 const bareAddress = (from: string): string => { const m = from.match(/<([^>]+)>/); return (m ? m[1] : from).trim(); };
@@ -82,13 +83,16 @@ export interface OutreachDispatchRequest {
 export async function submitCompliantDispatch(
   req: OutreachDispatchRequest,
   unsubscribeUrl: string,
-  deps: { isSuppressed?: (email: string) => Promise<boolean> } = {},
+  deps: { isSuppressed?: (email: string) => Promise<boolean>; provider?: EmailProvider } = {},
 ): Promise<ColdSubmitResult> {
   if (!isColdOutreach(req.classification)) {
     return { sent: false, providerMessageId: null, retryable: false, errorCode: "route-refused", reason: `classification ${req.classification} is not a compliant cold route` };
   }
-  if (!process.env.RESEND_API_KEY) {
-    return { sent: false, providerMessageId: null, retryable: false, errorCode: "unconfigured", reason: "Resend transport is not configured (RESEND_API_KEY missing)." };
+  // The transport is the configured provider (Resend) via getEmailProvider(); a guarded intercepted
+  // double may stand in for the no-send rehearsal (never in production). Fail closed when it cannot send.
+  const provider = deps.provider ?? getEmailProvider();
+  if (!provider.canSend) {
+    return { sent: false, providerMessageId: null, retryable: false, errorCode: "unconfigured", reason: "cold-outreach transport is not configured (no sending provider)." };
   }
   const gate = allowedColdRecipient(req.recipient);
   if (!gate.ok) return { sent: false, providerMessageId: null, retryable: false, errorCode: "recipient-gate", reason: gate.reason };
@@ -113,7 +117,7 @@ export async function submitCompliantDispatch(
     ...(req.pdfBase64 && req.pdfFilename ? { attachments: [{ filename: req.pdfFilename, content: req.pdfBase64, contentType: "application/pdf" }] } : {}),
     idempotencyKey: req.idempotencyKey,
   };
-  const res = await createResendProvider().send(msg);
+  const res = await provider.send(msg);
   // Ambiguous-send protection: a network/timeout fault happens AFTER the POST is dispatched — Resend
   // may already have accepted the message. Do NOT blindly resend (the ledger + Resend Idempotency-Key
   // are the reconcile guards). A status-bearing 429/5xx means Resend explicitly did NOT accept → safe retry.
@@ -146,6 +150,14 @@ export function buildColdDispatchFromEmail(input: {
     messageId: input.threading?.messageId, inReplyTo: input.threading?.inReplyTo, references: input.threading?.references,
   };
   return { ok: true, req, unsubscribeUrl: assembled.unsubscribeUrl };
+}
+
+/** Canonical cover message (subject + plain-text + HTML) for a single Quick Review send. EVERY
+ *  single-QR caller (Layer B, send-one-branded, the dry-run preview) composes through THIS function so
+ *  they are byte-identical for the same review. The compliant footer is added downstream by the adapter. */
+export function composeReviewMessage(review: QuickReview, businessName: string): { subject: string; text: string; html: string } {
+  const { text, html } = composeBody(review);
+  return { subject: `Quick Review — ${businessName}`, text, html };
 }
 
 /** Compose the plain-text + HTML cover body from the EXACT persisted review content (Layer B). */
@@ -185,8 +197,7 @@ export async function buildOutreachDispatch(
 
   const eff = await loadReview(leadId);
   if (!eff?.review) return { ok: false, reason: "no-review" };
-  const subject = `Quick Review — ${lead.businessName}`;
-  const { text: bodyText, html: bodyHtml } = composeBody(eff.review);
+  const { subject, text: bodyText, html: bodyHtml } = composeReviewMessage(eff.review, lead.businessName);
 
   return buildColdDispatchFromEmail({
     leadId, recipient, subject, bodyText, bodyHtml,
@@ -211,7 +222,7 @@ export async function sendCompliantOutreach(
   const built = await buildOutreachDispatch(args, deps);
   if (!built.ok) return { ok: false, reason: built.reason };
 
-  const res = await submitCompliantDispatch(built.req, built.unsubscribeUrl, { isSuppressed: deps.isSuppressed });
+  const res = await submitCompliantDispatch(built.req, built.unsubscribeUrl, { isSuppressed: deps.isSuppressed, provider: deps.provider });
   if (res.sent) return { ok: true, providerId: res.providerMessageId };
   if (res.ambiguous) return { ok: false, ambiguous: true, reason: res.reason };
   return { ok: false, reason: res.errorCode ?? res.reason ?? "refused" };
