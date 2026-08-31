@@ -113,6 +113,17 @@ async function main() {
   console.log(`  [${req.pdfBase64 && req.pdfFilename ? "✓" : "✗"}] exactly one PDF attachment, hash shown above`);
   console.log(line);
 
+  if (process.argv.includes("--show-bodies")) {
+    console.log("COMPLETE PLAIN-TEXT BODY (verbatim — body + CAN-SPAM footer, exactly what would be sent):");
+    console.log(line);
+    console.log(req.bodyText);
+    console.log(line);
+    console.log("COMPLETE HTML BODY (verbatim — body + CAN-SPAM footer, exactly what would be sent):");
+    console.log(line);
+    console.log(req.bodyHtml);
+    console.log(line);
+  }
+
   console.log("RECIPIENT LOCK (proves prospects cannot be emailed in this mode):");
   const gateTest = allowedColdRecipient(recipient);
   const gateProspect = allowedColdRecipient("prospect@example.com");
