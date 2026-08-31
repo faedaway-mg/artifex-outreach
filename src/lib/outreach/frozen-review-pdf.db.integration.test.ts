@@ -6,7 +6,9 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import { describe, it, expect } from "vitest";
 import { randomUUID, createHash } from "node:crypto";
-import { storeFrozenReviewPdf, loadFrozenReviewPdf, frozenReviewPdfExists, frozenReviewPdfKey } from "./frozen-review-pdf";
+import { storeFrozenReviewPdf, loadFrozenReviewPdf, frozenReviewPdfExists, frozenReviewPdfKey,
+  storeFrozenPdfAtKey, loadFrozenPdfAtKey, frozenRevisionPdfKey } from "./frozen-review-pdf";
+import { resolveFrozenReviewFromManifest } from "./resolve-approved-artifact";
 
 const HAS_DB = Boolean(process.env.DATABASE_URL);
 const d = HAS_DB ? describe : describe.skip;
@@ -42,5 +44,23 @@ d("frozen-review-pdf — durable Postgres persistence", () => {
     const v2 = await storeFrozenReviewPdf(leadId, 2, b64(bytes + "-v2"));
     expect(v2).toBe(sha(bytes + "-v2"));
     expect(frozenReviewPdfKey(leadId, 2)).toBe(`quick-review-pdf:${leadId}:v2`);
+  });
+
+  it("a revision-keyed (M2) artifact persists and its historical manifest resolves after a fresh read", async () => {
+    const leadId = `lead-${randomUUID()}`;
+    const revisionId = `rev-${randomUUID()}`;
+    const bytes = `M2-FROZEN::${revisionId}`;
+    const key = frozenRevisionPdfKey(leadId, revisionId);
+    const { sha256 } = await storeFrozenPdfAtKey(key, b64(bytes));
+    expect(sha256).toBe(sha(bytes));
+    // Simulated restart: cold read returns the exact bytes; the historical manifest still resolves.
+    const reloaded = await loadFrozenPdfAtKey(key);
+    expect(reloaded!.sha256).toBe(sha256);
+    const manifest = { leadId, revisionId, evidenceDigest: "ev", templateVersion: "t", pdfSha256: sha256, filename: "X — Artifex Quick Review.pdf", renderedAt: "2026-09-01T00:00:00Z" };
+    const resolved = await resolveFrozenReviewFromManifest(leadId, manifest);
+    expect(resolved.ok && resolved.sha256).toBe(sha256);
+    // A manifest claiming a different SHA over the same key fails closed (tamper).
+    const bad = await resolveFrozenReviewFromManifest(leadId, { ...manifest, pdfSha256: "0".repeat(64) });
+    expect(bad.ok).toBe(false);
   });
 });

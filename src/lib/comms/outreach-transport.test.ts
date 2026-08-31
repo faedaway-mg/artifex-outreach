@@ -8,6 +8,7 @@ import type { QuickReview } from "../outreach/quick-review";
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 const PDF = Buffer.from("%PDF-1.4 authorized bytes");
+const PDF_B64 = PDF.toString("base64");
 const RECIPIENT = "qa@artifexlabs.tech"; // == COMMS_TEST_RECIPIENT so the gate permits it when prospect delivery off
 
 const lead = { id: "lead-1", businessName: "Blue Bottle Dental", publicEmail: RECIPIENT } as unknown as Lead;
@@ -19,10 +20,15 @@ const auth: SendAuthorization = {
   recipient: RECIPIENT, campaignId: "c1", authorizedBy: "op", at: "2026-09-01T17:00:00Z",
 };
 
+// The canonical resolver is injected in tests — it returns the FROZEN artifact (bytes + SHA), exactly
+// what the caller CANNOT supply through the public API. Default resolves the authorized bytes.
+const frozenOk = async () => ({ ok: true as const, pdfBase64: PDF_B64, sha256: sha256(PDF), byteSize: PDF.byteLength, filename: "Blue Bottle Dental — Artifex Quick Review.pdf", version: 1 });
+
 const deps = (over: Partial<Parameters<typeof sendCompliantOutreach>[1]> = {}) => ({
   loadLead: async () => lead,
   loadReview: async () => ({ lead, review }),
   isSuppressed: async () => false,
+  resolveArtifact: frozenOk,
   ...over,
 });
 
@@ -35,7 +41,7 @@ describe("canonical compliant cold-outreach transport (Resend, fail-closed)", ()
     const rf = resendFetch();
     global.fetch = rf.fn;
     process.env.COMMS_PROSPECT_DELIVERY_ENABLED = "1"; // owner-enabled (or use the test address; here allow the send)
-    const res = await sendCompliantOutreach({ leadId: "lead-1", auth, pdf: PDF }, deps());
+    const res = await sendCompliantOutreach({ leadId: "lead-1", auth }, deps());
     expect(res.ok).toBe(true);
     expect(res.providerId).toBe("resend-1"); // real provider message id persisted as truthful state
     const b = sentBody(rf.calls, 1);
@@ -53,7 +59,7 @@ describe("canonical compliant cold-outreach transport (Resend, fail-closed)", ()
     process.env.COMMS_PROSPECT_DELIVERY_ENABLED = "1";
     const rf = resendFetch();
     global.fetch = rf.fn;
-    const res = await sendCompliantOutreach({ leadId: "lead-1", auth, pdf: PDF }, deps());
+    const res = await sendCompliantOutreach({ leadId: "lead-1", auth }, deps());
     expect(res.ok).toBe(false);
     expect(res.reason).toBe("footer:no-postal");
     expect(rf.calls.all).toBe(0);
@@ -62,7 +68,7 @@ describe("canonical compliant cold-outreach transport (Resend, fail-closed)", ()
   it("suppressed recipient → refused BEFORE any assembly or transport call", async () => {
     const rf = resendFetch();
     global.fetch = rf.fn;
-    const res = await sendCompliantOutreach({ leadId: "lead-1", auth, pdf: PDF }, deps({ isSuppressed: async () => true }));
+    const res = await sendCompliantOutreach({ leadId: "lead-1", auth }, deps({ isSuppressed: async () => true }));
     expect(res.ok).toBe(false);
     expect(res.reason).toBe("suppressed");
     expect(rf.calls.all).toBe(0);
@@ -72,16 +78,19 @@ describe("canonical compliant cold-outreach transport (Resend, fail-closed)", ()
     const rf = resendFetch();
     global.fetch = rf.fn;
     const drifted = { ...lead, publicEmail: "someoneelse@artifexlabs.tech" } as unknown as Lead;
-    const res = await sendCompliantOutreach({ leadId: "lead-1", auth, pdf: PDF }, deps({ loadLead: async () => drifted }));
+    const res = await sendCompliantOutreach({ leadId: "lead-1", auth }, deps({ loadLead: async () => drifted }));
     expect(res.ok).toBe(false);
     expect(res.reason).toBe("recipient-drift");
     expect(rf.calls.all).toBe(0);
   });
 
-  it("pdf-drift (bytes do not hash to the authorized pdfSha256) → refused, never ships a re-render", async () => {
+  it("pdf-drift (resolved frozen SHA does not match the authorized pdfSha256) → refused, never ships", async () => {
     const rf = resendFetch();
     global.fetch = rf.fn;
-    const res = await sendCompliantOutreach({ leadId: "lead-1", auth, pdf: Buffer.from("different bytes") }, deps());
+    process.env.COMMS_PROSPECT_DELIVERY_ENABLED = "1";
+    const different = Buffer.from("different bytes");
+    const driftResolver = async () => ({ ok: true as const, pdfBase64: different.toString("base64"), sha256: sha256(different), byteSize: different.byteLength, filename: "x.pdf", version: 1 });
+    const res = await sendCompliantOutreach({ leadId: "lead-1", auth }, deps({ resolveArtifact: driftResolver }));
     expect(res.ok).toBe(false);
     expect(res.reason).toBe("pdf-drift");
     expect(rf.calls.all).toBe(0);
@@ -94,7 +103,7 @@ describe("canonical compliant cold-outreach transport (Resend, fail-closed)", ()
     const rf = resendFetch();
     global.fetch = rf.fn;
     // COMMS_PROSPECT_DELIVERY_ENABLED is unset (beforeEach) and prospect != COMMS_TEST_RECIPIENT.
-    const res = await sendCompliantOutreach({ leadId: "lead-1", auth: prospectAuth, pdf: PDF }, deps({ loadLead: async () => prospectLead }));
+    const res = await sendCompliantOutreach({ leadId: "lead-1", auth: prospectAuth }, deps({ loadLead: async () => prospectLead }));
     expect(res.ok).toBe(false);
     expect(res.reason).toBe("recipient-gate");
     expect(rf.calls.all).toBe(0);
@@ -103,7 +112,7 @@ describe("canonical compliant cold-outreach transport (Resend, fail-closed)", ()
   it("AMBIGUOUS: a network fault on submit → ok:false + ambiguous (slot retained, no blind resend)", async () => {
     process.env.COMMS_PROSPECT_DELIVERY_ENABLED = "1";
     global.fetch = resendFetch({ send: () => ({ throw: true }) }).fn;
-    const res = await sendCompliantOutreach({ leadId: "lead-1", auth, pdf: PDF }, deps());
+    const res = await sendCompliantOutreach({ leadId: "lead-1", auth }, deps());
     expect(res.ok).toBe(false);
     expect(res.ambiguous).toBe(true);
   });
@@ -113,14 +122,14 @@ describe("canonical compliant cold-outreach transport (Resend, fail-closed)", ()
     process.env.COMMS_PROSPECT_DELIVERY_ENABLED = "1";
     const rf = resendFetch();
     global.fetch = rf.fn;
-    const res = await sendCompliantOutreach({ leadId: "lead-1", auth, pdf: PDF }, deps());
+    const res = await sendCompliantOutreach({ leadId: "lead-1", auth }, deps());
     expect(res.ok).toBe(false);
     expect(res.reason).toBe("unconfigured");
     expect(rf.calls.all).toBe(0);
   });
 
   it("buildOutreachDispatch produces a canonical typed request from persisted state (subject, filename, idempotency)", async () => {
-    const built = await buildOutreachDispatch({ leadId: "lead-1", auth, pdf: PDF }, deps());
+    const built = await buildOutreachDispatch({ leadId: "lead-1", auth }, deps());
     expect(built.ok).toBe(true);
     if (built.ok) {
       expect(built.req.subject).toBe("Quick Review — Blue Bottle Dental");
