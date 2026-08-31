@@ -13,6 +13,9 @@ import { eq, and, inArray, lte, isNull, sql } from "drizzle-orm";
 import { hasDb, getDb } from "@/db/client";
 import * as t from "@/db/schema";
 import { db as mem, newId, nowIso, normalizeName, domainFromUrl, normalizePhone, defaultSettings, defaultProspecting } from "./store";
+import type { AgreementApproval, LivePaymentAuthorization } from "./agreement/approval";
+import type { SignedArtifact, SignedArtifactBlob } from "./billing/retention";
+import type { SendAuthorization } from "./agreement/send-authorization";
 import { ARTIFEX_IDENTITY } from "./identity";
 import type {
   Operator,
@@ -30,6 +33,8 @@ import type {
   Agreement,
   AgreementEvent,
   Payment,
+  Invoice,
+  PaymentEvent,
   Suppression,
   Settings,
   PipelineStage,
@@ -127,6 +132,17 @@ const Agreements = collection<Agreement>(t.agreements, () => ((mem() as any).agr
 const AgreementEvents = collection<AgreementEvent>(t.agreementEvents, () => ((mem() as any).agreementEvents ??= []));
 const memAgreementEvents = () => ((mem() as any).agreementEvents ??= []) as AgreementEvent[];
 const Payments = collection<Payment>(t.payments, () => ((mem() as any).payments ??= []));
+const Invoices = collection<Invoice>(t.invoices, () => ((mem() as any).invoices ??= []));
+const PaymentEvents = collection<PaymentEvent>(t.paymentEvents, () => ((mem() as any).paymentEvents ??= []));
+const AgreementApprovals = collection<AgreementApproval & { id: string }>(t.agreementApprovals as any, () => ((mem() as any).agreementApprovals ??= []));
+const memAgreementApprovals = () => ((mem() as any).agreementApprovals ??= []) as AgreementApproval[];
+const SignedArtifacts = collection<SignedArtifact>(t.signedArtifacts as any, () => ((mem() as any).signedArtifacts ??= []));
+const memSignedArtifacts = () => ((mem() as any).signedArtifacts ??= []) as SignedArtifact[];
+const memSignedArtifactBlobs = () => ((mem() as any).signedArtifactBlobs ??= []) as SignedArtifactBlob[];
+const LivePaymentAuths = collection<LivePaymentAuthorization>(t.livePaymentAuthorizations as any, () => ((mem() as any).livePaymentAuthorizations ??= []));
+const SendAuths = collection<SendAuthorization>(t.agreementSendAuthorizations as any, () => ((mem() as any).agreementSendAuthorizations ??= []));
+const memSendAuths = () => ((mem() as any).agreementSendAuthorizations ??= []) as SendAuthorization[];
+const memLivePaymentAuths = () => ((mem() as any).livePaymentAuthorizations ??= []) as LivePaymentAuthorization[];
 
 // ── Leads ────────────────────────────────────────────────────────────────────
 export async function listLeads(): Promise<Lead[]> {
@@ -473,6 +489,135 @@ export async function getAgreementByEsignRequestId(esignRequestId: string): Prom
   return (await Agreements.all()).find((a) => a.esignRequestId === esignRequestId);
 }
 
+// ── Closing hardening: approvals / signed artifacts / live-payment authorizations ──
+export async function insertAgreementApproval(rec: Omit<AgreementApproval, "id"> & { id?: string }): Promise<AgreementApproval> {
+  const row = { ...rec, id: rec.id ?? newId("appr"), createdAt: nowIso() } as any as AgreementApproval;
+  await AgreementApprovals.insert(row as any);
+  return row;
+}
+/** The latest non-revoked approval bound to this exact agreement version, or null. */
+export async function getAgreementApproval(agreementId: string, version: number): Promise<AgreementApproval | null> {
+  const all = hasDb()
+    ? ((await getDb().select().from(t.agreementApprovals).where(eq(t.agreementApprovals.agreementId, agreementId))) as any as AgreementApproval[])
+    : memAgreementApprovals().filter((a) => a.agreementId === agreementId);
+  const match = all
+    .filter((a) => a.agreementVersion === version && !a.revokedAt)
+    .sort((a, b) => (b.approvedAt || "").localeCompare(a.approvedAt || ""));
+  return match[0] ?? null;
+}
+export async function revokeAgreementApproval(id: string): Promise<void> {
+  if (hasDb()) await getDb().update(t.agreementApprovals).set({ revokedAt: nowIso() }).where(eq(t.agreementApprovals.id, id));
+  else {
+    const r = memAgreementApprovals().find((a) => a.id === id);
+    if (r) r.revokedAt = nowIso();
+  }
+}
+export async function signedArtifactsForAgreement(agreementId: string): Promise<SignedArtifact[]> {
+  if (hasDb()) return (await getDb().select().from(t.signedArtifacts).where(eq(t.signedArtifacts.agreementId, agreementId))) as any;
+  return memSignedArtifacts().filter((a) => a.agreementId === agreementId);
+}
+export async function insertSignedArtifact(rec: SignedArtifact): Promise<SignedArtifact> {
+  await SignedArtifacts.insert(rec);
+  return rec;
+}
+// ── Durable signed-artifact BYTES (Gate 9) ───────────────────────────────────
+export async function insertSignedArtifactBlob(rec: {
+  id?: string;
+  artifactId: string;
+  contentType: string;
+  byteSize: number;
+  sha256: string;
+  data: Uint8Array;
+}): Promise<SignedArtifactBlob> {
+  const row: SignedArtifactBlob = {
+    id: rec.id ?? newId("blob"),
+    artifactId: rec.artifactId,
+    contentType: rec.contentType,
+    byteSize: rec.byteSize,
+    sha256: rec.sha256,
+    data: rec.data,
+    createdAt: nowIso(),
+  };
+  if (hasDb()) await getDb().insert(t.signedArtifactBlobs).values({ ...row, data: Buffer.from(row.data) } as any);
+  else memSignedArtifactBlobs().push(row);
+  return row;
+}
+export async function getSignedArtifactBlob(
+  artifactId: string,
+): Promise<{ contentType: string; byteSize: number; sha256: string; data: Uint8Array } | null> {
+  if (hasDb()) {
+    const r = (await getDb().select().from(t.signedArtifactBlobs).where(eq(t.signedArtifactBlobs.artifactId, artifactId)))[0] as any;
+    if (!r) return null;
+    return { contentType: r.contentType, byteSize: r.byteSize, sha256: r.sha256, data: new Uint8Array(r.data) };
+  }
+  const r = memSignedArtifactBlobs().find((b) => b.artifactId === artifactId);
+  if (!r) return null;
+  return { contentType: r.contentType, byteSize: r.byteSize, sha256: r.sha256, data: r.data };
+}
+export async function signedArtifactBlobExists(artifactId: string): Promise<boolean> {
+  if (hasDb()) return (await getDb().select().from(t.signedArtifactBlobs).where(eq(t.signedArtifactBlobs.artifactId, artifactId))).length > 0;
+  return memSignedArtifactBlobs().some((b) => b.artifactId === artifactId);
+}
+export async function hasLivePaymentAuthorization(agreementId: string): Promise<boolean> {
+  const all = hasDb()
+    ? ((await getDb().select().from(t.livePaymentAuthorizations).where(eq(t.livePaymentAuthorizations.agreementId, agreementId))) as any as LivePaymentAuthorization[])
+    : memLivePaymentAuths().filter((a) => a.agreementId === agreementId);
+  return all.some((a) => !a.revokedAt);
+}
+export async function insertLivePaymentAuthorization(rec: Omit<LivePaymentAuthorization, "id" | "createdAt"> & { id?: string }): Promise<LivePaymentAuthorization> {
+  const row = { ...rec, id: rec.id ?? newId("lpa"), createdAt: nowIso() } as any as LivePaymentAuthorization;
+  await LivePaymentAuths.insert(row);
+  return row;
+}
+
+// ── Send authorizations (Gate 3) ──
+export async function insertSendAuthorization(rec: Omit<SendAuthorization, "id" | "createdAt" | "updatedAt"> & { id?: string }): Promise<SendAuthorization> {
+  const now = nowIso();
+  const row = { ...rec, id: rec.id ?? newId("sauth"), createdAt: now, updatedAt: now } as any as SendAuthorization;
+  await SendAuths.insert(row);
+  return row;
+}
+/** The latest ACTIVE (unconsumed, unrevoked) send authorization for a version, or null. */
+export async function getActiveSendAuthorization(agreementId: string, version: number): Promise<SendAuthorization | null> {
+  const all = hasDb()
+    ? ((await getDb().select().from(t.agreementSendAuthorizations).where(eq(t.agreementSendAuthorizations.agreementId, agreementId))) as any as SendAuthorization[])
+    : memSendAuths().filter((a) => a.agreementId === agreementId);
+  const active = all
+    .filter((a) => a.agreementVersion === version && !a.revokedAt && !a.consumedAt)
+    .sort((a, b) => (b.authorizedAt || "").localeCompare(a.authorizedAt || ""));
+  return active[0] ?? null;
+}
+export async function getSendAuthorization(id: string): Promise<SendAuthorization | null> {
+  if (hasDb()) return ((await getDb().select().from(t.agreementSendAuthorizations).where(eq(t.agreementSendAuthorizations.id, id)))[0] as any) ?? null;
+  return memSendAuths().find((a) => a.id === id) ?? null;
+}
+/**
+ * The latest send authorization for a version REGARDLESS of state (active, consumed, or
+ * revoked). Used by the read-only workspace VIEW so a SENT agreement can display its
+ * consumed authorization — unlike getActiveSendAuthorization, which the send workflow uses
+ * and which (correctly) excludes consumed/revoked records.
+ */
+export async function getLatestSendAuthorization(agreementId: string, version: number): Promise<SendAuthorization | null> {
+  const all = hasDb()
+    ? ((await getDb().select().from(t.agreementSendAuthorizations).where(eq(t.agreementSendAuthorizations.agreementId, agreementId))) as any as SendAuthorization[])
+    : memSendAuths().filter((a) => a.agreementId === agreementId);
+  const forVersion = all
+    .filter((a) => a.agreementVersion === version)
+    .sort((a, b) => (b.authorizedAt || "").localeCompare(a.authorizedAt || ""));
+  return forVersion[0] ?? null;
+}
+/** Consume an authorization exactly once, binding the created document id. */
+export async function consumeSendAuthorization(id: string, esignRequestId: string): Promise<void> {
+  const patch = { consumedAt: nowIso(), esignRequestId, updatedAt: nowIso() };
+  if (hasDb()) await getDb().update(t.agreementSendAuthorizations).set(patch).where(eq(t.agreementSendAuthorizations.id, id));
+  else { const r = memSendAuths().find((a) => a.id === id); if (r) Object.assign(r, patch); }
+}
+export async function revokeSendAuthorization(id: string): Promise<void> {
+  const patch = { revokedAt: nowIso(), updatedAt: nowIso() };
+  if (hasDb()) await getDb().update(t.agreementSendAuthorizations).set(patch).where(eq(t.agreementSendAuthorizations.id, id));
+  else { const r = memSendAuths().find((a) => a.id === id); if (r) Object.assign(r, patch); }
+}
+
 /** Insert-or-get an agreement webhook event by dedupeKey. `inserted:false` = dup. */
 export async function insertAgreementEventIfAbsent(seed: Omit<AgreementEvent, "id" | "createdAt">): Promise<{ inserted: boolean; row: AgreementEvent }> {
   const row = { ...seed, id: newId("aevt"), createdAt: nowIso() } as AgreementEvent;
@@ -509,6 +654,105 @@ export async function getStripeSessionPayment(sessionId: string): Promise<Paymen
   if (!sessionId) return undefined;
   if (hasDb()) return (await getDb().select().from(t.payments).where(eq(t.payments.stripeSessionId, sessionId)))[0] as any;
   return (await Payments.all()).find((p) => p.stripeSessionId === sessionId);
+}
+
+// ── Invoices (M2 deposit + milestone invoicing) ──────────────────────────────
+export const getInvoice = (id: string) => Invoices.byId(id);
+export const updateInvoice = (id: string, patch: Partial<Invoice>) => Invoices.update(id, patch);
+export const allInvoices = () => Invoices.all();
+export const invoicesForLead = (leadId: string) => Invoices.byLead(leadId);
+
+export async function invoicesForAgreement(agreementId: string): Promise<Invoice[]> {
+  if (hasDb()) return (await getDb().select().from(t.invoices).where(eq(t.invoices.agreementId, agreementId))) as any;
+  return (await Invoices.all()).filter((i) => i.agreementId === agreementId);
+}
+
+export async function getInvoiceByIdempotencyKey(key: string): Promise<Invoice | undefined> {
+  if (!key) return undefined;
+  if (hasDb()) return (await getDb().select().from(t.invoices).where(eq(t.invoices.idempotencyKey, key)))[0] as any;
+  return (await Invoices.all()).find((i) => i.idempotencyKey === key);
+}
+
+export async function getInvoiceByProviderId(providerInvoiceId: string): Promise<Invoice | undefined> {
+  if (!providerInvoiceId) return undefined;
+  if (hasDb()) return (await getDb().select().from(t.invoices).where(eq(t.invoices.providerInvoiceId, providerInvoiceId)))[0] as any;
+  return (await Invoices.all()).find((i) => i.providerInvoiceId === providerInvoiceId);
+}
+
+// Resolve by the stored Stripe charge id — used for dispute/charge events, whose
+// payload does NOT carry the invoice id.
+export async function getInvoiceByChargeId(chargeId: string): Promise<Invoice | undefined> {
+  if (!chargeId) return undefined;
+  if (hasDb()) return (await getDb().select().from(t.invoices).where(eq(t.invoices.chargeId, chargeId)))[0] as any;
+  return (await Invoices.all()).find((i) => i.chargeId === chargeId);
+}
+
+// Resolve by the stored PaymentIntent id — the PREFERRED link for dispute/refund
+// events (dispute.payment_intent / charge.payment_intent).
+export async function getInvoiceByPaymentIntentId(paymentIntentId: string): Promise<Invoice | undefined> {
+  if (!paymentIntentId) return undefined;
+  if (hasDb()) return (await getDb().select().from(t.invoices).where(eq(t.invoices.paymentIntentId, paymentIntentId)))[0] as any;
+  return (await Invoices.all()).find((i) => i.paymentIntentId === paymentIntentId);
+}
+
+// ── Payment events (M3 durable receipts) ─────────────────────────────────────
+export const updatePaymentEvent = (id: string, patch: Partial<PaymentEvent>) =>
+  PaymentEvents.update(id, patch);
+
+export async function getPaymentEventByEventId(eventId: string): Promise<PaymentEvent | undefined> {
+  if (!eventId) return undefined;
+  if (hasDb()) return (await getDb().select().from(t.paymentEvents).where(eq(t.paymentEvents.eventId, eventId)))[0] as any;
+  return (await PaymentEvents.all()).find((e) => e.eventId === eventId);
+}
+
+export async function paymentEventsForProviderInvoice(providerInvoiceId: string): Promise<PaymentEvent[]> {
+  if (!providerInvoiceId) return [];
+  if (hasDb()) return (await getDb().select().from(t.paymentEvents).where(eq(t.paymentEvents.providerInvoiceId, providerInvoiceId))) as any;
+  return (await PaymentEvents.all()).filter((e) => e.providerInvoiceId === providerInvoiceId);
+}
+
+/** Record a receipt idempotently by provider event id. inserted:false = duplicate. */
+export async function recordPaymentEventIfAbsent(
+  seed: Omit<PaymentEvent, "id">,
+): Promise<{ inserted: boolean; row: PaymentEvent }> {
+  const row = { ...seed, id: newId("pevt") } as PaymentEvent;
+  if (!hasDb()) {
+    const arr = ((mem() as any).paymentEvents ??= []) as PaymentEvent[];
+    const existing = arr.find((e) => e.eventId === seed.eventId);
+    if (existing) return { inserted: false, row: existing };
+    arr.push(row);
+    return { inserted: true, row };
+  }
+  await getDb().insert(t.paymentEvents).values(row as any).onConflictDoNothing({ target: t.paymentEvents.eventId });
+  const stored = await getPaymentEventByEventId(seed.eventId);
+  return { inserted: stored?.id === row.id, row: stored ?? row };
+}
+
+/**
+ * Idempotent create. If an invoice with the same idempotencyKey already exists it
+ * is returned untouched (inserted:false) — the single guard against duplicate
+ * obligations under retries/concurrency. Callers must set idempotencyKey via
+ * invoiceIdempotencyKey().
+ */
+export async function insertInvoiceIfAbsent(
+  seed: Omit<Invoice, "id" | "createdAt" | "updatedAt">,
+): Promise<{ inserted: boolean; row: Invoice }> {
+  const row = { ...seed, id: newId("inv"), createdAt: nowIso(), updatedAt: nowIso() } as Invoice;
+  if (!hasDb()) {
+    // In-memory: find + push in one synchronous step (no await between) so
+    // concurrent callers cannot both observe "absent". The DB path relies on the
+    // unique index below instead.
+    const arr = ((mem() as any).invoices ??= []) as Invoice[];
+    const existing = arr.find((i) => i.idempotencyKey === seed.idempotencyKey);
+    if (existing) return { inserted: false, row: existing };
+    arr.push(row);
+    return { inserted: true, row };
+  }
+  // DB: the unique index on idempotency_key makes this atomic; a losing race is a
+  // no-op insert, then we read back whichever row won.
+  await getDb().insert(t.invoices).values(row as any).onConflictDoNothing({ target: t.invoices.idempotencyKey });
+  const stored = await getInvoiceByIdempotencyKey(seed.idempotencyKey);
+  return { inserted: stored?.id === row.id, row: stored ?? row };
 }
 
 // ── Global collections (analytics + batch hydration) ─────────────────────────

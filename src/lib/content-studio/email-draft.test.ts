@@ -6,7 +6,7 @@ function draft(p: Partial<EmailDraft> = {}): EmailDraft {
   return { id: "d1", businessId: "biz1", shareToken: "t1", inputVersion: "v1", subject: "s", bodyText: "b", bodyHtml: "<b>", artifactKind: "video-link", approvedAt: "2026-01-01T00:00:00Z", sentAt: null, sentVersion: null, ...p };
 }
 function share(p: Partial<ShareRecord> = {}): ShareRecord {
-  return { token: "t1", pieceId: "client-biz1", businessId: "biz1", businessName: "Biz", title: "T", intro: "i", videoHash: "h", inputVersion: "v1", posterRel: "/p", emailThumbRel: "/e", createdAt: "2026-01-01T00:00:00Z", revokedAt: null, ...p };
+  return { token: "t1", pieceId: "client-biz1", businessId: "biz1", businessName: "Biz", title: "T", intro: "i", videoHash: "h", inputVersion: "v1", videoKey: "content-studio/test/share-media/t1/media.mp4", posterKey: "content-studio/test/share-media/t1/poster.jpg", posterContentType: "image/jpeg", posterRel: "/p", emailThumbRel: "/e", createdAt: "2026-01-01T00:00:00Z", revokedAt: null, ...p };
 }
 const ctx = { suppressed: false, paused: false, authorized: true, quotaRemaining: 5, businessId: "biz1" };
 

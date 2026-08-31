@@ -2,11 +2,12 @@
 // render is shareable; the shared video is frozen + immutable across regeneration; the prepared email
 // never attaches an MP4 or embeds a player; revocation disables access.
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
-import { mkdtempSync, rmSync, writeFileSync, existsSync, readFileSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { RenderJob } from "./types";
+import { getArtifactStore } from "./storage-factory";
 
 let DIR: string, store: typeof import("./store"), share: typeof import("./share");
 
@@ -16,8 +17,8 @@ function mp4(file: string, seconds = 1) {
 function job(p: Partial<RenderJob>): RenderJob {
   const now = new Date().toISOString();
   return { id: p.id ?? "j", pieceId: p.pieceId ?? "007", inputVersion: p.inputVersion ?? "v1", status: p.status ?? "ready",
-    progress: 1, stage: "Ready", mode: "uploaded-vo", audioKind: p.audioKind ?? "uploaded", audioFile: null, audioLabel: null,
-    outputFile: p.outputFile ?? null, outputRel: p.outputRel ?? "/content/x.mp4", thumbRel: null, error: null, attempt: 1, pid: null,
+    progress: 1, stage: "Ready", mode: "uploaded-vo", audioKind: p.audioKind ?? "uploaded", audioFile: null, audioKey: null, audioSha: null, audioLabel: null,
+    outputFile: p.outputFile ?? null, outputRel: p.outputRel ?? "/content/x.mp4", outputKey: p.outputKey ?? null, posterKey: p.posterKey ?? null, thumbRel: null, error: null, attempt: 1, pid: null,
     createdAt: p.createdAt ?? now, updatedAt: now, startedAt: now, finishedAt: p.finishedAt ?? now };
 }
 
@@ -51,14 +52,17 @@ describe("share gating", () => {
     if (!r.ok) expect(r.error).toMatch(/placeholder/i);
   });
 
-  it("shares an APPROVED render: frozen media + hash + token", async () => {
+  it("shares an APPROVED render: bound object key + hash + token (no byte copy)", async () => {
     await readyApprovedJob("piece_ok", "uploaded", true);
     const r = await share.createShare("piece_ok");
     expect(r.ok).toBe(true);
     if (r.ok) {
       expect(r.share.token).toMatch(/^[0-9a-f]{36}$/);
       expect(r.share.videoHash).toMatch(/^[0-9a-f]{64}$/);
-      expect(existsSync(share.shareMediaPath(r.share.token))).toBe(true); // frozen private copy
+      expect(r.share.videoKey).toMatch(/^content-studio\/.+\.mp4$/); // the link references a store key
+      const meta = await getArtifactStore().getMeta(r.share.videoKey); // and the bytes are in the store
+      expect(meta?.size).toBeGreaterThan(0);
+      expect(meta?.sha256).toBe(r.share.videoHash);
     }
   });
 });
@@ -69,12 +73,12 @@ describe("immutability + revocation", () => {
     const r = await share.createShare("piece_imm");
     expect(r.ok).toBe(true);
     if (!r.ok) return;
-    const frozenBefore = readFileSync(share.shareMediaPath(r.share.token));
-    // "Regenerate": a NEW ready job with a different version + different bytes.
+    const boundBefore = await getArtifactStore().readFull(r.share.videoKey);
+    // "Regenerate": a NEW ready job with a different version + different bytes (never shared).
     const out2 = path.join(DIR, "piece_imm-out2.mp4"); mp4(out2, 2);
     await store.writeJob(job({ id: "job2", pieceId: "piece_imm", outputFile: out2, inputVersion: "v2" }));
-    const frozenAfter = readFileSync(share.shareMediaPath(r.share.token));
-    expect(frozenAfter.equals(frozenBefore)).toBe(true); // link still serves the ORIGINAL approved video
+    const boundAfter = await getArtifactStore().readFull(r.share.videoKey);
+    expect(boundAfter!.equals(boundBefore!)).toBe(true); // link's bound key still serves the ORIGINAL video
   });
 
   it("revoke disables the link", async () => {

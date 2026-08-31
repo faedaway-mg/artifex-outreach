@@ -1,0 +1,20 @@
+import { buildObjectKey, putArtifact, getArtifactMeta, readArtifactRange, readArtifactFull, deleteArtifact, closeArtifacts } from "./lib/cs-artifacts.mjs";
+import { createHash } from "node:crypto";
+const sha = (b) => createHash("sha256").update(b).digest("hex");
+let pass=0, fail=0; const ok=(n,c)=>{(c?pass++:fail++);console.log(`  ${c?"✓":"✗"} ${n}`);};
+const body = Buffer.from("ARTIFEX-WORKER-VIDEO-0123456789-abcdefghijklmnop");
+const key = buildObjectKey({ artifactClass:"render-output", env:"test", jobId:"csjob_w1", version:"v1", ext:"mp4" });
+ok("buildObjectKey canonical", key === "content-studio/test/render-output/csjob_w1/v1.mp4");
+const r = await putArtifact(key, body, "video/mp4", { artifactClass:"render-output", jobId:"csjob_w1" });
+ok("atomic publish + sha", r.sha256 === sha(body) && r.bytes === body.length);
+const meta = await getArtifactMeta(key);
+ok("meta size/type/sha", meta.size===body.length && meta.contentType==="video/mp4" && meta.sha256===sha(body));
+ok("server-side Range slice", (await readArtifactRange(key,0,9)).equals(body.subarray(0,10)));
+ok("full read round-trips (sha)", sha(await readArtifactFull(key))===sha(body));
+let fenced=false; try { await putArtifact(key, Buffer.from("HOSTILE"), "video/mp4", { artifactClass:"render-output", jobId:"OTHER" }); } catch { fenced=true; }
+ok("ownership fence blocks another job", fenced);
+await deleteArtifact(key);
+ok("soft delete → unavailable", (await getArtifactMeta(key))===null);
+await closeArtifacts();
+console.log(`\ncs-artifacts (Node worker store): ${pass} passed, ${fail} failed`);
+process.exit(fail?1:0);

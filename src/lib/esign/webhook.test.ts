@@ -2,13 +2,14 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { createHmac } from "node:crypto";
 import { __resetStoreForTests } from "../store";
 import { insertAgreement, getAgreement, paymentsForAgreement, getLead, insertLead } from "../repo";
-import { handleSignwellWebhook, verifySignwellSignature, nextAgreementStatus, parseSignwellEvent } from "./webhook";
+import { handleSignwellWebhook, verifySignwellEventHash, nextAgreementStatus, parseSignwellEvent } from "./webhook";
 import { makeAgreement } from "../agreement/test-fixtures";
 
-const SECRET = "whsec_test_signwell";
-
-function sign(body: string): string {
-  return createHmac("sha256", SECRET).update(body).digest("hex");
+// The HMAC key is the SignWell WEBHOOK ID (held in SIGNWELL_WEBHOOK_SECRET).
+const WEBHOOK_ID = "0a1b2c3d-webhook-id";
+const TIME = "1784000000"; // unix seconds, as SignWell sends
+function hashFor(type: string, time = TIME): string {
+  return createHmac("sha256", WEBHOOK_ID).update(`${type}@${time}`).digest("hex");
 }
 
 async function seedAgreement(overrides = {}) {
@@ -32,19 +33,24 @@ function baseLeadSeed(): any {
 }
 
 function payload(type: string, docId = "doc_1", eventId = "evt_1", extra: Record<string, unknown> = {}) {
-  return JSON.stringify({ event: { id: eventId, type, time: "2026-07-11T00:00:00.000Z" }, data: { object: { id: docId, status: type === "document_completed" ? "completed" : "viewed", ...extra } } });
+  return JSON.stringify({ event: { id: eventId, type, time: TIME, hash: hashFor(type) }, data: { object: { id: docId, status: type === "document_completed" ? "completed" : "viewed", ...extra } } });
+}
+// A body whose event.hash is wrong (tampered).
+function badHashPayload(type: string) {
+  return JSON.stringify({ event: { id: "e", type, time: TIME, hash: "deadbeef" }, data: { object: { id: "doc_1", status: "viewed" } } });
 }
 
 beforeEach(() => {
   __resetStoreForTests();
 });
 
-describe("verifySignwellSignature", () => {
-  it("accepts a correct hex HMAC and rejects a wrong one", () => {
-    const body = payload("document_viewed");
-    expect(verifySignwellSignature(SECRET, body, sign(body))).toBe(true);
-    expect(verifySignwellSignature(SECRET, body, "deadbeef")).toBe(false);
-    expect(verifySignwellSignature(SECRET, body, null)).toBe(false);
+describe("verifySignwellEventHash (HMAC-SHA256 hex over `type@time`, keyed by webhook id)", () => {
+  it("accepts the correct event.hash and rejects a wrong/missing one", () => {
+    expect(verifySignwellEventHash(WEBHOOK_ID, "document_signed", TIME, hashFor("document_signed"))).toBe(true);
+    expect(verifySignwellEventHash(WEBHOOK_ID, "document_signed", TIME, "deadbeef")).toBe(false);
+    expect(verifySignwellEventHash(WEBHOOK_ID, "document_signed", TIME, null)).toBe(false);
+    // wrong key (a different webhook id) fails
+    expect(verifySignwellEventHash("other-id", "document_signed", TIME, hashFor("document_signed"))).toBe(false);
   });
 });
 
@@ -64,30 +70,45 @@ describe("parseSignwellEvent", () => {
   it("returns null for unknown event types", () => {
     expect(parseSignwellEvent({ event: { type: "document_api_something" }, data: { object: { id: "x" } } })).toBeNull();
   });
+
+  it("normalizes SignWell's epoch-seconds event.time to a sane ISO date (regression: year 178799 bug)", () => {
+    // Real SignWell value: event.time is Unix epoch SECONDS, not ISO.
+    const ev = parseSignwellEvent({ event: { type: "document_completed", time: 1787990119 }, data: { object: { id: "doc_1" } } });
+    expect(ev).not.toBeNull();
+    expect(ev!.occurredAt).toBe(new Date(1787990119 * 1000).toISOString());
+    expect(new Date(ev!.occurredAt).getUTCFullYear()).toBe(2026); // NOT 178799
+  });
+
+  it("accepts a numeric-string epoch and an already-ISO time unchanged in meaning", () => {
+    const a = parseSignwellEvent({ event: { type: "completed", time: "1787990119" }, data: { object: { id: "d" } } });
+    expect(new Date(a!.occurredAt).getUTCFullYear()).toBe(2026);
+    const iso = "2026-08-29T12:00:00.000Z";
+    const b = parseSignwellEvent({ event: { type: "completed", time: iso }, data: { object: { id: "d" } } });
+    expect(b!.occurredAt).toBe(iso);
+  });
 });
 
 describe("handleSignwellWebhook", () => {
-  it("rejects an unsigned request when a secret is configured", async () => {
+  it("rejects a tampered event.hash when a webhook id is configured", async () => {
     await seedAgreement();
-    const body = payload("document_viewed");
-    const res = await handleSignwellWebhook({ rawBody: body, signature: "bad", secret: SECRET });
+    const res = await handleSignwellWebhook({ rawBody: badHashPayload("document_viewed"), secret: WEBHOOK_ID });
     expect(res.status).toBe(401);
     expect(res.kind).toBe("invalid_signature");
   });
 
   it("fails closed in production when no secret is set", async () => {
     const body = payload("document_viewed");
-    const res = await handleSignwellWebhook({ rawBody: body, signature: null, secret: null, isProduction: true });
+    const res = await handleSignwellWebhook({ rawBody: body, secret: null, isProduction: true });
     expect(res.status).toBe(401);
   });
 
   it("applies a viewed event and dedupes a duplicate delivery", async () => {
     const agreement = await seedAgreement();
     const body = payload("document_viewed", "doc_1", "evt_view");
-    const first = await handleSignwellWebhook({ rawBody: body, signature: sign(body), secret: SECRET });
+    const first = await handleSignwellWebhook({ rawBody: body, secret: WEBHOOK_ID });
     expect(first.result).toBe("applied");
     expect((await getAgreement(agreement.id))?.status).toBe("viewed");
-    const dup = await handleSignwellWebhook({ rawBody: body, signature: sign(body), secret: SECRET });
+    const dup = await handleSignwellWebhook({ rawBody: body, secret: WEBHOOK_ID });
     expect(dup.result).toBe("duplicate");
   });
 
@@ -98,7 +119,7 @@ describe("handleSignwellWebhook", () => {
     const agreement = await insertAgreement(rest);
 
     const body = payload("document_completed", "doc_1", "evt_sign", { completed_pdf_url: "https://signwell.example/signed.pdf", audit_page_url: "https://signwell.example/cert" });
-    const res = await handleSignwellWebhook({ rawBody: body, signature: sign(body), secret: SECRET });
+    const res = await handleSignwellWebhook({ rawBody: body, secret: WEBHOOK_ID });
     expect(res.result).toBe("applied");
 
     const after = await getAgreement(agreement.id);
@@ -118,8 +139,57 @@ describe("handleSignwellWebhook", () => {
 
   it("acks an unmatched document without applying", async () => {
     const body = payload("document_completed", "doc_UNKNOWN", "evt_x");
-    const res = await handleSignwellWebhook({ rawBody: body, signature: sign(body), secret: SECRET });
+    const res = await handleSignwellWebhook({ rawBody: body, secret: WEBHOOK_ID });
     expect(res.result).toBe("unmatched");
     expect(res.status).toBe(200);
+  });
+
+  it("REJECTS an event whose test_mode disagrees with the persisted agreement mode (Gate 8)", async () => {
+    const lead = await insertLead(baseLeadSeed());
+    // Persisted PRODUCTION agreement; a test_mode:true completion must be refused, never applied.
+    const a = makeAgreement({ status: "sent", esignRequestId: "doc_mode", leadId: lead.id });
+    const { id, createdAt, updatedAt, ...rest } = a;
+    const agreement = await insertAgreement({ ...rest, esignMode: "production" } as any);
+    void id; void createdAt; void updatedAt;
+
+    const testEvent = payload("document_completed", "doc_mode", "evt_mode", { test_mode: true });
+    const res = await handleSignwellWebhook({ rawBody: testEvent, secret: WEBHOOK_ID });
+    expect(res.status).toBe(409);
+    expect(res.kind).toBe("mode_mismatch");
+    expect((await getAgreement(agreement.id))?.status).not.toBe("signed");
+    expect(await paymentsForAgreement(agreement.id)).toHaveLength(0);
+
+    // The matching production event (test_mode:false) is accepted.
+    const prodEvent = payload("document_completed", "doc_mode", "evt_mode_ok", { test_mode: false });
+    const ok = await handleSignwellWebhook({ rawBody: prodEvent, secret: WEBHOOK_ID });
+    expect(ok.result).toBe("applied");
+    expect((await getAgreement(agreement.id))?.status).toBe("signed");
+  });
+
+  it("does NOT complete or unlock the deposit on a per-signer document_signed (regression: gate only on all signers)", async () => {
+    const lead = await insertLead(baseLeadSeed());
+    const a = makeAgreement({ status: "sent", esignRequestId: "doc_multi", leadId: lead.id });
+    const { id, createdAt, updatedAt, ...rest } = a;
+    const agreement = await insertAgreement(rest);
+    void id; void createdAt; void updatedAt;
+
+    // Signer 1 (client) finishes → SignWell sends document_signed. This must NOT complete.
+    const sig1 = payload("document_signed", "doc_multi", "evt_recip_1", { recipients: [{ id: "provider", status: "viewed" }, { id: "client", status: "completed" }] });
+    const r1 = await handleSignwellWebhook({ rawBody: sig1, secret: WEBHOOK_ID });
+    expect(r1.result).toBe("no-op"); // recorded, but no transition
+    expect((await getAgreement(agreement.id))?.status).not.toBe("signed");
+    expect(await paymentsForAgreement(agreement.id)).toHaveLength(0); // deposit still BLOCKED
+
+    // All signers finished → document_completed. Now it completes and unlocks the deposit.
+    const done = payload("document_completed", "doc_multi", "evt_complete", { recipients: [{ id: "provider", status: "completed" }, { id: "client", status: "completed" }] });
+    const r2 = await handleSignwellWebhook({ rawBody: done, secret: WEBHOOK_ID });
+    expect(r2.result).toBe("applied");
+    expect((await getAgreement(agreement.id))?.status).toBe("signed");
+    expect(await paymentsForAgreement(agreement.id)).toHaveLength(1);
+
+    // Replay the completion → idempotent (no second deposit, no re-transition).
+    const replay = await handleSignwellWebhook({ rawBody: done, secret: WEBHOOK_ID });
+    expect(replay.result).toBe("duplicate");
+    expect(await paymentsForAgreement(agreement.id)).toHaveLength(1);
   });
 });

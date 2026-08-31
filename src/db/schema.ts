@@ -16,9 +16,18 @@ import {
   pgEnum,
   index,
   uniqueIndex,
+  customType,
 } from "drizzle-orm/pg-core";
 
 const ts = (name: string) => timestamp(name, { mode: "string" });
+
+// Raw binary column. Drizzle has no first-class `bytea`, so we declare one that
+// reads/writes Node Buffers — the driver returns a Buffer, which is a Uint8Array.
+const bytea = customType<{ data: Buffer; driverData: Buffer }>({
+  dataType() {
+    return "bytea";
+  },
+});
 
 export const tierEnum = pgEnum("tier", ["A", "B", "C"]);
 export const pipelineStageEnum = pgEnum("pipeline_stage", [
@@ -751,6 +760,7 @@ export const agreements = pgTable(
     esignProvider: text("esign_provider"),
     esignRequestId: text("esign_request_id"),
     esignUrl: text("esign_url"),
+    esignMode: text("esign_mode"), // "test" | "production" | null (null → treated as test)
     approvedAt: ts("approved_at"),
     sentAt: ts("sent_at"),
     viewedAt: ts("viewed_at"),
@@ -813,6 +823,206 @@ export const payments = pgTable(
     leadIdx: index("payments_lead_idx").on(t.leadId),
     agreementIdx: index("payments_agreement_idx").on(t.agreementId),
     statusIdx: index("payments_status_idx").on(t.status),
+  }),
+);
+
+// ── Invoices (M2) — deposit + milestone invoicing bound to an exact agreement ──
+// version + issuer. Historical Checkout deposits stay in `payments` and are never
+// migrated here. `idempotency_key` is UNIQUE so a retried/concurrent create for the
+// same (issuer, agreement, version, milestone) can never duplicate an obligation.
+export const invoiceStateEnum = pgEnum("invoice_state", [
+  "draft",
+  "issued",
+  "processing",
+  "paid",
+  "failed",
+  "void",
+  "refunded",
+  "partially_refunded",
+  "disputed",
+  "uncollectible",
+]);
+
+export const invoices = pgTable(
+  "invoices",
+  {
+    id: text("id").primaryKey(),
+    leadId: text("lead_id").notNull(),
+    agreementId: text("agreement_id").notNull(),
+    agreementVersion: integer("agreement_version").notNull().default(1),
+    issuerId: text("issuer_id").notNull(),
+    milestoneKey: text("milestone_key").notNull(),
+    milestoneLabel: text("milestone_label").notNull().default(""),
+    amountCents: integer("amount_cents").notNull().default(0),
+    currency: text("currency").notNull().default("usd"),
+    state: invoiceStateEnum("state").notNull().default("draft"),
+    idempotencyKey: text("idempotency_key").notNull(),
+    provider: text("provider"),
+    providerInvoiceId: text("provider_invoice_id"),
+    hostedInvoiceUrl: text("hosted_invoice_url"),
+    // Durable refs so dispute/charge/refund events (which don't carry the invoice id)
+    // resolve back to this invoice.
+    chargeId: text("charge_id"),
+    paymentIntentId: text("payment_intent_id"),
+    issuedAt: ts("issued_at"),
+    paidAt: ts("paid_at"),
+    failedAt: ts("failed_at"),
+    voidedAt: ts("voided_at"),
+    refundedAt: ts("refunded_at"),
+    amountRefundedCents: integer("amount_refunded_cents").notNull().default(0),
+    // Dispute fact — separate from refund. "none" | "open" | "won" | "lost".
+    disputeStatus: text("dispute_status").notNull().default("none"),
+    amountDisputedCents: integer("amount_disputed_cents").notNull().default(0),
+    disputedAt: ts("disputed_at"),
+    disputeResolvedAt: ts("dispute_resolved_at"),
+    createdAt: ts("created_at").notNull(),
+    updatedAt: ts("updated_at").notNull(),
+  },
+  (t) => ({
+    leadIdx: index("invoices_lead_idx").on(t.leadId),
+    agreementIdx: index("invoices_agreement_idx").on(t.agreementId),
+    stateIdx: index("invoices_state_idx").on(t.state),
+    providerInvoiceIdx: index("invoices_provider_invoice_idx").on(t.providerInvoiceId),
+    chargeIdx: index("invoices_charge_idx").on(t.chargeId),
+    keyIdx: uniqueIndex("invoices_idempotency_key_idx").on(t.idempotencyKey),
+  }),
+);
+
+// ── Payment events (M3) — durable provider event receipts. Recorded BEFORE the
+// effect is applied so an event that arrives early or whose apply fails is never
+// lost. `event_id` is UNIQUE (idempotent across deliveries); `processed_at` is set
+// only after the effect commits. Reconciliation replays these.
+export const paymentEvents = pgTable(
+  "payment_events",
+  {
+    id: text("id").primaryKey(),
+    provider: text("provider").notNull().default("stripe"),
+    eventId: text("event_id").notNull(),
+    eventType: text("event_type").notNull(),
+    providerInvoiceId: text("provider_invoice_id"),
+    invoiceId: text("invoice_id"),
+    issuerId: text("issuer_id"),
+    payload: jsonb("payload"),
+    occurredAt: ts("occurred_at").notNull(),
+    receivedAt: ts("received_at").notNull(),
+    processedAt: ts("processed_at"),
+    outcome: text("outcome"),
+  },
+  (t) => ({
+    eventIdx: uniqueIndex("payment_events_event_id_idx").on(t.eventId),
+    invoiceIdx: index("payment_events_invoice_idx").on(t.providerInvoiceId),
+  }),
+);
+
+// ── Closing hardening (Gates 4/9): bound owner approvals, retained signed artifacts,
+//    and explicit live-payment authorizations. ──
+export const agreementApprovals = pgTable(
+  "agreement_approvals",
+  {
+    id: text("id").primaryKey(),
+    agreementId: text("agreement_id").notNull(),
+    agreementVersion: integer("agreement_version").notNull().default(1),
+    binding: jsonb("binding").notNull(),
+    digest: text("digest").notNull(),
+    approvedBy: text("approved_by").notNull(),
+    approvedAt: ts("approved_at").notNull(),
+    revokedAt: ts("revoked_at"),
+    createdAt: ts("created_at").notNull(),
+  },
+  (t) => ({
+    agreementIdx: index("agreement_approvals_agreement_idx").on(t.agreementId),
+    versionIdx: index("agreement_approvals_version_idx").on(t.agreementId, t.agreementVersion),
+  }),
+);
+
+export const signedArtifacts = pgTable(
+  "signed_artifacts",
+  {
+    id: text("id").primaryKey(),
+    agreementId: text("agreement_id").notNull(),
+    esignRequestId: text("esign_request_id").notNull().default(""),
+    kind: text("kind").notNull(),
+    sha256: text("sha256").notNull().default(""),
+    byteSize: integer("byte_size").notNull().default(0),
+    storageKey: text("storage_key").notNull().default(""),
+    approvalDigest: text("approval_digest"),
+    esignMode: text("esign_mode").notNull().default("test"),
+    status: text("status").notNull().default("failed"),
+    retryCount: integer("retry_count").notNull().default(0),
+    retrievedAt: ts("retrieved_at").notNull(),
+    createdAt: ts("created_at").notNull(),
+  },
+  (t) => ({
+    agreementIdx: index("signed_artifacts_agreement_idx").on(t.agreementId),
+    kindIdx: index("signed_artifacts_kind_idx").on(t.agreementId, t.kind),
+  }),
+);
+
+// Durable BYTES for a signed artifact (Gate 9). One row per artifact key; the
+// `artifact_id` (the stable storage key) is UNIQUE so a re-upload of the same
+// document is a no-op rather than a duplicate. `data` holds the raw PDF bytes.
+export const signedArtifactBlobs = pgTable(
+  "signed_artifact_blobs",
+  {
+    id: text("id").primaryKey(),
+    artifactId: text("artifact_id").notNull(),
+    contentType: text("content_type").notNull().default("application/pdf"),
+    byteSize: integer("byte_size").notNull().default(0),
+    sha256: text("sha256").notNull().default(""),
+    data: bytea("data").notNull(),
+    createdAt: ts("created_at").notNull(),
+  },
+  (t) => ({
+    artifactIdx: uniqueIndex("signed_artifact_blobs_artifact_idx").on(t.artifactId),
+  }),
+);
+
+export const livePaymentAuthorizations = pgTable(
+  "live_payment_authorizations",
+  {
+    id: text("id").primaryKey(),
+    agreementId: text("agreement_id").notNull(),
+    agreementVersion: integer("agreement_version").notNull().default(1),
+    approvalDigest: text("approval_digest"),
+    authorizedBy: text("authorized_by").notNull(),
+    authorizedAt: ts("authorized_at").notNull(),
+    revokedAt: ts("revoked_at"),
+    createdAt: ts("created_at").notNull(),
+  },
+  (t) => ({
+    agreementIdx: index("live_payment_auth_agreement_idx").on(t.agreementId),
+  }),
+);
+
+// Gate 3 (closing UI): one-time, version-bound, exact-approval/recipient/PDF-bound send
+// authorization. Separate from approval; consumed exactly once when a document is created.
+export const agreementSendAuthorizations = pgTable(
+  "agreement_send_authorizations",
+  {
+    id: text("id").primaryKey(),
+    agreementId: text("agreement_id").notNull(),
+    agreementVersion: integer("agreement_version").notNull().default(1),
+    approvalId: text("approval_id").notNull(),
+    approvalDigest: text("approval_digest").notNull(),
+    unsignedPdfSha256: text("unsigned_pdf_sha256").notNull(),
+    esignMode: text("esign_mode").notNull().default("test"),
+    providerEmail: text("provider_email").notNull().default(""),
+    clientEmail: text("client_email").notNull().default(""),
+    recipientDigest: text("recipient_digest").notNull().default(""),
+    operatorId: text("operator_id").notNull(),
+    authorizedAt: ts("authorized_at").notNull(),
+    expiresAt: ts("expires_at"),
+    revokedAt: ts("revoked_at"),
+    consumedAt: ts("consumed_at"),
+    esignRequestId: text("esign_request_id"),
+    authorizationVersion: integer("authorization_version").notNull().default(1),
+    idempotencyKey: text("idempotency_key").notNull(),
+    createdAt: ts("created_at").notNull(),
+    updatedAt: ts("updated_at").notNull(),
+  },
+  (t) => ({
+    agreementIdx: index("send_auth_agreement_idx").on(t.agreementId),
+    keyIdx: uniqueIndex("send_auth_idempotency_key_idx").on(t.idempotencyKey),
   }),
 );
 

@@ -565,6 +565,10 @@ export interface AgreementContentSnapshot {
   clientBusinessAddress: string;
   artifexSignatory: string;
   artifexLegalEntity: string;
+  // Issuer of record (billing/contracting entity). Frozen at generation. Optional
+  // because snapshots generated before the issuer registry existed lack it; those
+  // are resolved by legal-entity string at read time (see resolveIssuerForSnapshot).
+  issuerId?: string;
   // Project
   projectName: string;
   projectSummary: string;
@@ -609,6 +613,12 @@ export interface Agreement {
   esignProvider: string | null;
   esignRequestId: string | null;
   esignUrl: string | null;
+  /**
+   * Signing mode — derived SERVER-SIDE (esign/mode.ts), frozen with the agreement and
+   * immutable after send. null (legacy) is treated as "test" (fail closed): a test-signed
+   * agreement can never unlock live payment. The SignWell doc's test_mode must agree.
+   */
+  esignMode?: "test" | "production" | null;
   approvedAt: string | null;
   sentAt: string | null;
   viewedAt: string | null;
@@ -644,6 +654,71 @@ export interface Payment {
   paidAt: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+// Milestone/deposit invoice bound to an exact agreement version + issuer. This is
+// the M2 billing record (Stripe Invoices); historical Checkout deposits remain in
+// `Payment` and are never migrated. `state` uses the invoice state machine
+// (src/lib/billing/invoice.ts). All amounts are integer minor units.
+export interface Invoice {
+  id: string;
+  leadId: string;
+  agreementId: string;
+  agreementVersion: number;
+  issuerId: string;
+  milestoneKey: string;
+  milestoneLabel: string;
+  amountCents: number;
+  currency: string;
+  // COLLECTION lifecycle only (draft→issued→processing→paid→failed/void/uncollectible).
+  // Refunds and disputes are SEPARATE financial facts below — they never overwrite
+  // this, so "was paid" is never erased by a later refund or chargeback.
+  state: import("./billing/invoice").InvoiceState;
+  /** Deterministic key; unique per (issuer, agreement, version, milestone). */
+  idempotencyKey: string;
+  provider: string | null; // e.g. "stripe"
+  providerInvoiceId: string | null;
+  hostedInvoiceUrl: string | null;
+  // Durable provider references captured at payment, so dispute/charge/refund events
+  // (which do NOT carry the invoice id) can be resolved back to this invoice.
+  chargeId: string | null;
+  paymentIntentId: string | null;
+  // Money-fact timeline (append-only intent; never overwrite history destructively).
+  issuedAt: string | null;
+  paidAt: string | null;
+  failedAt: string | null;
+  voidedAt: string | null;
+  // Refund fact (merchant-initiated money returned). Cumulative minor units.
+  refundedAt: string | null;
+  amountRefundedCents: number;
+  // Dispute fact — DISTINCT from a refund. A lost dispute is a chargeback loss, not
+  // a refund. Tracked separately so net accounting never conflates the two.
+  disputeStatus: "none" | "open" | "won" | "lost";
+  amountDisputedCents: number;
+  disputedAt: string | null;
+  disputeResolvedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// Durable provider event receipt (M3). Every signature-verified provider event is
+// recorded here BEFORE its effect is applied, so an event that arrives before its
+// invoice exists, or whose apply fails, is never lost — it is replayed by
+// reconciliation. `processedAt` is set only after the effect is durably committed;
+// `eventId` is unique (idempotency across deliveries).
+export interface PaymentEvent {
+  id: string;
+  provider: string; // "stripe"
+  eventId: string; // provider event id — unique
+  eventType: string; // e.g. "invoice.paid"
+  providerInvoiceId: string | null;
+  invoiceId: string | null; // resolved local invoice, when known
+  issuerId: string | null;
+  payload: unknown;
+  occurredAt: string;
+  receivedAt: string;
+  processedAt: string | null; // null = received but effect not yet committed
+  outcome: string | null; // applied | duplicate | ignored | unmapped | pending_unmatched
 }
 
 export interface Suppression {

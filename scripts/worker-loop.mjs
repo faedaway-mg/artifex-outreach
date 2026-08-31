@@ -53,7 +53,8 @@ export async function claimOne(sql, { leaseMs }) {
 // Ownership-checked, idempotent success publish: only writes if we still hold the lease for this attempt.
 export async function publishSuccess(sql, job, result) {
   const rows = await sql`UPDATE content_studio_jobs
-    SET status='ready', progress=1, output_key=${result.outputKey},
+    SET status='ready', progress=1, stage='Ready', output_key=${result.outputKey},
+        poster_key=${result.posterKey ?? null},
         error=null, finished_at=now(), updated_at=now()
     WHERE id=${job.id} AND worker_id=${WORKER_ID} AND attempt=${job.attempt} AND status='rendering'
     RETURNING id`;
@@ -123,7 +124,9 @@ function realRenderFn(job, { signal }) {
       try {
         const out = JSON.parse(readFileSync(jf, "utf8"));
         rmSync(jf, { force: true });
-        if (out.status === "ready" && out.outputFile) resolve({ outputKey: out.outputRel || out.outputFile, videoHash: null });
+        // Prefer the DURABLE ArtifactStore key the render worker published; fall back to the legacy
+        // rel/path only in dev where no key was produced.
+        if (out.status === "ready" && (out.outputKey || out.outputFile)) resolve({ outputKey: out.outputKey || out.outputRel || out.outputFile, posterKey: out.posterKey ?? null, videoHash: null });
         else reject(new Error(out.error || `render exited ${code}`));
       } catch (e) { reject(new Error("render output unreadable: " + e.message)); }
     });
@@ -131,7 +134,8 @@ function realRenderFn(job, { signal }) {
 }
 function dbToFileJob(job) {
   return { id: job.id, pieceId: job.piece_id, inputVersion: job.input_version, status: "queued", progress: 0,
-    stage: "Queued", mode: job.mode, audioKind: "uploaded", audioFile: job.audio_key, outputFile: null, outputRel: null,
+    stage: "Queued", mode: job.mode, audioKind: "uploaded", audioFile: null, audioKey: job.audio_key ?? null,
+    audioSha: job.audio_sha ?? null, outputFile: null, outputRel: null, outputKey: null, posterKey: null,
     thumbRel: null, error: null, attempt: job.attempt, pid: null, createdAt: job.created_at, updatedAt: job.created_at,
     startedAt: null, finishedAt: null };
 }
@@ -140,14 +144,22 @@ function dbToFileJob(job) {
 async function main() {
   const url = process.env.PG_URL || process.env.DATABASE_URL;
   if (!url) { console.error("PG_URL/DATABASE_URL required"); process.exit(1); }
-  const sql = postgres(url, { max: 4, prepare: false });
+  const ssl = /proxy\.rlwy\.net|railway/.test(url) ? { rejectUnauthorized: false } : undefined;
+  const sql = postgres(url, { max: 4, prepare: false, ssl });
   let stopping = false;
   const shutdown = () => { stopping = true; };
   process.on("SIGTERM", shutdown); process.on("SIGINT", shutdown);
+  // CS_WORKER_LOOP_MS>0 → persistent service: drain, sleep, repeat (recoverStale each pass requeues jobs
+  // orphaned by a crash). Unset/0 → cron model: drain once, then EXIT. Either way one worker, bounded work.
+  const loopMs = Number(process.env.CS_WORKER_LOOP_MS ?? 0);
+  console.log(`worker ${WORKER_ID} up (${loopMs > 0 ? `persistent, every ${loopMs}ms` : "drain-once"})`);
   try {
     const opts = cfg();
-    const result = await drainQueue(sql, (job, ctx) => (stopping ? Promise.reject(new Error("worker stopping")) : realRenderFn(job, ctx)), opts);
-    console.log(`worker ${WORKER_ID} drained:`, JSON.stringify(result));
+    do {
+      const result = await drainQueue(sql, (job, ctx) => (stopping ? Promise.reject(new Error("worker stopping")) : realRenderFn(job, ctx)), opts);
+      if (result.rendered || result.failed || result.recovered) console.log(`worker ${WORKER_ID} drained:`, JSON.stringify(result));
+      if (loopMs > 0 && !stopping) await new Promise((r) => setTimeout(r, loopMs));
+    } while (loopMs > 0 && !stopping);
   } finally {
     await sql.end();
   }

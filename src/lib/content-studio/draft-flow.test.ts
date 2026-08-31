@@ -15,7 +15,8 @@ function mp4(file: string) { execFileSync("ffmpeg", ["-y", "-f", "lavfi", "-i", 
 function job(p: Partial<RenderJob>): RenderJob {
   const now = new Date().toISOString();
   return { id: p.id!, pieceId: p.pieceId!, inputVersion: "v1", status: "ready", progress: 1, stage: "", mode: "uploaded-vo",
-    audioKind: "uploaded", audioFile: null, audioLabel: null, outputFile: p.outputFile ?? null, outputRel: "/content/x.mp4",
+    audioKind: "uploaded", audioFile: null, audioKey: null, audioSha: null, audioLabel: null, outputFile: p.outputFile ?? null, outputRel: "/content/x.mp4",
+    outputKey: p.outputKey ?? null, posterKey: p.posterKey ?? null,
     thumbRel: null, error: null, attempt: 1, pid: null, createdAt: now, updatedAt: now, startedAt: now, finishedAt: now };
 }
 

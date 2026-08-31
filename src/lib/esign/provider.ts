@@ -10,21 +10,39 @@
 // tests/mock mode without any risk of a real send.
 // ─────────────────────────────────────────────────────────────────────────────
 import { createSignwellProvider } from "./signwell";
+import { shouldUseFakeEsignProvider, fakeEsignProvider } from "./fake-provider";
 
 export interface EsignSigner {
   name: string;
   email: string;
 }
 
+/** One SignWell recipient. `order` maps to the text-tag signer number ({{signature:N}}). */
+export interface EsignRecipient {
+  id: "provider" | "client";
+  role: "provider" | "client";
+  name: string;
+  email: string;
+  order: number; // 1 = provider, 2 = client
+}
+
 export interface CreateSignatureRequestInput {
   agreementId: string;
   agreementNumber: string;
-  pdfBase64: string; // the generated agreement PDF (with {{sig_*}} text-tag anchors)
+  pdfBase64: string; // the generated agreement PDF (with {{signature:N:y}} text-tag anchors)
   subject: string;
   message: string;
-  signer: EsignSigner;
+  signer: EsignSigner; // legacy single-signer (still used by the test rehearsal path)
+  /** Two-signer model (provider order 1, client order 2). When present, takes precedence. */
+  recipients?: EsignRecipient[];
+  /** Disable automatic reminders (default true — no reminders unless explicitly enabled). */
+  remindersDisabled?: boolean;
   ccEmail?: string | null; // Artifex counter-signer / cc
   testMode: boolean; // SignWell test mode (no legal weight, free) — used for rehearsal
+  // Embedded signing: return a signing URL and DO NOT email the recipient
+  // (per-recipient send_email defaults false when embedded_signing is on). Used for
+  // the in-app / rehearsal signing flow. Default false = the emailed production flow.
+  embedded?: boolean;
   metadata?: Record<string, string>;
 }
 
@@ -67,8 +85,15 @@ export const disabledEsignProvider: EsignProvider = {
 let cached: EsignProvider | null = null;
 let cachedForKey: string | undefined;
 
-/** Live SignWell provider when the key is set; otherwise the disabled no-op. */
+/**
+ * Live SignWell provider when the key is set; otherwise the disabled no-op. In a
+ * dev/rehearsal runtime (never production) the guarded fake double may stand in so the
+ * UI click-through can exercise sending without a real SignWell call — see
+ * shouldUseFakeEsignProvider (requires ESIGN_FAKE_PROVIDER + non-prod + no live key).
+ */
 export function getEsignProvider(): EsignProvider {
+  // Guarded dev/rehearsal double (never in production; never with a live key set).
+  if (shouldUseFakeEsignProvider()) return fakeEsignProvider;
   const key = process.env.SIGNWELL_API_KEY;
   if (cached && cachedForKey === key) return cached;
   cachedForKey = key;

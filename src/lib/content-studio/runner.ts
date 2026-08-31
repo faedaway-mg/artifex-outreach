@@ -48,6 +48,8 @@ export async function createRenderJob(pieceId: string, opts: { useUpload: boolea
   let mode: RenderJob["mode"] = "reuse-approved-audio";
   let audioKind: RenderJob["audioKind"] = "approved-master";
   let audioFile: string | null = null;
+  let audioKey: string | null = null;
+  let audioSha: string | null = null;
   let audioLabel: string | null = null;
   let audioSig = "approved";
 
@@ -58,7 +60,9 @@ export async function createRenderJob(pieceId: string, opts: { useUpload: boolea
     if (!up) throw new Error("No uploaded voiceover found for this piece. Upload an MP3 first.");
     mode = "uploaded-vo";
     audioKind = up.kind === "placeholder" ? "placeholder" : "uploaded"; // explicit provenance
-    audioFile = up.file;
+    audioFile = up.file; // LEGACY dev fallback path
+    audioKey = up.objectKey ?? null; // authoritative cross-process reference (web wrote it via getArtifactStore)
+    audioSha = up.sha256 ?? null;
     audioLabel = up.name;
     audioSig = audioSignature({ name: up.name, bytes: up.bytes, durationSeconds: up.durationSeconds });
   }
@@ -79,9 +83,13 @@ export async function createRenderJob(pieceId: string, opts: { useUpload: boolea
     mode,
     audioKind,
     audioFile,
+    audioKey,
+    audioSha,
     audioLabel,
     outputFile: null,
     outputRel: null,
+    outputKey: null,
+    posterKey: null,
     thumbRel: `/content/thumbnails/field-note-${pieceId}-thumbnail.png`,
     error: null,
     attempt: 1,

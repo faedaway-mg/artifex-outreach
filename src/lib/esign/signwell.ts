@@ -6,10 +6,11 @@
 // Auth is the X-Api-Key header. Nothing sends unless SIGNWELL_API_KEY is set AND
 // the actions layer has already passed the AGREEMENT_SENDING_ENABLED gate.
 //
-// Field placement uses SignWell TEXT TAGS: the agreement PDF embeds {{sig_client}},
-// {{date_client}}, {{sig_artifex}}, {{date_artifex}} anchors (see AgreementDocument
-// signature block). We ask SignWell to auto-detect them so signature/date fields
-// land without manual coordinate math. SignWell emails the signer the request.
+// Field placement uses SignWell TEXT TAGS in the VALID documented format
+// {{fieldtype:signer:required}} — the PDF embeds {{signature:1:y}}/{{date:1:y}} for
+// recipient 1 (provider) and {{signature:2:y}}/{{date:2:y}} for recipient 2 (client)
+// (see agreementSignatureFields). With text_tags=true SignWell auto-places each field
+// on the correct signer without manual coordinate math. SignWell emails the signer.
 //
 // Logs never include the API key, the PDF bytes, or signer PII beyond a redacted
 // email domain.
@@ -62,18 +63,29 @@ export function createSignwellProvider(): EsignProvider {
     async createSignatureRequest(input: CreateSignatureRequestInput): Promise<CreateSignatureRequestResult> {
       if (!configured) return { ok: false, requestId: null, signingUrl: null, error: "SIGNWELL_API_KEY not set.", errorCode: "auth" };
 
-      // SignWell "create document" payload. draft:false → sends immediately and
-      // emails the signer. text_tags → detect {{sig_*}} anchors in the PDF.
-      const recipients: Array<Record<string, unknown>> = [
-        { id: "client", name: input.signer.name, email: input.signer.email, order: 1 },
-      ];
+      // SignWell "create document" payload. draft:false → sends immediately and emails
+      // the signer(s). text_tags → detect {{signature:N:y}} anchors in the PDF.
+      // Two-signer model (input.recipients) takes precedence over the legacy single signer.
+      const recipients: Array<Record<string, unknown>> =
+        input.recipients && input.recipients.length
+          ? input.recipients
+              .slice()
+              .sort((a, b) => a.order - b.order)
+              .map((r) => ({ id: r.id, name: r.name, email: r.email, order: r.order }))
+          : [
+              // Embedded signing suppresses the email (send_email defaults false when
+              // embedded_signing is on); the response carries an embedded_signing_url.
+              { id: "client", name: input.signer.name, email: input.signer.email, order: 1, ...(input.embedded ? { send_email: false } : {}) },
+            ];
       const body: Record<string, unknown> = {
         test_mode: input.testMode,
         draft: false,
         with_signature_page: false,
-        embedded_signing: false,
+        embedded_signing: Boolean(input.embedded),
         allow_decline: true,
         text_tags: true,
+        reminders: input.remindersDisabled === false ? true : false, // no reminders unless explicitly enabled
+        apply_signing_order: false,
         name: `Artifex Labs — Professional Services Agreement ${input.agreementNumber}`,
         subject: input.subject,
         message: input.message,

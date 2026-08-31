@@ -35,15 +35,21 @@ export async function POST(req: NextRequest) {
 
   await saveTemplate(t);
 
-  // Render the cover thumbnail (needed for preview + as frame zero). Detached; the piece shows the
-  // thumbnail once it lands.
-  const worker = path.join(REPO_ROOT, "scripts", "render-template-thumbnail.mjs");
-  const child = spawn(process.execPath, [worker, t.id], { cwd: REPO_ROOT, detached: true, stdio: "ignore", env: process.env });
-  child.unref();
+  // Cover thumbnail. DEV (local disk): spawn the local renderer so the piece shows a cover immediately.
+  // STAGING/PROD (postgres): the web process must NEVER spawn Chromium — the render WORKER generates the
+  // cover from the template's thumbnail spec at render time and publishes it durably to the ArtifactStore.
+  const pgMode = ["postgres", "pg"].includes((process.env.CS_STORAGE_PROVIDER ?? "").trim().toLowerCase());
+  if (!pgMode) {
+    const worker = path.join(REPO_ROOT, "scripts", "render-template-thumbnail.mjs");
+    const child = spawn(process.execPath, [worker, t.id], { cwd: REPO_ROOT, detached: true, stdio: "ignore", env: process.env });
+    child.unref();
+  }
 
   return NextResponse.json({
     template: { id: t.id, title: t.title, beats: t.beats.length, narration: t.narration.length },
-    note: "Template saved and validated. Cover thumbnail rendering in the background. Upload a voiceover, then Generate.",
+    note: pgMode
+      ? "Template saved and validated. The cover renders with the video on first Generate. Upload a voiceover, then Generate."
+      : "Template saved and validated. Cover thumbnail rendering in the background. Upload a voiceover, then Generate.",
   }, { status: 201 });
 }
 

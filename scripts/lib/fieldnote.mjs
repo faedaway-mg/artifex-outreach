@@ -53,9 +53,12 @@ export function mixBed(placements, endSec, outWav) {
 export async function renderFrames({ sceneFile, sceneBasename, TL, port, framesDir, onProgress, globals }) {
   rmSync(framesDir, { recursive: true, force: true }); mkdirSync(framesDir, { recursive: true });
   const SCENE = `file://${sceneFile}`;
+  // Container launch flags (e.g. --no-sandbox --disable-dev-shm-usage) come from CHROME_FLAGS — empty on
+  // local macOS dev so behavior there is unchanged; Chromium under root in a container needs --no-sandbox.
+  const EXTRA_FLAGS = (process.env.CHROME_FLAGS || "").split(/\s+/).filter(Boolean);
   const chrome = spawn(CHROME, ["--headless=new", "--disable-gpu", "--hide-scrollbars", "--no-first-run",
     "--no-default-browser-check", `--remote-debugging-port=${port}`, "--user-data-dir=/tmp/cr-" + sceneBasename,
-    "--force-device-scale-factor=1", "--window-size=1080,1920", `${SCENE}?t=0`], { stdio: "ignore" });
+    "--force-device-scale-factor=1", "--window-size=1080,1920", ...EXTRA_FLAGS, `${SCENE}?t=0`], { stdio: "ignore" });
   let wsUrl = null;
   for (let i = 0; i < 100 && !wsUrl; i++) { await sleep(150); try { const l = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json(); const p = l.find((x) => x.type === "page" && (x.url || "").includes(sceneBasename)); if (p) wsUrl = p.webSocketDebuggerUrl; } catch {} }
   if (!wsUrl) { chrome.kill(); throw new Error("no devtools endpoint"); }

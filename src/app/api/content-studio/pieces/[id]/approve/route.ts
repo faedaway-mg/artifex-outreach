@@ -13,13 +13,16 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
   if (!isAuthenticated()) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   const jobs = await listJobs();
   const ready = latestReadyJob(jobs, params.id);
-  if (!ready || !ready.outputRel) return NextResponse.json({ error: "No finished render to approve." }, { status: 409 });
+  // The durable output is the ArtifactStore key (outputKey); outputRel is a dev-only local URL (null in
+  // staging/production). Accept either so an approval works against a cloud-published render.
+  const outputRef = ready?.outputKey ?? ready?.outputRel ?? null;
+  if (!ready || !outputRef) return NextResponse.json({ error: "No finished render to approve." }, { status: 409 });
   if (ready.audioKind === "placeholder") {
     return NextResponse.json({ error: "This render uses a placeholder voiceover — replace it with your real voiceover before approving." }, { status: 422 });
   }
   const approvedAt = new Date().toISOString();
-  await setApproval({ pieceId: params.id, jobId: ready.id, inputVersion: ready.inputVersion, outputRel: ready.outputRel, audioSig: ready.audioKind, approvedAt });
-  return NextResponse.json({ ok: true, approvedAt, outputRel: ready.outputRel });
+  await setApproval({ pieceId: params.id, jobId: ready.id, inputVersion: ready.inputVersion, outputRel: outputRef, audioSig: ready.audioKind, approvedAt });
+  return NextResponse.json({ ok: true, approvedAt, outputRel: outputRef });
 }
 
 export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {

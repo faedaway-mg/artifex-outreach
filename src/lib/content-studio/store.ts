@@ -12,6 +12,14 @@ import type { AudioUpload, Piece, RenderJob } from "./types";
 import { CATALOG, baseCatalogPiece, recommendedCandidates } from "./catalog";
 import { jobsForPiece, latestReadyJob } from "./job";
 import type { ContentTemplate } from "./template-schema";
+import * as pg from "./cs-lifecycle-pg";
+
+// Storage mode: in staging/production the lifecycle records (jobs, uploads, approvals, posted) are durable
+// in Postgres so web enqueue + worker claim share the SAME rows; dev/test keep the file store below.
+function pgMode(): boolean {
+  const p = (process.env.CS_STORAGE_PROVIDER ?? "").trim().toLowerCase();
+  return p === "postgres" || p === "pg";
+}
 
 export const REPO_ROOT = process.cwd();
 export const PUBLIC_DIR = path.join(REPO_ROOT, "public");
@@ -59,9 +67,11 @@ async function writeAtomic(file: string, data: string) {
 
 // ── Jobs ─────────────────────────────────────────────────────────────────────
 export async function writeJob(job: RenderJob): Promise<void> {
+  if (pgMode()) return pg.writeJobPg(job);
   await writeAtomic(path.join(jobsDir(), `${job.id}.json`), JSON.stringify(job, null, 2));
 }
 export async function readJob(id: string): Promise<RenderJob | null> {
+  if (pgMode()) return pg.readJobPg(id);
   try {
     const raw = await fs.readFile(path.join(jobsDir(), `${id}.json`), "utf8");
     return JSON.parse(raw) as RenderJob;
@@ -70,6 +80,7 @@ export async function readJob(id: string): Promise<RenderJob | null> {
   }
 }
 export async function listJobs(): Promise<RenderJob[]> {
+  if (pgMode()) return pg.listJobsPg();
   ensureDirs();
   const files = (await fs.readdir(JOBS_DIR)).filter((f) => f.endsWith(".json") && !f.includes(".tmp-"));
   const out: RenderJob[] = [];
@@ -83,6 +94,7 @@ export async function listJobs(): Promise<RenderJob[]> {
 
 // ── Posted markers ───────────────────────────────────────────────────────────
 export async function readPosted(): Promise<Record<string, string>> {
+  if (pgMode()) return pg.readPostedPg();
   try {
     return JSON.parse(await fs.readFile(POSTED_FILE, "utf8"));
   } catch {
@@ -90,6 +102,7 @@ export async function readPosted(): Promise<Record<string, string>> {
   }
 }
 export async function setPosted(pieceId: string, when: string): Promise<void> {
+  if (pgMode()) return pg.setPostedPg(pieceId, when);
   const cur = await readPosted();
   cur[pieceId] = when;
   await writeAtomic(POSTED_FILE, JSON.stringify(cur, null, 2));
@@ -97,14 +110,17 @@ export async function setPosted(pieceId: string, when: string): Promise<void> {
 
 // ── Approvals (explicit operator action, version-bound) ──────────────────────
 export async function readApprovals(): Promise<Record<string, import("./types").Approval>> {
+  if (pgMode()) return pg.readApprovalsPg();
   try { return JSON.parse(await fs.readFile(APPROVALS_FILE, "utf8")); } catch { return {}; }
 }
 export async function setApproval(a: import("./types").Approval): Promise<void> {
+  if (pgMode()) return pg.setApprovalPg(a);
   const cur = await readApprovals();
   cur[a.pieceId] = a;
   await writeAtomic(APPROVALS_FILE, JSON.stringify(cur, null, 2));
 }
 export async function clearApproval(pieceId: string): Promise<void> {
+  if (pgMode()) return pg.clearApprovalPg(pieceId);
   const cur = await readApprovals();
   delete cur[pieceId];
   await writeAtomic(APPROVALS_FILE, JSON.stringify(cur, null, 2));
@@ -112,6 +128,7 @@ export async function clearApproval(pieceId: string): Promise<void> {
 
 // ── Uploads ──────────────────────────────────────────────────────────────────
 export async function listUploads(pieceId: string): Promise<AudioUpload[]> {
+  if (pgMode()) return pg.listUploadsPg(pieceId);
   const dir = uploadsDirFor(pieceId);
   try {
     const metas = (await fs.readdir(dir)).filter((f) => f.endsWith(".meta.json"));
@@ -123,6 +140,7 @@ export async function listUploads(pieceId: string): Promise<AudioUpload[]> {
   }
 }
 export async function writeUploadMeta(meta: AudioUpload): Promise<void> {
+  if (pgMode()) return pg.writeUploadPg(meta);
   await writeAtomic(meta.file + ".meta.json", JSON.stringify(meta, null, 2));
 }
 export async function latestUpload(pieceId: string): Promise<AudioUpload | null> {
@@ -139,36 +157,52 @@ export function templatePath(id: string): string | null {
   }
   return null;
 }
+// The committed (read-only SEED) template shipped in the image — never written, never copied into PG.
+function publicTemplatePath(id: string): string | null {
+  const p = path.join(TEMPLATES_PUBLIC, `${id.replace(/[^0-9a-z_-]/gi, "_")}.json`);
+  return existsSync(p) ? p : null;
+}
+async function loadPublicTemplate(id: string): Promise<ContentTemplate | null> {
+  const p = publicTemplatePath(id);
+  if (!p) return null;
+  try { return JSON.parse(await fs.readFile(p, "utf8")) as ContentTemplate; } catch { return null; }
+}
 export async function loadTemplate(id: string): Promise<ContentTemplate | null> {
+  // pg mode: an AUTHORED template (PG) overrides a same-id committed seed; else fall back to the seed.
+  if (pgMode()) return (await pg.loadTemplatePg(id)) ?? loadPublicTemplate(id);
   const p = templatePath(id);
   if (!p) return null;
   try { return JSON.parse(await fs.readFile(p, "utf8")) as ContentTemplate; } catch { return null; }
 }
 export async function saveTemplate(t: ContentTemplate): Promise<string> {
+  if (pgMode()) { await pg.saveTemplatePg(t); return t.id; }
   ensureDirs();
   if (!existsSync(TEMPLATES_DATA)) mkdirSync(TEMPLATES_DATA, { recursive: true });
   const file = path.join(TEMPLATES_DATA, `${t.id}.json`);
   await writeAtomic(file, JSON.stringify(t, null, 2));
   return file;
 }
-export function listTemplateIds(): string[] {
+export async function listTemplateIds(): Promise<string[]> {
   const ids = new Set<string>();
-  for (const dir of [TEMPLATES_PUBLIC, TEMPLATES_DATA]) {
-    if (!existsSync(dir)) continue;
-    for (const f of require("node:fs").readdirSync(dir)) if (f.endsWith(".json")) ids.add(f.replace(/\.json$/, ""));
-  }
+  // Committed seeds are always available (read-only, from the image).
+  if (existsSync(TEMPLATES_PUBLIC)) for (const f of require("node:fs").readdirSync(TEMPLATES_PUBLIC)) if (f.endsWith(".json")) ids.add(f.replace(/\.json$/, ""));
+  if (pgMode()) { for (const id of await pg.listTemplateIdsPg()) ids.add(id); }
+  else if (existsSync(TEMPLATES_DATA)) for (const f of require("node:fs").readdirSync(TEMPLATES_DATA)) if (f.endsWith(".json")) ids.add(f.replace(/\.json$/, ""));
   return [...ids];
 }
 export async function hasTemplate(id: string): Promise<boolean> {
+  if (pgMode()) return (await pg.hasTemplatePg(id)) || publicTemplatePath(id) != null;
   return templatePath(id) != null;
 }
 
 // ── Draft pieces (operator-created new concepts) ─────────────────────────────
 export interface DraftPiece { id: string; title: string; concept: string; narration: string[]; createdAt: string; }
 export async function readDrafts(): Promise<DraftPiece[]> {
+  if (pgMode()) return pg.readDraftsPg();
   try { return JSON.parse(await fs.readFile(DRAFTS_FILE, "utf8")); } catch { return []; }
 }
 export async function addDraft(d: DraftPiece): Promise<void> {
+  if (pgMode()) return pg.addDraftPg(d);
   const cur = await readDrafts();
   cur.push(d);
   await writeAtomic(DRAFTS_FILE, JSON.stringify(cur, null, 2));
@@ -199,8 +233,11 @@ export async function getPieces(): Promise<Piece[]> {
     const ready = latestReadyJob(jobs, entry.id);
     let recommendedRel: string | null = null;
     let hasThumbnailFirst = false;
-    if (ready?.outputRel) {
-      recommendedRel = ready.outputRel; // freshly rendered → always thumbnail-first
+    if (ready?.outputKey) {
+      recommendedRel = `/api/content-studio/media/${entry.id}`; // served from the store by key (prod-safe)
+      hasThumbnailFirst = true;
+    } else if (ready?.outputRel) {
+      recommendedRel = ready.outputRel; // dev fallback (local /content path) — freshly rendered, thumbnail-first
       hasThumbnailFirst = true;
     } else {
       recommendedRel = firstExisting(recommendedCandidates(entry.id));
@@ -209,7 +246,7 @@ export async function getPieces(): Promise<Piece[]> {
     return { ...base, recommendedRel, hasThumbnailFirst } as Piece;
   });
   // Template (data-driven) pieces — rendered by the generic engine, so they are renderable.
-  const templateIds = listTemplateIds().filter((id) => !CATALOG.some((c) => c.id === id));
+  const templateIds = (await listTemplateIds()).filter((id) => !CATALOG.some((c) => c.id === id));
   const templatePieces: Piece[] = [];
   for (const id of templateIds) {
     const t = await loadTemplate(id);
@@ -217,7 +254,8 @@ export async function getPieces(): Promise<Piece[]> {
     const ready = latestReadyJob(jobs, id);
     let recommendedRel: string | null = null;
     let hasThumbnailFirst = false;
-    if (ready?.outputRel) { recommendedRel = ready.outputRel; hasThumbnailFirst = true; }
+    if (ready?.outputKey) { recommendedRel = `/api/content-studio/media/${id}`; hasThumbnailFirst = true; }
+    else if (ready?.outputRel) { recommendedRel = ready.outputRel; hasThumbnailFirst = true; }
     else { recommendedRel = firstExisting(recommendedCandidates(id)); hasThumbnailFirst = Boolean(recommendedRel); }
     templatePieces.push({
       id, title: t.title, concept: t.concept, narration: t.narration,

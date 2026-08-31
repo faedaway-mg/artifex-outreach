@@ -19,10 +19,14 @@ export interface RenderJob {
   stage: string; // human-facing label ("Rendering frames 240/635")
   mode: "reuse-approved-audio" | "uploaded-vo"; // how the audio is sourced
   audioKind: AudioKind; // explicit provenance of the audio in this render
-  audioFile: string | null; // absolute path to the VO mp3 used (uploaded), or null when reusing approved
+  audioFile: string | null; // LEGACY absolute path to the VO mp3 (dev fallback), or null when reusing approved
+  audioKey: string | null; // canonical ArtifactStore key for the uploaded VO — the cross-process reference
+  audioSha: string | null; // integrity of the uploaded VO bytes (worker validates before rendering)
   audioLabel: string | null; // display name of the audio used
-  outputFile: string | null; // absolute path to the rendered mp4 (recommended posting file)
-  outputRel: string | null; // public URL of the rendered mp4 (/content/...)
+  outputFile: string | null; // LEGACY absolute path to the rendered mp4 (dev fallback / ffmpeg scratch)
+  outputRel: string | null; // LEGACY public URL of the rendered mp4 (/content/...) — dev only
+  outputKey: string | null; // canonical ArtifactStore key for the rendered mp4 (durable, ownership-fenced)
+  posterKey: string | null; // canonical ArtifactStore key for the frame-zero poster (durable)
   thumbRel: string | null; // public URL of the thumbnail
   error: string | null;
   attempt: number;
@@ -52,7 +56,9 @@ export interface Piece {
 
 export interface AudioUpload {
   pieceId: string;
-  file: string; // absolute path (private, under .data)
+  file: string; // absolute path (LEGACY — dev fallback; production reads via objectKey)
+  objectKey?: string; // canonical ArtifactStore key — the cross-process reference (web↔worker)
+  sha256?: string; // integrity of the stored bytes
   name: string; // original filename
   bytes: number;
   durationSeconds: number | null;
