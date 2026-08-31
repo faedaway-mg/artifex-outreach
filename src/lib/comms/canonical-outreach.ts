@@ -20,10 +20,11 @@
 import { effectiveReviewFor } from "../outreach/review-revisions";
 import { classifyLeadSource, type MessageClass } from "./transport-policy";
 import {
-  buildColdDispatchFromEmail, submitCompliantDispatch, composeReviewMessage,
+  buildColdDispatchFromEmail, submitCompliantDispatch, composeReviewMessage, toFrozenAttachment,
   type OutreachDispatchRequest, type ColdSubmitResult,
 } from "./outreach-transport";
-import { resolveFrozenReviewForSend, type FreezeDeps } from "../outreach/quick-review-freeze";
+import { resolveApprovedArtifactForSend } from "../outreach/resolve-approved-artifact";
+import type { FreezeDeps } from "../outreach/quick-review-freeze";
 import type { EmailProvider } from "./provider";
 
 export interface CanonicalPrepareInput {
@@ -63,14 +64,14 @@ export async function prepareCanonicalColdOutreach(
   input: CanonicalPrepareInput,
   deps: { freeze?: FreezeDeps } = {},
 ): Promise<CanonicalPrepareResult> {
-  const frozen = await resolveFrozenReviewForSend(input.leadId, deps.freeze);
+  const frozen = await resolveApprovedArtifactForSend(input.leadId, deps.freeze);
   if (!frozen.ok) return { ok: false, blocked: true, reason: `frozen-review:${frozen.reason}` };
 
   const built = buildColdDispatchFromEmail({
     leadId: input.leadId, recipient: input.recipient, subject: input.subject,
     bodyText: input.bodyText, bodyHtml: input.bodyHtml,
     classification: input.classification, idempotencyKey: input.idempotencyKey,
-    pdf: { base64: frozen.pdfBase64!, filename: frozen.filename! },
+    pdf: toFrozenAttachment({ pdfBase64: frozen.pdfBase64!, filename: frozen.filename!, sha256: frozen.sha256! }),
     threading: input.threading,
   });
   if (!built.ok) return { ok: false, blocked: true, reason: `assembly:${built.reason}` };

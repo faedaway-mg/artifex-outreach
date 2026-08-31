@@ -12,7 +12,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import { getLead, appendAudit, isSuppressed } from "../repo";
 import { validEmail } from "../acquisition/compliance";
-import { effectiveReviewFor, getEditorialState, deliveryReadiness, renderCurrentArtifact, revisionFingerprint, TEMPLATE_VERSION } from "./review-revisions";
+import { effectiveReviewFor, getEditorialState, deliveryReadiness, revisionFingerprint, evidenceDigestOf, TEMPLATE_VERSION } from "./review-revisions";
+import { resolveApprovedArtifactForSend } from "./resolve-approved-artifact";
 
 export const AUTO_SEND_POLICY = { id: "qr-autosend", version: "v1" } as const;
 export const AUTOSEND_ENV = "QR_AUTOSEND_ENABLED";
@@ -32,7 +33,7 @@ export interface SendAuthorization {
   at: string;
 }
 
-export interface AuthResult { authorized: boolean; reason?: string; auth?: SendAuthorization; pdf?: Buffer }
+export interface AuthResult { authorized: boolean; reason?: string; auth?: SendAuthorization }
 
 function autosendEnabled(): boolean {
   return process.env[AUTOSEND_ENV] === "1";
@@ -73,20 +74,22 @@ export async function authorizeForSend(leadId: string, opts: { campaignId: strin
     type = "policy";
   }
 
-  // Render the exact artifact and bind the authorization to its bytes + revision + evidence.
-  const art = await renderCurrentArtifact(leadId);
-  if (!art) return { authorized: false, reason: "could not render artifact" };
+  // Bind the authorization to the CANONICAL frozen artifact — the SAME resolver the send path uses, so
+  // the authorized SHA equals the sent SHA by construction (no authorize-renders / send-re-renders gap).
+  // revisionId + evidenceDigest are PURE (computed from content; no render).
+  const resolved = await resolveApprovedArtifactForSend(leadId);
+  if (!resolved.ok) return { authorized: false, reason: resolved.reason ?? "could not resolve frozen artifact" };
   const auth: SendAuthorization = {
     type, policyId: AUTO_SEND_POLICY.id, policyVersion: AUTO_SEND_POLICY.version,
-    revisionId: art.revisionId, evidenceDigest: art.manifest.evidenceDigest, pdfSha256: art.manifest.pdfSha256,
+    revisionId: revisionFingerprint(eff.review), evidenceDigest: evidenceDigestOf(eff.review), pdfSha256: resolved.sha256!,
     templateVersion: TEMPLATE_VERSION, recipient, campaignId: opts.campaignId,
     authorizedBy: type === "operator" ? (state.approval?.approvedBy ?? "operator") : AUTO_SEND_POLICY.id,
     at: opts.now ?? new Date().toISOString(),
   };
   await appendAudit({ action: AUTH_ACTION, actor: auth.authorizedBy, targetType: "lead", targetId: leadId, meta: { ...auth }, ip: null });
-  // Return the EXACT authorized bytes so the caller ships them verbatim (a re-render would differ
-  // only in the PDF's embedded creation timestamp — never re-render an authorized artifact).
-  return { authorized: true, auth, pdf: art.pdf };
+  // The bytes are NOT returned — the send path re-resolves the identical frozen artifact through the
+  // canonical resolver (never a caller-carried Buffer).
+  return { authorized: true, auth };
 }
 
 /**

@@ -65,7 +65,7 @@ export interface SchedulerDeps {
   recipientTzOf?: (leadId: string) => Promise<string | null> | string | null;
   /** The transport. MUST be non-delivering during the dry run. Returns ambiguous=true on an
    *  uncertain provider response (then the slot is RETAINED and the send is NOT retried here). */
-  send: (args: { leadId: string; auth: SendAuthorization; pdf: Buffer }) => Promise<SendResult>;
+  send: (args: { leadId: string; auth: SendAuthorization }) => Promise<SendResult>;
   /** Pause override. Defaults to the DB-backed + env pause, observed fresh each tick. May be async. */
   isPaused?: () => boolean | Promise<boolean>;
   /** Cap the number processed this tick (staggering / batch bound). */
@@ -128,9 +128,9 @@ export async function runScheduledOutreach(leadIds: string[], deps: SchedulerDep
     const { tz } = recipientWindowTz(knownTz);
     if (!withinMorningWindow(deps.now, tz, deps.window ?? MORNING_WINDOW)) { outcomes.push({ leadId, outcome: "outside-window", reason: `outside 08:00–10:00 ${tz}` }); continue; }
 
-    // Authorize (content-eligibility + suppression + held + recipient) and bind the EXACT bytes.
+    // Authorize (content-eligibility + suppression + held + recipient); binds to the frozen artifact SHA.
     const auth = await authorizeForSend(leadId, { campaignId: deps.campaignId, now: deps.now.toISOString() });
-    if (!auth.authorized || !auth.auth || !auth.pdf) { outcomes.push({ leadId, outcome: "held", reason: auth.reason }); continue; }
+    if (!auth.authorized || !auth.auth) { outcomes.push({ leadId, outcome: "held", reason: auth.reason }); continue; }
     // Final-boundary re-verification of the exact authorized revision (deterministic fingerprint).
     const valid = await authorizationValidForDispatch(leadId, auth.auth);
     if (!valid.ok) { outcomes.push({ leadId, outcome: "held", reason: valid.reason }); continue; }
@@ -146,8 +146,9 @@ export async function runScheduledOutreach(leadIds: string[], deps: SchedulerDep
       continue;
     }
 
-    // Ship the EXACT authorized bytes returned by authorizeForSend — never a re-render.
-    const res = await deps.send({ leadId, auth: auth.auth, pdf: auth.pdf });
+    // Ship through the transport, which re-resolves the identical frozen artifact (never a re-render,
+    // never a caller-carried Buffer) and binds it to auth.pdfSha256.
+    const res = await deps.send({ leadId, auth: auth.auth });
     if (res.ambiguous) {
       // Uncertain provider response: RETAIN the reserved slot (do not release, do not consume) so a
       // reconcile can resolve it without a double-send. Not counted as sent.

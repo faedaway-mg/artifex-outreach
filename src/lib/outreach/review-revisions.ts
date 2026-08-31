@@ -19,6 +19,7 @@ import type { BusinessProfile } from "../business-intelligence/types";
 import { buildQuickReview, type QuickReview, type ResolvedBrand } from "./quick-review";
 import { checkReview, editorialBlocks, reviewEditorialSurface, type EditorialIssue } from "./editorial-quality";
 import { getBusinessIntelligence, getLead, appendAudit, commitReviewEditorial, getSettings } from "../repo";
+import { frozenRevisionPdfKey, storeFrozenPdfAtKey, loadFrozenPdfAtKey } from "./frozen-review-pdf";
 import type { AuditEntry } from "../types";
 import { currentActor } from "../auth";
 
@@ -508,16 +509,30 @@ export function sha256Hex(buf: Buffer): string {
   return createHash("sha256").update(buf).digest("hex");
 }
 
-/** Render the CURRENT effective review to PDF and produce a manifest binding those exact bytes to the
- *  current revision. The caller must have verified readiness (approval bound to this revision). */
+/** Deterministic evidence digest for a review (PURE — no render). A subset of the content fingerprint. */
+export function evidenceDigestOf(review: QuickReview): string {
+  return createHash("sha256").update(JSON.stringify(review.findings.map((f) => ({ id: f.id, basis: f.evidence.basis, src: f.evidence.sourceUrl, at: f.evidence.observedAt })))).digest("hex").slice(0, 20);
+}
+
+/** Resolve the CURRENT effective review to PDF + manifest for a revision, MATERIALIZING ONCE: the exact
+ *  bytes are frozen in the durable blob store keyed by the revision fingerprint on first use, and every
+ *  later call LOADS those bytes (never re-renders — the @react-pdf font-subset tag would drift the SHA).
+ *  The manifest binds the stored bytes to the revision. Historical artifacts are never mutated. */
 async function renderArtifact(leadId: string, review: QuickReview, revisionId: string): Promise<{ pdf: Buffer; manifest: ArtifactManifest }> {
-  const { renderQuickReviewPdf } = await import("../pdf/render");
   const { quickReviewFilename } = await import("./quick-review");
-  const renderedAt = nowIso();
-  const pdf = await renderQuickReviewPdf(review, renderedAt.slice(0, 10));
-  const evidenceDigest = createHash("sha256").update(JSON.stringify(review.findings.map((f) => ({ id: f.id, basis: f.evidence.basis, src: f.evidence.sourceUrl, at: f.evidence.observedAt })))).digest("hex").slice(0, 20);
-  const manifest: ArtifactManifest = { leadId, revisionId, evidenceDigest, templateVersion: TEMPLATE_VERSION, pdfSha256: sha256Hex(pdf), filename: quickReviewFilename(review.businessName), renderedAt };
-  return { pdf, manifest };
+  const key = frozenRevisionPdfKey(leadId, revisionId);
+  let pdfBase64: string; let pdfSha256: string;
+  const existing = await loadFrozenPdfAtKey(key);
+  if (existing) {
+    pdfBase64 = existing.pdfBase64; pdfSha256 = existing.sha256; // frozen — reuse, never re-render
+  } else {
+    const { renderQuickReviewPdf } = await import("../pdf/render");
+    const pdf = await renderQuickReviewPdf(review, nowIso().slice(0, 10)); // rendered EXACTLY once, then frozen
+    pdfBase64 = pdf.toString("base64");
+    ({ sha256: pdfSha256 } = await storeFrozenPdfAtKey(key, pdfBase64));
+  }
+  const manifest: ArtifactManifest = { leadId, revisionId, evidenceDigest: evidenceDigestOf(review), templateVersion: TEMPLATE_VERSION, pdfSha256, filename: quickReviewFilename(review.businessName), renderedAt: nowIso() };
+  return { pdf: Buffer.from(pdfBase64, "base64"), manifest };
 }
 
 /** Re-verify a manifest against its bytes and the CURRENT revision. Rejects mismatched/stale/corrupt. */

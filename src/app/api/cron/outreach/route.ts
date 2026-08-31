@@ -66,7 +66,7 @@ export async function POST(req: NextRequest) {
   const campaignId = due[0]?.binding.batchId ?? "scheduled-outreach";
   const summary = await runScheduledOutreach(due.map((d) => d.leadId), {
     now, campaignId,
-    send: ({ leadId, auth, pdf }) => sendCompliantOutreach({ leadId, auth, pdf }),
+    send: ({ leadId, auth }) => sendCompliantOutreach({ leadId, auth }),
   });
   await appendAudit({ action: "outreach.runner.dispatched", actor: "cron", targetType: "comms", targetId: null, meta: { laDay: summary.laDay, sent: summary.sent, quotaRemaining: summary.quotaRemaining }, ip: null });
   return NextResponse.json({ ok: true, dispatched: true, due: due.length, sent: summary.sent, quotaRemaining: summary.quotaRemaining, outcomes: summary.outcomes });

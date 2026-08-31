@@ -17,7 +17,8 @@
 import { getLead } from "../repo";
 import { effectiveReviewFor } from "../outreach/review-revisions";
 import { escapeHtml } from "../outreach/email-render";
-import { quickReviewFilename } from "../outreach/quick-review";
+import { resolveApprovedArtifactForSend } from "../outreach/resolve-approved-artifact";
+import type { FreezeDeps, ResolvedFrozenReview } from "../outreach/quick-review-freeze";
 import { assembleCommercialMessage } from "./commercial-message";
 import { getEmailProvider } from "./provider";
 import type { EmailMessage, EmailProvider } from "./provider";
@@ -40,6 +41,11 @@ export interface TransportDeps {
   loadLead?: (leadId: string) => Promise<Lead | null>;      // default: repo.getLead
   loadReview?: (leadId: string) => Promise<{ lead: Lead; review: QuickReview } | null>; // default: effectiveReviewFor
   provider?: EmailProvider;                                 // intercepted transport (rehearsal only)
+  freeze?: FreezeDeps;                                      // injected freeze/resolve seams (tests)
+  /** The canonical frozen-artifact resolver. Defaults to resolveApprovedArtifactForSend; a test may
+   *  inject a fixed frozen artifact. Bytes still pass the toFrozenAttachment integrity check + the
+   *  auth.pdfSha256 binding, so this seam cannot smuggle un-frozen bytes onto the wire. */
+  resolveArtifact?: (leadId: string) => Promise<ResolvedFrozenReview>;
 }
 
 const bareAddress = (from: string): string => { const m = from.match(/<([^>]+)>/); return (m ? m[1] : from).trim(); };
@@ -127,16 +133,40 @@ export async function submitCompliantDispatch(
   return { sent: res.sent, providerMessageId: res.providerMessageId, retryable: res.retryable, errorCode: res.errorCode, reason: res.reason, statusCode: res.statusCode };
 }
 
+// ── Compile-time bypass guard: the ONLY attachment a cold message can carry is a FrozenAttachment,
+// which is nominally branded and can be minted ONLY by toFrozenAttachment() from a resolved frozen
+// artifact. A future caller therefore cannot pass arbitrary/rerendered PDF bytes to the assembler —
+// the type simply won't accept them.
+declare const FROZEN_ATTACHMENT_BRAND: unique symbol;
+export interface FrozenAttachment {
+  readonly base64: string;
+  readonly filename: string;
+  readonly sha256: string;
+  readonly [FROZEN_ATTACHMENT_BRAND]: true;
+}
+
+/** Mint a FrozenAttachment from a resolved frozen artifact. RUNTIME guard: the bytes MUST hash to the
+ *  claimed frozen SHA — a re-render or a swap cannot produce a valid one. This is the sole constructor. */
+export function toFrozenAttachment(a: { pdfBase64: string; filename: string; sha256: string }): FrozenAttachment {
+  if (sha256(Buffer.from(a.pdfBase64, "base64")) !== a.sha256) {
+    throw new Error("frozen attachment integrity check failed (bytes do not match the frozen SHA)");
+  }
+  // The brand is a COMPILE-TIME-only nominal marker (erased at runtime); the assertion is the sole way
+  // to obtain the branded type, and this function is its only constructor.
+  return { base64: a.pdfBase64, filename: a.filename, sha256: a.sha256 } as FrozenAttachment;
+}
+
 /**
  * LAYER A adapter — wrap the compliant CAN-SPAM footer + hardened unsubscribe around an already-built
- * Acquisition OS step email (subject + plaintext + HTML + optional Quick Review PDF + threading), and
- * produce the canonical request. FAIL CLOSED: an invalid recipient, or a footer that cannot be
- * assembled (no postal address / no unsubscribe secret), yields no request → nothing can be sent.
+ * Acquisition OS step email (subject + plaintext + HTML + optional FROZEN Quick Review PDF + threading),
+ * and produce the canonical request. FAIL CLOSED: an invalid recipient, or a footer that cannot be
+ * assembled (no postal address / no unsubscribe secret), yields no request → nothing can be sent. The
+ * attachment can ONLY be a FrozenAttachment (branded) — arbitrary bytes are rejected at compile time.
  */
 export function buildColdDispatchFromEmail(input: {
   leadId: string; recipient: string; subject: string; bodyText: string; bodyHtml: string;
   classification: MessageClass; idempotencyKey: string;
-  pdf?: { base64: string; filename: string } | null;
+  pdf?: FrozenAttachment | null;
   threading?: { messageId?: string; inReplyTo?: string; references?: string };
 }): { ok: true; req: OutreachDispatchRequest; unsubscribeUrl: string } | { ok: false; reason: string } {
   if (!validEmail(input.recipient)) return { ok: false, reason: "invalid-recipient" };
@@ -180,10 +210,10 @@ function composeBody(review: QuickReview): { text: string; html: string } {
  * footer-assembly up front, so a request only exists when the message is fully compliant.
  */
 export async function buildOutreachDispatch(
-  args: { leadId: string; auth: SendAuthorization; pdf: Buffer },
+  args: { leadId: string; auth: SendAuthorization },
   deps: TransportDeps = {},
 ): Promise<{ ok: true; req: OutreachDispatchRequest; unsubscribeUrl: string } | { ok: false; reason: string }> {
-  const { leadId, auth, pdf } = args;
+  const { leadId, auth } = args;
   const recipient = auth.recipient;
   if (!validEmail(recipient)) return { ok: false, reason: "invalid-recipient" };
 
@@ -193,7 +223,13 @@ export async function buildOutreachDispatch(
   const lead = await loadLead(leadId);
   if (!lead) return { ok: false, reason: "lead-not-found" };
   if ((lead.publicEmail ?? "") !== recipient) return { ok: false, reason: "recipient-drift" };
-  if (sha256(pdf) !== auth.pdfSha256) return { ok: false, reason: "pdf-drift" };
+
+  // The attachment comes ONLY from the canonical resolver (frozen bytes) — the caller cannot inject a
+  // PDF. The authorization is bound to those bytes: a SHA mismatch is drift and fails closed.
+  const resolve = deps.resolveArtifact ?? ((id: string) => resolveApprovedArtifactForSend(id, deps.freeze));
+  const resolved = await resolve(leadId);
+  if (!resolved.ok) return { ok: false, reason: `frozen-review:${resolved.reason}` };
+  if (resolved.sha256 !== auth.pdfSha256) return { ok: false, reason: "pdf-drift" };
 
   const eff = await loadReview(leadId);
   if (!eff?.review) return { ok: false, reason: "no-review" };
@@ -203,7 +239,7 @@ export async function buildOutreachDispatch(
     leadId, recipient, subject, bodyText, bodyHtml,
     classification: classifyLeadSource(lead.source),
     idempotencyKey: `outreach:${leadId}:${auth.revisionId}`,
-    pdf: { base64: pdf.toString("base64"), filename: quickReviewFilename(lead.businessName) },
+    pdf: toFrozenAttachment({ pdfBase64: resolved.pdfBase64!, filename: resolved.filename!, sha256: resolved.sha256! }),
   });
 }
 
@@ -212,7 +248,7 @@ export async function buildOutreachDispatch(
  * and submits via Graph only. Returns the { ok, providerId, ambiguous } shape the runner expects.
  */
 export async function sendCompliantOutreach(
-  args: { leadId: string; auth: SendAuthorization; pdf: Buffer },
+  args: { leadId: string; auth: SendAuthorization },
   deps: TransportDeps = {},
 ): Promise<OutreachSendResult> {
   const recipient = args.auth.recipient;

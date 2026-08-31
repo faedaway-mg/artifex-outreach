@@ -21,11 +21,10 @@ import { validEmail } from "../acquisition/compliance";
 import { stopPlansForLead } from "../acquisition/stop";
 import { unsubscribeUrl as hardenedUnsubUrl } from "./commercial-message";
 import { classifyLeadSource, transportRouteFor } from "./transport-policy";
-import { buildColdDispatchFromEmail, submitCompliantDispatch } from "./outreach-transport";
+import { buildColdDispatchFromEmail, submitCompliantDispatch, toFrozenAttachment } from "./outreach-transport";
 import { renderBody } from "./render";
 import { escapeHtml } from "../outreach/email-render";
-import { ensureFrozenReviewForSend } from "../outreach/quick-review-freeze";
-import { sendGate, verifyArtifact, deliveryReadiness } from "../outreach/review-revisions";
+import { resolveApprovedArtifactForSend } from "../outreach/resolve-approved-artifact";
 import type { BusinessProfile } from "../business-intelligence/types";
 import { isSent, backoffMs, MAX_ATTEMPTS, STUCK_SENDING_MS } from "./state";
 import { threadingHeaders, priorEmailSteps, reSubject, domainFromAddress } from "./threading";
@@ -194,35 +193,13 @@ export async function dispatchStep(stepId: string, opts: { now?: Date } = {}): P
       receptivitySignalTypes = [...new Set(signals.map((s) => s.type))];
       receptivityScoreVal = receptivityScore(signals);
     }
-    // M2 version-bound artifact gate. When the operator has EDITED this review, only the exact
-    // approved revision's bytes may ship; a stale/unapproved edit fails the whole send (never bare).
-    // When the review is UNEDITED, this defers to the legacy attachable gate below (unchanged).
-    const gate = await sendGate(lead.id);
-    if (gate.edited && !gate.allowed && lead.source !== "internal-test") {
-      await updateEmailSend(sendRow.id, { status: "failed", failedAt: nowIso, lastError: `review not delivery-ready: ${gate.reason ?? ""}`, lastErrorCode: "review_not_ready" });
-      return { stepId, outcome: "failed", reason: `Quick Review is not delivery-ready: ${gate.reason ?? ""}`, sendId: sendRow.id };
-    }
-    if (gate.edited && gate.allowed && gate.pdf && gate.manifest) {
-      // Re-verify the exact approved bytes at this FINAL dispatch boundary before attaching.
-      const rid = (await deliveryReadiness(lead.id))!.revisionId;
-      const check = verifyArtifact(gate.manifest, gate.pdf, rid);
-      if (!check.ok) {
-        if (lead.source !== "internal-test") {
-          await updateEmailSend(sendRow.id, { status: "failed", failedAt: nowIso, lastError: `artifact verify failed: ${check.reason}`, lastErrorCode: "artifact_verify_failed" });
-          return { stepId, outcome: "failed", reason: `Approved attachment failed verification: ${check.reason}`, sendId: sendRow.id };
-        }
-      } else {
-        attachmentFilename = gate.manifest.filename;
-        attachmentSha256 = gate.manifest.pdfSha256; // the exact approved bytes
-        attachments = [{ filename: attachmentFilename, content: gate.pdf.toString("base64"), contentType: "application/pdf" }];
-      }
-    } else if (profile) {
-      // Canonical FROZEN path — UNEDITED review: the approved Quick Review PDF was rendered EXACTLY
-      // ONCE at operator approval and frozen (immutable artifact). This dispatcher loads those exact
-      // bytes and NEVER re-renders (re-rendering would drift the SHA). Fail closed for a review-bearing
-      // lead whose review is not approved/frozen, or has drifted, or whose bytes are tampered/missing —
-      // an internal-test rehearsal (no live review) is exempt and may proceed bare.
-      const frozen = await ensureFrozenReviewForSend(lead.id);
+    // ONE canonical resolver for the exact approved Quick Review PDF — EDITED (M2 revision manifest) or
+    // UNEDITED (version-keyed approval), behind a single contract. It returns FROZEN bytes (rendered
+    // once, reused) and NEVER re-renders; it fails closed on missing / tampered / stale / unapproved. A
+    // review-bearing lead that cannot resolve its frozen review is BLOCKED (never bare); an internal-test
+    // rehearsal (no live review) is exempt and may proceed without an attachment.
+    if (profile) {
+      const frozen = await resolveApprovedArtifactForSend(lead.id);
       if (frozen.ok) {
         attachmentFilename = frozen.filename!;
         attachmentSha256 = frozen.sha256!; // the exact frozen bytes (rendered once, reused)
@@ -249,7 +226,11 @@ export async function dispatchStep(stepId: string, opts: { now?: Date } = {}): P
   // submit via Microsoft Graph MIME ONLY. The Quick Review PDF (initial sends) rides as a MIME
   // attachment; threading headers keep follow-ups in one conversation. No provider selection, no Resend.
   const htmlBody = html ?? `<div>${escapeHtml(text).replace(/\n/g, "<br>")}</div>`;
-  const pdfAttachment = attachments && attachments[0] ? { base64: attachments[0].content, filename: attachments[0].filename } : null;
+  // The attachment can ONLY be a FrozenAttachment minted from the resolved frozen bytes + SHA (runtime
+  // integrity re-checked here); the assembler will not accept arbitrary bytes.
+  const pdfAttachment = attachmentSha256 && attachments && attachments[0]
+    ? toFrozenAttachment({ pdfBase64: attachments[0].content, filename: attachments[0].filename, sha256: attachmentSha256 })
+    : null;
   const built = buildColdDispatchFromEmail({
     leadId: lead.id, recipient: lead.publicEmail!, subject, bodyText: text, bodyHtml: htmlBody,
     classification, idempotencyKey: key, pdf: pdfAttachment,
