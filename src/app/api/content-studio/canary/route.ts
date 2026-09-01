@@ -35,13 +35,20 @@ function sanitize(job: any) {
 }
 
 // POST → enqueue a canary render through the normal path. Returns the job id to poll.
+// Defaults to the uploaded-VO path (useUpload:true) — the SAME path client videos render through,
+// reusing the piece's existing uploaded voiceover so nothing new is written and no prospect is touched.
 export async function POST(req: NextRequest) {
   if (!authorized(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   let pieceId = DEFAULT_CANARY_PIECE;
-  try { const b = await req.json(); if (b?.pieceId && CANARY_PIECES.has(String(b.pieceId))) pieceId = String(b.pieceId); } catch { /* default */ }
+  let useUpload = true;
   try {
-    const { job, deduped } = await createRenderJob(pieceId, { useUpload: false });
-    return NextResponse.json({ canary: true, pieceId, deduped, job: sanitize(job) }, { status: deduped ? 200 : 202 });
+    const b = await req.json();
+    if (b?.pieceId && CANARY_PIECES.has(String(b.pieceId))) pieceId = String(b.pieceId);
+    if (typeof b?.useUpload === "boolean") useUpload = b.useUpload;
+  } catch { /* defaults */ }
+  try {
+    const { job, deduped } = await createRenderJob(pieceId, { useUpload });
+    return NextResponse.json({ canary: true, pieceId, useUpload, deduped, job: sanitize(job) }, { status: deduped ? 200 : 202 });
   } catch (e: any) {
     return NextResponse.json({ error: String(e?.message ?? e) }, { status: 400 });
   }
