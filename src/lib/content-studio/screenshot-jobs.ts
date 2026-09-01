@@ -78,6 +78,15 @@ export function canonicalizeCaptureUrl(raw: string): string {
   return `${u.protocol}//${u.host}${path}`;
 }
 
+// The business's CANONICAL website for a homepage review is its ORIGIN (scheme + host + "/") — not a
+// tracking deep-link. Store-locator/GMB URLs with utm params bounce through many redirects; capturing the
+// origin is both more representative and avoids abusive redirect chains. Preserves an explicit non-root
+// path only when the record points at a real content page (kept minimal: we default to the homepage).
+export function captureTargetFor(website: string): string {
+  const u = new URL(website.trim());
+  return `${u.protocol}//${u.host}/`;
+}
+
 function rowToJob(r: Record<string, unknown>): ScreenshotJob {
   return {
     id: String(r.id),

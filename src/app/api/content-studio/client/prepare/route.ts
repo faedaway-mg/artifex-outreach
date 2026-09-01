@@ -9,7 +9,7 @@ import type { BusinessProfile } from "@/lib/business-intelligence/types";
 import { buildBusinessTemplate, type ScreenshotByFinding } from "@/lib/content-studio/client-video";
 import { saveTemplate, loadTemplate, REPO_ROOT } from "@/lib/content-studio/store";
 import { normalizeCaptureUrl } from "@/lib/content-studio/ssrf-guard";
-import { createScreenshotJob, latestReadyShot } from "@/lib/content-studio/screenshot-jobs";
+import { createScreenshotJob, latestReadyShot, captureTargetFor } from "@/lib/content-studio/screenshot-jobs";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -77,7 +77,7 @@ export async function POST(req: NextRequest) {
     const norm = normalizeCaptureUrl(lead.website);
     if (norm.ok) {
       try {
-        const { job } = await createScreenshotJob({ businessId: leadId, pieceId: templateId, requestedUrl: norm.url!.href, viewport: "mobile" });
+        const { job } = await createScreenshotJob({ businessId: leadId, pieceId: templateId, requestedUrl: captureTargetFor(norm.url!.href), viewport: "mobile" });
         screenshotJobId = job.id;
       } catch { /* capture is best-effort; the script is still evidence-led without it */ }
     }

@@ -29,8 +29,10 @@ export function cfg() {
     timeoutMs: Number(process.env.SHOT_JOB_TIMEOUT_MS ?? 45_000),
     leaseMs: Number(process.env.SHOT_LEASE_MS ?? 60_000),
     maxAttempts: Number(process.env.SHOT_MAX_ATTEMPTS ?? 3),
-    maxRedirects: Number(process.env.SHOT_MAX_REDIRECTS ?? 5),
-    maxBytes: Number(process.env.SHOT_MAX_BYTES ?? 8 * 1024 * 1024),
+    maxRedirects: Number(process.env.SHOT_MAX_REDIRECTS ?? 8),
+    // Runaway-transfer guard (sum of asset bytes across the whole page). Real ecommerce homepages are
+    // several MB; this bounds a malicious infinite/huge stream, not a normal media-rich site.
+    maxBytes: Number(process.env.SHOT_MAX_BYTES ?? 48 * 1024 * 1024),
   };
 }
 const VIEWPORTS = {
@@ -135,13 +137,19 @@ export async function captureJob(browser, job, opts) {
       if (u.protocol !== "http:" && u.protocol !== "https:") { blocked = blocked || `non-http(s) subrequest ${u.protocol}`; return route.abort("blockedbyclient"); }
       const isDoc = req.isNavigationRequest() && req.resourceType() === "document";
       if (isDoc) {
-        redirects.push(u.href);
-        if (redirects.length > opts.maxRedirects + 1) { blocked = blocked || `exceeded ${opts.maxRedirects} redirects`; return route.abort("blockedbyclient"); }
+        // SSRF-revalidate EVERY document navigation (main frame AND sub-frames/iframes) — a redirect or an
+        // embedded frame to a private host is refused. Only MAIN-FRAME hops count toward the redirect limit
+        // (an ecommerce homepage loads several iframe documents that are not redirects).
         const nrm = normalizeCaptureUrl(u.href);
-        if (!nrm.ok) { blocked = blocked || `unsafe redirect (${nrm.category})`; return route.abort("blockedbyclient"); }
+        if (!nrm.ok) { blocked = blocked || `unsafe document (${nrm.category})`; return route.abort("blockedbyclient"); }
         const chk = await assertHostPublic(nrm.hostname);
-        if (!chk.ok) { blocked = blocked || `redirect to blocked host: ${chk.reason}`; return route.abort("blockedbyclient"); }
+        if (!chk.ok) { blocked = blocked || `document to blocked host: ${chk.reason}`; return route.abort("blockedbyclient"); }
         chk.ips.forEach((ip) => resolvedIps.add(ip));
+        const isMainDoc = req.frame().parentFrame() === null;
+        if (isMainDoc) {
+          redirects.push(u.href);
+          if (redirects.length > opts.maxRedirects + 1) { blocked = blocked || `exceeded ${opts.maxRedirects} redirects`; return route.abort("blockedbyclient"); }
+        }
       }
       return route.continue();
     });

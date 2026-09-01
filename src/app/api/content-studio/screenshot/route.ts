@@ -3,7 +3,7 @@ import { isAuthenticated } from "@/lib/auth";
 import { getLead } from "@/lib/repo";
 import { normalizeCaptureUrl } from "@/lib/content-studio/ssrf-guard";
 import {
-  createScreenshotJob, readScreenshotJob, listScreenshotJobs, sanitizeScreenshotJob, type Viewport,
+  createScreenshotJob, readScreenshotJob, listScreenshotJobs, sanitizeScreenshotJob, captureTargetFor, type Viewport,
 } from "@/lib/content-studio/screenshot-jobs";
 
 export const runtime = "nodejs";
@@ -34,7 +34,7 @@ export async function POST(req: NextRequest) {
   const norm = normalizeCaptureUrl(lead.website);
   if (!norm.ok) return NextResponse.json({ error: `Website is not a safe capture target (${norm.category}): ${norm.reason}` }, { status: 422 });
 
-  const { job, deduped } = await createScreenshotJob({ businessId: leadId, pieceId: `client-${leadId}`, requestedUrl: norm.url!.href, viewport });
+  const { job, deduped } = await createScreenshotJob({ businessId: leadId, pieceId: `client-${leadId}`, requestedUrl: captureTargetFor(norm.url!.href), viewport });
   return NextResponse.json({ job: sanitizeScreenshotJob(job), deduped }, { status: deduped ? 200 : 202 });
 }
 
