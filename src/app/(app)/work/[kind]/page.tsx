@@ -24,6 +24,7 @@ import { CallWorkspace } from "@/components/lead/CallWorkspace";
 import { currentOperatorId } from "@/lib/auth";
 import { parseScope, leadIdsInScope, tasksInScope } from "@/lib/operators/scope";
 import { describeSequenceContext, type SequenceContext } from "@/lib/comms/task-projection";
+import { describeSendState } from "@/lib/comms/failure-classification";
 import { buildWorkQueue, batchLeadIds, categoryTitle, kindOfTask, surfaceTodaysTasks, channelCapacity, type WorkKind } from "@/lib/work-queue";
 import { videoWorkRedirect } from "@/lib/content-studio/client-video-routing";
 import { buildOutreachKit } from "@/lib/outreach/kit";
@@ -255,6 +256,12 @@ export default async function BatchPage({ params, searchParams }: { params: { ki
 
   // Email keeps its own inline decision + advance.
   if (isEmail && emailProps) {
+    // The most recent send attempt's persisted state, so a prior failure surfaces a SPECIFIC, honest
+    // reason (never a generic "failed permanently") with whether Resend was contacted and whether a
+    // retry can reach the provider. Latest by updatedAt; null when there's no prior failure.
+    const priorSends = await emailSendsForLead(lead.id);
+    const latestSend = priorSends.slice().sort((a, b) => +new Date(b.updatedAt) - +new Date(a.updatedAt))[0] ?? null;
+    const sendState = describeSendState(latestSend);
     return (
       <div className="mx-auto max-w-lg space-y-5">
         {Header}
@@ -290,6 +297,7 @@ export default async function BatchPage({ params, searchParams }: { params: { ki
           readingLabel={emailProps.readingLabel} fullParagraphs={emailProps.fullParagraphs} html={emailProps.html}
           taskId={stepTask?.id ?? null} nextHref={nextHref} isLast={i + 1 >= total}
           sequence={sequence}
+          sendState={sendState}
         />
       </div>
     );

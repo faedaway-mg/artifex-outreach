@@ -168,9 +168,12 @@ export function buildColdDispatchFromEmail(input: {
   classification: MessageClass; idempotencyKey: string;
   pdf?: FrozenAttachment | null;
   threading?: { messageId?: string; inReplyTo?: string; references?: string };
+  /** Operator-configured postal address (Settings) — the CAN-SPAM footer fallback when
+   *  COMMS_POSTAL_ADDRESS env is unset. Never invented; the assembler still fails closed if both absent. */
+  postal?: string;
 }): { ok: true; req: OutreachDispatchRequest; unsubscribeUrl: string } | { ok: false; reason: string } {
   if (!validEmail(input.recipient)) return { ok: false, reason: "invalid-recipient" };
-  const assembled = assembleCommercialMessage({ leadId: input.leadId, recipient: input.recipient, subject: input.subject, bodyHtml: input.bodyHtml, bodyText: input.bodyText });
+  const assembled = assembleCommercialMessage({ leadId: input.leadId, recipient: input.recipient, subject: input.subject, bodyHtml: input.bodyHtml, bodyText: input.bodyText, postal: input.postal });
   if (!assembled.ok) return { ok: false, reason: `footer:${assembled.reason}` };
   const req: OutreachDispatchRequest = {
     leadId: input.leadId, recipient: input.recipient, subject: input.subject,

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   insertLead, insertPlan, insertStep, getStep, stepsForPlan, addSuppression,
   emailSendsForPlan, getEmailSendByKey, updatePlan, getLead, listAudit,
-  upsertBusinessIntelligence,
+  upsertBusinessIntelligence, updateSettings,
 } from "../repo";
 import { analyzeBusiness } from "../intelligence/engine";
 import { dispatchStep } from "./dispatch";
@@ -214,6 +214,108 @@ describe("dispatchStep — idempotent sending (Phase 2)", () => {
     const r = await dispatchStep(step.id);
     expect(r.outcome).toBe("skipped");
     expect(rf.calls.all).toBe(0);
+  });
+});
+
+// A fetch double for Resend that ALSO records the Idempotency-Key header per POST (the shared harness
+// records only bodies). Lets us prove the PROVIDER key is attempt-scoped while the ledger key is stable.
+function resendFetchWithHeaders(opts: { send?: (n: number) => number } = {}): { fn: typeof fetch; calls: { send: number; idemKeys: string[] } } {
+  const calls = { send: 0, idemKeys: [] as string[] };
+  const status = opts.send ?? (() => 200);
+  const fn = (async (_url: any, init?: any) => {
+    calls.send++;
+    const h = (init?.headers ?? {}) as Record<string, string>;
+    calls.idemKeys.push(h["Idempotency-Key"] ?? "");
+    const r = status(calls.send);
+    return { ok: r < 400, status: r, json: async () => ({ id: `resend-${calls.send}` }), text: async () => `status ${r}` };
+  }) as unknown as typeof fetch;
+  return { fn, calls };
+}
+
+describe("dispatchStep — operator 'Try send again' (config/transient recovery, terminal stays blocked)", () => {
+  // Force the exact production incident: no postal address anywhere → the CAN-SPAM footer can't assemble
+  // → the row is stamped failed/compliance_incomplete WITHOUT ever contacting the provider.
+  async function seedMissingPostal() {
+    configureResendTestEnv({ COMMS_POSTAL_ADDRESS: "" }); // env postal empty
+    await updateSettings({ businessAddress: "" });        // and the Settings fallback empty
+    const lead = await seedLead({ businessName: "Same Day Marriage", publicEmail: "info@samedaymarriage.com" });
+    const { plan, step } = await seedApprovedPlan(lead.id);
+    return { lead, plan, step };
+  }
+
+  it("reclaims a missing-postal (compliance) failure and SENDS once when the address is supplied — provider key is attempt-scoped, ledger key is stable", async () => {
+    const rf = resendFetchWithHeaders();
+    global.fetch = rf.fn;
+    const { lead, step } = await seedMissingPostal();
+
+    // Attempt 1: fails at footer assembly, provider NEVER contacted.
+    const first = await dispatchStep(step.id);
+    expect(first.outcome).toBe("failed");
+    expect(first.reason).not.toMatch(/previously failed permanently/i); // specific, not generic
+    let row = await getEmailSendByKey(`step:${step.id}`);
+    expect(row!.status).toBe("failed");
+    expect(row!.lastErrorCode).toBe("compliance_incomplete");
+    expect(rf.calls.send).toBe(0); // Resend was never contacted
+
+    // The operator fixes the mailing address in Settings, then presses "Try send again".
+    await updateSettings({ businessAddress: "Artifex Labs Systems LLC, 5 Ops Ave, Los Angeles, CA 90001" });
+    const retry = await dispatchStep(step.id, { operatorRetry: true });
+    expect(retry.outcome).toBe("sent");
+    expect(rf.calls.send).toBe(1); // exactly one delivery
+    expect(rf.calls.idemKeys[0]).toBe(`step:${step.id}:a2`); // attempt-scoped provider key (2nd attempt)
+
+    row = await getEmailSendByKey(`step:${step.id}`);
+    expect(row!.status).toBe("sent");
+    expect(row!.idempotencyKey).toBe(`step:${step.id}`); // durable ledger key unchanged → lineage + dedup intact
+    expect(row!.attempts).toBe(2);
+    expect(row!.providerMessageId).toBe("resend-1");
+    // The retry is audited.
+    expect((await listAudit(50)).some((a) => a.action === "email.send.retry" && a.targetId === lead.id)).toBe(true);
+  });
+
+  it("the AUTOMATIC scheduler (no operatorRetry) never resurrects a config failure — a failed row stays failed", async () => {
+    const rf = resendFetchWithHeaders();
+    global.fetch = rf.fn;
+    const { step } = await seedMissingPostal();
+
+    expect((await dispatchStep(step.id)).outcome).toBe("failed");
+    // Even though the address is now available, a scheduler-style call must NOT auto-send it.
+    await updateSettings({ businessAddress: "Artifex Labs Systems LLC, 5 Ops Ave, Los Angeles, CA 90001" });
+    const again = await dispatchStep(step.id); // no operatorRetry
+    expect(again.outcome).toBe("failed");
+    expect(rf.calls.send).toBe(0); // never contacted the provider
+    expect((await getEmailSendByKey(`step:${step.id}`))!.status).toBe("failed");
+  });
+
+  it("an operator retry does NOT resurrect a GENUINE terminal failure (provider validation reject)", async () => {
+    const rf = resendFetch({ send: () => 422 }); // hard validation reject
+    global.fetch = rf.fn;
+    const lead = await seedLead();
+    const { step } = await seedApprovedPlan(lead.id);
+
+    expect((await dispatchStep(step.id)).outcome).toBe("failed");
+    expect((await getEmailSendByKey(`step:${step.id}`))!.lastErrorCode).toBe("validation");
+    const retry = await dispatchStep(step.id, { operatorRetry: true });
+    expect(retry.outcome).toBe("failed");
+    expect(retry.reason).not.toMatch(/previously failed permanently/i);
+    expect(rf.calls.send).toBe(1); // the terminal row blocked a second provider contact
+  });
+
+  it("repeated concurrent operator retries of a recovered config failure deliver at most once", async () => {
+    const rf = resendFetchWithHeaders();
+    global.fetch = rf.fn;
+    const { step } = await seedMissingPostal();
+    await dispatchStep(step.id); // fail (missing postal)
+    await updateSettings({ businessAddress: "Artifex Labs Systems LLC, 5 Ops Ave, Los Angeles, CA 90001" });
+
+    const results = await Promise.all([
+      dispatchStep(step.id, { operatorRetry: true }),
+      dispatchStep(step.id, { operatorRetry: true }),
+      dispatchStep(step.id, { operatorRetry: true }),
+    ]);
+    expect(results.filter((r) => r.outcome === "sent")).toHaveLength(1); // exactly one wins
+    expect(rf.calls.send).toBe(1);
+    expect((await emailSendsForPlan((await getStep(step.id))!.planId))).toHaveLength(1); // still one ledger row
   });
 });
 

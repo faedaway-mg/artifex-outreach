@@ -180,7 +180,10 @@ async function sendNext(leadId: string, mode: "intro" | "followup", veed?: VeedV
     }
   }
 
-  const res = await dispatchStep(step.id);
+  // This is the OPERATOR path (Approve & Send / "Try send again"). A prior CONFIG/TRANSIENT failure
+  // (e.g. a missing footer postal address, sending temporarily off) may be re-claimed and retried here;
+  // a genuine hard-stop stays terminal with its specific reason. The automatic scheduler never sets this.
+  const res = await dispatchStep(step.id, { operatorRetry: true });
   switch (res.outcome) {
     case "sent":
     case "deduped":

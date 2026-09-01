@@ -13,6 +13,7 @@ import { useRouter } from "next/navigation";
 import { ChevronDown, Check, ArrowRight, AlertTriangle, Clock, Mail, Paperclip } from "lucide-react";
 import { sendIntroductionAction, sendFollowUpAction } from "@/lib/outreach/send-actions";
 import { completeTaskAction } from "@/lib/actions";
+import type { SendStateView } from "@/lib/comms/failure-classification";
 
 export interface EmailDecisionProps {
   leadId: string;
@@ -38,6 +39,10 @@ export interface EmailDecisionProps {
   taskId: string | null;
   nextHref: string;
   isLast: boolean;
+  /** The persisted state of the most recent send attempt for this lead — so a prior failure shows a
+   *  SPECIFIC, honest reason (not a generic "failed permanently"), whether the provider was contacted,
+   *  and whether "Try send again" can actually reach the provider. Null when there's no prior failure. */
+  sendState?: SendStateView | null;
   /** Present on projected follow-ups — read from the authoritative acquisition step. */
   sequence?: {
     followUpNumber: number;
@@ -190,6 +195,24 @@ export function EmailDecision(p: EmailDecisionProps) {
           </div>
         )}
 
+        {/* Persisted prior-attempt state — a SPECIFIC, honest reason (never a generic "failed
+            permanently"), whether Resend was contacted, when it failed, and whether a retry is real.
+            Hidden once a fresh click produces a live result (`note`). */}
+        {!note && p.sendState && (
+          <div className={`mt-3 flex items-start gap-1.5 rounded-lg border p-2.5 text-[12.5px] ${p.sendState.retryAvailable ? "border-amber-400/20 bg-amber-400/[0.05] text-amber-200" : "border-rose-400/25 bg-rose-400/[0.06] text-rose-200"}`}>
+            <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+            <div>
+              <p className="font-medium">{p.sendState.headline}</p>
+              <p className="mt-0.5 text-chalk-400">{p.sendState.detail}</p>
+              <p className="mt-1 text-[11px] text-chalk-500">
+                {p.sendState.resendContacted ? "Resend was contacted for the last attempt." : "Resend was never contacted — nothing was delivered."}
+                {p.sendState.failedAt ? ` · ${new Date(p.sendState.failedAt).toLocaleString()}` : ""}
+                {p.sendState.retryAvailable ? " · Ready to retry." : " · Retry unavailable."}
+              </p>
+            </div>
+          </div>
+        )}
+
         {note && (
           <p className="mt-3 flex items-start gap-1.5 rounded-lg border border-amber-400/20 bg-amber-400/[0.05] p-2.5 text-[12.5px] text-amber-200">
             <AlertTriangle size={14} className="mt-0.5 shrink-0" /> {note}
@@ -201,7 +224,14 @@ export function EmailDecision(p: EmailDecisionProps) {
           bottom nav, so the sticky bar sits just above the viewport edge. */}
       <div className="sticky bottom-[calc(env(safe-area-inset-bottom)_+_1rem)] z-10 space-y-2 md:static md:bottom-auto">
         <button onClick={approveSend} disabled={pending || p.reviewReady === false} className="btn-primary w-full justify-center !py-3 text-[15px] disabled:opacity-50">
-          <Check size={17} /> {p.reviewReady === false ? "Review needs attention" : pending ? "Sending…" : note ? "Try send again" : edited ? "Send edited email" : "Send email"} <ArrowRight size={16} />
+          <Check size={17} /> {
+            p.reviewReady === false ? "Review needs attention"
+              : pending ? "Sending…"
+              : note ? "Try send again"
+              : (p.sendState && p.sendState.retryAvailable) ? "Try send again"
+              : edited ? "Send edited email"
+              : "Send email"
+          } <ArrowRight size={16} />
         </button>
         <div className="flex gap-2">
           {note

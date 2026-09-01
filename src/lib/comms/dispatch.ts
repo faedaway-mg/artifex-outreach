@@ -27,6 +27,7 @@ import { escapeHtml } from "../outreach/email-render";
 import { resolveApprovedArtifactForSend } from "../outreach/resolve-approved-artifact";
 import type { BusinessProfile } from "../business-intelligence/types";
 import { isSent, backoffMs, MAX_ATTEMPTS, STUCK_SENDING_MS } from "./state";
+import { retryEligibility, terminalFailureReason } from "./failure-classification";
 import { threadingHeaders, priorEmailSteps, reSubject, domainFromAddress } from "./threading";
 import { receptivitySignalsFrom, receptivityScore } from "../acquisition/receptivity";
 import { marketTierOf } from "../geo-market";
@@ -71,7 +72,7 @@ async function advancePlan(plan: AcquisitionPlan, sentStep: AcquisitionStep): Pr
   }
 }
 
-export async function dispatchStep(stepId: string, opts: { now?: Date } = {}): Promise<DispatchResult> {
+export async function dispatchStep(stepId: string, opts: { now?: Date; operatorRetry?: boolean } = {}): Promise<DispatchResult> {
   const now = opts.now ?? new Date();
   const nowIso = iso(now);
 
@@ -119,8 +120,25 @@ export async function dispatchStep(stepId: string, opts: { now?: Date } = {}): P
   if (!claim.inserted) {
     // A row already exists — decide by its current state.
     if (isSent(sendRow.status)) return { stepId, outcome: "deduped", reason: `already ${sendRow.status}`, providerMessageId: sendRow.providerMessageId, sendId: sendRow.id };
-    if (sendRow.status === "failed") return { stepId, outcome: "failed", reason: "previously failed permanently", sendId: sendRow.id };
-    if (sendRow.status === "sending") {
+    if (sendRow.status === "failed") {
+      // A prior attempt failed. Whether "Try send again" is real depends on WHY it failed:
+      //  • a GENUINE hard-stop (suppressed / unsubscribed / invalid recipient / provider rejection),
+      //    or a message the provider may already have accepted (ambiguous) → stays terminal, with the
+      //    SPECIFIC reason (never the old generic "previously failed permanently").
+      //  • a CONFIG / TRANSIENT / INTERNAL failure that never reached the provider (e.g. the footer's
+      //    postal address was missing, sending was off, a temporary 5xx) → an OPERATOR retry re-claims
+      //    the SAME ledger row (lineage preserved) and re-runs every dispatch-time check below. The
+      //    automatic scheduler NEVER does this (no operatorRetry), so a failure is never silently resent.
+      const elig = retryEligibility(sendRow);
+      if (!opts.operatorRetry || !elig.retryable) {
+        return { stepId, outcome: "failed", reason: terminalFailureReason(sendRow), sendId: sendRow.id };
+      }
+      const priorErrorCode = sendRow.lastErrorCode ?? null;
+      const reclaimed = await casEmailSendStatus(sendRow.id, "failed", { status: "sending", sendingAt: nowIso, attempts: sendRow.attempts + 1, failedAt: null, nextAttemptAt: null });
+      if (!reclaimed) return { stepId, outcome: "skipped", reason: "retry already claimed by another attempt", sendId: sendRow.id };
+      sendRow = reclaimed;
+      await appendAudit({ action: "email.send.retry", actor: "operator", targetType: "lead", targetId: lead.id, meta: { sendId: sendRow.id, stepId, priorErrorCode, attempt: sendRow.attempts }, ip: null });
+    } else if (sendRow.status === "sending") {
       const age = now.getTime() - (sendRow.sendingAt ? +new Date(sendRow.sendingAt) : 0);
       if (age < STUCK_SENDING_MS) return { stepId, outcome: "skipped", reason: "send in progress", sendId: sendRow.id };
       // Stale (crashed mid-send) → reclaim.
@@ -231,10 +249,17 @@ export async function dispatchStep(stepId: string, opts: { now?: Date } = {}): P
   const pdfAttachment = attachmentSha256 && attachments && attachments[0]
     ? toFrozenAttachment({ pdfBase64: attachments[0].content, filename: attachments[0].filename, sha256: attachmentSha256 })
     : null;
+  // ATTEMPT-SCOPED provider idempotency key (lineage retained via the `step:<id>` prefix). The durable
+  // ledger row keeps its stable key (`step:<id>`) as the duplicate-DELIVERY guard; the PROVIDER key is
+  // per-attempt so a prior FAILED attempt can never falsely satisfy the provider's dedup on a genuine
+  // retry — while our status CAS still guarantees at most one in-flight submit per step.
+  const providerIdempotencyKey = `${key}:a${sendRow.attempts}`;
   const built = buildColdDispatchFromEmail({
     leadId: lead.id, recipient: lead.publicEmail!, subject, bodyText: text, bodyHtml: htmlBody,
-    classification, idempotencyKey: key, pdf: pdfAttachment,
+    classification, idempotencyKey: providerIdempotencyKey, pdf: pdfAttachment,
     threading: { messageId: threading["Message-ID"], inReplyTo: threading["In-Reply-To"], references: threading["References"] },
+    // CAN-SPAM footer postal fallback: operator-configured Settings address when COMMS_POSTAL_ADDRESS is unset.
+    postal: settings.businessAddress,
   });
   if (!built.ok) {
     // FAIL CLOSED — no postal address or unsubscribe secret means no compliant message can exist.

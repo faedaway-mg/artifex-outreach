@@ -14,8 +14,12 @@ import { mintUnsubToken } from "./unsubscribe-token";
 
 export const LEGAL_IDENTITY = "Artifex Labs Systems LLC";
 
-function postalAddress(): string {
-  return (process.env.COMMS_POSTAL_ADDRESS ?? "").trim();
+/** The postal address for the CAN-SPAM footer. The deployment-level COMMS_POSTAL_ADDRESS wins; when it
+ *  is unset, the operator-configured Settings "Business mailing address" (`fallback`) is used, so the
+ *  compliant footer can assemble without a redeploy. Never invented — one of the two must be present. */
+function postalAddress(fallback?: string): string {
+  const env = (process.env.COMMS_POSTAL_ADDRESS ?? "").trim();
+  return env || (fallback ?? "").trim();
 }
 function publicBase(): string | null {
   const b = process.env.PUBLIC_BASE_URL || process.env.APP_BASE_URL || process.env.NEXT_PUBLIC_APP_URL;
@@ -40,10 +44,10 @@ export interface CommercialFooter { html: string; text: string; unsubscribeUrl: 
  * Build the compliant footer for (leadId, recipient). FAIL CLOSED when the postal address, identity,
  * a valid recipient, or an unsubscribe URL (needs COMMS_UNSUBSCRIBE_SECRET + a public base) is absent.
  */
-export function buildCommercialFooter(input: { leadId: string; recipient: string }): { ok: true; footer: CommercialFooter } | { ok: false; reason: FooterFailReason } {
+export function buildCommercialFooter(input: { leadId: string; recipient: string; postal?: string }): { ok: true; footer: CommercialFooter } | { ok: false; reason: FooterFailReason } {
   if (!validEmail(input.recipient)) return { ok: false, reason: "invalid-recipient" };
   if (!LEGAL_IDENTITY) return { ok: false, reason: "no-identity" };
-  const postal = postalAddress();
+  const postal = postalAddress(input.postal);
   if (!postal) return { ok: false, reason: "no-postal" };
   const url = unsubscribeUrl(input.leadId, input.recipient);
   if (!url) return { ok: false, reason: "no-unsubscribe-url" };
@@ -63,11 +67,11 @@ export function buildCommercialFooter(input: { leadId: string; recipient: string
 }
 
 /** Assemble the full commercial message (append the footer to the body). Fail-closed via the footer. */
-export function assembleCommercialMessage(input: { leadId: string; recipient: string; subject: string; bodyHtml: string; bodyText: string }):
+export function assembleCommercialMessage(input: { leadId: string; recipient: string; subject: string; bodyHtml: string; bodyText: string; postal?: string }):
   | { ok: true; html: string; text: string; unsubscribeUrl: string }
   | { ok: false; reason: FooterFailReason | "no-subject" } {
   if (!input.subject || !input.subject.trim()) return { ok: false, reason: "no-subject" };
-  const f = buildCommercialFooter({ leadId: input.leadId, recipient: input.recipient });
+  const f = buildCommercialFooter({ leadId: input.leadId, recipient: input.recipient, postal: input.postal });
   if (!f.ok) return f;
   return { ok: true, html: `${input.bodyHtml}${f.footer.html}`, text: `${input.bodyText}${f.footer.text}`, unsubscribeUrl: f.footer.unsubscribeUrl };
 }

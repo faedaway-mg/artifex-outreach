@@ -37,6 +37,23 @@ describe("commercial message assembler — CAN-SPAM footer, fail-closed", () => 
     expect(buildCommercialFooter({ leadId: LEAD, recipient: REC })).toEqual({ ok: false, reason: "no-postal" });
   });
 
+  it("POSTAL FALLBACK: when COMMS_POSTAL_ADDRESS env is unset, the operator-configured Settings address is used", () => {
+    delete process.env.COMMS_POSTAL_ADDRESS;
+    const r = buildCommercialFooter({ leadId: LEAD, recipient: REC, postal: "Artifex Labs Systems LLC, 5 Ops Ave, Los Angeles, CA 90001" });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.footer.text).toContain("5 Ops Ave");
+    expect(r.footer.html).toContain("5 Ops Ave");
+  });
+
+  it("POSTAL PRECEDENCE: the deployment-level env address wins over the Settings fallback when both exist", () => {
+    const r = buildCommercialFooter({ leadId: LEAD, recipient: REC, postal: "SHOULD-NOT-APPEAR Ave" });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.footer.text).toContain("123 Test St"); // env value from beforeEach
+    expect(r.footer.text).not.toContain("SHOULD-NOT-APPEAR");
+  });
+
   it("FAIL CLOSED: missing unsubscribe secret → no URL → no footer", () => {
     delete process.env.COMMS_UNSUBSCRIBE_SECRET;
     expect(buildCommercialFooter({ leadId: LEAD, recipient: REC })).toEqual({ ok: false, reason: "no-unsubscribe-url" });
