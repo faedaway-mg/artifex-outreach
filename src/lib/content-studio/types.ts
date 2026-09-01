@@ -59,6 +59,8 @@ export interface Piece {
   businessId?: string | null; // lead id for a client-<leadId> piece
   narrationEvidence?: import("./template-schema").NarrationEvidence[]; // receipt per material narration line
   evidenceState?: "evidence-backed" | "needs-evidence";
+  evidenceDeficiency?: string | null; // exact deficiency to show when needs-evidence (stale script hidden)
+  hasArchivedNarration?: boolean;     // a prior script is preserved in revision history
   revision?: number;
   ownerEdited?: boolean;
   screenshotRel?: string | null; // authenticated route to the business's captured website screenshot

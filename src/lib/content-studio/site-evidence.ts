@@ -74,6 +74,13 @@ export interface ObservedFinding {
   reproduction: string[];      // operator-checkable steps
   sourcePageUrl: string;       // the exact page the evidence lives on (the screenshot target)
   sourcePageTitle: string;
+  // The concrete Artifex intervention this finding supports — used by the value-dense narration
+  // composer (client-narration.ts). Buildable and specific, never a generic consulting phrase.
+  recommendation: string;
+  // Exact observed details the narration references verbatim (a measured pixel count, the page that
+  // was reviewed, how a visitor can currently reach the business). Keeps the composed script bound to
+  // real facts — deterministic personalization, not name substitution.
+  details: Record<string, string | number | boolean>;
 }
 
 // The exact hedging/inference vocabulary the review-evidence gate rejects (review-evidence.ts
@@ -101,6 +108,26 @@ function isIntakeForm(f: FormFacts): boolean {
 
 const list = (xs: string[]): string => xs.length <= 1 ? (xs[0] ?? "") : xs.slice(0, -1).join(", ") + " and " + xs[xs.length - 1];
 
+// A human page label for the narration ("the homepage", "the contact page") from a page role.
+const PAGE_LABEL: Record<PageRole, string> = {
+  home: "the homepage", contact: "the contact page", services: "the services page",
+  booking: "the booking page", about: "the about page", other: "that page",
+};
+export function pageLabelOf(role: PageRole): string { return PAGE_LABEL[role] ?? "that page"; }
+
+// The single service word for a booking-expected vertical, for a natural narration ("book a massage").
+function serviceWord(industry: string | null | undefined, businessName: string): string {
+  const s = `${industry ?? ""} ${businessName}`.toLowerCase();
+  if (/massage/.test(s)) return "massage";
+  if (/dent|orthodont/.test(s)) return "dental visit";
+  if (/salon|barber|beauty|nail/.test(s)) return "appointment";
+  if (/spa|medspa|derma/.test(s)) return "treatment";
+  if (/chiro|physical therapy|physio/.test(s)) return "session";
+  if (/vet|veterinar/.test(s)) return "visit";
+  if (/fitness|pilates|yoga/.test(s)) return "class";
+  return "appointment";
+}
+
 // ── The derivation. Each rule returns a finding ONLY when a concrete fact supports it. ──────────────
 // Rules are ordered strongest-first; the caller keeps a distinct-topic subset. Nothing here fabricates:
 // if the facts don't support a rule, it emits nothing (and a site can legitimately yield ZERO findings).
@@ -121,6 +148,8 @@ export function deriveObservedFindings(site: SiteEvidence): ObservedFinding[] {
       basis: [home.finalUrl, `measured at ${home.viewportWidth}px viewport: document width exceeds the screen by ${home.overflowPx}px (horizontal scroll present)`],
       reproduction: ["Open the homepage on a phone, or in a browser window set to 390px wide.", "The page scrolls sideways / content runs past the right edge."],
       sourcePageUrl: home.finalUrl, sourcePageTitle: home.title,
+      recommendation: "rebuild the homepage to reflow to the width of the screen it opens on",
+      details: { kind: "overflow", viewportWidth: home.viewportWidth, overflowPx: home.overflowPx },
     });
   } else if (!home.hasViewportMeta) {
     // Same topic as overflow (only one "mobile" finding survives), used when there's no overflow but the
@@ -132,6 +161,8 @@ export function deriveObservedFindings(site: SiteEvidence): ObservedFinding[] {
       basis: [home.finalUrl, "no <meta name=\"viewport\"> element in the homepage HTML"],
       reproduction: ["Open the homepage on a phone.", "The whole desktop layout is scaled down; text is tiny until you pinch-zoom."],
       sourcePageUrl: home.finalUrl, sourcePageTitle: home.title,
+      recommendation: "rebuild the homepage to reflow to the phone instead of shrinking the desktop page",
+      details: { kind: "no-viewport", viewportWidth: home.viewportWidth },
     });
   }
 
@@ -149,6 +180,8 @@ export function deriveObservedFindings(site: SiteEvidence): ObservedFinding[] {
       basis: [contactPage.finalUrl, `no <form> with a name/email/message field on ${inspected} inspected pages (contact page included: ${contactPage.finalUrl})`, ...pageUrls.slice(0, 4)],
       reproduction: ["Open the site's Contact page.", `Confirm there is no form to fill in — only ${reach}.`],
       sourcePageUrl: contactPage.finalUrl, sourcePageTitle: contactPage.title,
+      recommendation: "add a short intake form that routes name, need, and contact straight to your inbox",
+      details: { inspected, reach, hasMail },
     });
   }
 
@@ -163,6 +196,8 @@ export function deriveObservedFindings(site: SiteEvidence): ObservedFinding[] {
       basis: [home.finalUrl, `no scheduling widget or "book"/"schedule" affordance found across ${inspected} inspected pages`, ...pageUrls.slice(0, 4)],
       reproduction: ["Look for a Book / Schedule / Request Appointment control on the homepage and services page.", "Confirm booking is phone-only."],
       sourcePageUrl: home.finalUrl, sourcePageTitle: home.title,
+      recommendation: "add a booking flow where a customer picks a service, a time, and gets a confirmation",
+      details: { inspected, serviceWord: serviceWord(site.industry, site.businessName) },
     });
   }
 
@@ -176,6 +211,8 @@ export function deriveObservedFindings(site: SiteEvidence): ObservedFinding[] {
       basis: [home.finalUrl, `${ctas.length} prominent above-the-fold CTAs: ${ctas.slice(0, 6).join(" | ")}`],
       reproduction: ["Open the homepage.", `Count the equally-weighted primary buttons above the fold — there are ${ctas.length}.`],
       sourcePageUrl: home.finalUrl, sourcePageTitle: home.title,
+      recommendation: "give the homepage one emphasized primary action and step the rest down",
+      details: { ctaCount: ctas.length, ctaLabels: ctas.slice(0, 4).join(", ") },
     });
   }
 
@@ -188,6 +225,8 @@ export function deriveObservedFindings(site: SiteEvidence): ObservedFinding[] {
       basis: [home.finalUrl, `${home.navItemCount} top-level nav items: ${home.navItems.slice(0, 10).join(" | ")}`],
       reproduction: ["Open the homepage.", `Count the top-level menu entries — there are ${home.navItemCount}.`],
       sourcePageUrl: home.finalUrl, sourcePageTitle: home.title,
+      recommendation: "trim the menu to the few destinations customers actually use",
+      details: { navCount: home.navItemCount },
     });
   }
 
@@ -202,6 +241,8 @@ export function deriveObservedFindings(site: SiteEvidence): ObservedFinding[] {
       basis: [placeholderPage.finalUrl, `placeholder/template text present on ${placeholderPage.finalUrl}: "${sample}"`],
       reproduction: [`Open ${placeholderPage.finalUrl}.`, `Find the placeholder text: "${sample}".`],
       sourcePageUrl: placeholderPage.finalUrl, sourcePageTitle: placeholderPage.title,
+      recommendation: "replace the placeholder text with finished, on-brand copy",
+      details: { pageRole: placeholderPage.role, sample },
     });
   }
 
@@ -214,6 +255,8 @@ export function deriveObservedFindings(site: SiteEvidence): ObservedFinding[] {
       basis: [home.finalUrl, `${home.brokenAssets} homepage resources returned >=400: ${home.brokenAssetSamples.slice(0, 4).join(" | ")}`],
       reproduction: ["Open the homepage.", `Follow the flagged links/images: ${home.brokenAssetSamples.slice(0, 2).join(" ; ")}.`],
       sourcePageUrl: home.finalUrl, sourcePageTitle: home.title,
+      recommendation: "repair the broken links and images so the top of the page loads cleanly",
+      details: { count: home.brokenAssets },
     });
   }
 
@@ -230,6 +273,8 @@ export function deriveObservedFindings(site: SiteEvidence): ObservedFinding[] {
       basis: [home.finalUrl, `header name "${home.headerName}" vs footer name "${home.footerName}" on ${home.finalUrl}`],
       reproduction: ["Open the homepage.", "Compare the name in the header to the name in the footer."],
       sourcePageUrl: home.finalUrl, sourcePageTitle: home.title,
+      recommendation: "standardize the name across the title, header, and footer",
+      details: { headerName: home.headerName, footerName: home.footerName },
     });
   }
 

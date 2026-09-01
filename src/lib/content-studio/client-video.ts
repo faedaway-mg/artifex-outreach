@@ -9,6 +9,7 @@ import type { FindingPresentation } from "../outreach/review-hooks";
 import type { ReviewFinding } from "../outreach/review-evidence";
 import { reviewVideoReadiness, type ReviewVideoReadiness } from "../review-video/readiness";
 import type { Beat, ContentTemplate, NarrationEvidence } from "./template-schema";
+import type { ComposedNarration } from "./client-narration";
 
 function clip(s: string, n: number): string { return s.length > n ? s.slice(0, n - 1).trimEnd() + "…" : s; }
 
@@ -70,6 +71,70 @@ export interface BusinessTemplateResult {
   blockedReason?: string;
 }
 
+// Build the narration + beats + per-line receipts from a value-dense composed script (client-narration.ts).
+// The six-beat script REPLACES the terse finding-title narration, but the material lines stay bound to the
+// same evidence: the FRICTION beat is the finding (screenshot-backed), the SOLUTION beat is the starting
+// point. Framing beats (hook/consequence/value/close) carry no claim. Keeps the evidence gate satisfied.
+function buildFromComposed(
+  composed: ComposedNarration,
+  review: QuickReview,
+  screenshots?: ScreenshotByFinding,
+): { narration: string[]; beats: Beat[]; narrationEvidence: NarrationEvidence[] } {
+  const finding = review.findings[0];
+  const presentation = review.presentations[0];
+  const sp = review.start;
+  const narration: string[] = [];
+  const beats: Beat[] = [];
+  const narrationEvidence: NarrationEvidence[] = [];
+
+  for (const line of composed.lines) {
+    const idx = narration.length;
+    narration.push(clip(line.text, 200));
+    switch (line.role) {
+      case "hook":
+        beats.push({ type: "title", lines: [idx], mood: "problem", eyebrow: "BUSINESS TECHNOLOGY REVIEW", headline: clip(review.openingHook || review.businessName || "A quick look", 120), sub: clip(review.businessName || "", 160) });
+        narrationEvidence.push({ line: idx, kind: "framing", basis: ["Opening — the customer moment this review is about"] });
+        break;
+      case "friction":
+        // The one MATERIAL finding beat — its interior evidence frame proves it. Bound to the finding's
+        // evidence + the SHA-verified screenshot, exactly as the non-composed path binds finding lines.
+        beats.push(presentation ? findingBeat(presentation, idx) : { type: "statement", lines: [idx], mood: "problem", text: clip(line.text, 160), size: "h2" });
+        narrationEvidence.push(finding ? findingEvidence(idx, finding, screenshots?.[finding.id]) : { line: idx, kind: "finding", basis: [clip(line.text, 200)] });
+        break;
+      case "consequence":
+        beats.push({ type: "statement", lines: [idx], mood: "problem", text: clip(line.text, 160), size: "h3" });
+        narrationEvidence.push({ line: idx, kind: "framing", basis: ["Consequence — assessed impact of the finding above"] });
+        break;
+      case "solution": {
+        beats.push({ type: "chain", lines: [idx], mood: "turn", caption: "WHERE WE'D START", nodes: [
+          { label: "TODAY", state: "gap" },
+          { label: clip((sp?.label || "THE FIX").toUpperCase(), 24), state: "on" },
+          { label: "RESULT", state: "on" },
+        ] });
+        const src = review.findings.find((ff) => ff.id === sp?.sourceFindingId) ?? finding;
+        narrationEvidence.push({
+          line: idx, kind: "starting-point",
+          confidence: src?.evidence.confidence, topic: src?.topic,
+          sourceLabel: src?.evidence.displayLabel || sp?.proofReference || undefined,
+          sourceUrl: src?.evidence.sourceUrl || undefined,
+          basis: [sp?.proofReference, ...(src?.evidence.basis ?? [])].filter(Boolean).slice(0, 6).map((b) => String(b).slice(0, 200)),
+          screenshotKey: (src && screenshots?.[src.id]) || src?.evidence.screenshotRef || undefined,
+        });
+        break;
+      }
+      case "value":
+        beats.push({ type: "statement", lines: [idx], mood: "resolve", text: clip(line.text, 160), size: "h3" });
+        narrationEvidence.push({ line: idx, kind: "framing", basis: ["Practical value — how the change helps customers"] });
+        break;
+      case "close":
+        beats.push({ type: "brand", lines: [idx], mood: "resolve", tagline: "A focused review from Artifex Labs." });
+        narrationEvidence.push({ line: idx, kind: "framing", basis: ["Credible close — a concrete Artifex offer"] });
+        break;
+    }
+  }
+  return { narration, beats, narrationEvidence };
+}
+
 // Build a business video template from a Quick Review. Honors TWO gates, in order:
 //   1) the existing readiness/eligibility gate (an ineligible, non-overridable review yields NO template);
 //   2) the section-F evidence gate — a review with only ratings/reviews (no specific demonstrable finding)
@@ -77,7 +142,7 @@ export interface BusinessTemplateResult {
 // Every material narration line is bound to its finding's evidence in `narrationEvidence`.
 export function buildBusinessTemplate(
   review: QuickReview,
-  opts: { leadId: string; allowOverride?: boolean; screenshots?: ScreenshotByFinding },
+  opts: { leadId: string; allowOverride?: boolean; screenshots?: ScreenshotByFinding; composedNarration?: ComposedNarration | null },
 ): BusinessTemplateResult {
   const readiness = reviewVideoReadiness(review);
   if (!readiness.eligible && !(readiness.overridable && opts.allowOverride)) {
@@ -96,6 +161,33 @@ export function buildBusinessTemplate(
 
   const name = review.businessName || "this business";
   const presentations = review.presentations.slice(0, 3);
+
+  // Value-dense path (narration-quality mandate): when a composed six-beat script is supplied, it REPLACES
+  // the terse finding-title narration while keeping every material line bound to the same evidence.
+  if (opts.composedNarration) {
+    const { narration, beats, narrationEvidence } = buildFromComposed(opts.composedNarration, review, opts.screenshots);
+    const template: ContentTemplate = {
+      version: 1,
+      id: `client-${opts.leadId}`.replace(/[^0-9a-z_-]/gi, "-").slice(0, 40),
+      title: clip(`${name} — review`, 80),
+      concept: clip(review.openingHook || `Evidence-backed review for ${name}`, 120),
+      businessId: opts.leadId,
+      businessName: name,
+      seed: 20260200,
+      narration,
+      beats,
+      thumbnail: {
+        headline: [clip(name, 24)],
+        secondary: clip(review.openingHook || "Business technology review", 60),
+        art: "statusCard",
+        rows: presentations.slice(0, 3).map((p) => ({ label: clip(p.title, 24), value: p.visualHook.primaryValue ? clip(p.visualHook.primaryValue, 40) : "reviewed" })),
+      },
+      narrationEvidence,
+      evidenceState: "evidence-backed",
+      revision: 1,
+    };
+    return { readiness, template, evidenceState: "evidence-backed", narrationNote: `Value-dense script (${opts.composedNarration.wordCount} words, ${opts.composedNarration.lines.length} beats) — hook → friction → consequence → solution → value → close; friction bound to the finding, solution to the starting point.` };
+  }
 
   // Narration = the operator's script, assembled from evidence (opening hook → each finding → the
   // recommended starting point → a soft close). One line per beat, in order. Every material line gets a

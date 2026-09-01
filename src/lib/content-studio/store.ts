@@ -278,6 +278,8 @@ export async function getPieces(): Promise<Piece[]> {
       businessId: t.businessId ?? null,
       narrationEvidence: t.narrationEvidence ?? [],
       evidenceState: t.evidenceState,
+      evidenceDeficiency: (t as { evidenceDeficiency?: string }).evidenceDeficiency ?? null,
+      hasArchivedNarration: (((t as { revisionHistory?: unknown[] }).revisionHistory)?.length ?? 0) > 0,
       revision: t.revision,
       ownerEdited: t.ownerEdited ?? false,
       // The business's live captured screenshot (section G), served by the authenticated route. Only for

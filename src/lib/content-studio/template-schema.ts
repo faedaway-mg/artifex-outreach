@@ -142,6 +142,19 @@ export const templateSchema = z.object({
   revision: z.number().int().min(1).optional(),        // bumped on every persisted regeneration
   ownerEdited: z.boolean().optional(),                  // true once an operator hand-edits the script
   ownerEditedAt: z.string().max(40).optional(),
+  // The exact evidence deficiency to SHOW when evidenceState is "needs-evidence" — so the UI can explain
+  // why the active script is withheld instead of displaying a stale, generic one as current content.
+  evidenceDeficiency: z.string().max(400).optional(),
+  // Archived prior narrations (narration-quality mandate: "preserve it only in revision history"). When a
+  // project flips to needs-evidence, its previously-approved/generated script moves here — never shown as
+  // current content, but never lost either.
+  revisionHistory: z.array(z.object({
+    revision: z.number().int().min(0).optional(),
+    archivedAt: z.string().max(40),
+    reason: z.string().max(200),
+    evidenceState: z.enum(["evidence-backed", "needs-evidence"]).optional(),
+    narration: z.array(z.string().max(200)).max(12),
+  })).max(20).optional(),
 });
 export type ContentTemplate = z.infer<typeof templateSchema>;
 

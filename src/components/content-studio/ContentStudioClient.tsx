@@ -594,6 +594,9 @@ function PieceDetail({ item, onChanged, setJobOverride }: { item: StudioItem; on
   // Honest lifecycle (section I-D): one derived state from real server truth. Client videos also need a
   // verified screenshot before the single Generate action unlocks.
   const isClientPiece = piece.id.startsWith("client-");
+  // A client project whose evidence hasn't cleared the gate: hide its (possibly stale) script from the
+  // active voiceover workflow and disable Copy / Upload / Generate until a supported finding is captured.
+  const needsEvidence = isClientPiece && piece.evidenceState === "needs-evidence";
   const hasScreenshot = !isClientPiece || !!piece.screenshotReady;
   const lifecycle = renderLifecycle({
     renderable: piece.renderable, isClient: isClientPiece, hasAudio: hasUpload, hasScreenshot,
@@ -682,9 +685,18 @@ function PieceDetail({ item, onChanged, setJobOverride }: { item: StudioItem; on
       <div className="card p-4">
         <div className="mb-2 flex items-center justify-between">
           <h4 className="text-sm font-semibold text-chalk-100">Narration script</h4>
-          {narrationText && <CopyBtn text={narrationText} label="Copy narration" />}
+          {!needsEvidence && narrationText && <CopyBtn text={narrationText} label="Copy narration" />}
         </div>
-        {narrationText ? (
+        {needsEvidence ? (
+          // Section A: a needs-evidence project must NOT present a stale/generic script as recordable
+          // content. Hide the narration entirely and show the exact deficiency instead. The prior script,
+          // if any, is preserved in revision history — never shown here as current.
+          <div className="rounded-xl border border-amber-400/25 bg-amber-400/[0.06] p-3">
+            <p className="flex items-center gap-1.5 text-xs font-semibold text-amber-200"><CircleAlert size={14} /> Needs evidence — no active script</p>
+            <p className="mt-1.5 text-xs leading-relaxed text-amber-100/80">{piece.evidenceDeficiency || "No directly-observed website finding yet. Capture the site deeper before a script can be written."}</p>
+            <p className="mt-2 text-[11px] leading-relaxed text-chalk-500">Copy narration, voiceover upload, and Generate are disabled until a supported finding is captured.{piece.hasArchivedNarration ? " The previous script is preserved in revision history, not shown here." : ""}</p>
+          </div>
+        ) : narrationText ? (
           <ol className="space-y-2">
             {piece.narration.map((line, i) => {
               const ev = (piece.narrationEvidence ?? []).find((e) => e.line === i);
@@ -722,8 +734,8 @@ function PieceDetail({ item, onChanged, setJobOverride }: { item: StudioItem; on
         )}
       </div>
 
-      {/* Voiceover upload + playback */}
-      <UploadPanel item={item} onChanged={onChanged} setMsg={setMsg} />
+      {/* Voiceover upload + playback — disabled while a client project needs evidence (nothing to voice yet). */}
+      <UploadPanel item={item} onChanged={onChanged} setMsg={setMsg} disabled={needsEvidence} disabledReason="Needs evidence — capture a supported finding before recording a voiceover." />
 
       {/* Generate */}
       <div className="card p-4">
@@ -902,7 +914,7 @@ function uploadWithProgress(pieceId: string, file: File, durationSeconds: number
   });
 }
 
-function UploadPanel({ item, onChanged, setMsg }: { item: StudioItem; onChanged: () => Promise<void>; setMsg: (m: { tone: "ok" | "err"; text: string } | null) => void }) {
+function UploadPanel({ item, onChanged, setMsg, disabled = false, disabledReason }: { item: StudioItem; onChanged: () => Promise<void>; setMsg: (m: { tone: "ok" | "err"; text: string } | null) => void; disabled?: boolean; disabledReason?: string }) {
   const preview = usePreview();
   const { piece } = item;
   const [uploading, setUploading] = useState(false);
@@ -936,7 +948,15 @@ function UploadPanel({ item, onChanged, setMsg }: { item: StudioItem; onChanged:
     } finally { setRemoving(false); }
   };
 
-  const busy = uploading || removing;
+  const busy = uploading || removing || disabled;
+  if (disabled) {
+    return (
+      <div className="card overflow-hidden p-4">
+        <h4 className="mb-1 text-sm font-semibold text-chalk-100">Your voiceover</h4>
+        <p className="text-xs leading-relaxed text-chalk-500">{disabledReason || "Voiceover upload is disabled for this project."}</p>
+      </div>
+    );
+  }
   return (
     <div className="card overflow-hidden p-4">
       <h4 className="mb-1 text-sm font-semibold text-chalk-100">Your voiceover</h4>

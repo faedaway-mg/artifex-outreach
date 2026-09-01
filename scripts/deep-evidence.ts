@@ -7,11 +7,14 @@
 // Usage (via tsx):
 //   tsx scripts/deep-evidence.ts smoke <url> [industry] [businessName]   — capture+derive one site, print
 //   tsx scripts/deep-evidence.ts leads <leadId,leadId,...>               — from DB, print findings+BreakBot
-//   tsx scripts/deep-evidence.ts persist <leadId,leadId,...>             — also persist opps + screenshot
+//   tsx scripts/deep-evidence.ts narrate <leadId,leadId,...>             — capture + preview value-dense scripts (no writes)
+//   tsx scripts/deep-evidence.ts persist <leadId,leadId,...>             — persist opps + screenshot + value-dense template
+//   tsx scripts/deep-evidence.ts stale <leadId,leadId,...> [deficiency]  — invalidate stale narration → needs-evidence (no capture)
 import postgres from "postgres";
 import { createRequire } from "node:module";
 import { deriveObservedFindings, distinctByTopic, toOpportunities, isSpeculative, type SiteEvidence, type ObservedFinding } from "../src/lib/content-studio/site-evidence";
 import { compareClientScripts } from "../src/lib/content-studio/script-distinctness";
+import { composeClientNarration, assessScriptQuality } from "../src/lib/content-studio/client-narration";
 
 const require = createRequire(import.meta.url);
 
@@ -125,6 +128,30 @@ async function main() {
     return;
   }
 
+  if (mode === "stale") {
+    // Invalidate the ACTIVE narration of client projects that are (or should be) needs-evidence, so a stale
+    // generic script can never keep presenting itself as recordable/approved content. Archives the prior
+    // script into revision history, sets a specific deficiency, and clears any approval. No capture, no send.
+    const ids = (arg || "").split(",").map((s) => s.trim()).filter(Boolean);
+    if (!ids.length) throw new Error("provide comma-separated leadIds");
+    const { loadTemplatePg, saveTemplatePg } = await import("../src/lib/content-studio/cs-lifecycle-pg");
+    const { clearApprovalPg } = await import("../src/lib/content-studio/cs-lifecycle-pg");
+    const { invalidateNarration } = await import("../src/lib/content-studio/stale-content");
+    const deficiency = industry /* 3rd CLI arg reused as an optional deficiency override */
+      || "No directly-observed website finding beyond ratings/reviews — deep multi-page capture surfaced only review-count signal, which cannot be the whole personalization. Capture a supported, demonstrable problem before a script is written.";
+    const now = new Date().toISOString();
+    for (const leadId of ids) {
+      const pieceId = `client-${leadId}`.replace(/[^0-9a-z_-]/gi, "-").slice(0, 40);
+      const tpl: any = await loadTemplatePg(pieceId).catch(() => null);
+      if (!tpl) { console.log(`stale: ${pieceId} — no template, skipped`); continue; }
+      const res = invalidateNarration(tpl, deficiency, now);
+      await saveTemplatePg(res.template);
+      await clearApprovalPg(pieceId).catch(() => {});
+      console.log(`stale: ${pieceId} — changed=${res.changed} archivedLines=${res.archivedLines} evidenceState=${res.template.evidenceState} rev=${res.template.revision} approval cleared`);
+    }
+    return;
+  }
+
   const ids = (arg || "").split(",").map((s) => s.trim()).filter(Boolean);
   if (!ids.length) throw new Error("provide comma-separated leadIds");
   const sql = db();
@@ -151,6 +178,24 @@ async function main() {
       console.log(`\n=== BreakBot across ${scripts.length}: ok=${bb.ok} templateEquivalent=${bb.templateEquivalent}`);
       for (const p of bb.pairs) console.log(`    ${p.a} vs ${p.b}: sim=${p.similarity} sameFindings=${p.sameFindings} equiv=${p.templateEquivalent}`);
     }
+
+    // Preview the VALUE-DENSE composed script + quality gate per winner (no DB writes) — for `leads`/`narrate`.
+    const composedForBreakbot: any[] = [];
+    for (const r of results) {
+      const high = distinctByTopic(r.findings).filter((f) => f.impactLevel === "High").slice(0, 1);
+      if (!high.length) continue;
+      const c = composeClientNarration(high[0], r.row.business_name);
+      const q = assessScriptQuality(c);
+      console.log(`\n--- ${r.row.business_name} — value-dense script [${c.topic}] ${c.wordCount}w qualityOk=${q.ok}${q.ok ? "" : " reasons=" + q.reasons.join("; ")}`);
+      for (const l of c.lines) console.log(`    (${l.role}) ${l.text}`);
+      composedForBreakbot.push({ id: r.row.id, businessName: r.row.business_name, narration: c.lines.map((l) => l.text), findingTopics: [c.topic] });
+    }
+    if (composedForBreakbot.length >= 2) {
+      const bb = compareClientScripts(composedForBreakbot);
+      console.log(`\n=== BreakBot across ${composedForBreakbot.length} COMPOSED scripts: ok=${bb.ok} templateEquivalent=${bb.templateEquivalent}`);
+      for (const p of bb.pairs) console.log(`    ${p.a} vs ${p.b}: sim=${p.similarity} equiv=${p.templateEquivalent}`);
+    }
+    if (mode === "narrate") return;
 
     if (mode === "persist") {
       const art: any = await loadArtifacts();
@@ -197,21 +242,36 @@ async function main() {
         const upd = await sql`UPDATE business_intelligence SET profile=${sql.json(wrapper)}, updated_at=now() WHERE id=${biRow.id} RETURNING id`;
         if (!upd.length) { console.log(`persist: ${r.row.id} — BI UPDATE matched 0 rows (id ${biRow.id})`); }
 
-        // 3) Build the evidence-backed template through the REAL product path, binding the finding's
-        //    screenshot exactly, then verify the honest generation gate PASSES before saving.
+        // 3) Compose the VALUE-DENSE six-beat narration from the finding and run the section-E quality gate
+        //    BEFORE building. A script that can't clear the gate (too generic, no exact detail, prohibited
+        //    phrase, wrong length) does NOT get written — the project stays Needs-evidence, honestly.
+        const composed = composeClientNarration(top, r.row.business_name);
+        const quality = assessScriptQuality(composed);
+        if (!quality.ok) { console.log(`persist: ${r.row.id} — script quality gate FAILED (${quality.wordCount}w): ${quality.reasons.join("; ")} — left Needs-evidence`); continue; }
+
+        // 4) Build the evidence-backed template through the REAL product path with the composed narration,
+        //    binding the finding's screenshot exactly, then verify the honest generation gate PASSES.
         const lead: any = { id: r.row.id, businessName: r.row.business_name, website: r.row.website, city: r.row.city ?? null, state: r.row.state ?? null, industry: r.row.industry ?? null };
         const review = buildQuickReview(lead, wrapper.businessProfile, null, { approved: false });
         const screenshots: Record<string, string> = {};
         if (review.findings[0]) screenshots[review.findings[0].id] = outputKey;
-        const built = buildBusinessTemplate(review, { leadId: r.row.id, screenshots });
+        const built = buildBusinessTemplate(review, { leadId: r.row.id, screenshots, composedNarration: composed });
         if (!built.template || built.evidenceState !== "evidence-backed") { console.log(`persist: ${r.row.id} — template NOT evidence-backed (${built.evidenceState}: ${built.blockedReason ?? ""})`); continue; }
         const gate = assessGenerationEvidence({ template: built.template, liveShot: { outputKey, sha256: shot.sha256, sourceUrl: top.sourcePageUrl, pageTitle: top.sourcePageTitle } });
+        if (!gate.ok) { console.log(`persist: ${r.row.id} — generation gate NOT ok: ${gate.reason} — left unchanged`); continue; }
         const existing = await loadTemplatePg(built.template.id).catch(() => null);
+        // Archive the prior (shallow) narration into revision history before overwriting — preserved, never lost.
+        const priorHist = Array.isArray((existing as any)?.revisionHistory) ? (existing as any).revisionHistory : [];
+        if (existing && Array.isArray((existing as any).narration) && (existing as any).narration.length) {
+          priorHist.push({ revision: (existing as any).revision ?? 0, archivedAt: new Date().toISOString(), reason: "Superseded by value-dense rewrite.", evidenceState: (existing as any).evidenceState, narration: (existing as any).narration.slice(0, 12) });
+        }
+        (built.template as any).revisionHistory = priorHist.slice(-20);
         built.template.revision = ((existing as any)?.revision ?? 0) + 1;
         (built.template as any).ownerEdited = false;
         await saveTemplatePg(built.template);
         builtScripts.push({ id: built.template.id, businessName: built.template.businessName, narration: built.template.narration, findingTopics: [top.topic] });
-        console.log(`persist: ${r.row.id} — topic ${top.topic} | evidenceState=${built.evidenceState} | gate.ok=${gate.ok} scenes=${gate.evidenceScenes} | template ${built.template.id} rev ${built.template.revision} saved`);
+        console.log(`persist: ${r.row.id} — topic ${top.topic} | ${composed.wordCount}w | evidenceState=${built.evidenceState} | gate.ok=${gate.ok} scenes=${gate.evidenceScenes} | template ${built.template.id} rev ${built.template.revision} saved`);
+        console.log(built.template.narration.map((l: string, i: number) => `      ${i}: ${l}`).join("\n"));
       }
       if (builtScripts.length >= 2) {
         const bb = compareClientScripts(builtScripts);
