@@ -119,7 +119,11 @@ export function buildBusinessTemplate(
   const sp = review.start;
   const startIdx = narration.length;
   if (sp) {
-    narration.push(clip(sp.why || sp.intervention, 200));
+    // Prefer the CONCRETE recommended action over generic meta-rationale ("it's the clearest to
+    // evidence…"), and if that would duplicate a finding line, anchor to the specific starting point.
+    const spText = clip(sp.intervention || sp.why || sp.label, 200);
+    const dup = narration.some((l) => l.toLowerCase() === spText.toLowerCase());
+    narration.push(dup ? clip(`Where we'd start: ${sp.label.toLowerCase()}.`, 200) : spText);
     beats.push({ type: "chain", lines: [startIdx], mood: "turn", caption: "WHERE WE'D START", nodes: [
       { label: "TODAY", state: "gap" },
       { label: clip(sp.label.toUpperCase(), 24), state: "on" },
