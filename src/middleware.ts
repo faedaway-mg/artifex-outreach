@@ -23,6 +23,9 @@ export async function middleware(req: NextRequest) {
     // (CRON_SECRET Bearer) each enforce their own auth inside the handler.
     pathname.startsWith("/api/webhooks") ||
     pathname.startsWith("/api/comms") ||
+    // Internal render canary: enforces its own auth in-handler (operator session OR the CS_CANARY_SECRET
+    // header). It can only enqueue a render of an approved-master piece — never sends or touches a prospect.
+    pathname === "/api/content-studio/canary" ||
     pathname.startsWith("/share/previews") ||
     // Public brand assets (the constellation mark PNG) must be fetchable by email
     // clients and browsers without a session, or the mark degrades to alt text.
