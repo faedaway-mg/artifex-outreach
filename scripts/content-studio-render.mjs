@@ -123,6 +123,38 @@ async function resolveThumbnail(note, tplDoc) {
   throw new Error("no thumbnail and no template thumbnail spec to generate one: " + note);
 }
 
+// Section F addendum — composite the SHA-verified screenshot into the INTERIOR finding scene(s). Driven by
+// the job's evidence-led storyboard (bound at generation by the evidence gate). For each evidence scene we
+// materialize + integrity-check the exact screenshot artifact, base64-embed it, and REPLACE the finding
+// beat on that narration line with an evidenceShot beat (screenshot + context chip + the finding caption).
+// The screenshot therefore appears DURING the narration it supports — not merely as the cover / frame zero.
+async function compositeStoryboard(tpl, job) {
+  const scenes = Array.isArray(job.storyboard) ? job.storyboard.filter((s) => s && s.purpose === "evidence" && s.screenshotKey) : [];
+  if (!scenes.length) return { tpl, evidence: [] };
+  const cache = new Map();
+  const byLine = new Map();
+  for (const s of scenes) {
+    let entry = cache.get(s.screenshotKey);
+    if (!entry) {
+      const { path: p, sha256 } = await materializeArtifact(s.screenshotKey, { destDir: TMP, filename: `evshot-${cache.size}.png`, expectedSha: s.screenshotSha ?? null });
+      entry = { img: `data:image/png;base64,${readFileSync(p).toString("base64")}`, sha: sha256, key: s.screenshotKey };
+      cache.set(s.screenshotKey, entry);
+    }
+    if (!byLine.has(s.narrationLine)) byLine.set(s.narrationLine, { line: s.narrationLine, context: s.onScreenContext, caption: s.narration, ...entry });
+  }
+  const matched = new Set();
+  const mkBeat = (e) => ({ type: "evidenceShot", lines: [e.line], mood: "problem", context: e.context || "What visitors see", caption: e.caption, img: e.img });
+  let beats = tpl.beats.map((b) => {
+    const line = Array.isArray(b.lines) && b.lines.length ? b.lines[0] : null;
+    if (line != null && byLine.has(line) && b.type !== "brand" && b.type !== "title") { matched.add(line); return mkBeat(byLine.get(line)); }
+    return b;
+  });
+  const extras = [...byLine.values()].filter((e) => !matched.has(e.line)).map(mkBeat);
+  if (extras.length) { const bi = beats.findIndex((b) => b.type === "brand"); const at = bi >= 0 ? bi : beats.length; beats = [...beats.slice(0, at), ...extras, ...beats.slice(at)]; }
+  const evidence = [...byLine.values()].map((e) => ({ line: e.line, key: e.key, sha: e.sha }));
+  return { tpl: { ...tpl, beats }, evidence };
+}
+
 async function main() {
   const job = readJob();
   const note = job.pieceId;
@@ -154,6 +186,7 @@ async function main() {
   }
 
   let out, audioNote, newTL;
+  let evidenceOut = []; // {line, key, sha, at, end} — where each composited screenshot appears (for acceptance)
 
   if (tplDoc) {
     // ── DATA-DRIVEN TEMPLATE PATH ──────────────────────────────────────────────
@@ -163,11 +196,19 @@ async function main() {
     const voPath = await materializeVoiceover(job);
     if (!voPath || !existsSync(voPath)) throw new Error("voiceover not found: " + (job.audioKey || job.audioFile));
     const speech = readSpeech(voPath);
-    newTL = buildTemplateTimeline(tpl, speech);
+    // Composite the SHA-verified screenshot(s) into the interior finding scene(s) per the storyboard.
+    const { tpl: rtpl, evidence } = await compositeStoryboard(tpl, job);
+    if (evidence.length) patchJob({ stage: `Compositing ${evidence.length} evidence scene(s)`, progress: 0.07 });
+    newTL = buildTemplateTimeline(rtpl, speech);
+    // Record where each composited screenshot appears in time (for the visual-acceptance harness).
+    evidenceOut = rtpl.beats.map((b, i) => b.type === "evidenceShot"
+      ? { line: b.lines?.[0] ?? null, at: newTL.starts[i], end: (i + 1 < newTL.starts.length ? newTL.starts[i + 1] : newTL.end),
+          ...(evidence.find((e) => e.line === (b.lines?.[0] ?? null)) || {}) }
+      : null).filter(Boolean);
     patchJob({ stage: "Rendering frames", progress: 0.08 });
     await renderFrames({
       sceneFile: join(ROOT, "public", "content", "_shared", "scene-template.html"), sceneBasename: "scene-template.html",
-      TL: newTL, port: PORT, framesDir: FRAMES, globals: { TEMPLATE: tpl },
+      TL: newTL, port: PORT, framesDir: FRAMES, globals: { TEMPLATE: rtpl },
       onProgress: (i, n) => patchJob({ stage: `Rendering frames ${i}/${n}`, progress: 0.08 + 0.72 * (i / n) }),
     });
     patchJob({ stage: "Embedding thumbnail", progress: 0.82 });
@@ -175,7 +216,7 @@ async function main() {
     patchJob({ stage: "Mixing voiceover + cues", progress: 0.9 });
     const C = buildPalette(CUE, newTL.end);
     const cuesWav = join(tmp, "cues.wav");
-    mixBed(buildTemplateCues(tpl, C, newTL), newTL.end, cuesWav);
+    mixBed(buildTemplateCues(rtpl, C, newTL), newTL.end, cuesWav);
     const voWav = join(tmp, "vo.wav"); voToWav(voPath, voWav);
     const mixWav = join(tmp, "mix.wav"); mixVoiceCues({ voWav, cuesWav, endSec: newTL.end, outWav: mixWav });
     out = join(dir, `field-note-${note}-final.mp4`);
@@ -250,7 +291,7 @@ async function main() {
 
   patchJob({
     status: "ready", stage: "Ready", progress: 1, outputFile: out, outputRel: outRel,
-    outputKey, posterKey,
+    outputKey, posterKey, evidenceScenes: evidenceOut,
     finishedAt: new Date().toISOString(), error: null, audioLabel: job.audioLabel || audioNote,
   });
   console.log(`job ${jobId} ready → ${outputKey} (${videoPub.bytes}B, sha ${String(videoPub.sha256).slice(0, 12)}…) + poster ${posterKey} (${posterPub.bytes}B); ${audioNote}; duration ${dur(out).toFixed(2)}s`);

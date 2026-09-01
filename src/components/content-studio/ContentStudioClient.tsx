@@ -8,6 +8,7 @@ import {
 import { SectionHeader } from "@/components/ui";
 import { clientVideoPieceId } from "@/lib/content-studio/client-video-routing";
 import { renderLifecycle, canGenerate, type RenderState } from "@/lib/content-studio/render-lifecycle";
+import { fetchMediaFile, shareOrDownloadFile, type ShareOutcome } from "@/lib/content-studio/media-share";
 import type { StudioItem, SafeJob } from "./types";
 import type { WorkerHealth } from "@/lib/content-studio/worker-health";
 
@@ -18,6 +19,59 @@ const PreviewCtx = createContext(false);
 const usePreview = () => useContext(PreviewCtx);
 
 const POLL_MS = 1500;
+
+// Mobile-first Share / Download (section I addendum). Fetches the authenticated media as a Blob and either
+// hands a real File to the OS share sheet (Content Studio stays mounted underneath) or downloads it from a
+// Blob object URL. NEVER navigates the browser to the raw media endpoint. Shows progress / success /
+// cancellation / failure and always revokes the object URL.
+function MediaActions({ url, filename, mimeType, label, primary }: { url: string; filename: string; mimeType: string; label: string; primary?: boolean }) {
+  const preview = usePreview();
+  const [state, setState] = useState<"idle" | "preparing" | "sharing" | ShareOutcome | "error">("idle");
+  const [pct, setPct] = useState(0);
+  const [err, setErr] = useState<string | null>(null);
+  const busy = state === "preparing" || state === "sharing";
+
+  const canWebShare = typeof navigator !== "undefined" && !!(navigator as any).canShare && !!(navigator as any).share;
+
+  async function run(forceDownload: boolean) {
+    if (preview) { setErr("Disabled in preview — available in the functional environment."); setState("error"); return; }
+    setErr(null); setPct(0); setState("preparing");
+    try {
+      const file = await fetchMediaFile(url, filename, mimeType, { fetch, onProgress: setPct });
+      const nav = forceDownload ? {} : (navigator as any); // forceDownload → skip share sheet
+      const res = await shareOrDownloadFile(file, filename, {
+        navigator: nav,
+        createObjectURL: (b) => URL.createObjectURL(b),
+        revokeObjectURL: (u) => URL.revokeObjectURL(u),
+        triggerDownload: (href, name) => { const a = document.createElement("a"); a.href = href; a.download = name; a.rel = "noopener"; document.body.appendChild(a); a.click(); a.remove(); },
+      });
+      setState(res.outcome);
+    } catch (e: any) {
+      setErr(e?.message || "Something went wrong"); setState("error");
+    }
+  }
+
+  return (
+    <div className="space-y-1.5">
+      <div className="flex flex-col gap-1.5 sm:flex-row">
+        <button disabled={busy} onClick={() => run(false)} className={`flex w-full items-center justify-center gap-1.5 text-sm disabled:opacity-50 sm:w-auto ${primary ? "btn-primary" : "btn-secondary"}`}>
+          {busy ? <Loader2 size={15} className="animate-spin" /> : <Download size={15} />} {canWebShare ? `Share / download ${label}` : `Download ${label}`}
+        </button>
+        {canWebShare && (
+          <button disabled={busy} onClick={() => run(true)} className="btn-ghost flex w-full items-center justify-center gap-1.5 text-xs disabled:opacity-50 sm:w-auto" title="Save the file directly">
+            <Download size={13} /> Save file
+          </button>
+        )}
+      </div>
+      {state === "preparing" && <div className="h-1 w-full overflow-hidden rounded bg-white/10"><div className="h-full bg-azure-500 transition-all" style={{ width: `${pct || 4}%` }} /></div>}
+      {state === "sharing" && <p className="text-[11px] text-chalk-500">Opening the share sheet…</p>}
+      {state === "shared" && <p className="text-[11px] text-teal-300">Shared.</p>}
+      {state === "downloaded" && <p className="text-[11px] text-teal-300">Saved to your device.</p>}
+      {state === "cancelled" && <p className="text-[11px] text-chalk-500">Share cancelled.</p>}
+      {state === "error" && <p className="text-[11px] text-rose-300">{err || "Failed — try again."}</p>}
+    </div>
+  );
+}
 const fmtBytes = (b: number) => (b > 1024 * 1024 ? (b / 1024 / 1024).toFixed(1) + " MB" : Math.round(b / 1024) + " KB");
 const fmtDur = (s: number | null) => (s == null ? "—" : `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, "0")}`);
 
@@ -753,10 +807,13 @@ function PieceDetail({ item, onChanged, setJobOverride }: { item: StudioItem; on
             </div>
             {pv.approvalStale && <p className="mb-2 text-[11px] text-amber-300">Inputs changed since approval — re-approve the current render before posting.</p>}
             <div className="grid gap-4 sm:grid-cols-[220px_1fr]">
-              <video src={piece.recommendedRel} poster={piece.thumbRel || undefined} controls playsInline className="w-full rounded-lg border border-white/[0.08] bg-black" style={{ aspectRatio: "9 / 16" }} />
+              <div className="space-y-1">
+                <video src={piece.recommendedRel} poster={piece.thumbRel || undefined} controls playsInline preload="metadata" className="w-full rounded-lg border border-white/[0.08] bg-black" style={{ aspectRatio: "9 / 16" }} />
+                {piece.targetSeconds ? <p className="text-center text-[10px] text-chalk-500">~{piece.targetSeconds}s · if the player shows 0:00, the length above is authoritative</p> : null}
+              </div>
               <div className="space-y-2">
-                <a href={downloadHref} download className={`flex w-full items-center justify-center gap-1.5 text-sm sm:w-auto ${isPlaceholder ? "btn-secondary" : "btn-primary"}`}><Download size={15} /> {isPlaceholder ? "Download preview" : "Download video"}</a>
-                {piece.thumbRel && <a href={piece.thumbRel} download className="btn-secondary flex w-full items-center justify-center gap-1.5 text-sm sm:w-auto"><Download size={15} /> Download thumbnail</a>}
+                <MediaActions url={downloadHref} filename={`field-note-${piece.id}.mp4`} mimeType="video/mp4" label={isPlaceholder ? "preview" : "video"} primary={!isPlaceholder} />
+                {piece.thumbRel && <MediaActions url={piece.thumbRel} filename={`field-note-${piece.id}-cover.png`} mimeType="image/png" label="thumbnail" />}
                 {!isPlaceholder && !pv.approved && pv.audioKind === "uploaded" && (
                   <button disabled={preview} onClick={approve} title={preview ? "Disabled in preview" : ""} className="btn-primary flex w-full items-center justify-center gap-1.5 text-sm disabled:opacity-40 sm:w-auto"><CircleCheck size={15} /> Approve for posting</button>
                 )}
@@ -893,7 +950,9 @@ function UploadPanel({ item, onChanged, setMsg }: { item: StudioItem; onChanged:
             {(latest as any).detectedType && <span className="rounded border border-teal-400/25 bg-teal-400/10 px-1 py-0.5 text-[10px] uppercase text-teal-300">{(latest as any).detectedType}</span>}
             <span className="text-chalk-500">{fmtDur(latest.durationSeconds)} · {fmtBytes(latest.bytes)}</span>
           </div>
-          <audio controls preload="none" className="mt-2 w-full" src={`/api/content-studio/audio/${piece.id}?t=${encodeURIComponent(latest.uploadedAt)}`}>Your browser can’t play this audio.</audio>
+          {/* playsInline: mobile Safari plays inline (no fullscreen takeover); preload=metadata lets it report duration. */}
+          <audio controls playsInline preload="metadata" className="mt-2 w-full" src={`/api/content-studio/audio/${piece.id}?t=${encodeURIComponent(latest.uploadedAt)}`}>Your browser can’t play this audio.</audio>
+          {latest.durationSeconds != null && <p className="mt-1 text-[10px] text-chalk-500">Length {fmtDur(latest.durationSeconds)} (from the server — authoritative if the player shows 0:00).</p>}
         </div>
       )}
 

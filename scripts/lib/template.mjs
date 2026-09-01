@@ -66,6 +66,9 @@ export function buildTemplateCues(tpl, C, TL) {
       case "report":
         b.rows.forEach((_, k) => P.push({ f: C.celllock, at: at + 0.25 + k * 0.3, v: 0.08 }));
         break;
+      case "evidenceShot":
+        P.push({ f: C.celllock, at: at + 0.25, v: 0.08 }); // soft settle as the screenshot lands
+        break;
       case "brand":
         P.push({ f: C.brand, at: at + 0.2, v: 0.20 });
         break;

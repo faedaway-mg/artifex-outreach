@@ -13,6 +13,8 @@ import { catalogEntry, isRenderable } from "./catalog";
 import { listJobs, writeJob, latestUpload, REPO_ROOT, hasTemplate, loadTemplate } from "./store";
 import { audioSignature } from "./upload";
 import { latestReadyShot } from "./screenshot-jobs";
+import { assessGenerationEvidence } from "./evidence-gate";
+import type { StoryboardScene } from "./template-schema";
 
 export const TEMPLATE_VERSION = "fieldnote-thumbfirst-v2-datadriven";
 
@@ -68,20 +70,29 @@ export async function createRenderJob(pieceId: string, opts: { useUpload: boolea
     audioSig = audioSignature({ name: up.name, bytes: up.bytes, durationSeconds: up.durationSeconds });
   }
 
-  // Section I-C: a client video MUST consume its verified website screenshot. Reject generation when that
-  // required artifact is absent, and BIND its immutable SHA so the render is reproducible + provenance-true.
+  // Section F/I-C: a client video MUST be evidence-gated. It consumes its verified website screenshot AND
+  // may only generate when the narrated findings are directly-observed + concrete and a SHA-verified
+  // screenshot proves them on screen (evidence-gate). The derived storyboard is bound to the job so the
+  // render worker composites the RIGHT screenshot into the RIGHT interior scene. We BIND the immutable
+  // screenshot SHA into the input version so the render is reproducible + provenance-true.
   let screenshotKey: string | null = null;
   let screenshotSha: string | null = null;
+  let storyboard: StoryboardScene[] | null = null;
   const isClient = pieceId.startsWith("client-");
   if (isClient) {
     const tpl = await loadTemplate(pieceId);
     const businessId = (tpl as any)?.businessId as string | undefined;
     const shot = businessId ? await latestReadyShot(businessId, "mobile") : null;
-    if (!shot || !shot.outputKey || !shot.sha256) {
-      throw new Error("This client video needs its verified website screenshot before you can generate it — the capture isn't ready yet. Re-open the project to prepare it, then try again.");
+    const liveShot = shot && (shot as any).outputKey && (shot as any).sha256
+      ? { outputKey: (shot as any).outputKey as string, sha256: (shot as any).sha256 as string, sourceUrl: ((shot as any).finalUrl || (shot as any).canonicalUrl) as string | undefined, pageTitle: "Homepage" }
+      : null;
+    const gate = assessGenerationEvidence({ template: (tpl as any) ?? { narration: [], narrationEvidence: [] }, liveShot });
+    if (!gate.ok) {
+      throw new Error(gate.reason || "This client video needs verified evidence before you can generate it.");
     }
-    screenshotKey = shot.outputKey;
-    screenshotSha = shot.sha256;
+    screenshotKey = liveShot!.outputKey;
+    screenshotSha = liveShot!.sha256;
+    storyboard = gate.storyboard;
   }
 
   // Bind the IMMUTABLE content hashes (audio SHA-256 + screenshot SHA-256) into the input version, so the
@@ -112,6 +123,7 @@ export async function createRenderJob(pieceId: string, opts: { useUpload: boolea
     posterKey: null,
     screenshotKey,
     screenshotSha,
+    storyboard,
     thumbRel: `/content/thumbnails/field-note-${pieceId}-thumbnail.png`,
     error: null,
     attempt: 1,

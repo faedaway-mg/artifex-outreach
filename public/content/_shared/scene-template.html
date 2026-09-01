@@ -17,6 +17,15 @@
 .srow .bar{height:14px;border-radius:5px;background:#1d2740;flex:1}
 .searchcell{display:flex;align-items:center;gap:14px;background:var(--cell);border:1px solid var(--line);border-radius:12px;padding:16px 22px;font-size:28px;color:var(--chalk);font-weight:700}
 .accent{color:var(--azure)}
+/* Interior EVIDENCE frame — the real, SHA-verified website screenshot composited during its finding.
+   Clean crop, top-anchored so header/nav/hero stay legible; NO vignette, NO darkening overlay. */
+.evshot{display:flex;flex-direction:column;align-items:center;gap:20px;transform:translateY(-40px)}
+.evchip{font-size:25px;font-weight:800;letter-spacing:2px;color:var(--azure);background:var(--cardhi);
+ border:1px solid #33445f;border-radius:999px;padding:11px 26px;text-transform:uppercase;white-space:nowrap}
+.evframe{width:600px;height:880px;border-radius:26px;overflow:hidden;border:2px solid var(--line);
+ box-shadow:0 30px 80px rgba(0,0,0,.5);background:#0b1020;position:relative}
+.evframe img{width:100%;height:100%;object-fit:cover;object-position:top center;display:block}
+.evcap{max-width:840px;text-align:center;font-size:29px;line-height:1.32;color:var(--chalk);font-weight:600}
 </style></head><body>
   <canvas id="bg" width="1080" height="1920"></canvas>
   <div class="l meta" id="meta"><span style="display:inline-flex;align-items:center;gap:16px" id="markwrap">
@@ -49,6 +58,9 @@
     search(b){ const s=el('surface'); const bar=el('sbar'); bar.appendChild(el('ic','🔎')); bar.appendChild(document.createTextNode('SEARCH')); const k=el('kind','FINDING IT'); bar.appendChild(k); s.appendChild(bar); const body=el('sbody'); const cell=el('searchcell'); cell.appendChild(document.createTextNode('🔎  '+b.query)); body.appendChild(cell); const wrap=document.createElement('div'); wrap.style.marginTop='18px'; b.rows.forEach(r=>{ const sr=el('srow'); sr.appendChild(el('lab',r)); sr.appendChild(el('bar')); wrap.appendChild(sr); }); body.appendChild(wrap); if(b.chips&&b.chips.length){const ch=document.createElement('div');ch.style.cssText='margin-top:20px;display:flex;gap:14px';b.chips.forEach(c=>ch.appendChild(el('chip neutral',c)));body.appendChild(ch);} s.appendChild(body); return s; },
     report(b){ const s=el('surface'); const bar=el('sbar'); bar.appendChild(el('ic','▦')); bar.appendChild(document.createTextNode(b.barLabel)); if(b.kind){bar.appendChild(el('kind',b.kind));} s.appendChild(bar); const body=el('sbody'); b.rows.forEach(r=>{ const row=el('frow'); row.appendChild(el('fl',r.label)); const v=el('fv',r.value); v.style.color=r.filled?'var(--chalk)':'var(--faint)'; body.appendChild(row); row.appendChild(v); }); s.appendChild(body); return s; },
     brand(b){ const w=el('center'); const m=document.createElement('span'); m.innerHTML=MARK_SVG.replace('class="mark"','class="mark" style="display:block;margin:0 auto"'); w.appendChild(m); const wm=el('tag','ARTIFEX LABS'); wm.style.cssText='color:var(--chalk);font-size:56px;letter-spacing:8px;margin-top:26px'; w.appendChild(wm); const tg=el('sub',b.tagline||'Business technology that works together.'); tg.style.cssText='margin-top:22px;color:var(--mute)'; w.appendChild(tg); return w; },
+    // Interior evidence frame: the injected data-URL screenshot (b.img), a context chip, an optional caption.
+    // Image is inserted via .src of an <img> the code creates — no template HTML is parsed. No vignette.
+    evidenceShot(b){ const w=el('evshot'); if(b.context)w.appendChild(el('evchip',b.context)); const fr=el('evframe'); const img=document.createElement('img'); img.decoding='sync'; if(b.img)img.src=b.img; img.alt=b.context||'website screenshot'; fr.appendChild(img); w.appendChild(fr); if(b.caption)w.appendChild(el('evcap',b.caption)); return w; },
   };
 
   let BEATS=[], drawBg=null, TURN=1e9, built=false;

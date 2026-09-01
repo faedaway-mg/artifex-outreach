@@ -29,6 +29,7 @@ export interface RenderJob {
   posterKey: string | null; // canonical ArtifactStore key for the frame-zero poster (durable)
   screenshotKey?: string | null; // canonical key of the verified website screenshot consumed by this render (I-C)
   screenshotSha?: string | null; // integrity of that screenshot's bytes — bound into inputVersion (reproducible)
+  storyboard?: import("./template-schema").StoryboardScene[] | null; // evidence-led scenes: which shot composites into which interior scene (F addendum)
   thumbRel: string | null; // public URL of the thumbnail
   error: string | null;
   attempt: number;
