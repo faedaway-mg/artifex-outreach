@@ -135,6 +135,9 @@ export async function captureJob(browser, job, opts) {
       let u;
       try { u = new URL(req.url()); } catch { return route.abort("blockedbyclient"); }
       if (u.protocol !== "http:" && u.protocol !== "https:") { blocked = blocked || `non-http(s) subrequest ${u.protocol}`; return route.abort("blockedbyclient"); }
+      // Video/audio is never needed for an above-the-fold screenshot and is the large-download vector —
+      // abort it (the hero still shows its poster image). This is not a block of the capture, just an asset.
+      if (req.resourceType() === "media") return route.abort("blockedbyclient");
       const isDoc = req.isNavigationRequest() && req.resourceType() === "document";
       if (isDoc) {
         // SSRF-revalidate EVERY document navigation (main frame AND sub-frames/iframes) — a redirect or an
