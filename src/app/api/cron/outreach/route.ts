@@ -26,7 +26,22 @@ export async function POST(req: NextRequest) {
   }
 
   const { dueScheduled } = await import("@/lib/outreach/scheduled-batch");
+  const { resolveSendingWindow } = await import("@/lib/outreach/sending-window");
+  const { getSettings } = await import("@/lib/repo");
   const now = new Date();
+  const activeWindow = resolveSendingWindow(await getSettings());
+
+  // DRY-RUN — authenticated, structurally incapable of sending. Runs the exact production selection +
+  // every dispatch-time check and returns what WOULD happen. Never imports the transport, never
+  // reserves/consumes a slot, never writes a receipt, never mutates a scheduled step. Safe even with
+  // all live flags on. Requested via ?dryRun=1 (or ?dry_run=1). Short-circuits before any send path.
+  const wantsDryRun = req.nextUrl.searchParams.get("dryRun") === "1" || req.nextUrl.searchParams.get("dry_run") === "1";
+  if (wantsDryRun) {
+    const { evaluateScheduledDryRun } = await import("@/lib/outreach/scheduler-dryrun");
+    const result = await evaluateScheduledDryRun(now, activeWindow);
+    return NextResponse.json({ ok: true, dispatched: false, ...result });
+  }
+
   const due = await dueScheduled(now);
 
   // ENTRY gate: with automated sending off, report the real due count but dispatch nothing.
@@ -63,12 +78,9 @@ export async function POST(req: NextRequest) {
   // the recipient gate (prospects still refused unless COMMS_PROSPECT_DELIVERY_ENABLED=1). Resend only.
   const { runScheduledOutreach } = await import("@/lib/outreach/outreach-scheduler");
   const { sendCompliantOutreach } = await import("@/lib/comms/outreach-transport");
-  const { resolveSendingWindow } = await import("@/lib/outreach/sending-window");
-  const { getSettings } = await import("@/lib/repo");
-  const window = resolveSendingWindow(await getSettings()); // owner-configured LA window (default 05:00–07:00)
   const campaignId = due[0]?.binding.batchId ?? "scheduled-outreach";
   const summary = await runScheduledOutreach(due.map((d) => d.leadId), {
-    now, campaignId, window,
+    now, campaignId, window: activeWindow, // owner-configured LA window (default 05:00–07:00)
     send: ({ leadId, auth }) => sendCompliantOutreach({ leadId, auth }),
   });
   await appendAudit({ action: "outreach.runner.dispatched", actor: "cron", targetType: "comms", targetId: null, meta: { laDay: summary.laDay, sent: summary.sent, quotaRemaining: summary.quotaRemaining }, ip: null });
