@@ -32,6 +32,7 @@ export interface RefillCycleOptions {
   discoverCap?: number;    // hard per-cycle discovery ceiling (protects Places budget)
   maxLeads?: number;       // cap how many leads we resolve context for (protects DB)
   policy?: RefillPolicy;
+  autoThreshold?: boolean; // §5 autonomous mode: only discover when reserve < refillThreshold (40); no-op at/above.
 }
 
 export interface RefillCycleReport {
@@ -93,7 +94,15 @@ export async function runRefillCycle(opts: RefillCycleOptions = {}): Promise<Ref
   //    dedups nationally, and qualifies; it never contacts anyone.
   let discovery: RefillCycleReport["discovery"] = null;
   let lastCycleAdded = 0;
-  if (opts.discover && plan.needed) {
+  // §5 hysteresis: in autonomous mode discovery only fires when the reserve has dropped BELOW the refill
+  // threshold (40); at/above it we hold (no-op) even though we top up all the way to 60 once triggered.
+  // In manual mode any shortfall to target (60) is enough. Either way, refill never sends.
+  const discoveryAllowed = opts.autoThreshold ? reserve.belowThreshold : plan.needed;
+  if (opts.discover && !discoveryAllowed) {
+    discovery = { ran: false, requested: 0, examined: 0, qualified: 0, territoriesBeyondLA: [],
+      note: `discovery held: reserve ${reserve.ready} at/above refill threshold ${reserve.threshold} — nothing to do (§5 no-op)` };
+  }
+  if (opts.discover && discoveryAllowed) {
     const requested = Math.max(0, Math.min(plan.discoverTarget, opts.discoverCap ?? 40));
     try {
       const { runProspecting } = await import("../prospecting");

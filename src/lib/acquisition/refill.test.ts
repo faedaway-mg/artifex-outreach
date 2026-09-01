@@ -117,6 +117,15 @@ describe("refill policy (§1–§3)", () => {
     expect(planRefill(assessReserve(60)).needed).toBe(false);
     expect(planRefill(assessReserve(60)).discoverTarget).toBe(0);
   });
+  it("§5 autonomous hysteresis: hold at/above 40, discover below 40", () => {
+    // The autonomous cron gates discovery on belowThreshold (reserve < 40), NOT on shortfall-to-60.
+    const autoGate = (ready: number) => assessReserve(ready).belowThreshold;
+    expect(autoGate(40)).toBe(false); // exactly at threshold → hold (no-op)
+    expect(autoGate(45)).toBe(false); // above → hold even though shortfall to 60 exists
+    expect(autoGate(39)).toBe(true);  // below → discover, then top up all the way to 60
+    // Manual mode still fills any shortfall to target (proves the two modes differ).
+    expect(planRefill(assessReserve(45)).needed).toBe(true);
+  });
   it("stops on reserve reached / budget spent / no candidates", () => {
     expect(refillShouldStop(assessReserve(60), emptyCheckpoint(), 5).stop).toBe(true);
     expect(refillShouldStop(assessReserve(10), { ...emptyCheckpoint(100), searchBudgetSpent: 100 }, 5).stop).toBe(true);

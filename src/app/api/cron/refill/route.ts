@@ -26,10 +26,13 @@ export async function POST(req: NextRequest) {
     // Discovery only runs when it's explicitly asked for AND automation is enabled — otherwise this is a pure
     // read-only measurement + plan. Either way, zero emails are sent.
     const discover = wantDiscover && !!settings.prospecting?.enabled;
+    // ?auto=1 → autonomous hysteresis: discovery no-ops when the ready reserve is at/above the refill
+    // threshold (40). The scheduled cron uses this so it "does nothing when reserve is 40 or greater."
+    const autoThreshold = sp.get("auto") === "1";
     const discoverCap = Math.max(1, Math.min(200, Number(sp.get("discoverCap") ?? 40)));
     const maxLeads = Math.max(1, Math.min(10000, Number(sp.get("maxLeads") ?? 2500)));
 
-    const report = await runRefillCycle({ discover, discoverCap, maxLeads });
+    const report = await runRefillCycle({ discover, autoThreshold, discoverCap, maxLeads });
 
     return NextResponse.json({
       ok: true,

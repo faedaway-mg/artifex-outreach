@@ -10,16 +10,21 @@
 //
 // The FULL run makes TWO distinct calls, in this order, and reports both:
 //
-//   1. MATERIALIZE — /api/cron/materialize projects acquisition steps that come
-//      due today into operator-visible Tasks. It sends NO email; it only makes
-//      already-scheduled follow-up work visible in Today. Without this, a step
-//      the sequence scheduled would never reach the operator's queue.
+//   1. REFILL — /api/cron/refill?discover=1&auto=1 is the ONE autonomous refill invocation (mandate §5).
+//      It measures the DELIVERY_READY reserve and, ONLY when the reserve has dropped BELOW the refill
+//      threshold of 40 (auto=1 hysteresis) AND discovery automation + a Places credential are configured,
+//      runs BOUNDED nationwide discovery to top the reserve back toward 60. It NEVER sends email and it
+//      persists the geographic/budget checkpoint server-side so the loop resumes. When the reserve is
+//      healthy (≥40) it is a cheap no-op. This replaces the old direct /api/cron/prospect call: refill
+//      subsumes discovery (?discover=1) and adds the reserve-aware gate on top.
 //
-//   2. PROSPECT — /api/cron/prospect adds new leads, exactly as before.
+//   2. MATERIALIZE — /api/cron/materialize projects acquisition steps that come due today into
+//      operator-visible Tasks. It sends NO email; it only makes already-scheduled follow-up work visible
+//      in Today. It is the canonical batch materializer the refill runs BEFORE.
 //
-// Order matters: warm follow-ups are materialized first so they take the
-// queue-cap ahead of new cold prospects. A materialize failure is reported but
-// never blocks prospecting.
+// Order matters: refill (reserve replenishment, zero sends) runs first, then the batch materializer.
+// Neither call authorizes delivery — real sending happens only on the separate outreach cron/scheduler.
+// A refill failure is reported but never blocks materialization.
 //
 // (The file keeps its original name because the deployed service's start command
 // references it; the job it performs is the wider one described above.)
@@ -41,7 +46,9 @@
 // and never logged. The process exits after running/skipping.
 // ─────────────────────────────────────────────────────────────────────────────
 const BASE = "https://outreach.artifexlabs.tech";
-const ENDPOINT = `${BASE}/api/cron/prospect`;
+// ONE autonomous refill invocation (§5): discover=1 permits bounded discovery; auto=1 enforces the
+// "do nothing when reserve ≥ 40" hysteresis. It never sends and persists its own checkpoint server-side.
+const REFILL_ENDPOINT = `${BASE}/api/cron/refill?discover=1&auto=1`;
 const MATERIALIZE_ENDPOINT = `${BASE}/api/cron/materialize`;
 
 function laParts() {
@@ -79,7 +86,38 @@ async function main() {
     return;
   }
 
-  // ── 1. Materialize due sequence work (never sends email) ───────────────────
+  // ── 1. FULL run only: REFILL the rolling reserve (mandate §5) BEFORE materialization ──────
+  // Autonomous + reserve-aware: the endpoint no-ops when the reserve is ≥ 40, otherwise runs bounded
+  // nationwide discovery (only if automation + a Places credential are configured) and advances the
+  // persisted checkpoint. It NEVER sends email — `sentEmails` is asserted 0 below. Non-fatal: a slow or
+  // failed refill is logged but never blocks materialization or fails the deploy-validation run.
+  if (doFullRun) {
+    const rController = new AbortController();
+    const rTimer = setTimeout(() => rController.abort(), 120_000);
+    try {
+      const res = await fetch(REFILL_ENDPOINT, { method: "POST", headers: { Authorization: `Bearer ${secret}` }, signal: rController.signal });
+      let summary = null;
+      try {
+        const body = await res.json();
+        summary = {
+          sent: body?.sentEmails ?? null,          // must be 0 — refill never dispatches email
+          reserve: body?.reserve ?? null,
+          status: body?.refillStatus ?? null,
+          discoverRan: body?.discoverRan ?? null,
+          tomorrow: body?.tomorrowScheduled ?? null,
+        };
+      } catch {
+        summary = { note: "non-JSON response" };
+      }
+      console.log(JSON.stringify({ utc, la: la.stamp, action: "refill", runKind, testMode, status: res.status, result: res.ok ? "ok" : "failure", summary }));
+    } catch (err) {
+      console.log(JSON.stringify({ utc, la: la.stamp, action: "refill", runKind, result: err?.name === "AbortError" ? "triggered-async" : "error", reason: err?.name === "AbortError" ? "endpoint still running server-side (non-fatal)" : "network error" }));
+    } finally {
+      clearTimeout(rTimer);
+    }
+  }
+
+  // ── 2. Materialize due sequence work (never sends email) — canonical batch materializer ────
   // This worker is a TRIGGER, not the executor: the endpoint runs reservoir-aware prep (website
   // analysis on up to EMAIL_PREP_MAX leads) synchronously server-side and COMPLETES even if this
   // fetch is slow. So a slow/timeout response here is NOT a real failure — it must never fail the
@@ -114,36 +152,11 @@ async function main() {
     clearTimeout(mTimer);
   }
 
-  // Intraday TOP-UP firings stop here: they only replenish the reservoir (materialize above),
-  // never discovery — so extra firings cost nothing when inventory is healthy.
+  // Intraday TOP-UP firings do materialize ONLY (above): they replenish the operator queue but never run
+  // discovery, so extra firings cost nothing when inventory is healthy. Discovery/refill runs once per day
+  // on the 5:30 AM PT full run, keeping the bounded Places budget under control.
   if (!doFullRun) {
-    console.log(JSON.stringify({ utc, la: la.stamp, action: "prospect", runKind, result: "skipped", reason: "top-up tick — discovery runs only on the 5:30 full run" }));
-    return;
-  }
-
-  // ── 2. Prospect for new leads (FULL run only) ──────────────────────────────
-  // Same trigger semantics: log failures but stay non-fatal so a cron-service deploy always promotes
-  // (the schedule must survive a single slow/failed run). Monitoring reads the logged result.
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 60_000);
-  try {
-    // Normal scheduled operation — NO force=1. The endpoint self-throttles.
-    const res = await fetch(ENDPOINT, { method: "POST", headers: { Authorization: `Bearer ${secret}` }, signal: controller.signal });
-    let summary = null;
-    try {
-      const body = await res.json();
-      summary = body?.run
-        ? { added: body.run.addedToToday, mode: body.run.providerMode, distinct: body.run.distinctCategoriesAdded, stop: body.run.stopReason }
-        : { skipped: body?.skipped ?? null, ok: body?.ok ?? null };
-    } catch {
-      summary = { note: "non-JSON response" };
-    }
-    const result = res.ok ? "ok" : "failure";
-    console.log(JSON.stringify({ utc, la: la.stamp, action: "prospect", runKind, testMode, status: res.status, result, summary }));
-  } catch (err) {
-    console.log(JSON.stringify({ utc, la: la.stamp, action: "prospect", runKind, result: err?.name === "AbortError" ? "triggered-async" : "error", reason: err?.name === "AbortError" ? "endpoint still running server-side (non-fatal)" : "network error" }));
-  } finally {
-    clearTimeout(timer);
+    console.log(JSON.stringify({ utc, la: la.stamp, action: "refill", runKind, result: "skipped", reason: "top-up tick — refill/discovery runs only on the 5:30 full run" }));
   }
 }
 

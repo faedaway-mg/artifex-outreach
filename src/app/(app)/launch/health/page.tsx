@@ -3,6 +3,8 @@ import { platformHealth } from "@/lib/launch/health";
 import { metric } from "@/lib/launch/types";
 import { MetricStat, StatusPill } from "@/components/launch/LaunchUI";
 import { SectionHeader } from "@/components/ui";
+import { getSettings } from "@/lib/repo";
+import { DEFAULT_REFILL_POLICY, emptyCheckpoint } from "@/lib/acquisition/refill";
 
 export const dynamic = "force-dynamic";
 
@@ -10,6 +12,16 @@ const rate = (n: number) => `${Math.round(n * 1000) / 10}%`;
 
 export default async function HealthPage() {
   const h = await platformHealth();
+
+  // §5 owner visibility — the autonomous refill's last run / next run / outcome, read from the persisted
+  // checkpoint. "Next run" is the scheduled 5:30 AM PT full cron; refill discovers only when the reserve
+  // has dropped below 40 (and a Places credential is configured), and it never sends email.
+  const settings = await getSettings().catch(() => null);
+  const cp = { ...emptyCheckpoint(), ...(settings?.refillCheckpoint ?? {}) };
+  const lastRefill = cp.lastRefillAt || cp.updatedAt || null;
+  const refillReady = cp.lastReserveReady ?? 0;
+  const refillHolding = refillReady >= DEFAULT_REFILL_POLICY.refillThreshold;
+  const refillReadyDelivery = cp.lastFunnel?.deliveryReady ?? null;
 
   return (
     <div className="space-y-8">
@@ -65,6 +77,20 @@ export default async function HealthPage() {
           <MetricStat metric={metric("Sent total", h.volume.sentTotal)} />
           <MetricStat metric={metric("Failure rate", `${h.failureRate}%`)} tone={h.failureRate >= 20 ? "amber" : undefined} />
           <MetricStat metric={metric("Retry rate", `${h.retryRate}%`)} tone={h.retryRate >= 25 ? "amber" : undefined} />
+        </div>
+      </section>
+
+      <section>
+        <SectionHeader title="Reserve refill (autonomous)" />
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+          <MetricStat metric={metric("Ready reserve", `${refillReady} / ${DEFAULT_REFILL_POLICY.targetReserve}`, true, refillHolding ? `holding (≥${DEFAULT_REFILL_POLICY.refillThreshold})` : `below ${DEFAULT_REFILL_POLICY.refillThreshold}`)} tone={refillHolding ? "teal" : "amber"} />
+          <MetricStat metric={metric("Refill status", refillHolding ? "Idle — at/above threshold" : "Refilling")} tone={refillHolding ? undefined : "amber"} />
+          <MetricStat metric={metric("Last refill run", lastRefill ? new Date(lastRefill).toLocaleString() : "never", lastRefill != null)} />
+          <MetricStat metric={metric("Next refill run", "5:30 AM PT daily (auto)", true, "no manual POST")} tone="teal" />
+          <MetricStat metric={metric("Delivery-ready (last)", refillReadyDelivery == null ? null : refillReadyDelivery, refillReadyDelivery != null)} />
+          <MetricStat metric={metric("Discovery budget", `${cp.searchBudgetSpent} / ${cp.searchBudgetLimit}`)} />
+          <MetricStat metric={metric("Rotation offset", cp.rotationOffset)} />
+          <MetricStat metric={metric("Discovery source", h.places.mode === "disabled" ? "Places key absent" : `Places ${h.places.mode}`)} tone={h.places.mode === "disabled" ? "amber" : "teal"} />
         </div>
       </section>
 
