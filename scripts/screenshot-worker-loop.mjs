@@ -30,9 +30,10 @@ export function cfg() {
     leaseMs: Number(process.env.SHOT_LEASE_MS ?? 60_000),
     maxAttempts: Number(process.env.SHOT_MAX_ATTEMPTS ?? 3),
     maxRedirects: Number(process.env.SHOT_MAX_REDIRECTS ?? 8),
-    // Runaway-transfer guard (sum of asset bytes across the whole page). Real ecommerce homepages are
-    // several MB; this bounds a malicious infinite/huge stream, not a normal media-rich site.
-    maxBytes: Number(process.env.SHOT_MAX_BYTES ?? 48 * 1024 * 1024),
+    // PER-RESPONSE size cap: bounds a single unbounded/huge download (the SSRF-relevant resource risk).
+    // We deliberately do NOT cap total page weight — a legit media-rich homepage streams tens of MB of
+    // video/images; the navigation timeout bounds overall time instead.
+    maxBytes: Number(process.env.SHOT_MAX_BYTES ?? 25 * 1024 * 1024),
   };
 }
 const VIEWPORTS = {
@@ -123,7 +124,6 @@ export async function captureJob(browser, job, opts) {
   const redirects = [];
   const resolvedIps = new Set(pre.ips);
   let blocked = null;
-  let bytes = 0;
   try {
     context.setDefaultNavigationTimeout(opts.timeoutMs);
     context.setDefaultTimeout(opts.timeoutMs);
@@ -157,18 +157,21 @@ export async function captureJob(browser, job, opts) {
     const page = await context.newPage();
     page.on("response", (resp) => {
       const cl = Number(resp.headers()["content-length"] || 0);
-      if (Number.isFinite(cl)) bytes += cl;
-      if (bytes > opts.maxBytes) blocked = blocked || `response exceeded ${opts.maxBytes} bytes`;
+      if (Number.isFinite(cl) && cl > opts.maxBytes) blocked = blocked || `single response exceeded ${opts.maxBytes} bytes`;
     });
 
-    const resp = await page.goto(norm.url.href, { waitUntil: "load" });
+    // domcontentloaded (not "load") so we don't wait for a media-heavy homepage to finish streaming every
+    // hero video before capturing — we only need the above-the-fold DOM painted. We then try to reach a
+    // fuller load state briefly, then capture regardless.
+    const resp = await page.goto(norm.url.href, { waitUntil: "domcontentloaded" });
+    await page.waitForLoadState("load", { timeout: 8000 }).catch(() => {});
     if (blocked) return { kind: "blocked", reason: blocked, provenance: { resolvedIps: [...resolvedIps], redirects, finalUrl: page.url() } };
     const status = resp ? resp.status() : 0;
     if (status >= 400) throw new Error(`site returned HTTP ${status}`);
 
-    // Settle briefly for above-the-fold content, then capture the clean viewport (NO device frame, NO
+    // Settle for above-the-fold content to paint, then capture the clean viewport (NO device frame, NO
     // vignette, NO shadow — a raw, legible page crop at the exact output resolution).
-    await page.waitForTimeout(1200);
+    await page.waitForTimeout(2500);
     const png = await page.screenshot({ type: "png", clip: { x: 0, y: 0, width: vp.width, height: vp.height } });
     const finalUrl = page.url();
     const finalNorm = normalizeCaptureUrl(finalUrl);
