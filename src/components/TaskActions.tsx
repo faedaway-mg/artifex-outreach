@@ -16,7 +16,9 @@ import type { Task } from "@/lib/types";
 function primaryHref(task: Task, leadId: string): string {
   switch (task.type) {
     case "prepare_video":
-      return `/leads/${leadId}#video`;
+      // Canonical client-video project (section C): open the ONE persisted Content Studio project
+      // keyed by lead id — not the retired /leads/#video panel. `from=today` renders Back-to-Today.
+      return `/content-studio?section=client&from=today&lead=${leadId}`;
     case "review_and_send":
       return `/leads/${leadId}#outreach`;
     case "follow_up":

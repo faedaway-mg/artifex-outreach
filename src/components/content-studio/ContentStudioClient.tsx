@@ -8,6 +8,7 @@ import {
 import { SectionHeader } from "@/components/ui";
 import { clientVideoPieceId } from "@/lib/content-studio/client-video-routing";
 import type { StudioItem, SafeJob } from "./types";
+import type { WorkerHealth } from "@/lib/content-studio/worker-health";
 
 // PREVIEW MODE — a read-only, disabled-by-default visibility build. When on, EVERY mutating control is
 // disabled and EVERY network call is short-circuited (belt: handlers return early; suspenders: buttons
@@ -21,7 +22,7 @@ const fmtDur = (s: number | null) => (s == null ? "—" : `${Math.floor(s / 60)}
 
 type DeepLink = { piece?: string | null; lead?: string | null; section?: string | null; from?: string | null };
 
-export function ContentStudioClient({ initialItems, preview = false, deepLink }: { initialItems: StudioItem[]; preview?: boolean; deepLink?: DeepLink }) {
+export function ContentStudioClient({ initialItems, preview = false, deepLink, videosToCreate = 0, workerHealth }: { initialItems: StudioItem[]; preview?: boolean; deepLink?: DeepLink; videosToCreate?: number; workerHealth?: WorkerHealth }) {
   // A Today client-video task maps to the STABLE project id client-<leadId> (never name matching).
   const targetPieceId = deepLink?.piece || (deepLink?.lead ? clientVideoPieceId(deepLink.lead) : null);
   const [items, setItems] = useState<StudioItem[]>(initialItems);
@@ -95,7 +96,7 @@ export function ContentStudioClient({ initialItems, preview = false, deepLink }:
         subtitle="Social · Field Notes. Prepare narration, upload your voiceover, generate the video, preview and download — all from here."
         right={
           <div className="flex items-center gap-2">
-            <Link href="/portfolio" className="btn-ghost flex items-center gap-1.5 text-xs" title="Per-business review videos live on each business page">
+            <Link href="/content-studio?section=client" className="btn-ghost flex items-center gap-1.5 text-xs" title="Prepare and render per-business review videos here">
               <Users size={14} /> Client videos
             </Link>
             <button disabled={preview} onClick={() => !preview && setCreating(true)} title={preview ? "Disabled in preview" : ""} className="btn-secondary flex items-center gap-1.5 text-xs disabled:opacity-40"><Plus size={14} /> New video</button>
@@ -123,15 +124,17 @@ export function ContentStudioClient({ initialItems, preview = false, deepLink }:
       <div className="card flex items-start gap-3 p-3.5">
         <span className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-white/[0.07] bg-white/[0.03] text-azure-300"><Clapperboard size={16} /></span>
         <p className="text-xs leading-relaxed text-chalk-400">
-          <span className="font-medium text-chalk-200">Two video workflows.</span> This studio makes the public
-          <span className="text-chalk-200"> Field Notes</span> (social). Per-business
-          <span className="text-chalk-200"> prospect / client review videos</span> live on each business page under
-          <Link href="/portfolio" className="text-azure-300 hover:underline"> Businesses</Link> → a business → its video panel — bound to that business and its evidence.
-          That renderer is still being wired (in progress), so it isn't marked complete here.
+          <span className="font-medium text-chalk-200">Two video workflows, one studio.</span> The public
+          <span className="text-chalk-200"> Field Notes</span> (social) are in the list below. Per-business
+          <span className="text-chalk-200"> client review videos</span> are prepared and rendered in the
+          <span className="text-chalk-200"> Client videos</span> panel above — through the same engine, bound to the
+          business and its evidence. A Today "Prepare video" task opens that business's project here directly.
         </p>
       </div>
 
-      <ClientVideosPanel onPrepared={refetch} onSelect={setSelectedId} defaultOpen={deepLink?.section === "client" || !!needsPrepareLead} repairLead={needsPrepareLead} />
+      {workerHealth && !preview && <WorkerHealthLine health={workerHealth} />}
+
+      <ClientVideosPanel onPrepared={refetch} onSelect={setSelectedId} defaultOpen={deepLink?.section === "client" || !!needsPrepareLead} repairLead={needsPrepareLead} pendingCount={videosToCreate} />
 
       <div className="grid gap-5 lg:grid-cols-[340px_1fr]">
         {/* ── Piece list ─────────────────────────────────────────────── */}
@@ -151,7 +154,26 @@ export function ContentStudioClient({ initialItems, preview = false, deepLink }:
   );
 }
 
-function ClientVideosPanel({ onPrepared, onSelect, defaultOpen = false, repairLead = null }: { onPrepared: () => Promise<void>; onSelect: (id: string) => void; defaultOpen?: boolean; repairLead?: string | null }) {
+// Render-worker heartbeat line (section J) — honest, from persisted job activity. "Active" only when a
+// job is genuinely progressing; a silent backlog reads "degraded", never a false green.
+function WorkerHealthLine({ health }: { health: WorkerHealth }) {
+  const tone = health.verdict === "active" ? "text-teal-300" : health.verdict === "degraded" ? "text-amber-300" : "text-chalk-500";
+  const dot = health.verdict === "active" ? "bg-teal-400" : health.verdict === "degraded" ? "bg-amber-400" : "bg-chalk-500";
+  const label = health.verdict === "active" ? "Render worker active" : health.verdict === "degraded" ? "Render worker degraded" : "Render worker idle";
+  const beat = health.lastActivityAt ? new Date(health.lastActivityAt).toLocaleString() : "no activity yet";
+  return (
+    <p className={`flex flex-wrap items-center gap-2 text-[11px] ${tone}`}>
+      <span className={`h-1.5 w-1.5 rounded-full ${dot} ${health.verdict === "active" ? "animate-pulse" : ""}`} />
+      {label}
+      <span className="text-chalk-600">· last activity {beat}</span>
+      {health.rendering > 0 && <span className="text-chalk-600">· {health.rendering} rendering</span>}
+      {health.queued > 0 && <span className="text-chalk-600">· {health.queued} queued</span>}
+      {health.stale > 0 && <span className="text-amber-300">· {health.stale} stalled (auto-recovering)</span>}
+    </p>
+  );
+}
+
+function ClientVideosPanel({ onPrepared, onSelect, defaultOpen = false, repairLead = null, pendingCount = 0 }: { onPrepared: () => Promise<void>; onSelect: (id: string) => void; defaultOpen?: boolean; repairLead?: string | null; pendingCount?: number }) {
   const preview = usePreview();
   const [open, setOpen] = useState(defaultOpen);
   const [cands, setCands] = useState<any[] | null>(null);
@@ -160,6 +182,7 @@ function ClientVideosPanel({ onPrepared, onSelect, defaultOpen = false, repairLe
     repairLead ? { tone: "err", text: "This Today task has no Content Studio project yet. Prepare it below to open its project — nothing is created automatically." } : null,
   );
   const [busy, setBusy] = useState(false);
+  const [preparingId, setPreparingId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (preview) { setCands([]); return; } // preview: no server read, show the empty-state copy
@@ -170,14 +193,14 @@ function ClientVideosPanel({ onPrepared, onSelect, defaultOpen = false, repairLe
 
   const prepare = async (id: string, allowOverride = false) => {
     if (preview) { setMsg({ tone: "err", text: "Disabled in preview — connect the functional environment to prepare client videos." }); return; }
-    setBusy(true); setMsg(null);
+    setBusy(true); setPreparingId(id); setMsg(null);
     try {
       const r = await fetch("/api/content-studio/client/prepare", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ leadId: id, allowOverride }) });
       const d = await r.json();
       if (!r.ok) setMsg({ tone: "err", text: d.error + (d.blockers?.length ? " (" + d.blockers.join("; ") + ")" : "") });
       else { setMsg({ tone: "ok", text: `Prepared for ${d.businessName ?? id}. ${d.narrationNote ?? ""} Upload a voiceover, then Generate.` }); await onPrepared(); onSelect(d.pieceId); }
     } catch (e: any) { setMsg({ tone: "err", text: String(e?.message ?? e) }); }
-    finally { setBusy(false); }
+    finally { setBusy(false); setPreparingId(null); }
   };
 
   return (
@@ -185,7 +208,7 @@ function ClientVideosPanel({ onPrepared, onSelect, defaultOpen = false, repairLe
       <button onClick={() => setOpen((o) => !o)} className="flex w-full items-center gap-2 text-left">
         <span className="grid h-8 w-8 place-items-center rounded-lg border border-white/[0.07] bg-white/[0.03] text-teal-300"><Users size={16} /></span>
         <span className="min-w-0 flex-1">
-          <span className="block text-sm font-semibold text-chalk-100">Client videos <span className="ml-1 rounded-md border border-teal-400/25 bg-teal-400/10 px-1.5 py-0.5 text-[10px] text-teal-300">evidence-backed</span></span>
+          <span className="block text-sm font-semibold text-chalk-100">Client videos <span className="ml-1 rounded-md border border-teal-400/25 bg-teal-400/10 px-1.5 py-0.5 text-[10px] text-teal-300">evidence-backed</span>{pendingCount > 0 && <span className="ml-1 rounded-md border border-amber-400/25 bg-amber-400/10 px-1.5 py-0.5 text-[10px] text-amber-300">{pendingCount} to create</span>}</span>
           <span className="block text-xs text-chalk-500">Prepare a review video from a business's evidence — same engine, bound to the business.</span>
         </span>
         <span className="text-chalk-500">{open ? "▾" : "▸"}</span>
@@ -207,7 +230,7 @@ function ClientVideosPanel({ onPrepared, onSelect, defaultOpen = false, repairLe
                   <span className="min-w-0 flex-1 truncate text-chalk-200">{c.businessName}</span>
                   <span className={`rounded-full border px-1.5 py-0.5 text-[10px] ${c.eligible ? "border-teal-400/25 bg-teal-400/10 text-teal-300" : "border-white/10 text-chalk-400"}`}>{c.readiness}</span>
                   {c.eligible ? (
-                    <button disabled={busy || preview} onClick={() => prepare(c.leadId)} className="btn-secondary text-[11px] disabled:opacity-40">Prepare</button>
+                    <button disabled={busy || preview} onClick={() => prepare(c.leadId)} className="btn-secondary text-[11px] disabled:opacity-40">{preparingId === c.leadId ? "Preparing…" : "Prepare"}</button>
                   ) : c.overridable ? (
                     <button disabled={busy || preview} onClick={() => prepare(c.leadId, true)} className="btn-ghost text-[11px] disabled:opacity-40" title={c.blockers?.join("; ")}>Override</button>
                   ) : (
@@ -219,7 +242,7 @@ function ClientVideosPanel({ onPrepared, onSelect, defaultOpen = false, repairLe
           )}
           <div className="flex items-center gap-2">
             <input value={leadId} onChange={(e) => setLeadId(e.target.value)} placeholder="business / lead ID" disabled={preview} className="input text-xs disabled:opacity-40" />
-            <button disabled={busy || preview || !leadId.trim()} onClick={() => prepare(leadId.trim())} className="btn-secondary flex items-center gap-1.5 text-xs disabled:opacity-50">{busy ? <Loader2 size={13} className="animate-spin" /> : <Clapperboard size={13} />} Prepare</button>
+            <button disabled={busy || preview || !leadId.trim()} onClick={() => prepare(leadId.trim())} className="btn-secondary flex items-center gap-1.5 text-xs disabled:opacity-50">{busy ? <Loader2 size={13} className="animate-spin" /> : <Clapperboard size={13} />} {preparingId === leadId.trim() && busy ? "Preparing…" : "Prepare"}</button>
           </div>
           <p className="text-[11px] text-chalk-600">The readiness gate is unchanged — insufficient-evidence businesses stay blocked with reasons. Prepared videos are bound to their business and appear in the list above.</p>
         </div>
@@ -309,20 +332,40 @@ function SharePanel({ item }: { item: StudioItem }) {
   );
 }
 
+const TONE = {
+  active: "text-azure-300 border-azure-500/30 bg-azure-500/10",
+  ready: "text-teal-300 border-teal-400/30 bg-teal-400/10",
+  fail: "text-coral-300 border-coral-400/30 bg-coral-400/10",
+  warn: "text-amber-300 border-amber-400/30 bg-amber-400/10",
+  idle: "text-chalk-400 border-white/10 bg-white/[0.04]",
+};
+
+// The single, persisted lifecycle state of a piece (section D). Every row shows exactly where it is —
+// derived from server data (jobs, uploads, posted, provenance) so it survives refresh and never reads
+// "unprepared" once a client project exists.
 function statusOf(item: StudioItem): { label: string; tone: string; icon: any } {
-  const active = item.jobs.find((j) => j.status === "queued" || j.status === "rendering");
-  if (active) return { label: active.stage || "Rendering", tone: "text-azure-300 border-azure-500/30 bg-azure-500/10", icon: Loader2 };
-  if (item.postedAt) return { label: "Posted", tone: "text-teal-300 border-teal-400/30 bg-teal-400/10", icon: Radio };
+  const isClient = item.piece.id.startsWith("client-");
+  const queued = item.jobs.find((j) => j.status === "queued");
+  const rendering = item.jobs.find((j) => j.status === "rendering");
+  if (rendering) return { label: rendering.stage || "Rendering", tone: TONE.active, icon: Loader2 };
+  if (queued) return { label: "Queued", tone: TONE.active, icon: Clock };
+  if (item.postedAt) return { label: "Posted", tone: TONE.ready, icon: Radio };
   const failed = item.jobs.find((j) => j.status === "failed");
-  if (failed && !item.piece.recommendedRel) return { label: "Failed", tone: "text-coral-300 border-coral-400/30 bg-coral-400/10", icon: CircleAlert };
+  if (failed && !item.piece.recommendedRel) return { label: "Failed — retry available", tone: TONE.fail, icon: CircleAlert };
   const pv = item.provenance;
   if (item.piece.recommendedRel) {
-    if (pv.audioKind === "placeholder") return { label: "Preview only", tone: "text-amber-300 border-amber-400/30 bg-amber-400/10", icon: CircleAlert };
-    if (pv.approved || pv.audioKind === "approved-master") return { label: "Posting-ready", tone: "text-teal-300 border-teal-400/30 bg-teal-400/10", icon: CircleCheck };
-    return { label: "Review & approve", tone: "text-azure-300 border-azure-500/30 bg-azure-500/10", icon: Clock };
+    if (pv.audioKind === "placeholder") return { label: "Preview only", tone: TONE.warn, icon: CircleAlert };
+    if (pv.approved || pv.audioKind === "approved-master") return { label: "Posting-ready", tone: TONE.ready, icon: CircleCheck };
+    return { label: "Review & approve", tone: TONE.active, icon: Clock };
   }
-  if (!item.piece.renderable) return { label: "Draft · needs scene", tone: "text-chalk-400 border-white/10 bg-white/[0.04]", icon: Clock };
-  return { label: "Not generated", tone: "text-chalk-400 border-white/10 bg-white/[0.04]", icon: Clock };
+  // Prepared but not yet generated — the explicit "what to do next" state, so a prepared client project
+  // never looks unprepared.
+  if (item.piece.renderable) {
+    if (item.uploads.length > 0) return { label: "Voiceover uploaded — generate", tone: TONE.active, icon: Film };
+    if (isClient) return { label: "Prepared — upload voiceover", tone: TONE.active, icon: Upload };
+    return { label: "Not generated", tone: TONE.idle, icon: Clock };
+  }
+  return { label: "Draft · needs scene", tone: TONE.idle, icon: Clock };
 }
 
 function PieceRow({ item, active, onClick }: { item: StudioItem; active: boolean; onClick: () => void }) {
@@ -334,7 +377,7 @@ function PieceRow({ item, active, onClick }: { item: StudioItem; active: boolean
         {item.piece.thumbRel ? <img src={item.piece.thumbRel} alt="" className="h-full w-full object-cover" /> : <span className="grid h-full w-full place-items-center text-chalk-600"><Film size={14} /></span>}
       </span>
       <span className="min-w-0 flex-1">
-        <span className="flex items-center gap-1.5 text-[10.5px] text-chalk-500">#{item.piece.id}</span>
+        <span className="flex items-center gap-1.5 text-[10.5px] text-chalk-500">{item.piece.id.startsWith("client-") ? "Client video" : `#${item.piece.id}`}</span>
         <span className="block truncate text-sm font-semibold text-chalk-100">{item.piece.title}</span>
         <span className={`mt-1 inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] font-medium ${s.tone}`}>
           <Icon size={10} className={Icon === Loader2 ? "animate-spin" : ""} /> {s.label}
@@ -518,7 +561,7 @@ function PieceDetail({ item, onChanged, setJobOverride }: { item: StudioItem; on
             {piece.thumbRel ? <img src={piece.thumbRel} alt={`Thumbnail for ${piece.title}`} className="h-full w-full object-cover" /> : <span className="grid h-full w-full place-items-center text-chalk-600"><Film size={20} /></span>}
           </div>
           <div className="min-w-0 flex-1">
-            <p className="text-[11px] uppercase tracking-wide text-chalk-500">Field Note #{piece.id}</p>
+            <p className="text-[11px] uppercase tracking-wide text-chalk-500">{piece.id.startsWith("client-") ? "Client video · evidence-backed" : `Field Note #${piece.id}`}</p>
             <h3 className="text-lg font-semibold text-chalk-50">{piece.title}</h3>
             <p className="mt-0.5 text-sm text-chalk-400">{piece.concept}</p>
             <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-chalk-500">
@@ -577,22 +620,39 @@ function PieceDetail({ item, onChanged, setJobOverride }: { item: StudioItem; on
             </p>
             {activeJob ? (
               <RenderProgress job={activeJob} />
-            ) : (
-              <div className="flex flex-wrap gap-2">
-                {/* Only #004–#006 have a previously-approved voiceover to reuse; template pieces render
-                    from an uploaded VO. */}
-                {["004", "005", "006"].includes(piece.id) && (
-                  <button disabled={busy || preview} onClick={() => startRender(false)} className="btn-primary flex items-center gap-1.5 text-sm disabled:opacity-40">
-                    {busy ? <Loader2 size={15} className="animate-spin" /> : <RefreshCw size={15} />} Generate (approved voiceover)
+            ) : (() => {
+              // ONE primary action for the current state (section E) — no duplicate Generate controls.
+              // #004–#006 reuse an approved voiceover; every other piece renders from an uploaded VO.
+              const isApprovedMaster = ["004", "005", "006"].includes(piece.id);
+              const canGenerate = isApprovedMaster || hasUpload;
+              const primaryUseUpload = isApprovedMaster ? false : true;
+              if (!canGenerate) {
+                return (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button disabled className="btn-primary flex items-center gap-1.5 text-sm opacity-40" title="Upload a voiceover first"><Film size={15} /> Generate video</button>
+                    <span className="text-xs text-chalk-500">Upload a voiceover above to generate.</span>
+                  </div>
+                );
+              }
+              return (
+                <div className="flex flex-wrap items-center gap-2">
+                  <button disabled={busy || preview} onClick={() => startRender(lastFailed && hasUpload ? true : primaryUseUpload)} className="btn-primary flex items-center gap-1.5 text-sm disabled:opacity-40">
+                    {busy ? <Loader2 size={15} className="animate-spin" /> : <RefreshCw size={15} />} {lastFailed ? "Retry render" : "Generate video"}
                   </button>
-                )}
-                <button disabled={busy || preview || !hasUpload} onClick={() => startRender(true)} className={`flex items-center gap-1.5 text-sm disabled:opacity-40 ${["004", "005", "006"].includes(piece.id) ? "btn-secondary" : "btn-primary"}`} title={preview ? "Disabled in preview" : hasUpload ? "" : "Upload a voiceover first"}>
-                  <Film size={15} /> Generate with my voiceover
-                </button>
-                {lastFailed && <button disabled={busy || preview || !hasUpload} onClick={() => startRender(true)} className="btn-ghost flex items-center gap-1.5 text-xs text-coral-300 disabled:opacity-40"><RefreshCw size={13} /> Retry</button>}
+                  {/* Alternate audio source is a clearly-secondary option, never a competing primary. */}
+                  {isApprovedMaster && hasUpload && (
+                    <button disabled={busy || preview} onClick={() => startRender(true)} className="btn-ghost flex items-center gap-1.5 text-xs disabled:opacity-40"><Film size={13} /> Use my uploaded voiceover instead</button>
+                  )}
+                </div>
+              );
+            })()}
+            {lastFailed && !activeJob && (
+              <div className="mt-2 rounded-lg border border-coral-400/25 bg-coral-400/[0.06] p-2.5 text-xs text-coral-200">
+                <p className="font-medium">Last render failed{lastFailed.attempt > 1 ? ` (attempt ${lastFailed.attempt})` : ""}.</p>
+                <p className="mt-0.5 text-coral-200/80">{lastFailed.error || "No reason recorded."}</p>
+                <p className="mt-1 text-[11px] text-chalk-500">Retry re-runs the render safely — a stale worker can never overwrite a finished version.</p>
               </div>
             )}
-            {lastFailed && !activeJob && <p className="mt-2 text-xs text-coral-300">Last render failed: {lastFailed.error}</p>}
           </>
         )}
       </div>
@@ -652,9 +712,10 @@ function PieceDetail({ item, onChanged, setJobOverride }: { item: StudioItem; on
             {item.jobs.map((j) => (
               <div key={j.id} className="flex items-center gap-2 text-xs">
                 <JobDot status={j.status} />
-                <span className="font-mono text-[10.5px] text-chalk-500">{j.inputVersion}</span>
+                <span className="capitalize text-chalk-300">{j.status}</span>
                 <span className="text-chalk-400">{j.mode === "uploaded-vo" ? "uploaded VO" : "approved audio"}</span>
-                <span className="ml-auto text-chalk-600">{new Date(j.createdAt).toLocaleString()}</span>
+                {j.attempt > 1 && <span className="text-chalk-600">· attempt {j.attempt}</span>}
+                <span className="ml-auto text-chalk-600">{new Date(j.finishedAt ?? j.createdAt).toLocaleString()}</span>
                 {j.status === "ready" && j.outputRel && <a href={j.outputRel} download className="text-azure-300 hover:underline">download</a>}
               </div>
             ))}
@@ -670,13 +731,26 @@ function JobDot({ status }: { status: SafeJob["status"] }) {
   return <span className={`h-2 w-2 shrink-0 rounded-full ${c}`} />;
 }
 
+const clockTime = (iso: string | null) => (iso ? new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "—");
+
+// Honest render status (section J): the real persisted job — stage, progress, attempt, queued/started
+// times and last worker activity. Polls every 1.5s (parent) and stops at a terminal state.
 function RenderProgress({ job }: { job: SafeJob }) {
   const pct = Math.round((job.progress || 0) * 100);
+  const label = job.status === "queued" ? "Queued — waiting for a render worker" : job.stage || "Rendering";
   return (
     <div className="rounded-xl border border-azure-500/25 bg-azure-500/[0.05] p-3">
-      <div className="mb-2 flex items-center gap-2 text-xs text-azure-200"><Loader2 size={13} className="animate-spin" /> {job.stage || "Rendering"} · {pct}%</div>
+      <div className="mb-2 flex items-center gap-2 text-xs text-azure-200">
+        {job.status === "queued" ? <Clock size={13} /> : <Loader2 size={13} className="animate-spin" />} {label} · {pct}%
+      </div>
       <div className="h-2 w-full overflow-hidden rounded-full bg-ink-950">
         <div className="h-full rounded-full bg-azure-400 transition-all duration-500" style={{ width: `${Math.max(3, pct)}%` }} />
+      </div>
+      <div className="mt-2.5 grid grid-cols-2 gap-x-4 gap-y-1 text-[11px] text-chalk-500 sm:grid-cols-4">
+        <span>Attempt · <span className="text-chalk-300">{job.attempt}</span></span>
+        <span>Queued · <span className="text-chalk-300">{clockTime(job.createdAt)}</span></span>
+        <span>Started · <span className="text-chalk-300">{clockTime(job.startedAt)}</span></span>
+        <span>Last activity · <span className="text-chalk-300">{clockTime(job.updatedAt)}</span></span>
       </div>
       <p className="mt-2 text-[11px] text-chalk-500">Runs in the background — you can leave this page or refresh; the job keeps going.</p>
     </div>

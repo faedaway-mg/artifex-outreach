@@ -36,6 +36,7 @@ const NAV = [
   { href: "/team", label: "Team", icon: Users },
   { href: "/performance", label: "Insights", icon: BarChart3 },
   { href: "/content-studio", label: "Content Studio", icon: Clapperboard },
+  { href: "/schedule", label: "Schedule", icon: CalendarClock },
   { href: "/launch", label: "Launch", icon: Rocket },
   { href: "/settings", label: "Settings", icon: SettingsIcon },
 ];
@@ -58,6 +59,7 @@ const TITLES: Record<string, string> = {
   "/team": "Team",
   "/performance": "Insights",
   "/content-studio": "Content Studio",
+  "/schedule": "Schedule",
   "/launch": "Launch Readiness",
   "/settings": "Settings",
 };

@@ -3,6 +3,7 @@ import { isAuthenticated } from "@/lib/auth";
 import { setPosted, listJobs, readApprovals } from "@/lib/content-studio/store";
 import { getCaption } from "@/lib/content-studio/caption-store";
 import { latestReadyJob } from "@/lib/content-studio/job";
+import { reconcileTaskOnClientVideoPosted } from "@/lib/content-studio/client-video-reconcile";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -29,5 +30,8 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
   }
   const when = new Date().toISOString();
   await setPosted(params.id, when);
-  return NextResponse.json({ ok: true, postedAt: when });
+  // Canonical unification (C): posting a client video completes its Today prepare_video task,
+  // so the "videos to create" count drops on Today and Content Studio together. No-op for Field Notes.
+  const tasksCompleted = await reconcileTaskOnClientVideoPosted(params.id);
+  return NextResponse.json({ ok: true, postedAt: when, tasksCompleted });
 }

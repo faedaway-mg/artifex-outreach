@@ -1,13 +1,18 @@
-import { studioSnapshot } from "@/lib/content-studio/store";
+import { studioSnapshot, readPosted } from "@/lib/content-studio/store";
 import { ContentStudioClient } from "@/components/content-studio/ContentStudioClient";
 import type { StudioItem, SafeJob } from "@/components/content-studio/types";
+import { allTasks } from "@/lib/repo";
+import { pendingClientVideoCount } from "@/lib/content-studio/client-video-tasks";
+import { getWorkerHealth } from "@/lib/content-studio/worker-health";
 
 export const dynamic = "force-dynamic";
 
 // Server component: load the snapshot and hand the client ONLY public-safe fields (no absolute private
 // filesystem paths for uploads or render outputs).
 export default async function ContentStudioPage({ searchParams }: { searchParams?: { piece?: string; lead?: string; section?: string; from?: string } }) {
-  const raw = await studioSnapshot();
+  const [raw, tasks, posted, workerHealth] = await Promise.all([studioSnapshot(), allTasks(), readPosted(), getWorkerHealth()]);
+  // Canonical "videos to create" (section C) — SAME function Today uses, so the counts match.
+  const videosToCreate = pendingClientVideoCount(tasks, Object.keys(posted));
   const items: StudioItem[] = raw.map(({ piece, jobs, uploads, postedAt, caption, provenance }) => ({
     piece,
     postedAt,
@@ -24,7 +29,7 @@ export default async function ContentStudioPage({ searchParams }: { searchParams
     section: searchParams?.section ?? null,
     from: searchParams?.from ?? null,
   };
-  return <ContentStudioClient initialItems={items} deepLink={deepLink} />;
+  return <ContentStudioClient initialItems={items} deepLink={deepLink} videosToCreate={videosToCreate} workerHealth={workerHealth} />;
 }
 
 function sanitizeJob(j: any): SafeJob {
@@ -32,6 +37,7 @@ function sanitizeJob(j: any): SafeJob {
     id: j.id, pieceId: j.pieceId, inputVersion: j.inputVersion, status: j.status,
     progress: j.progress, stage: j.stage, mode: j.mode, audioKind: j.audioKind, audioLabel: j.audioLabel,
     outputRel: j.outputRel, thumbRel: j.thumbRel, error: j.error,
-    createdAt: j.createdAt, finishedAt: j.finishedAt,
+    attempt: j.attempt ?? 1,
+    createdAt: j.createdAt, updatedAt: j.updatedAt ?? j.createdAt, startedAt: j.startedAt ?? null, finishedAt: j.finishedAt,
   };
 }

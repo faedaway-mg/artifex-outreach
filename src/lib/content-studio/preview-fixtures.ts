@@ -31,8 +31,8 @@ export const PREVIEW_ITEMS: StudioItem[] = [
     jobs: [{
       id: "demo_job_001", pieceId: "001", inputVersion: "sdemo0001", status: "ready", progress: 1,
       stage: "Ready", mode: "reuse-approved-audio", audioKind: "approved-master", audioLabel: "approved master",
-      outputRel: SAMPLE_MP4, thumbRel: thumb("001"), error: null,
-      createdAt: "2026-08-01T18:00:00.000Z", finishedAt: "2026-08-01T18:04:00.000Z",
+      outputRel: SAMPLE_MP4, thumbRel: thumb("001"), error: null, attempt: 1,
+      createdAt: "2026-08-01T18:00:00.000Z", updatedAt: "2026-08-01T18:04:00.000Z", startedAt: "2026-08-01T18:00:30.000Z", finishedAt: "2026-08-01T18:04:00.000Z",
     }],
   },
   {
@@ -56,8 +56,8 @@ export const PREVIEW_ITEMS: StudioItem[] = [
     jobs: [{
       id: "demo_job_002", pieceId: "002", inputVersion: "sdemo0002", status: "ready", progress: 1,
       stage: "Ready", mode: "uploaded-vo", audioKind: "uploaded", audioLabel: "vo-002-take3.mp3",
-      outputRel: SAMPLE_MP4, thumbRel: thumb("002"), error: null,
-      createdAt: "2026-08-20T15:14:00.000Z", finishedAt: "2026-08-20T15:18:00.000Z",
+      outputRel: SAMPLE_MP4, thumbRel: thumb("002"), error: null, attempt: 1,
+      createdAt: "2026-08-20T15:14:00.000Z", updatedAt: "2026-08-20T15:18:00.000Z", startedAt: "2026-08-20T15:14:20.000Z", finishedAt: "2026-08-20T15:18:00.000Z",
     }],
   },
   {

@@ -22,6 +22,8 @@ import { buildWorkQueue, buildDailyMission, buildReplyCard, surfaceTodaysTasks, 
 import { orderEmailProspects } from "@/lib/acquisition/email-ordering";
 import { reservoirBand, reservoirLabel } from "@/lib/acquisition/reservoir";
 import { auditQueue } from "@/lib/outreach/inventory-prep";
+import { pendingClientVideoCount } from "@/lib/content-studio/client-video-tasks";
+import { readPosted } from "@/lib/content-studio/store";
 import { accountQueue } from "@/lib/queue-accounting";
 import { accountSequences } from "@/lib/comms/task-projection";
 import { formatCurrency, relativeDate, timeOfDay, shortDate, joinMeta, formatLocation, deslug } from "@/lib/utils";
@@ -175,11 +177,15 @@ export default async function TodayPage({ searchParams }: { searchParams?: { vie
   //  • Videos: signal-triggered only — no quota; zero is a healthy morning.
   const emailTarget = Math.max(0, settings.prospecting.emailDailyTarget ?? 10);
   const ready = channelReadiness(tasks, leadMap);
+  // Canonical "videos to create" (section C): the SAME function Content Studio uses, over the same
+  // company-wide open prepare_video tasks — so the number reads identically on both surfaces. Posting
+  // a client video completes its prepare_video task, so a finished video leaves this count on both.
+  const videosToCreate = pendingClientVideoCount(everyTask, Object.keys(await readPosted()));
   const scopedOpen = everyTask.filter((t) => scopedLeadIds.has(t.leadId));
   const inventory = emailInventory({ leads: leadMap, tasks: scopedOpen, emailsSentToday, sendTarget: emailTarget });
   // Show the composition line whenever email-first acquisition is active (target > 0), so the
   // reservoir's supply health is visible even at zero prepared — a thin morning is a supply state.
-  const showComposition = emailTarget > 0 || inventory.prepared > 0 || ready.call > 0 || ready.video > 0;
+  const showComposition = emailTarget > 0 || inventory.prepared > 0 || ready.call > 0 || videosToCreate > 0;
   // Queue-health audit: turn "nothing queued / needs attention" into an owner breakdown so the
   // operator can see what the SYSTEM is handling vs what genuinely needs them. Defects (should
   // have work but don't) self-heal on the next reconciliation tick — surfaced honestly, not hidden.
@@ -226,7 +232,7 @@ export default async function TodayPage({ searchParams }: { searchParams?: { vie
             {" · "}Reservoir: <span className="text-chalk-300">{reservoirLabel(reservoirBand(inventory.prepared))}</span>
             {/* No quota on calls or videos — both are signal-triggered; zero is a healthy morning. */}
             {ready.call > 0 && <>{" · "}Warm calls: <span className="text-chalk-300">{ready.call}</span></>}
-            {ready.video > 0 && <>{" · "}Videos: <span className="text-chalk-300">{ready.video}</span></>}
+            {videosToCreate > 0 && <>{" · "}<Link href="/content-studio?section=client&from=today" className="ring-focus hover:text-chalk-300">Videos to create: <span className="text-chalk-300">{videosToCreate}</span></Link></>}
           </p>
         )}
         {/* Why now — the top email prospect's own observed evidence (never predicted intent). */}

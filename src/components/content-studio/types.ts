@@ -14,7 +14,10 @@ export interface SafeJob {
   outputRel: string | null;
   thumbRel: string | null;
   error: string | null;
+  attempt: number;
   createdAt: string;
+  updatedAt: string;
+  startedAt: string | null;
   finishedAt: string | null;
 }
 
