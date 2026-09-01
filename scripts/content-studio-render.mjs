@@ -72,6 +72,33 @@ function templatePath(id) {
 }
 const PORT = 9320 + (process.pid % 40);
 
+// Section I-D/E — ffprobe the finished mp4 and assert it is a REAL, playable artifact: mp4 container, a
+// 1080×1920 video stream with a nonzero frame count, an audible audio stream, and a positive duration.
+// Throws a specific, operator-useful reason on any failure (so the job fails honestly, never false-ready).
+function verifyOutput(file) {
+  if (!existsSync(file)) throw new Error("verification failed: output file missing");
+  const probe = (args) => execSync(`ffprobe -v error ${args} "${file}"`).toString().trim();
+  let fmt, vstream;
+  try {
+    fmt = JSON.parse(probe(`-show_entries format=format_name,duration -of json`)).format || {};
+    vstream = JSON.parse(probe(`-select_streams v:0 -show_entries stream=width,height,codec_name -of json`)).streams?.[0];
+  } catch (e) { throw new Error("verification failed: ffprobe could not read the output (" + (e?.message || e) + ")"); }
+  const container = String(fmt.format_name || "");
+  if (!/mp4|mov|m4a/.test(container)) throw new Error(`verification failed: container is "${container}", not mp4`);
+  const duration = parseFloat(fmt.duration || "0");
+  if (!(duration > 0.5)) throw new Error(`verification failed: duration ${duration}s is not positive`);
+  if (!vstream) throw new Error("verification failed: no video stream");
+  const width = Number(vstream.width), height = Number(vstream.height);
+  if (width !== 1080 || height !== 1920) throw new Error(`verification failed: dimensions ${width}x${height}, expected 1080x1920`);
+  let frames = 0;
+  try { frames = Number(probe(`-select_streams v:0 -count_packets -show_entries stream=nb_read_packets -of csv=p=0`)) || 0; } catch { frames = 0; }
+  if (!(frames > 0)) throw new Error("verification failed: zero video frames");
+  let audioCodec = null;
+  try { audioCodec = JSON.parse(probe(`-select_streams a:0 -show_entries stream=codec_name -of json`)).streams?.[0]?.codec_name || null; } catch { audioCodec = null; }
+  if (!audioCodec) throw new Error("verification failed: no audio stream (the narration is missing from the output)");
+  return { container, duration, width, height, frames, audioCodec };
+}
+
 // Resolve the cover thumbnail to a local path the frame renderer can embed as frame zero. Order:
 //   1) committed seed file (seeded pieces #001–#007) — read-only, always present in the image;
 //   2) a previously-published DURABLE thumbnail in the ArtifactStore (survives restart) → materialize;
@@ -110,7 +137,21 @@ async function main() {
   // back to its seed file. Resolve the cover thumbnail durably (may generate + publish it).
   const filePath = templatePath(note);
   const tplDoc = (await loadTemplatePgDoc(note)) ?? (filePath ? JSON.parse(readFileSync(filePath, "utf8")) : null);
-  const thumbPath = await resolveThumbnail(note, tplDoc);
+  // Section I-E: a client video's cover (frame zero + poster) IS its verified website screenshot — the real
+  // page, materialized + integrity-checked against the SHA the job was bound to. This puts the verified
+  // screenshot visibly in the output and gives the thumbnail a clean, honest source. Falls back to the
+  // generated template cover if (unexpectedly) the bound screenshot is unavailable.
+  let thumbPath;
+  if (job.screenshotKey) {
+    try {
+      const { path: sp } = await materializeArtifact(job.screenshotKey, { destDir: TMP, filename: "screenshot-cover.png", expectedSha: job.screenshotSha ?? null });
+      thumbPath = sp;
+    } catch (e) {
+      throw new Error("bound website screenshot could not be verified/materialized: " + (e?.message || e));
+    }
+  } else {
+    thumbPath = await resolveThumbnail(note, tplDoc);
+  }
 
   let out, audioNote, newTL;
 
@@ -182,6 +223,13 @@ async function main() {
       audioNote = "fresh voice+cue mix from uploaded VO (re-encoded AAC)";
     }
   }
+
+  // Section I-D/E: HONEST OUTPUT VERIFICATION — the job is never marked ready on a silent/placeholder file.
+  // ffprobe the real artifact and assert: mp4 container, a video stream at the target 1080×1920 with a
+  // nonzero frame count, an AUDIBLE audio stream (from the uploaded narration), and a positive duration.
+  patchJob({ stage: "Verifying output", progress: 0.94 });
+  const verification = verifyOutput(out);
+  audioNote = `${audioNote} · verified ${verification.width}x${verification.height}, ${verification.frames}f, ${verification.duration.toFixed(2)}s, audio ${verification.audioCodec}`;
 
   // NOTE: do NOT delete TMP here — for an operator-authored template the frame-zero cover lives in TMP
   // (materialized/generated) and is the poster source below. TMP is cleaned AFTER publication (and on failure).

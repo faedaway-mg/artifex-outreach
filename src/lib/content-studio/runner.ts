@@ -12,6 +12,7 @@ import { inputVersion, findActiveDuplicate } from "./job";
 import { catalogEntry, isRenderable } from "./catalog";
 import { listJobs, writeJob, latestUpload, REPO_ROOT, hasTemplate, loadTemplate } from "./store";
 import { audioSignature } from "./upload";
+import { latestReadyShot } from "./screenshot-jobs";
 
 export const TEMPLATE_VERSION = "fieldnote-thumbfirst-v2-datadriven";
 
@@ -67,7 +68,26 @@ export async function createRenderJob(pieceId: string, opts: { useUpload: boolea
     audioSig = audioSignature({ name: up.name, bytes: up.bytes, durationSeconds: up.durationSeconds });
   }
 
-  const version = inputVersion({ scriptVersion: await scriptVersion(pieceId), audioSig, templateVersion: TEMPLATE_VERSION });
+  // Section I-C: a client video MUST consume its verified website screenshot. Reject generation when that
+  // required artifact is absent, and BIND its immutable SHA so the render is reproducible + provenance-true.
+  let screenshotKey: string | null = null;
+  let screenshotSha: string | null = null;
+  const isClient = pieceId.startsWith("client-");
+  if (isClient) {
+    const tpl = await loadTemplate(pieceId);
+    const businessId = (tpl as any)?.businessId as string | undefined;
+    const shot = businessId ? await latestReadyShot(businessId, "mobile") : null;
+    if (!shot || !shot.outputKey || !shot.sha256) {
+      throw new Error("This client video needs its verified website screenshot before you can generate it — the capture isn't ready yet. Re-open the project to prepare it, then try again.");
+    }
+    screenshotKey = shot.outputKey;
+    screenshotSha = shot.sha256;
+  }
+
+  // Bind the IMMUTABLE content hashes (audio SHA-256 + screenshot SHA-256) into the input version, so the
+  // same inputs always produce the same job identity (reproducible) and any change forces a fresh render.
+  const boundSig = [audioSha || audioSig, screenshotSha || "no-shot"].join("~");
+  const version = inputVersion({ scriptVersion: await scriptVersion(pieceId), audioSig: boundSig, templateVersion: TEMPLATE_VERSION });
   const jobs = await listJobs();
   const dup = findActiveDuplicate(jobs, pieceId, version);
   if (dup) return { job: dup, deduped: true };
@@ -90,6 +110,8 @@ export async function createRenderJob(pieceId: string, opts: { useUpload: boolea
     outputRel: null,
     outputKey: null,
     posterKey: null,
+    screenshotKey,
+    screenshotSha,
     thumbRel: `/content/thumbnails/field-note-${pieceId}-thumbnail.png`,
     error: null,
     attempt: 1,

@@ -42,6 +42,8 @@ function rowToJob(r: Record<string, unknown>): RenderJob {
     outputRel: (r.output_rel as string) ?? null,
     outputKey: (r.output_key as string) ?? null,
     posterKey: (r.poster_key as string) ?? null,
+    screenshotKey: (r.screenshot_key as string) ?? null,
+    screenshotSha: (r.screenshot_sha as string) ?? null,
     thumbRel: (r.thumb_rel as string) ?? null,
     error: (r.error as string) ?? null,
     attempt: Number(r.attempt ?? 0),
@@ -61,12 +63,12 @@ export async function writeJobPg(job: RenderJob): Promise<void> {
   await sql`
     INSERT INTO content_studio_jobs
       (id, piece_id, input_version, status, progress, stage, mode, audio_kind, audio_key, audio_sha,
-       audio_label, output_key, poster_key, output_rel, thumb_rel, error, attempt,
+       audio_label, output_key, poster_key, screenshot_key, screenshot_sha, output_rel, thumb_rel, error, attempt,
        created_at, updated_at, started_at, finished_at)
     VALUES
       (${job.id}, ${job.pieceId}, ${job.inputVersion}, ${job.status}, ${job.progress}, ${job.stage},
        ${job.mode}, ${job.audioKind}, ${job.audioKey}, ${job.audioSha}, ${job.audioLabel},
-       ${job.outputKey}, ${job.posterKey}, ${job.outputRel}, ${job.thumbRel}, ${job.error}, ${job.attempt},
+       ${job.outputKey}, ${job.posterKey}, ${job.screenshotKey ?? null}, ${job.screenshotSha ?? null}, ${job.outputRel}, ${job.thumbRel}, ${job.error}, ${job.attempt},
        ${job.createdAt}, ${job.updatedAt}, ${job.startedAt}, ${job.finishedAt})
     ON CONFLICT (id) DO UPDATE SET
       stage = EXCLUDED.stage, progress = EXCLUDED.progress, error = EXCLUDED.error,
@@ -120,19 +122,29 @@ function rowToUpload(r: Record<string, unknown>): AudioUpload {
     sha256: (r.sha256 as string) ?? undefined, name: String(r.name), bytes: Number(r.byte_size),
     durationSeconds: r.duration_seconds == null ? null : Number(r.duration_seconds),
     uploadedAt: iso(r.uploaded_at), kind: (r.kind as AudioUpload["kind"]) ?? "uploaded",
+    detectedType: (r.detected_type as AudioUpload["detectedType"]) ?? null,
   };
 }
 export async function writeUploadPg(meta: AudioUpload): Promise<void> {
   const id = meta.objectKey || `${meta.pieceId}:${meta.uploadedAt}`; // object key is unique per upload
-  await db()`INSERT INTO content_studio_uploads (id, piece_id, object_key, name, byte_size, sha256, duration_seconds, kind, uploaded_at)
+  await db()`INSERT INTO content_studio_uploads (id, piece_id, object_key, name, byte_size, sha256, duration_seconds, kind, detected_type, uploaded_at)
     VALUES (${id}, ${meta.pieceId}, ${meta.objectKey ?? ""}, ${meta.name}, ${meta.bytes}, ${meta.sha256 ?? ""},
-            ${meta.durationSeconds}, ${meta.kind}, ${meta.uploadedAt})
+            ${meta.durationSeconds}, ${meta.kind}, ${meta.detectedType ?? null}, ${meta.uploadedAt})
     ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, byte_size = EXCLUDED.byte_size,
-      sha256 = EXCLUDED.sha256, duration_seconds = EXCLUDED.duration_seconds, kind = EXCLUDED.kind`;
+      sha256 = EXCLUDED.sha256, duration_seconds = EXCLUDED.duration_seconds, kind = EXCLUDED.kind, detected_type = EXCLUDED.detected_type`;
 }
 export async function listUploadsPg(pieceId: string): Promise<AudioUpload[]> {
   const rows = await db()`SELECT * FROM content_studio_uploads WHERE piece_id = ${pieceId} ORDER BY uploaded_at DESC`;
   return rows.map(rowToUpload);
+}
+// Retire the CURRENT upload row (by object key, or the latest for the piece). The artifact bytes are left
+// in the store (cheap, and older versions may still reference them) — only the metadata row is removed so
+// latestUpload() no longer returns it. Returns true if a row was deleted.
+export async function deleteUploadPg(pieceId: string, objectKey: string | null, uploadedAt: string): Promise<boolean> {
+  const rows = objectKey
+    ? await db()`DELETE FROM content_studio_uploads WHERE piece_id = ${pieceId} AND object_key = ${objectKey} RETURNING id`
+    : await db()`DELETE FROM content_studio_uploads WHERE piece_id = ${pieceId} AND uploaded_at = ${uploadedAt} RETURNING id`;
+  return rows.length > 0;
 }
 
 // ── Templates (operator-authored; committed templates stay read-only seeds, not stored here) ──

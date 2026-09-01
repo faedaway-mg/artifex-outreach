@@ -27,6 +27,8 @@ export interface RenderJob {
   outputRel: string | null; // LEGACY public URL of the rendered mp4 (/content/...) — dev only
   outputKey: string | null; // canonical ArtifactStore key for the rendered mp4 (durable, ownership-fenced)
   posterKey: string | null; // canonical ArtifactStore key for the frame-zero poster (durable)
+  screenshotKey?: string | null; // canonical key of the verified website screenshot consumed by this render (I-C)
+  screenshotSha?: string | null; // integrity of that screenshot's bytes — bound into inputVersion (reproducible)
   thumbRel: string | null; // public URL of the thumbnail
   error: string | null;
   attempt: number;
@@ -59,6 +61,7 @@ export interface Piece {
   revision?: number;
   ownerEdited?: boolean;
   screenshotRel?: string | null; // authenticated route to the business's captured website screenshot
+  screenshotReady?: boolean;      // a verified capture exists (client videos) — gates the one Generate action
 }
 
 export interface AudioUpload {
@@ -71,6 +74,7 @@ export interface AudioUpload {
   durationSeconds: number | null;
   uploadedAt: string;
   kind: "uploaded" | "placeholder"; // explicit — set by the caller, never inferred from the name
+  detectedType?: "mp3" | "m4a" | "aac" | "wav" | null; // real container detected from the bytes (I-A)
 }
 
 // A recorded approval — an explicit operator action, bound to the EXACT render it approved. It goes

@@ -11,6 +11,7 @@ import path from "node:path";
 import type { AudioUpload, Piece, RenderJob } from "./types";
 import { CATALOG, baseCatalogPiece, recommendedCandidates } from "./catalog";
 import { jobsForPiece, latestReadyJob } from "./job";
+import { latestReadyShot } from "./screenshot-jobs";
 import type { ContentTemplate } from "./template-schema";
 import * as pg from "./cs-lifecycle-pg";
 
@@ -147,6 +148,14 @@ export async function latestUpload(pieceId: string): Promise<AudioUpload | null>
   const ups = await listUploads(pieceId);
   return ups[0] ?? null;
 }
+// Remove the CURRENT (latest) upload for a piece so it returns to NEEDS_AUDIO. Returns true if one was
+// removed. Older versions are left in place (provenance); only the active one is retired.
+export async function removeLatestUpload(pieceId: string): Promise<boolean> {
+  const latest = await latestUpload(pieceId);
+  if (!latest) return false;
+  if (pgMode()) return pg.deleteUploadPg(pieceId, latest.objectKey ?? null, latest.uploadedAt);
+  try { if (latest.file) { await fs.rm(latest.file, { force: true }); await fs.rm(latest.file + ".meta.json", { force: true }); } return true; } catch { return false; }
+}
 
 // ── Templates (data-driven pieces, e.g. #007) ────────────────────────────────
 export function templatePath(id: string): string | null {
@@ -258,11 +267,14 @@ export async function getPieces(): Promise<Piece[]> {
     else if (ready?.outputRel) { recommendedRel = ready.outputRel; hasThumbnailFirst = true; }
     else { recommendedRel = firstExisting(recommendedCandidates(id)); hasThumbnailFirst = Boolean(recommendedRel); }
     const isClient = id.startsWith("client-");
+    const screenshotReady = isClient && t.businessId ? !!(await latestReadyShot(t.businessId, "mobile").catch(() => null)) : false;
     templatePieces.push({
       id, title: t.title, concept: t.concept, narration: t.narration,
       captionIG: t.captions?.ig ?? null, captionLI: t.captions?.li ?? null,
       sceneBasename: "scene-template.html", renderable: true, targetSeconds: null,
-      thumbRel: `/content/thumbnails/field-note-${id}-thumbnail.png`, recommendedRel, hasThumbnailFirst,
+      // Cover thumbnail is served from the authenticated poster route (the real frame-zero of the latest
+      // render, or a clean fallback tile) — the old /content/thumbnails/*.png path 404'd for client videos.
+      thumbRel: `/api/content-studio/poster/${encodeURIComponent(id)}`, recommendedRel, hasThumbnailFirst,
       businessId: t.businessId ?? null,
       narrationEvidence: t.narrationEvidence ?? [],
       evidenceState: t.evidenceState,
@@ -271,6 +283,7 @@ export async function getPieces(): Promise<Piece[]> {
       // The business's live captured screenshot (section G), served by the authenticated route. Only for
       // client videos; the route itself returns a clean fallback tile until the worker has captured it.
       screenshotRel: isClient && t.businessId ? `/api/content-studio/screenshot-image?business=${encodeURIComponent(t.businessId)}&viewport=mobile` : null,
+      screenshotReady,
     });
   }
   return [...catalogPieces, ...templatePieces, ...drafts.map(draftToPiece)];

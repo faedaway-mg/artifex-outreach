@@ -5,6 +5,7 @@ import { createHash } from "node:crypto";
 import { isAuthenticated } from "@/lib/auth";
 import { uploadsDirFor, writeUploadMeta, hasTemplate } from "@/lib/content-studio/store";
 import { validateAudioMeta, AUDIO_MAX_BYTES } from "@/lib/content-studio/upload";
+import { detectAudioType } from "@/lib/content-studio/audio-detect";
 import { catalogEntry } from "@/lib/content-studio/catalog";
 import { getArtifactStore } from "@/lib/content-studio/storage-factory";
 import { buildObjectKey } from "@/lib/content-studio/cs-object-key";
@@ -36,6 +37,10 @@ export async function POST(req: NextRequest) {
   if (!check.ok) return NextResponse.json({ error: check.reason }, { status: 422 });
 
   const buf = Buffer.from(await file.arrayBuffer());
+  // CONTENT validation (section I-A): trust the bytes, not the filename or the client MIME. A forged MIME
+  // or a corrupt/non-audio file is rejected here by its real signature — this is the authoritative check.
+  const detected = detectAudioType(buf.subarray(0, 64));
+  if (!detected.ok || !detected.type) return NextResponse.json({ error: detected.reason || "Unrecognised audio content." }, { status: 422 });
   const sha256 = createHash("sha256").update(buf).digest("hex");
   const ext = (file.name.split(".").pop() || "mp3").toLowerCase().replace(/[^a-z0-9]/g, "") || "mp3";
   // Canonical, safe object key — a stamped upload id (NOT the raw filename). Store bytes through the
@@ -64,9 +69,9 @@ export async function POST(req: NextRequest) {
     pieceId, file: abs, objectKey, sha256, name: file.name, bytes,
     durationSeconds: Number.isFinite(durationSeconds as number) ? durationSeconds : null,
     uploadedAt: new Date().toISOString(),
-    kind,
+    kind, detectedType: detected.type,
   };
   await writeUploadMeta(meta);
-  // Never return a filesystem path — only the object key + integrity.
-  return NextResponse.json({ upload: { ...meta, file: undefined, objectKey, sha256 } }, { status: 201 });
+  // Never return a filesystem path — only the object key + integrity + detected type.
+  return NextResponse.json({ upload: { ...meta, file: undefined, objectKey, sha256, detectedType: detected.type } }, { status: 201 });
 }

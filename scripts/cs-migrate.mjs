@@ -15,9 +15,11 @@ const ORDER = [
   "content_studio_artifacts.sql",        // bytes (may already exist)
   "field_note_jobs.sql",                 // content_studio_jobs base
   "content_studio_jobs_lifecycle.sql",   // + RenderJob columns
+  "content_studio_jobs_screenshot.sql",  // + screenshot_key/screenshot_sha (I-C)
   "content_studio_shares.sql",           // shares + email drafts base
   "content_studio_shares_lifecycle.sql", // + ShareRecord display columns
   "content_studio_uploads.sql",
+  "content_studio_uploads_lifecycle.sql",  // + detected_type (I-A)
   "content_studio_approvals.sql",
   "content_studio_posted.sql",
   "content_studio_templates.sql",

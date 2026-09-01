@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import { SectionHeader } from "@/components/ui";
 import { clientVideoPieceId } from "@/lib/content-studio/client-video-routing";
+import { renderLifecycle, canGenerate, type RenderState } from "@/lib/content-studio/render-lifecycle";
 import type { StudioItem, SafeJob } from "./types";
 import type { WorkerHealth } from "@/lib/content-studio/worker-health";
 
@@ -512,6 +513,21 @@ function CaptionPanel({ item, onChanged, setMsg }: { item: StudioItem; onChanged
   );
 }
 
+// The honest render state (section I-D), as a compact operator-facing chip.
+function LifecycleBadge({ state }: { state: RenderState }) {
+  const map: Record<RenderState, { label: string; cls: string }> = {
+    NEEDS_AUDIO: { label: "Needs audio", cls: "border-amber-400/25 bg-amber-400/10 text-amber-300" },
+    READY_TO_GENERATE: { label: "Ready to generate", cls: "border-azure-500/25 bg-azure-500/10 text-azure-300" },
+    QUEUED: { label: "Queued", cls: "border-azure-500/25 bg-azure-500/10 text-azure-300" },
+    RENDERING: { label: "Rendering", cls: "border-azure-500/25 bg-azure-500/10 text-azure-300" },
+    READY: { label: "Ready", cls: "border-teal-400/25 bg-teal-400/10 text-teal-300" },
+    FAILED_RETRYABLE: { label: "Failed — retry", cls: "border-coral-400/30 bg-coral-400/10 text-coral-200" },
+    FAILED_FINAL: { label: "Failed — final", cls: "border-coral-400/40 bg-coral-400/15 text-coral-200" },
+  };
+  const m = map[state];
+  return <span className={`rounded-md border px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide ${m.cls}`}>{m.label}</span>;
+}
+
 function PieceDetail({ item, onChanged, setJobOverride }: { item: StudioItem; onChanged: () => Promise<void>; setJobOverride: (f: (o: Record<string, SafeJob>) => Record<string, SafeJob>) => void }) {
   const preview = usePreview();
   const { piece } = item;
@@ -521,6 +537,15 @@ function PieceDetail({ item, onChanged, setJobOverride }: { item: StudioItem; on
   const lastFailed = item.jobs.find((j) => j.status === "failed");
   const hasUpload = item.uploads.length > 0;
   const narrationText = piece.narration.join("\n");
+  // Honest lifecycle (section I-D): one derived state from real server truth. Client videos also need a
+  // verified screenshot before the single Generate action unlocks.
+  const isClientPiece = piece.id.startsWith("client-");
+  const hasScreenshot = !isClientPiece || !!piece.screenshotReady;
+  const lifecycle = renderLifecycle({
+    renderable: piece.renderable, isClient: isClientPiece, hasAudio: hasUpload, hasScreenshot,
+    hasVerifiedOutput: !!piece.recommendedRel, latestJob: (activeJob ?? lastFailed ?? null) as any,
+  });
+  const genGate = canGenerate({ renderable: piece.renderable, isClient: isClientPiece, hasAudio: hasUpload, hasScreenshot });
 
   const startRender = async (useUpload: boolean) => {
     if (preview) { setMsg({ tone: "err", text: "Disabled in preview — rendering runs only in the connected functional environment." }); return; }
@@ -648,7 +673,11 @@ function PieceDetail({ item, onChanged, setJobOverride }: { item: StudioItem; on
 
       {/* Generate */}
       <div className="card p-4">
-        <h4 className="mb-1 text-sm font-semibold text-chalk-100">Generate video</h4>
+        <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+          <h4 className="text-sm font-semibold text-chalk-100">Generate video</h4>
+          <LifecycleBadge state={lifecycle.state} />
+        </div>
+        <p className="mb-2 text-[11px] leading-relaxed text-chalk-500">{lifecycle.reason}</p>
         {!piece.renderable ? (
           <p className="text-xs leading-relaxed text-chalk-500">
             The render engine is wired for the established Field Notes scenes (#004–#006). This concept needs a scene
@@ -665,13 +694,15 @@ function PieceDetail({ item, onChanged, setJobOverride }: { item: StudioItem; on
               // ONE primary action for the current state (section E) — no duplicate Generate controls.
               // #004–#006 reuse an approved voiceover; every other piece renders from an uploaded VO.
               const isApprovedMaster = ["004", "005", "006"].includes(piece.id);
-              const canGenerate = isApprovedMaster || hasUpload;
+              // ONE gate (section I-C): masters may reuse approved audio; everything else needs an uploaded
+              // voiceover, and a client video additionally needs its verified screenshot.
+              const canGen = isApprovedMaster || genGate.ok;
               const primaryUseUpload = isApprovedMaster ? false : true;
-              if (!canGenerate) {
+              if (!canGen) {
                 return (
-                  <div className="flex flex-wrap items-center gap-2">
-                    <button disabled className="btn-primary flex items-center gap-1.5 text-sm opacity-40" title="Upload a voiceover first"><Film size={15} /> Generate video</button>
-                    <span className="text-xs text-chalk-500">Upload a voiceover above to generate.</span>
+                  <div className="flex flex-col items-start gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+                    <button disabled className="btn-primary flex w-full items-center justify-center gap-1.5 text-sm opacity-40 sm:w-auto" title={genGate.reason}><Film size={15} /> Generate video</button>
+                    <span className="text-xs text-chalk-500">{genGate.reason}</span>
                   </div>
                 );
               }
@@ -798,47 +829,99 @@ function RenderProgress({ job }: { job: SafeJob }) {
   );
 }
 
+// Upload one narration file with real PROGRESS (XHR, not fetch) so an iPhone upload shows a moving bar.
+function uploadWithProgress(pieceId: string, file: File, durationSeconds: number | null, onProgress: (pct: number) => void): Promise<{ ok: boolean; data: any }> {
+  return new Promise((resolve) => {
+    const fd = new FormData();
+    fd.append("pieceId", pieceId);
+    fd.append("file", file);
+    if (durationSeconds != null) fd.append("durationSeconds", String(durationSeconds));
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", "/api/content-studio/upload");
+    xhr.upload.onprogress = (e) => { if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100)); };
+    xhr.onload = () => { let data: any = {}; try { data = JSON.parse(xhr.responseText); } catch {} resolve({ ok: xhr.status >= 200 && xhr.status < 300, data }); };
+    xhr.onerror = () => resolve({ ok: false, data: { error: "Network error during upload." } });
+    xhr.send(fd);
+  });
+}
+
 function UploadPanel({ item, onChanged, setMsg }: { item: StudioItem; onChanged: () => Promise<void>; setMsg: (m: { tone: "ok" | "err"; text: string } | null) => void }) {
   const preview = usePreview();
   const { piece } = item;
   const [uploading, setUploading] = useState(false);
+  const [pct, setPct] = useState(0);
+  const [removing, setRemoving] = useState(false);
+  const [lastFile, setLastFile] = useState<File | null>(null); // remembered so a failed upload can be retried
   const inputRef = useRef<HTMLInputElement>(null);
-  const latest = item.uploads[0];
+  const latest = item.uploads[0]; // the CURRENT valid upload — never cleared by a failed replacement
 
-  const onFile = async (file: File) => {
+  // Attempt an upload. On failure we DO NOT touch the existing valid upload (`latest` stays intact) and we
+  // remember the file so the operator can Retry without re-picking it.
+  const doUpload = async (file: File) => {
     if (preview) { setMsg({ tone: "err", text: "Disabled in preview — voiceover upload runs in the functional environment." }); return; }
-    setUploading(true); setMsg(null);
+    setUploading(true); setPct(0); setMsg(null); setLastFile(file);
     try {
-      // Detect duration client-side (mobile-friendly) before sending.
       const duration = await detectDuration(file).catch(() => null);
-      const fd = new FormData();
-      fd.append("pieceId", piece.id);
-      fd.append("file", file);
-      if (duration != null) fd.append("durationSeconds", String(duration));
-      const r = await fetch("/api/content-studio/upload", { method: "POST", body: fd });
-      const data = await r.json();
-      if (!r.ok) setMsg({ tone: "err", text: data.error || "Upload failed." });
-      else { setMsg({ tone: "ok", text: `Uploaded ${file.name} (${fmtDur(duration)}).` }); await onChanged(); }
-    } catch (e: any) { setMsg({ tone: "err", text: String(e?.message ?? e) }); }
+      const { ok, data } = await uploadWithProgress(piece.id, file, duration, setPct);
+      if (!ok) { setMsg({ tone: "err", text: (data?.error || "Upload failed.") + " Your previous voiceover is untouched." }); }
+      else { setMsg({ tone: "ok", text: `Uploaded ${file.name} (${fmtDur(duration)}).` }); setLastFile(null); await onChanged(); }
+    } catch (e: any) { setMsg({ tone: "err", text: String(e?.message ?? e) + " Your previous voiceover is untouched." }); }
     finally { setUploading(false); if (inputRef.current) inputRef.current.value = ""; }
   };
 
+  const remove = async () => {
+    if (preview || !latest) return;
+    setRemoving(true); setMsg(null);
+    try {
+      const r = await fetch("/api/content-studio/upload/remove", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pieceId: piece.id }) });
+      if (!r.ok) { const d = await r.json().catch(() => ({})); setMsg({ tone: "err", text: d.error || "Could not remove." }); }
+      else { setMsg({ tone: "ok", text: "Voiceover removed — upload a new one to generate." }); await onChanged(); }
+    } finally { setRemoving(false); }
+  };
+
+  const busy = uploading || removing;
   return (
-    <div className="card p-4">
+    <div className="card overflow-hidden p-4">
       <h4 className="mb-1 text-sm font-semibold text-chalk-100">Your voiceover</h4>
-      <p className="mb-3 text-xs leading-relaxed text-chalk-500">Record narration on your phone, then upload the MP3 (or M4A / WAV, ≤25 MB, 5–90s). You produce the voice — Content Studio never generates it.</p>
-      <div className="flex flex-wrap items-center gap-2">
-        <input ref={inputRef} type="file" accept="audio/*,.mp3,.m4a,.wav,.aac" className="hidden" disabled={preview} onChange={(e) => { const f = e.target.files?.[0]; if (f) onFile(f); }} />
-        <button disabled={uploading || preview} onClick={() => inputRef.current?.click()} title={preview ? "Disabled in preview" : ""} className="btn-secondary flex items-center gap-1.5 text-sm disabled:opacity-40">
-          {uploading ? <Loader2 size={15} className="animate-spin" /> : <Upload size={15} />} {uploading ? "Uploading…" : latest ? "Replace voiceover" : "Upload voiceover"}
-        </button>
-        {latest && <span className="text-xs text-chalk-400">{latest.name} · {fmtDur(latest.durationSeconds)} · {fmtBytes(latest.bytes)}</span>}
-      </div>
-      {latest && (
-        <audio controls preload="none" className="mt-3 w-full" src={`/api/content-studio/audio/${piece.id}?t=${encodeURIComponent(latest.uploadedAt)}`}>
-          Your browser can’t play this audio.
-        </audio>
+      <p className="mb-3 text-xs leading-relaxed text-chalk-500">Record narration on your phone (Voice Memos works — export as M4A), then upload it here. MP3 / M4A / AAC / WAV, ≤25 MB, 5–90s. You produce the voice — Content Studio never generates it.</p>
+
+      {/* Current upload — filename, detected format, duration, size. Wraps on mobile; never overflows. */}
+      {latest && !uploading && (
+        <div className="mb-3 rounded-lg border border-white/[0.07] bg-white/[0.02] p-2.5">
+          <div className="flex flex-wrap items-center gap-1.5 text-xs">
+            <span className="min-w-0 break-all font-medium text-chalk-200">{latest.name}</span>
+            {(latest as any).detectedType && <span className="rounded border border-teal-400/25 bg-teal-400/10 px-1 py-0.5 text-[10px] uppercase text-teal-300">{(latest as any).detectedType}</span>}
+            <span className="text-chalk-500">{fmtDur(latest.durationSeconds)} · {fmtBytes(latest.bytes)}</span>
+          </div>
+          <audio controls preload="none" className="mt-2 w-full" src={`/api/content-studio/audio/${piece.id}?t=${encodeURIComponent(latest.uploadedAt)}`}>Your browser can’t play this audio.</audio>
+        </div>
       )}
+
+      {/* Upload progress — a real moving bar while the file transfers. */}
+      {uploading && (
+        <div className="mb-3 rounded-lg border border-azure-500/25 bg-azure-500/[0.05] p-2.5">
+          <div className="mb-1.5 flex items-center gap-2 text-xs text-azure-200"><Loader2 size={13} className="animate-spin" /> Uploading{lastFile ? ` ${lastFile.name}` : ""} · {pct}%</div>
+          <div className="h-2 w-full overflow-hidden rounded-full bg-ink-950"><div className="h-full rounded-full bg-azure-400 transition-all duration-200" style={{ width: `${Math.max(3, pct)}%` }} /></div>
+        </div>
+      )}
+
+      {/* Actions — full-width tap targets on mobile, inline on desktop. Replace · Remove · Retry. */}
+      <input ref={inputRef} type="file" accept="audio/*,.mp3,.m4a,.aac,.wav" className="hidden" disabled={preview} onChange={(e) => { const f = e.target.files?.[0]; if (f) doUpload(f); }} />
+      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+        <button disabled={busy || preview} onClick={() => inputRef.current?.click()} title={preview ? "Disabled in preview" : ""} className="btn-secondary flex w-full items-center justify-center gap-1.5 text-sm disabled:opacity-40 sm:w-auto">
+          <Upload size={16} /> {latest ? "Replace voiceover" : "Upload voiceover"}
+        </button>
+        {latest && !uploading && (
+          <button disabled={busy || preview} onClick={remove} className="btn-ghost flex w-full items-center justify-center gap-1.5 text-sm text-coral-300 disabled:opacity-40 sm:w-auto">
+            {removing ? <Loader2 size={16} className="animate-spin" /> : <X size={16} />} Remove
+          </button>
+        )}
+        {lastFile && !uploading && (
+          <button disabled={busy || preview} onClick={() => lastFile && doUpload(lastFile)} className="btn-ghost flex w-full items-center justify-center gap-1.5 text-sm disabled:opacity-40 sm:w-auto">
+            <RefreshCw size={16} /> Retry upload
+          </button>
+        )}
+      </div>
     </div>
   );
 }
