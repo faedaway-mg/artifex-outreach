@@ -41,11 +41,19 @@ export function luma(buf) { let s = 0; for (let i = 0; i < buf.length; i += 3) s
 
 // Pure verdict from precomputed metrics — the same thresholds verifyEvidenceScene applies. Exposed so the
 // acceptance rules are unit-testable without a render (the end-to-end render proof lives in a runnable script).
-export function judge({ dEvidence, dControl, evLuma, vignetteRatio, card = CARD }) {
+/**
+ * @param {{ dEvidence:number, dControl:number, evLuma:number, vignetteRatio:number, sourceVignetteRatio?:number|null, card?:any }} m
+ */
+export function judge({ dEvidence, dControl, evLuma, vignetteRatio, sourceVignetteRatio = null, card = CARD }) {
   const matchesScreenshot = dEvidence < 42;
   const beatsControl = dControl - dEvidence > 12;
   const notDark = evLuma > 40;
-  const noVignette = vignetteRatio > 0.82;
+  // "No vignette" means the render added NO darkening scrim. A real page whose OWN top/bottom is darker
+  // than its centre (a dark header/footer) legitimately lowers the absolute edge/centre ratio — that is
+  // the page's content, not a vignette. So the card passes if it's bright at the edges (>0.82 absolute)
+  // OR it is not materially darker at the edges than the SOURCE screenshot already is (relative check).
+  // A genuine added scrim still fails: it darkens the card edges below the source's own profile.
+  const noVignette = vignetteRatio > 0.82 || (sourceVignetteRatio != null && vignetteRatio >= sourceVignetteRatio * 0.9);
   const inSafeArea = card.x >= SAFE_MARGIN && card.y >= SAFE_MARGIN && card.x + card.w <= 1080 - SAFE_MARGIN && card.y + card.h <= 1920 - SAFE_MARGIN;
   return { ok: matchesScreenshot && beatsControl && notDark && noVignette && inSafeArea, checks: { matchesScreenshot, beatsControl, notDark, noVignette, inSafeArea } };
 }
@@ -60,6 +68,18 @@ function vignetteRatio(mp4, at) {
   return centre > 0 ? +(edge / centre).toFixed(3) : 1;
 }
 
+// The SOURCE screenshot's own top/bottom-vs-centre luminance ratio, measured on the SAME cover-crop the
+// card shows — so we can tell a page's own dark header/footer apart from a render-added vignette.
+function sourceCardVignette(png) {
+  const cover = `scale=${CARD.w}:-1,crop=${CARD.w}:${CARD.h}:0:0`;
+  const region = (crop) => luma(execFileSync("ffmpeg", ["-v", "error", "-i", png, "-vf", `${cover},${crop},scale=16:16`, "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"], { maxBuffer: 1 << 22 }));
+  const centre = region(`crop=${Math.round(CARD.w * 0.4)}:${Math.round(CARD.h * 0.4)}:${Math.round(CARD.w * 0.3)}:${Math.round(CARD.h * 0.3)}`);
+  const topEdge = region(`crop=${CARD.w}:60:0:20`);
+  const botEdge = region(`crop=${CARD.w}:60:0:${CARD.h - 80}`);
+  const edge = (topEdge + botEdge) / 2;
+  return centre > 0 ? +(edge / centre).toFixed(3) : 1;
+}
+
 // Verify one evidence scene. Returns a structured verdict; `ok` is the AND of every check.
 export function verifyEvidenceScene({ mp4, screenshotPng, evidenceAt, controlAt }) {
   const shot = sig(screenshotPng, { coverForCard: true });
@@ -69,12 +89,13 @@ export function verifyEvidenceScene({ mp4, screenshotPng, evidenceAt, controlAt 
   const dControl = +diff(ctlRegion, shot).toFixed(2);   // control-frame card vs the real screenshot
   const evLuma = +luma(evRegion).toFixed(1);
   const vig = vignetteRatio(mp4, evidenceAt);
+  const srcVig = sourceCardVignette(screenshotPng); // the page's OWN edge/centre profile (no vignette baseline)
 
   // The evidence-frame card must clearly match the screenshot AND clearly beat the control (so the shot is
   // in THIS scene, beyond frame zero, and not smeared across every scene), be bright (not a black tile),
-  // un-vignetted, and inside the safe area. Single-sourced thresholds live in judge().
-  const v = judge({ dEvidence, dControl, evLuma, vignetteRatio: vig });
-  return { ok: v.ok, evidenceAt, controlAt, dEvidence, dControl, evLuma, vignetteRatio: vig, checks: v.checks };
+  // free of ADDED vignette (measured against the page's own profile), and inside the safe area.
+  const v = judge({ dEvidence, dControl, evLuma, vignetteRatio: vig, sourceVignetteRatio: srcVig });
+  return { ok: v.ok, evidenceAt, controlAt, dEvidence, dControl, evLuma, vignetteRatio: vig, sourceVignetteRatio: srcVig, checks: v.checks };
 }
 
 // ffprobe the output the same way the render worker does (container, dims, frames, audio, duration).

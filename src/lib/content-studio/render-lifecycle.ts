@@ -27,6 +27,7 @@ export interface LifecycleInput {
   isClient: boolean;
   hasAudio: boolean;
   hasScreenshot: boolean;     // relevant only for client videos (a verified capture is required to generate)
+  evidenceState?: "evidence-backed" | "needs-evidence" | null; // client videos: gate on stored evidence state
   hasVerifiedOutput: boolean; // a ready job WITH a durable, verified output artifact exists
   latestJob: LifecycleJob | null;
   maxAttempts?: number;
@@ -79,8 +80,11 @@ export function renderLifecycle(input: LifecycleInput): LifecycleResult {
 
 // A client render can only START when every required input is present + owned. The Generate endpoint uses
 // this so the UI and the server agree on exactly when the single action is allowed.
-export function canGenerate(input: Pick<LifecycleInput, "renderable" | "isClient" | "hasAudio" | "hasScreenshot">): { ok: boolean; reason?: string } {
+export function canGenerate(input: Pick<LifecycleInput, "renderable" | "isClient" | "hasAudio" | "hasScreenshot" | "evidenceState">): { ok: boolean; reason?: string } {
   if (!input.renderable) return { ok: false, reason: "This piece has no renderer wired." };
+  // A client video whose evidence hasn't cleared the gate must not offer Generate — the chip says "needs
+  // evidence", the server refuses, and the button agrees. Deeper site capture is the unblock, not a click.
+  if (input.isClient && input.evidenceState === "needs-evidence") return { ok: false, reason: "Needs evidence — no directly-observed finding yet. Capture the site deeper before generating." };
   if (!input.hasAudio) return { ok: false, reason: "Upload a voiceover first." };
   if (input.isClient && !input.hasScreenshot) return { ok: false, reason: "The verified website screenshot isn't ready yet." };
   return { ok: true };

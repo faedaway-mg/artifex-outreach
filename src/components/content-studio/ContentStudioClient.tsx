@@ -599,7 +599,7 @@ function PieceDetail({ item, onChanged, setJobOverride }: { item: StudioItem; on
     renderable: piece.renderable, isClient: isClientPiece, hasAudio: hasUpload, hasScreenshot,
     hasVerifiedOutput: !!piece.recommendedRel, latestJob: (activeJob ?? lastFailed ?? null) as any,
   });
-  const genGate = canGenerate({ renderable: piece.renderable, isClient: isClientPiece, hasAudio: hasUpload, hasScreenshot });
+  const genGate = canGenerate({ renderable: piece.renderable, isClient: isClientPiece, hasAudio: hasUpload, hasScreenshot, evidenceState: piece.evidenceState ?? null });
 
   const startRender = async (useUpload: boolean) => {
     if (preview) { setMsg({ tone: "err", text: "Disabled in preview — rendering runs only in the connected functional environment." }); return; }

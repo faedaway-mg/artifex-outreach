@@ -31,4 +31,15 @@ describe("visual-acceptance pure helpers", () => {
     expect(v.ok).toBe(false);
     expect(v.checks.noVignette).toBe(false);
   });
+
+  it("a page's OWN dark header/footer is NOT a vignette (source-relative check)", () => {
+    // real Morris canary: card edge/centre 0.805 is below the absolute 0.82 gate, but the SOURCE page's
+    // own profile is 0.757 — the card is not darker than the page already is → no ADDED vignette → passes.
+    const v = judge({ dEvidence: 26, dControl: 144, evLuma: 157, vignetteRatio: 0.805, sourceVignetteRatio: 0.757 });
+    expect(v.ok).toBe(true);
+    expect(v.checks.noVignette).toBe(true);
+    // but a real ADDED scrim (card much darker than the source's own edges) still fails
+    const scrim = judge({ dEvidence: 26, dControl: 144, evLuma: 90, vignetteRatio: 0.5, sourceVignetteRatio: 0.757 });
+    expect(scrim.checks.noVignette).toBe(false);
+  });
 });

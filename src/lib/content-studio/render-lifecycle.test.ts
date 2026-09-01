@@ -45,4 +45,12 @@ describe("render lifecycle (section I-D)", () => {
     expect(canGenerate({ renderable: true, isClient: false, hasAudio: true, hasScreenshot: false }).ok).toBe(true); // non-client needs no shot
     expect(canGenerate({ renderable: false, isClient: false, hasAudio: true, hasScreenshot: true }).ok).toBe(false);
   });
+
+  it("canGenerate BLOCKS a client video whose evidenceState is needs-evidence (chip, gate, button agree)", () => {
+    const g = canGenerate({ renderable: true, isClient: true, hasAudio: true, hasScreenshot: true, evidenceState: "needs-evidence" });
+    expect(g.ok).toBe(false);
+    expect(g.reason).toMatch(/needs evidence/i);
+    // an evidence-backed client with everything present still generates
+    expect(canGenerate({ renderable: true, isClient: true, hasAudio: true, hasScreenshot: true, evidenceState: "evidence-backed" }).ok).toBe(true);
+  });
 });
