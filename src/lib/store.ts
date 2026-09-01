@@ -118,7 +118,7 @@ export function defaultSettings(): Settings {
     },
     followUpTiming: [0, 3, 7, 14],
     prospecting: defaultProspecting(),
-    sendingWindow: { timezone: "America/Los_Angeles", startHour: 8, endHour: 17, weekdays: [1, 2, 3, 4, 5] },
+    sendingWindow: { timezone: "America/Los_Angeles", startHour: 5, endHour: 7, weekdays: [1, 2, 3, 4, 5] },
     agreementDefaults: {
       depositPercent: 50,
       defaultTimelineWeeks: 8,

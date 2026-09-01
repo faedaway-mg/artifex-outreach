@@ -63,9 +63,12 @@ export async function POST(req: NextRequest) {
   // the recipient gate (prospects still refused unless COMMS_PROSPECT_DELIVERY_ENABLED=1). Resend only.
   const { runScheduledOutreach } = await import("@/lib/outreach/outreach-scheduler");
   const { sendCompliantOutreach } = await import("@/lib/comms/outreach-transport");
+  const { resolveSendingWindow } = await import("@/lib/outreach/sending-window");
+  const { getSettings } = await import("@/lib/repo");
+  const window = resolveSendingWindow(await getSettings()); // owner-configured LA window (default 05:00–07:00)
   const campaignId = due[0]?.binding.batchId ?? "scheduled-outreach";
   const summary = await runScheduledOutreach(due.map((d) => d.leadId), {
-    now, campaignId,
+    now, campaignId, window,
     send: ({ leadId, auth }) => sendCompliantOutreach({ leadId, auth }),
   });
   await appendAudit({ action: "outreach.runner.dispatched", actor: "cron", targetType: "comms", targetId: null, meta: { laDay: summary.laDay, sent: summary.sent, quotaRemaining: summary.quotaRemaining }, ip: null });

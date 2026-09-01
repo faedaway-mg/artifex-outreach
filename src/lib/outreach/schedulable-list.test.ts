@@ -32,7 +32,7 @@ describe("schedulableEmails — truthful operator list", () => {
     expect([...times].sort()).toEqual(times.slice().sort());
     expect(v.notReady.some((n) => n.leadId === c && /evidence|supported finding/i.test(n.reason))).toBe(true);
     expect(v.scheduled).toHaveLength(0);
-    expect(v.window).toMatchObject({ tz: "America/Los_Angeles", startHour: 8, endHour: 10 });
+    expect(v.window).toMatchObject({ tz: "America/Los_Angeles", startHour: 5, endHour: 7 }); // resolved from Settings (default production window)
   }, 60000);
 
   it("a scheduled lead moves from eligible → scheduled (no double-listing)", async () => {

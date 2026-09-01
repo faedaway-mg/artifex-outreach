@@ -197,6 +197,13 @@ async function sendNext(leadId: string, mode: "intro" | "followup", veed?: VeedV
         for (const t of (await allTasks()).filter((t) => t.leadId === leadId && t.status === "open" && t.type === "review_and_send")) {
           await updateTask(t.id, { status: "done" });
         }
+      } else {
+        // FOLLOW-UP PARITY: a sent follow-up must leave the Follow-ups queue immediately — close the
+        // open follow_up task transactionally on the send receipt (never wait for the reconcile tick,
+        // which is what left already-sent follow-ups lingering as pending work). Idempotent.
+        for (const t of (await allTasks()).filter((t) => t.leadId === leadId && t.status === "open" && t.type === "follow_up")) {
+          await updateTask(t.id, { status: "done" });
+        }
       }
       return { outcome: "sent", providerMessageId: res.providerMessageId ?? null, stepId: step.id };
     case "skipped":

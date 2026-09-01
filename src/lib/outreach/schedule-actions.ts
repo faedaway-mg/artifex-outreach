@@ -7,12 +7,16 @@
 import { revalidatePath } from "next/cache";
 import { currentActor } from "../auth";
 import { newId } from "../store";
+import { getSettings } from "../repo";
 import { scheduleBatch, cancelScheduled, type ScheduleResult } from "./scheduled-batch";
-
-const MONDAY_TARGET = "2026-08-31"; // the requested one-time date (a "use server" file exports only async fns)
+import { resolveSendingWindow, nextSendingDateKey } from "./sending-window";
 
 export async function scheduleMondayBatchAction(leadIds: string[]): Promise<ScheduleResult & { deliveryBlocked: true; note: string }> {
-  const res = await scheduleBatch(leadIds, { dateKey: MONDAY_TARGET, by: currentActor(), batchId: newId("batch") });
+  // Target the next real LA sending day (from the Settings window) — never a stale hardcoded date.
+  const window = resolveSendingWindow(await getSettings());
+  const dateKey = nextSendingDateKey(new Date(), window);
+  const stagger = { tz: window.timezone, startHour: window.startHour, endHour: window.endHour };
+  const res = await scheduleBatch(leadIds, { dateKey, by: currentActor(), batchId: newId("batch"), window: stagger });
   revalidatePath("/schedule"); revalidatePath("/work/email");
   // Honest: the batch is persisted + validated, but nothing will send — no approved transport exists.
   return { ...res, deliveryBlocked: true, note: "Delivery blocked — a business-approved delivering transport is required before this batch can send." };

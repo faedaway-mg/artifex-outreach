@@ -6,6 +6,9 @@ import { getEditorialState, saveDraft } from "./review-revisions";
 import { scheduleBatch, cancelScheduled, validateScheduled, staggeredTimes, dueScheduled } from "./scheduled-batch";
 
 const MON = "2026-08-31"; // the target Monday (PDT, UTC-7)
+// These tests verify the STAGGER + due-selection mechanism, so they pin an explicit 08:00–10:00 window
+// (independent of the production default window, which is Settings-driven).
+const WIN = { tz: "America/Los_Angeles", startHour: 8, endHour: 10 } as const;
 const strongOne = [{ id: "p", category: "Customer Acquisition", observation: "The homepage presents several competing calls-to-action, with no clear primary action for a first-time visitor.", whyItMatters: "A first-time visitor with no obvious next move leaves.", estimatedImpact: { level: "Foundational", rationale: "x" }, confidence: { label: "Observed", score: 0.95 }, basis: ["public website HTML"] }];
 const moderateOne = [{ id: "m", category: "Customer Acquisition", observation: "The site has no online booking; reservations need a phone call.", whyItMatters: "After-hours demand slips.", estimatedImpact: { level: "Moderate", rationale: "x" }, confidence: { label: "Observed", score: 0.9 }, basis: ["public website HTML"] }];
 
@@ -22,7 +25,7 @@ beforeEach(() => { __resetStoreForTests(); });
 
 describe("staggeredTimes — Monday 08:00–10:00 America/Los_Angeles", () => {
   it("produces N distinct, ascending instants inside the window (DST-correct, PDT=UTC-7)", () => {
-    const t = staggeredTimes(MON, 10);
+    const t = staggeredTimes(MON, 10, WIN);
     expect(t).toHaveLength(10);
     expect(new Set(t).size).toBe(10);
     expect(t[0]).toBe("2026-08-31T15:00:00.000Z");                 // 08:00 LA = 15:00Z (PDT)
@@ -38,7 +41,7 @@ describe("scheduleBatch — only eligible packages; version-bound; staggered; ca
     const b = await seed("Bravo Dental", strongOne);
     const insuff = await seed("Charlie Dental", []);        // INSUFFICIENT → removed
     const mod = await seed("Delta Dental", moderateOne);    // NEEDS_REVIEW unapproved → removed
-    const res = await scheduleBatch([a, b, insuff, mod], { dateKey: MON, by: "jordan", batchId: "batch_1", now: "2026-08-28T00:00:00.000Z" });
+    const res = await scheduleBatch([a, b, insuff, mod], { dateKey: MON, by: "jordan", batchId: "batch_1", now: "2026-08-28T00:00:00.000Z", window: WIN });
     expect(res.scheduled.map((s) => s.leadId).sort()).toEqual([a, b].sort());
     expect(res.removed.map((r) => r.leadId).sort()).toEqual([insuff, mod].sort());
     // staggered + bound
@@ -52,7 +55,7 @@ describe("scheduleBatch — only eligible packages; version-bound; staggered; ca
 
   it("validateScheduled: ok when unchanged; INVALID after an edit (revision drift) or suppression", async () => {
     const a = await seed("Echo Dental", strongOne);
-    const res = await scheduleBatch([a], { dateKey: MON, by: "jordan", batchId: "b2", now: "2026-08-28T00:00:00.000Z" });
+    const res = await scheduleBatch([a], { dateKey: MON, by: "jordan", batchId: "b2", now: "2026-08-28T00:00:00.000Z", window: WIN });
     const binding = (await getEditorialState(a)).scheduled!;
     expect((await validateScheduled(a, binding)).ok).toBe(true);
     // an edit changes the content fingerprint → the scheduled item is stale
@@ -64,7 +67,7 @@ describe("scheduleBatch — only eligible packages; version-bound; staggered; ca
 
   it("suppression after scheduling invalidates the scheduled item at the boundary", async () => {
     const a = await seed("Foxtrot Dental", strongOne);
-    await scheduleBatch([a], { dateKey: MON, by: "jordan", batchId: "b3", now: "2026-08-28T00:00:00.000Z" });
+    await scheduleBatch([a], { dateKey: MON, by: "jordan", batchId: "b3", now: "2026-08-28T00:00:00.000Z", window: WIN });
     const binding = (await getEditorialState(a)).scheduled!;
     await addSuppression({ email: "office@foxtrotdental.example", domain: null, phone: null, reason: "unsubscribe", source: "test" } as any);
     expect((await validateScheduled(a, binding)).ok).toBe(false);
@@ -72,7 +75,7 @@ describe("scheduleBatch — only eligible packages; version-bound; staggered; ca
 
   it("cancel clears the scheduled item before dispatch", async () => {
     const a = await seed("Golf Dental", strongOne);
-    await scheduleBatch([a], { dateKey: MON, by: "jordan", batchId: "b4", now: "2026-08-28T00:00:00.000Z" });
+    await scheduleBatch([a], { dateKey: MON, by: "jordan", batchId: "b4", now: "2026-08-28T00:00:00.000Z", window: WIN });
     expect((await getEditorialState(a)).scheduled?.status).toBe("scheduled");
     expect(await cancelScheduled(a)).toBe(true);
     expect((await getEditorialState(a)).scheduled).toBeNull();
@@ -80,7 +83,7 @@ describe("scheduleBatch — only eligible packages; version-bound; staggered; ca
 
   it("dueScheduled returns items at/after their staggered time, none before", async () => {
     const a = await seed("Hotel Dental", strongOne);
-    await scheduleBatch([a], { dateKey: MON, by: "jordan", batchId: "b5", now: "2026-08-28T00:00:00.000Z" });
+    await scheduleBatch([a], { dateKey: MON, by: "jordan", batchId: "b5", now: "2026-08-28T00:00:00.000Z", window: WIN });
     expect(await dueScheduled(new Date("2026-08-31T14:59:00.000Z"))).toHaveLength(0); // before 08:00 LA
     expect(await dueScheduled(new Date("2026-08-31T15:30:00.000Z"))).toHaveLength(1); // after 08:00 LA
   }, 60000);

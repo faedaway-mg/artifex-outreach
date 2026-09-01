@@ -12,11 +12,14 @@ import type { SendingWindow } from "../types";
 import { authorizeForSend, authorizationValidForDispatch, type SendAuthorization } from "./review-send-policy";
 import { reserveDailySlot, releaseSlot, consumeSlot, countSlotsUsed, laDayKey as laDayKeyOf, ACCOUNTING_TZ as ACCT_TZ, type ReserveResult } from "../comms/send-quota";
 import { outreachPausedNow } from "./outreach-pause";
+import { DEFAULT_SENDING_WINDOW } from "./sending-window";
 
 export const DAILY_CAP = 20;
 export const ACCOUNTING_TZ = ACCT_TZ;
 export const PAUSE_ENV = "QR_OUTREACH_PAUSED";
-export const MORNING_WINDOW: SendingWindow = { timezone: ACCOUNTING_TZ, startHour: 8, endHour: 10, weekdays: [1, 2, 3, 4, 5] };
+/** The default window (weekdays 05:00–07:00 America/Los_Angeles) when Settings has none. Callers should
+ *  resolve the ACTIVE window from Settings via resolveSendingWindow() and pass it as deps.window. */
+export const MORNING_WINDOW: SendingWindow = DEFAULT_SENDING_WINDOW;
 
 const SENT_FAMILY = new Set(["sent", "delivered", "opened", "clicked", "bounced", "complained", "unsubscribed"]);
 
@@ -126,7 +129,12 @@ export async function runScheduledOutreach(leadIds: string[], deps: SchedulerDep
     // Weekday morning window in the recipient's tz (LA fallback — see recipientWindowTz).
     const knownTz = (await deps.recipientTzOf?.(leadId)) ?? null;
     const { tz } = recipientWindowTz(knownTz);
-    if (!withinMorningWindow(deps.now, tz, deps.window ?? MORNING_WINDOW)) { outcomes.push({ leadId, outcome: "outside-window", reason: `outside 08:00–10:00 ${tz}` }); continue; }
+    const activeWindow = deps.window ?? MORNING_WINDOW;
+    if (!withinMorningWindow(deps.now, tz, activeWindow)) {
+      const hh = (h: number) => `${String(h).padStart(2, "0")}:00`;
+      outcomes.push({ leadId, outcome: "outside-window", reason: `outside ${hh(activeWindow.startHour)}–${hh(activeWindow.endHour)} ${tz} (weekdays only)` });
+      continue;
+    }
 
     // Authorize (content-eligibility + suppression + held + recipient); binds to the frozen artifact SHA.
     const auth = await authorizeForSend(leadId, { campaignId: deps.campaignId, now: deps.now.toISOString() });

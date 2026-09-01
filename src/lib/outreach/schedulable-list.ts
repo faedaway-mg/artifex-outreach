@@ -3,16 +3,16 @@
 // eligibility used by "Emails to send". Read-only; sends nothing; renders no PDF (filenames/revisions
 // only). The exact PDF bytes are bound at schedule time by scheduleBatch.
 import type { Lead } from "../types";
-import { listLeads, getBusinessIntelligence, allEmailSends, isSuppressed } from "../repo";
+import { listLeads, getBusinessIntelligence, allEmailSends, isSuppressed, getSettings } from "../repo";
 import { validEmail } from "../acquisition/compliance";
 import { buildQuickReview, quickReviewFilename, type QuickReview } from "./quick-review";
 import { quickReviewApproved } from "./review-approval";
 import { getEditorialState, revisionFingerprint } from "./review-revisions";
 import { emailQueueEligibility } from "./email-queue-eligibility";
-import { staggeredTimes, MORNING_WINDOW } from "./scheduled-batch";
+import { staggeredTimes } from "./scheduled-batch";
+import { resolveSendingWindow, nextSendingDateKey } from "./sending-window";
 
 const TERMINAL = new Set(["Won", "Lost", "Disqualified", "Nurture"]);
-export const MONDAY_TARGET = "2026-08-31";
 
 export interface SchedulableItem { leadId: string; business: string; recipient: string; subject: string; pdfFilename: string; revisionId: string; proposedAt: string; }
 export interface ScheduledItem { leadId: string; business: string; recipient: string; scheduledAt: string; batchId: string; pdfSha256: string; }
@@ -26,8 +26,11 @@ export interface SchedulableView {
   dateKey: string;
 }
 
-export async function schedulableEmails(): Promise<SchedulableView> {
-  const [leads, sends] = await Promise.all([listLeads(), allEmailSends()]);
+export async function schedulableEmails(now: Date = new Date()): Promise<SchedulableView> {
+  const [leads, sends, settings] = await Promise.all([listLeads(), allEmailSends(), getSettings()]);
+  const activeWindow = resolveSendingWindow(settings);
+  const dateKey = nextSendingDateKey(now, activeWindow);
+  const stagger = { tz: activeWindow.timezone, startHour: activeWindow.startHour, endHour: activeWindow.endHour };
   const contacted = new Set(sends.map((s) => s.leadId));
   const eligibleRaw: Array<{ lead: Lead; review: QuickReview }> = [];
   const scheduled: ScheduledItem[] = [];
@@ -49,12 +52,12 @@ export async function schedulableEmails(): Promise<SchedulableView> {
     else notReady.push({ leadId: lead.id, business: lead.businessName, reason: elig.detail ?? (review.status === "NEEDS_REVIEW" ? "One finding — operator review before scheduling." : "Not ready.") });
   }
 
-  const times = staggeredTimes(MONDAY_TARGET, eligibleRaw.length);
+  const times = staggeredTimes(dateKey, eligibleRaw.length, stagger);
   const eligible: SchedulableItem[] = eligibleRaw.map(({ lead, review }, i) => ({
     leadId: lead.id, business: lead.businessName, recipient: lead.publicEmail!,
     subject: `Quick Review — ${lead.businessName}`, pdfFilename: quickReviewFilename(lead.businessName),
     revisionId: revisionFingerprint(review), proposedAt: times[i],
   }));
 
-  return { eligible, scheduled, notReady, window: { tz: MORNING_WINDOW.tz, startHour: MORNING_WINDOW.startHour, endHour: MORNING_WINDOW.endHour }, dateKey: MONDAY_TARGET };
+  return { eligible, scheduled, notReady, window: stagger, dateKey };
 }

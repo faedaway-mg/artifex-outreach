@@ -13,6 +13,9 @@ import {
 const MON_0930 = new Date("2026-08-31T16:30:00Z"); // Mon 09:30 America/Los_Angeles → in window
 const SAT_0930 = new Date("2026-08-29T16:30:00Z"); // Sat → weekend
 const MON_1300 = new Date("2026-08-31T20:00:00Z"); // Mon 13:00 LA → afternoon
+// These tests exercise the scheduler MECHANISM at 09:30 LA, so they pin an explicit 08:00–10:00
+// window (independent of the Settings-driven production default, which is 05:00–07:00).
+const WIN = { timezone: "America/Los_Angeles", startHour: 8, endHour: 10, weekdays: [1, 2, 3, 4, 5] };
 
 const ORIG_AUTOSEND = process.env[AUTOSEND_ENV];
 const ORIG_PAUSE = process.env[PAUSE_ENV];
@@ -45,7 +48,7 @@ function harness() {
     setAmbiguous: (v: boolean) => (ambiguous = v),
     setRefuse: (v: boolean) => (refuse = v),
     deps: (now: Date, over: Partial<SchedulerDeps> = {}): SchedulerDeps => ({
-      now, campaignId: "launch-dry-run",
+      now, campaignId: "launch-dry-run", window: WIN,
       send: async ({ leadId }) => { if (ambiguous) return { ok: false, ambiguous: true }; if (refuse) return { ok: false }; dispatched.push(leadId); return { ok: true, providerId: "DRYRUN-NO-DELIVERY" }; },
       ...over,
     }),
@@ -60,9 +63,12 @@ afterEach(() => {
 
 describe("outreach-scheduler — window/quota/pause (pure)", () => {
   it("weekday morning is in-window; weekend and afternoon are not", () => {
-    expect(withinMorningWindow(MON_0930)).toBe(true);
-    expect(withinMorningWindow(SAT_0930)).toBe(false);
-    expect(withinMorningWindow(MON_1300)).toBe(false);
+    expect(withinMorningWindow(MON_0930, "America/Los_Angeles", WIN)).toBe(true);
+    expect(withinMorningWindow(SAT_0930, "America/Los_Angeles", WIN)).toBe(false);
+    expect(withinMorningWindow(MON_1300, "America/Los_Angeles", WIN)).toBe(false);
+    // And the Settings-driven default is the accepted 05:00–07:00 LA window:
+    expect(withinMorningWindow(new Date("2026-08-31T13:00:00Z"))).toBe(true);  // 06:00 LA → in default window
+    expect(withinMorningWindow(MON_0930)).toBe(false);                          // 09:30 LA → outside default window
   });
   it("laDayKey is the LA calendar day; recipient tz falls back to LA when unknown", () => {
     expect(laDayKey(MON_0930)).toBe("2026-08-31");

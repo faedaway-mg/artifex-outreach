@@ -19,7 +19,10 @@ import {
 } from "./review-revisions";
 import { emailQueueEligibility } from "./email-queue-eligibility";
 
-export const MORNING_WINDOW = { tz: "America/Los_Angeles", startHour: 8, endHour: 10 } as const;
+// Default stagger window (weekdays 05:00–07:00 LA). The ACTIVE window is resolved from Settings by
+// callers (schedulable-list / scheduleBatch) via resolveSendingWindow and passed to staggeredTimes,
+// so the stagger, the gate, and the UI always agree.
+export const MORNING_WINDOW = { tz: "America/Los_Angeles", startHour: 5, endHour: 7 } as const;
 const digest = (s: string) => createHash("sha256").update(s).digest("hex").slice(0, 16);
 
 /** UTC offset (minutes, negative west) for America/Los_Angeles on the given calendar day — DST-correct. */
@@ -30,7 +33,7 @@ function laOffsetMinutes(y: number, m: number, d: number): number {
 }
 
 /** N evenly-staggered UTC instants across [startHour,endHour) LA on the given date (YYYY-MM-DD). */
-export function staggeredTimes(dateKey: string, count: number, window = MORNING_WINDOW): string[] {
+export function staggeredTimes(dateKey: string, count: number, window: { tz: string; startHour: number; endHour: number } = MORNING_WINDOW): string[] {
   if (count <= 0) return [];
   const [y, m, d] = dateKey.split("-").map(Number);
   const offMin = laOffsetMinutes(y, m, d);
@@ -91,8 +94,9 @@ async function persistBinding(leadId: string, binding: ScheduledBinding | null):
  * confirm time; ineligible leads are REMOVED and reported (never fabricated to hit a target). Assigns
  * staggered times across the morning window and persists each binding atomically.
  */
-export async function scheduleBatch(leadIds: string[], opts: { dateKey: string; by: string; batchId: string; now?: string }): Promise<ScheduleResult> {
+export async function scheduleBatch(leadIds: string[], opts: { dateKey: string; by: string; batchId: string; now?: string; window?: { tz: string; startHour: number; endHour: number } }): Promise<ScheduleResult> {
   const now = opts.now ?? new Date().toISOString();
+  const window = opts.window ?? MORNING_WINDOW;
   const result: ScheduleResult = { batchId: opts.batchId, scheduled: [], removed: [] };
   // First pass: bind eligible leads (order preserved) so we know the real count before staggering.
   const bound: Array<{ leadId: string; binding: ScheduledBinding; recipient: string }> = [];
@@ -101,7 +105,7 @@ export async function scheduleBatch(leadIds: string[], opts: { dateKey: string; 
     if (b.ok) bound.push({ leadId, binding: b.binding, recipient: b.recipient });
     else result.removed.push({ leadId, reason: b.reason });
   }
-  const times = staggeredTimes(opts.dateKey, bound.length);
+  const times = staggeredTimes(opts.dateKey, bound.length, window);
   for (let i = 0; i < bound.length; i++) {
     const { leadId, binding, recipient } = bound[i];
     binding.scheduledAt = times[i];
