@@ -169,6 +169,34 @@ export async function addDraftPg(d: DraftPiece): Promise<void> {
     ON CONFLICT (id) DO UPDATE SET title = EXCLUDED.title, concept = EXCLUDED.concept, narration = EXCLUDED.narration`;
 }
 
+// ── Captions (one persisted social caption per piece, with revision history) ──
+import type { CaptionRecord } from "./caption-store";
+function rowToCaption(r: Record<string, unknown>): CaptionRecord {
+  return {
+    pieceId: String(r.piece_id), text: String(r.text),
+    source: (r.source as CaptionRecord["source"]) ?? "generated", edited: Boolean(r.edited),
+    revisions: Array.isArray(r.revisions) ? (r.revisions as CaptionRecord["revisions"]) : [],
+    createdAt: iso(r.created_at), updatedAt: iso(r.updated_at),
+  };
+}
+export async function readCaptionPg(pieceId: string): Promise<CaptionRecord | null> {
+  const rows = await db()`SELECT * FROM content_studio_captions WHERE piece_id = ${pieceId}`;
+  return rows.length ? rowToCaption(rows[0]) : null;
+}
+export async function readCaptionsPg(): Promise<Record<string, CaptionRecord>> {
+  const rows = await db()`SELECT * FROM content_studio_captions`;
+  const out: Record<string, CaptionRecord> = {};
+  for (const r of rows) out[String(r.piece_id)] = rowToCaption(r);
+  return out;
+}
+export async function upsertCaptionPg(rec: CaptionRecord): Promise<void> {
+  await db()`INSERT INTO content_studio_captions (piece_id, text, source, edited, revisions, created_at, updated_at)
+    VALUES (${rec.pieceId}, ${rec.text}, ${rec.source}, ${rec.edited},
+            ${db().json(rec.revisions as unknown as Record<string, never>)}, ${rec.createdAt}, ${rec.updatedAt})
+    ON CONFLICT (piece_id) DO UPDATE SET text = EXCLUDED.text, source = EXCLUDED.source,
+      edited = EXCLUDED.edited, revisions = EXCLUDED.revisions, updated_at = EXCLUDED.updated_at`;
+}
+
 // ── Shares (record persistence; frozen bytes live in content_studio_artifacts) ─
 import type { ShareRecord } from "./share";
 function rowToShare(r: Record<string, unknown>): ShareRecord {

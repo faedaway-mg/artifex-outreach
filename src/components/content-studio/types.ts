@@ -33,10 +33,19 @@ export interface Provenance {
   postingAllowed: boolean;
 }
 
+export interface SafeCaption {
+  text: string;
+  source: "generated" | "edited";
+  edited: boolean;
+  revisions: { text: string; source: "generated" | "edited"; at: string }[];
+  updatedAt: string;
+}
+
 export interface StudioItem {
   piece: Piece;
   postedAt: string | null;
   uploads: SafeUpload[];
   jobs: SafeJob[];
+  caption: SafeCaption | null;
   provenance: Provenance;
 }

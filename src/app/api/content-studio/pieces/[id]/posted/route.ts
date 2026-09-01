@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isAuthenticated } from "@/lib/auth";
 import { setPosted, listJobs, readApprovals } from "@/lib/content-studio/store";
+import { getCaption } from "@/lib/content-studio/caption-store";
 import { latestReadyJob } from "@/lib/content-studio/job";
 
 export const runtime = "nodejs";
@@ -20,6 +21,11 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
   const priorMaster = !ready && APPROVED_MASTER.includes(params.id); // #001–#006 approved finals
   if (!jobApproved && !priorMaster) {
     return NextResponse.json({ error: "Approve the render for posting first (placeholder/unapproved outputs can't be marked posted)." }, { status: 422 });
+  }
+  // Posting-ready REQUIRES a saved social caption — a posted video must always ship with its caption.
+  const caption = await getCaption(params.id);
+  if (!caption || !caption.text.trim()) {
+    return NextResponse.json({ error: "Add and save a social caption before marking this posted (every posting-ready/posted video needs one)." }, { status: 422 });
   }
   const when = new Date().toISOString();
   await setPosted(params.id, when);

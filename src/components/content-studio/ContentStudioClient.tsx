@@ -357,6 +357,118 @@ function CopyBtn({ text, label = "Copy" }: { text: string; label?: string }) {
   );
 }
 
+// Persisted, editable, copyable SOCIAL CAPTION beside the finished video. Generate from the approved
+// script, edit + save, regenerate (guarded when owner-edited), copy with a clear confirmation, and
+// browse revision history. A posting-ready/posted video must have one (enforced server-side).
+function CaptionPanel({ item, onChanged, setMsg }: { item: StudioItem; onChanged: () => Promise<void>; setMsg: (m: { tone: "ok" | "err"; text: string } | null) => void }) {
+  const preview = usePreview();
+  const piece = item.piece;
+  const cap = item.caption;
+  const [editing, setEditing] = useState(false);
+  const [text, setText] = useState(cap?.text ?? "");
+  const [busy, setBusy] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
+  const [confirmRegen, setConfirmRegen] = useState(false);
+  const copyT = useRef<any>(null);
+  useEffect(() => { setText(cap?.text ?? ""); setEditing(false); }, [cap?.text, cap?.updatedAt]);
+
+  const call = async (body: Record<string, unknown>) => {
+    setBusy(true);
+    try {
+      const res = await fetch(`/api/content-studio/captions/${piece.id}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      if (res.status === 409) { setConfirmRegen(true); return; }
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) { setMsg({ tone: "err", text: j.error ?? "Caption action failed." }); return; }
+      setConfirmRegen(false); setEditing(false);
+      await onChanged();
+      setMsg({ tone: "ok", text: body.action === "save" ? "Caption saved." : "Caption regenerated." });
+    } finally { setBusy(false); }
+  };
+
+  const copy = async () => {
+    if (!cap?.text) return;
+    await navigator.clipboard.writeText(cap.text);
+    setCopied(true); clearTimeout(copyT.current); copyT.current = setTimeout(() => setCopied(false), 1800);
+  };
+
+  return (
+    <div className="card p-4">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <h4 className="text-sm font-semibold text-chalk-100">Social caption</h4>
+        <span className="text-[11px] tabular-nums text-chalk-500">{(editing ? text : cap?.text ?? "").length}/2200{cap?.edited ? " · edited" : cap ? " · generated" : ""}</span>
+      </div>
+
+      {!cap && !editing && (
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-xs text-chalk-500">No caption yet. Generate one from this piece’s approved script.</p>
+          <button disabled={preview || busy} onClick={() => call({ action: "regenerate" })} className="btn-primary inline-flex items-center gap-1.5 text-xs disabled:opacity-40">
+            {busy ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />} Generate caption
+          </button>
+        </div>
+      )}
+
+      {(cap || editing) && (
+        <>
+          {editing ? (
+            <textarea value={text} maxLength={2200} onChange={(e) => setText(e.target.value)} rows={8}
+              className="w-full resize-y rounded-lg border border-white/10 bg-ink-950/40 px-3 py-2.5 text-[13px] leading-relaxed text-chalk-200 focus:border-azure-400/40 focus:outline-none" />
+          ) : (
+            <p className="whitespace-pre-wrap rounded-lg border border-white/[0.06] bg-white/[0.02] p-3 text-[13px] leading-relaxed text-chalk-200">{cap?.text}</p>
+          )}
+
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            {!editing && (
+              <button onClick={copy} className="btn-primary inline-flex items-center gap-1.5 text-xs">
+                {copied ? <Check size={13} className="text-teal-200" /> : <Copy size={13} />} {copied ? "Copied" : "Copy caption"}
+              </button>
+            )}
+            {editing ? (
+              <>
+                <button disabled={preview || busy || !text.trim()} onClick={() => call({ action: "save", text })} className="btn-primary inline-flex items-center gap-1.5 text-xs disabled:opacity-40">
+                  {busy ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />} Save changes
+                </button>
+                <button disabled={busy} onClick={() => { setEditing(false); setText(cap?.text ?? ""); }} className="btn-ghost inline-flex items-center gap-1.5 text-xs">Cancel</button>
+              </>
+            ) : (
+              <button disabled={preview} onClick={() => setEditing(true)} className="btn-secondary inline-flex items-center gap-1.5 text-xs disabled:opacity-40">Edit caption</button>
+            )}
+            {!editing && (
+              <button disabled={preview || busy} onClick={() => call({ action: "regenerate" })} className="btn-ghost inline-flex items-center gap-1.5 text-xs disabled:opacity-40">
+                {busy ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />} Regenerate
+              </button>
+            )}
+            {cap && cap.revisions.length > 0 && (
+              <button onClick={() => setShowHistory((v) => !v)} className="btn-ghost inline-flex items-center gap-1.5 text-xs"><Clock size={13} /> History ({cap.revisions.length})</button>
+            )}
+          </div>
+
+          {confirmRegen && (
+            <div className="mt-3 rounded-lg border border-amber-400/25 bg-amber-400/[0.06] p-2.5 text-[12px] text-amber-200">
+              This caption was edited. Regenerating will replace it (your edit is kept in history). Continue?
+              <div className="mt-2 flex gap-2">
+                <button disabled={busy} onClick={() => call({ action: "regenerate", force: true })} className="btn-primary text-xs">Regenerate anyway</button>
+                <button disabled={busy} onClick={() => setConfirmRegen(false)} className="btn-ghost text-xs">Keep my edit</button>
+              </div>
+            </div>
+          )}
+
+          {showHistory && cap && (
+            <div className="mt-3 space-y-2 border-t border-white/[0.06] pt-3">
+              {[...cap.revisions].reverse().map((r, i) => (
+                <div key={i} className="rounded-md border border-white/[0.05] bg-white/[0.02] p-2">
+                  <div className="mb-1 flex items-center justify-between text-[10px] text-chalk-500"><span>{r.source} · {new Date(r.at).toLocaleString()}</span><CopyBtn text={r.text} label="Copy" /></div>
+                  <p className="whitespace-pre-wrap text-[12px] text-chalk-400">{r.text}</p>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 function PieceDetail({ item, onChanged, setJobOverride }: { item: StudioItem; onChanged: () => Promise<void>; setJobOverride: (f: (o: Record<string, SafeJob>) => Record<string, SafeJob>) => void }) {
   const preview = usePreview();
   const { piece } = item;
@@ -525,6 +637,9 @@ function PieceDetail({ item, onChanged, setJobOverride }: { item: StudioItem; on
           </div>
         );
       })()}
+
+      {/* Social caption — required + copyable for any finished video (enforced at posting). */}
+      {piece.recommendedRel && <CaptionPanel item={item} onChanged={onChanged} setMsg={setMsg} />}
 
       {/* Sharing & outreach — only for an approved, non-placeholder video */}
       {item.provenance.postingAllowed && item.provenance.audioKind !== "placeholder" && <SharePanel item={item} />}

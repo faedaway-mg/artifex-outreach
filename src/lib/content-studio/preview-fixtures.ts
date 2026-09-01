@@ -25,6 +25,7 @@ export const PREVIEW_ITEMS: StudioItem[] = [
       thumbRel: thumb("001"), recommendedRel: SAMPLE_MP4, hasThumbnailFirst: true,
     },
     postedAt: null,
+    caption: { text: "Every team writes a status update.\n\nAlmost nobody reads them. What people actually want is the one decision that changed.\n\nFollow along — we share what we learn as we build this.\n\n#buildinpublic #startup #productdesign #founders #softwaredevelopment", source: "generated", edited: false, revisions: [], updatedAt: "2026-08-01T18:05:00.000Z" },
     provenance: { audioKind: "approved-master", approved: true, approvalStale: false, postingAllowed: true },
     uploads: [],
     jobs: [{
@@ -49,6 +50,7 @@ export const PREVIEW_ITEMS: StudioItem[] = [
       thumbRel: thumb("002"), recommendedRel: SAMPLE_MP4, hasThumbnailFirst: true,
     },
     postedAt: null,
+    caption: null,
     provenance: { audioKind: "uploaded", approved: false, approvalStale: false, postingAllowed: false },
     uploads: [{ name: "vo-002-take3.mp3", bytes: 812_544, durationSeconds: 27.4, uploadedAt: "2026-08-20T15:12:00.000Z", kind: "uploaded" }],
     jobs: [{
@@ -73,6 +75,7 @@ export const PREVIEW_ITEMS: StudioItem[] = [
       thumbRel: thumb("004"), recommendedRel: null, hasThumbnailFirst: false,
     },
     postedAt: null,
+    caption: null,
     provenance: { audioKind: null, approved: false, approvalStale: false, postingAllowed: false },
     uploads: [],
     jobs: [],

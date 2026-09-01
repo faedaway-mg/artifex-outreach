@@ -268,7 +268,8 @@ export async function getPieces(): Promise<Piece[]> {
 }
 
 export async function studioSnapshot() {
-  const [pieces, jobs, posted, approvals] = await Promise.all([getPieces(), listJobs(), readPosted(), readApprovals()]);
+  const { readCaptions } = await import("./caption-store");
+  const [pieces, jobs, posted, approvals, captions] = await Promise.all([getPieces(), listJobs(), readPosted(), readApprovals(), readCaptions()]);
   const byPiece = await Promise.all(
     pieces.map(async (p) => {
       const pieceJobs = jobsForPiece(jobs, p.id);
@@ -292,6 +293,7 @@ export async function studioSnapshot() {
         jobs: pieceJobs,
         uploads: await listUploads(p.id),
         postedAt: posted[p.id] ?? null,
+        caption: captions[p.id] ?? null,
         provenance: { audioKind, approved, approvalStale, postingAllowed },
       };
     }),

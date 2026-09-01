@@ -8,10 +8,11 @@ export const dynamic = "force-dynamic";
 // filesystem paths for uploads or render outputs).
 export default async function ContentStudioPage({ searchParams }: { searchParams?: { piece?: string; lead?: string; section?: string; from?: string } }) {
   const raw = await studioSnapshot();
-  const items: StudioItem[] = raw.map(({ piece, jobs, uploads, postedAt, provenance }) => ({
+  const items: StudioItem[] = raw.map(({ piece, jobs, uploads, postedAt, caption, provenance }) => ({
     piece,
     postedAt,
     provenance,
+    caption: caption ? { text: caption.text, source: caption.source, edited: caption.edited, revisions: caption.revisions, updatedAt: caption.updatedAt } : null,
     uploads: uploads.map((u) => ({ name: u.name, bytes: u.bytes, durationSeconds: u.durationSeconds, uploadedAt: u.uploadedAt, kind: u.kind })),
     jobs: jobs.map(sanitizeJob),
   }));
