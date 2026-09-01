@@ -1,0 +1,12 @@
+{
+  "name": "outreach-send-cron",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node outreach-send.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
