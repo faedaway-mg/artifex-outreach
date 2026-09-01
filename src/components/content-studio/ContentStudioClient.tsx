@@ -6,6 +6,7 @@ import {
   CircleCheck, CircleAlert, Clapperboard, Users, ExternalLink, Clock, Radio, Eye,
 } from "lucide-react";
 import { SectionHeader } from "@/components/ui";
+import { clientVideoPieceId } from "@/lib/content-studio/client-video-routing";
 import type { StudioItem, SafeJob } from "./types";
 
 // PREVIEW MODE — a read-only, disabled-by-default visibility build. When on, EVERY mutating control is
@@ -18,11 +19,21 @@ const POLL_MS = 1500;
 const fmtBytes = (b: number) => (b > 1024 * 1024 ? (b / 1024 / 1024).toFixed(1) + " MB" : Math.round(b / 1024) + " KB");
 const fmtDur = (s: number | null) => (s == null ? "—" : `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, "0")}`);
 
-export function ContentStudioClient({ initialItems, preview = false }: { initialItems: StudioItem[]; preview?: boolean }) {
+type DeepLink = { piece?: string | null; lead?: string | null; section?: string | null; from?: string | null };
+
+export function ContentStudioClient({ initialItems, preview = false, deepLink }: { initialItems: StudioItem[]; preview?: boolean; deepLink?: DeepLink }) {
+  // A Today client-video task maps to the STABLE project id client-<leadId> (never name matching).
+  const targetPieceId = deepLink?.piece || (deepLink?.lead ? clientVideoPieceId(deepLink.lead) : null);
   const [items, setItems] = useState<StudioItem[]>(initialItems);
-  const [selectedId, setSelectedId] = useState<string>(initialItems[0]?.piece.id ?? "");
+  const [selectedId, setSelectedId] = useState<string>(
+    (targetPieceId && initialItems.some((it) => it.piece.id === targetPieceId) ? targetPieceId : initialItems[0]?.piece.id) ?? "",
+  );
   const [jobOverride, setJobOverride] = useState<Record<string, SafeJob>>({});
   const [creating, setCreating] = useState(false);
+  // Deep-link resolution: when Today points at a project that has no piece yet, we DON'T silently
+  // create it — we surface a truthful "prepare this business's video" repair action (F.10/F.11).
+  const [needsPrepareLead, setNeedsPrepareLead] = useState<string | null>(null);
+  const didDeepLink = useRef(false);
 
   const refetch = useCallback(async () => {
     if (preview) return; // preview never re-fetches server state — fixtures only
@@ -58,11 +69,27 @@ export function ContentStudioClient({ initialItems, preview = false }: { initial
     return () => { stop = true; clearInterval(iv); };
   }, [activeJobIds.join(","), refetch, preview]);
 
+  // Resolve the deep-link ONCE. If the target project exists, it's already selected above. If a Today
+  // task references a business with no project yet, surface the repair/create action (never auto-create).
+  useEffect(() => {
+    if (didDeepLink.current || preview) return;
+    didDeepLink.current = true;
+    if (targetPieceId && !initialItems.some((it) => it.piece.id === targetPieceId) && deepLink?.lead) {
+      setNeedsPrepareLead(deepLink.lead);
+    }
+  }, [targetPieceId, preview, initialItems, deepLink?.lead]);
+
   const selected = mergedItems.find((it) => it.piece.id === selectedId) ?? mergedItems[0];
+  const backToToday = deepLink?.from === "today";
 
   return (
     <PreviewCtx.Provider value={preview}>
     <div className="space-y-5">
+      {backToToday && (
+        <Link href="/" className="inline-flex items-center gap-1.5 text-xs text-chalk-400 hover:text-azure-300 ring-focus">
+          <X size={13} className="rotate-45" /> Back to Today
+        </Link>
+      )}
       <SectionHeader
         title="Content Studio"
         subtitle="Social · Field Notes. Prepare narration, upload your voiceover, generate the video, preview and download — all from here."
@@ -104,7 +131,7 @@ export function ContentStudioClient({ initialItems, preview = false }: { initial
         </p>
       </div>
 
-      <ClientVideosPanel onPrepared={refetch} onSelect={setSelectedId} />
+      <ClientVideosPanel onPrepared={refetch} onSelect={setSelectedId} defaultOpen={deepLink?.section === "client" || !!needsPrepareLead} repairLead={needsPrepareLead} />
 
       <div className="grid gap-5 lg:grid-cols-[340px_1fr]">
         {/* ── Piece list ─────────────────────────────────────────────── */}
@@ -124,12 +151,14 @@ export function ContentStudioClient({ initialItems, preview = false }: { initial
   );
 }
 
-function ClientVideosPanel({ onPrepared, onSelect }: { onPrepared: () => Promise<void>; onSelect: (id: string) => void }) {
+function ClientVideosPanel({ onPrepared, onSelect, defaultOpen = false, repairLead = null }: { onPrepared: () => Promise<void>; onSelect: (id: string) => void; defaultOpen?: boolean; repairLead?: string | null }) {
   const preview = usePreview();
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(defaultOpen);
   const [cands, setCands] = useState<any[] | null>(null);
-  const [leadId, setLeadId] = useState("");
-  const [msg, setMsg] = useState<{ tone: "ok" | "err"; text: string } | null>(null);
+  const [leadId, setLeadId] = useState(repairLead ?? "");
+  const [msg, setMsg] = useState<{ tone: "ok" | "err"; text: string } | null>(
+    repairLead ? { tone: "err", text: "This Today task has no Content Studio project yet. Prepare it below to open its project — nothing is created automatically." } : null,
+  );
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {

@@ -7,7 +7,7 @@
 // never loses your place. Only what helps do THIS piece of work is shown — nothing else.
 // ─────────────────────────────────────────────────────────────────────────────
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { CheckCircle2, ArrowRight, ArrowLeft, X, Video, Mail, RotateCcw, FileText, Phone, CalendarClock, Compass, Clock, Instagram } from "lucide-react";
 import {
   todaysTasks, listLeads, allMeetings, getSettings, getBusinessIntelligence, contactsForLead, memoryForLead,
@@ -25,11 +25,11 @@ import { currentOperatorId } from "@/lib/auth";
 import { parseScope, leadIdsInScope, tasksInScope } from "@/lib/operators/scope";
 import { describeSequenceContext, type SequenceContext } from "@/lib/comms/task-projection";
 import { buildWorkQueue, batchLeadIds, categoryTitle, kindOfTask, surfaceTodaysTasks, channelCapacity, type WorkKind } from "@/lib/work-queue";
+import { videoWorkRedirect } from "@/lib/content-studio/client-video-routing";
 import { buildOutreachKit } from "@/lib/outreach/kit";
 import { buildQuickReview, quickReviewFilename } from "@/lib/outreach/quick-review";
 import { quickReviewApproved } from "@/lib/outreach/review-approval";
 import { approveQuickReviewAction } from "@/lib/outreach/send-actions";
-import { buildVideoScript } from "@/lib/outreach/content";
 import { renderPersonalEmailHtml } from "@/lib/outreach/email-render";
 import { readingSeconds } from "@/lib/outreach/voice-engine";
 import { determineContactStrategy, buildCallBrief, buildCallScript, findInstagram } from "@/lib/outreach/contact-strategy";
@@ -66,6 +66,16 @@ const ACTION: Record<WorkKind, { verb: string; label: string; href: (id: string)
 export default async function BatchPage({ params, searchParams }: { params: { kind: string }; searchParams: { i?: string; ids?: string; view?: string } }) {
   const kind = params.kind as WorkKind;
   if (!KINDS.includes(kind)) notFound();
+
+  // ── Sections F + G: the obsolete "Videos to Create" recording carousel is RETIRED. ──────────────
+  // Client videos now live in Content Studio, keyed by a STABLE project id (client-<leadId>) — never
+  // business-name matching. Any navigation or old bookmark to the video work path is redirected there:
+  // a single scoped lead deep-links to its exact Content Studio project; otherwise the Client Videos
+  // list opens. `from=today` lets Back return to Today without losing state. This is the ONLY path —
+  // the kit/Skip/Done-next carousel below is never reached for video, so it cannot silently reopen.
+  if (kind === "video") {
+    redirect(videoWorkRedirect((searchParams.ids ?? "").split(",")));
+  }
 
   const settings = await getSettings();
   // Same rule as Today: scope to the operator BEFORE the daily cap, so a batch
@@ -215,7 +225,6 @@ export default async function BatchPage({ params, searchParams }: { params: { ki
     if (step) sequence = describeSequenceContext(step, await stepsForPlan(step.planId), now);
   }
 
-  const videoScript = kind === "video" && profile ? buildVideoScript(lead, profile) : null;
   const action = ACTION[kind];
   const panel = panelForWorkKind(kind);
 
@@ -286,23 +295,10 @@ export default async function BatchPage({ params, searchParams }: { params: { ki
     );
   }
 
-  // ── The step body, kind-appropriate. Video + call stay in the loop (no deep-link). ─
+  // ── The step body, kind-appropriate. (Video work is retired here — it redirects to Content
+  //    Studio's Client Videos at the top of this route; call stays in the loop.) ─
   let body: React.ReactNode;
-  if (kind === "video" && videoScript) {
-    body = (
-      <section className="card p-5 sm:p-6">
-        <p className="text-[12px] text-chalk-500">Record a video for</p>
-        <h1 className="mt-0.5 text-[1.4rem] font-semibold leading-tight tracking-[-0.01em] text-chalk-50">{lead.businessName}</h1>
-        <p className="mt-1 inline-flex items-center gap-1 text-[11.5px] text-chalk-500"><Clock size={12} /> ~{videoScript.estimatedSeconds}s · read it, then record on your phone</p>
-        <div className="mt-4 space-y-3 rounded-lg border border-white/[0.06] bg-white/[0.02] p-3.5">
-          <p className="text-[14px] leading-relaxed text-chalk-100">{videoScript.opening}</p>
-          {videoScript.observations.map((o, k) => <p key={k} className="text-[14px] leading-relaxed text-chalk-200">{o}</p>)}
-          <p className="text-[14px] leading-relaxed text-chalk-200">{videoScript.question}</p>
-          <p className="text-[14px] leading-relaxed text-chalk-300">{videoScript.close}</p>
-        </div>
-      </section>
-    );
-  } else if (panel === "call-workspace") {
+  if (panel === "call-workspace") {
     // A call in a batch is the SAME instrument as a call opened from the business
     // page — the live assistant, the call button, and the outcome console. It used to
     // be a recommendation panel here and the workspace there: one kind of work, two
