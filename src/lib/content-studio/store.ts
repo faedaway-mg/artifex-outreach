@@ -257,11 +257,20 @@ export async function getPieces(): Promise<Piece[]> {
     if (ready?.outputKey) { recommendedRel = `/api/content-studio/media/${id}`; hasThumbnailFirst = true; }
     else if (ready?.outputRel) { recommendedRel = ready.outputRel; hasThumbnailFirst = true; }
     else { recommendedRel = firstExisting(recommendedCandidates(id)); hasThumbnailFirst = Boolean(recommendedRel); }
+    const isClient = id.startsWith("client-");
     templatePieces.push({
       id, title: t.title, concept: t.concept, narration: t.narration,
       captionIG: t.captions?.ig ?? null, captionLI: t.captions?.li ?? null,
       sceneBasename: "scene-template.html", renderable: true, targetSeconds: null,
       thumbRel: `/content/thumbnails/field-note-${id}-thumbnail.png`, recommendedRel, hasThumbnailFirst,
+      businessId: t.businessId ?? null,
+      narrationEvidence: t.narrationEvidence ?? [],
+      evidenceState: t.evidenceState,
+      revision: t.revision,
+      ownerEdited: t.ownerEdited ?? false,
+      // The business's live captured screenshot (section G), served by the authenticated route. Only for
+      // client videos; the route itself returns a clean fallback tile until the worker has captured it.
+      screenshotRel: isClient && t.businessId ? `/api/content-studio/screenshot-image?business=${encodeURIComponent(t.businessId)}&viewport=mobile` : null,
     });
   }
   return [...catalogPieces, ...templatePieces, ...drafts.map(draftToPiece)];

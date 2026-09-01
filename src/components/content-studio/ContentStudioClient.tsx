@@ -568,6 +568,10 @@ function PieceDetail({ item, onChanged, setJobOverride }: { item: StudioItem; on
               {piece.targetSeconds && <span className="rounded-md border border-white/[0.07] bg-white/[0.02] px-1.5 py-0.5">1080×1920 · ~{piece.targetSeconds}s</span>}
               {piece.hasThumbnailFirst && <span className="rounded-md border border-teal-400/25 bg-teal-400/10 px-1.5 py-0.5 text-teal-300">thumbnail = frame zero</span>}
               {item.postedAt && <span className="rounded-md border border-teal-400/25 bg-teal-400/10 px-1.5 py-0.5 text-teal-300">Posted {new Date(item.postedAt).toLocaleDateString()}</span>}
+              {piece.evidenceState === "needs-evidence" && <span className="rounded-md border border-amber-400/25 bg-amber-400/10 px-1.5 py-0.5 text-amber-300">needs evidence</span>}
+              {piece.evidenceState === "evidence-backed" && <span className="rounded-md border border-teal-400/25 bg-teal-400/10 px-1.5 py-0.5 text-teal-300">evidence-backed</span>}
+              {piece.ownerEdited && <span className="rounded-md border border-azure-400/25 bg-azure-400/10 px-1.5 py-0.5 text-azure-300">owner-edited</span>}
+              {typeof piece.revision === "number" && <span className="rounded-md border border-white/[0.07] bg-white/[0.02] px-1.5 py-0.5">rev {piece.revision}</span>}
             </div>
           </div>
         </div>
@@ -579,6 +583,22 @@ function PieceDetail({ item, onChanged, setJobOverride }: { item: StudioItem; on
         </div>
       )}
 
+      {/* Live website screenshot (section G) — the real captured page behind the evidence. Client videos only. */}
+      {piece.screenshotRel && (
+        <div className="card p-4">
+          <div className="mb-2 flex items-center justify-between">
+            <h4 className="text-sm font-semibold text-chalk-100">Live website screenshot</h4>
+            <span className="text-[10px] text-chalk-600">captured by the screenshot worker · 1080×1920 · no vignette</span>
+          </div>
+          <div className="flex gap-4">
+            <div className="relative w-32 shrink-0 overflow-hidden rounded-lg border border-white/[0.08] bg-ink-950" style={{ aspectRatio: "9 / 16" }}>
+              <img src={piece.screenshotRel} alt={`Captured website for ${piece.title}`} className="h-full w-full object-cover object-top" />
+            </div>
+            <p className="text-xs leading-relaxed text-chalk-500">This is the business's actual homepage, captured live behind the SSRF-guarded worker — no darkened edges, no decorative blur. It refreshes each time you Prepare; a clean fallback tile shows until the first capture is ready.</p>
+          </div>
+        </div>
+      )}
+
       {/* Narration + captions */}
       <div className="card p-4">
         <div className="mb-2 flex items-center justify-between">
@@ -586,10 +606,31 @@ function PieceDetail({ item, onChanged, setJobOverride }: { item: StudioItem; on
           {narrationText && <CopyBtn text={narrationText} label="Copy narration" />}
         </div>
         {narrationText ? (
-          <ol className="space-y-1.5">
-            {piece.narration.map((line, i) => (
-              <li key={i} className="flex gap-2.5 text-sm text-chalk-300"><span className="w-4 shrink-0 text-right font-mono text-[11px] text-chalk-600">{i + 1}</span>{line}</li>
-            ))}
+          <ol className="space-y-2">
+            {piece.narration.map((line, i) => {
+              const ev = (piece.narrationEvidence ?? []).find((e) => e.line === i);
+              const material = ev && ev.kind !== "framing";
+              return (
+                <li key={i} className="flex gap-2.5 text-sm text-chalk-300">
+                  <span className="w-4 shrink-0 text-right font-mono text-[11px] text-chalk-600">{i + 1}</span>
+                  <div className="min-w-0 flex-1">
+                    <span>{line}</span>
+                    {material && (
+                      <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px]">
+                        {ev!.confidence && <span className="rounded border border-teal-400/25 bg-teal-400/10 px-1 py-0.5 text-teal-300">{ev!.confidence}</span>}
+                        {ev!.topic && <span className="rounded border border-white/10 bg-white/[0.03] px-1 py-0.5 text-chalk-400">{ev!.topic}</span>}
+                        {ev!.sourceLabel && <span className="truncate text-chalk-500" title={ev!.sourceUrl || ev!.sourceLabel}>· {ev!.sourceLabel}</span>}
+                        {ev!.screenshotKey && <span className="rounded border border-azure-400/25 bg-azure-400/10 px-1 py-0.5 text-azure-300">screenshot</span>}
+                      </div>
+                    )}
+                    {material && ev!.basis && ev!.basis.length > 0 && (
+                      <p className="mt-0.5 text-[10px] text-chalk-600" title={ev!.basis.join(" · ")}>Evidence: {ev!.basis[0]}{ev!.basis.length > 1 ? ` (+${ev!.basis.length - 1})` : ""}</p>
+                    )}
+                    {ev && ev.kind === "framing" && <p className="mt-0.5 text-[10px] text-chalk-700">framing line — no claim</p>}
+                  </div>
+                </li>
+              );
+            })}
           </ol>
         ) : (
           <p className="text-xs text-chalk-500">This piece was finished in VEED without a captured timing sheet. Enter narration when regenerating, or copy from the captions below.</p>

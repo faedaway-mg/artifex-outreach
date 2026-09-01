@@ -51,6 +51,24 @@ export const thumbnailSchema = z.object({
 });
 export type ThumbnailSpec = z.infer<typeof thumbnailSchema>;
 
+// Evidence bound to a single narration line (section F). Every MATERIAL line (the findings + starting
+// point) carries the receipt behind it: what confidence, from which source, the exact provenance basis,
+// the finding topic, and — when a real capture exists — the screenshot key. Framing lines (opening hook,
+// close) are marked kind:"framing" and need no receipt. This is what lets the operator UI show, per line,
+// "this claim is backed by X" and what makes a fabricated line impossible to hide.
+export const narrationEvidenceSchema = z.object({
+  line: z.number().int().min(0), // index into narration[]
+  kind: z.enum(["framing", "finding", "starting-point"]),
+  confidence: z.string().max(24).optional(),   // "Observed" | "Reported" | "Likely" | …
+  topic: z.string().max(24).optional(),
+  sourceLabel: z.string().max(120).optional(), // customer-safe display label (e.g. "silverinthecity.com · Reviews")
+  sourceUrl: z.string().max(400).optional(),   // exact crawled URL (operator-only)
+  basis: z.array(z.string().max(200)).max(6).default([]), // raw provenance strings
+  observedAt: z.string().max(40).optional(),
+  screenshotKey: z.string().max(200).optional(), // artifact key of a real capture, when one exists
+});
+export type NarrationEvidence = z.infer<typeof narrationEvidenceSchema>;
+
 export const templateSchema = z.object({
   version: z.literal(1).default(1),
   id: z.string().regex(/^[0-9a-z][0-9a-z_-]{1,40}$/i),
@@ -64,6 +82,14 @@ export const templateSchema = z.object({
   beats: z.array(beatSchema).min(2).max(10),
   thumbnail: thumbnailSchema,
   captions: z.object({ ig: z.string().max(2200).optional(), li: z.string().max(3000).optional() }).optional(),
+  // ── Evidence-led scripts (section F) — optional so pre-existing templates stay valid. ──
+  narrationEvidence: z.array(narrationEvidenceSchema).max(12).optional(),
+  // "evidence-backed" = at least one specific, demonstrable finding beyond ratings/reviews. "needs-evidence"
+  // means the review had only thin/generic signal — a client video must NOT be generated from it.
+  evidenceState: z.enum(["evidence-backed", "needs-evidence"]).optional(),
+  revision: z.number().int().min(1).optional(),        // bumped on every persisted regeneration
+  ownerEdited: z.boolean().optional(),                  // true once an operator hand-edits the script
+  ownerEditedAt: z.string().max(40).optional(),
 });
 export type ContentTemplate = z.infer<typeof templateSchema>;
 
@@ -75,6 +101,9 @@ export function validateTemplateStructure(t: ContentTemplate): { ok: boolean; er
   if (t.beats[t.beats.length - 1].type !== "brand") return { ok: false, error: "The 'brand' beat must be last." };
   for (const b of t.beats) for (const li of (b as any).lines ?? []) {
     if (li >= t.narration.length) return { ok: false, error: `Beat references narration line ${li}, but there are only ${t.narration.length}.` };
+  }
+  for (const e of t.narrationEvidence ?? []) {
+    if (e.line >= t.narration.length) return { ok: false, error: `Evidence references narration line ${e.line}, but there are only ${t.narration.length}.` };
   }
   return { ok: true };
 }

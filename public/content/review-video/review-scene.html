@@ -37,16 +37,18 @@
   .cmpbig{font-size:210px;font-weight:800;color:var(--chalk);line-height:0.9;letter-spacing:-2px}
   .cmpbig.mute{color:var(--faint)}
   .cmplabel{font-size:26px;font-weight:600;letter-spacing:2px;color:var(--mute);text-transform:uppercase}
-  /* Surface (real business capture) — B-roll behind/within the composition. */
+  /* Surface (real business capture) — B-roll behind/within the composition. Section-G screenshot quality:
+     NO artificial drop-shadow obscuring the page (a thin 1px frame only), no vignette. */
   .surface{position:absolute;left:50%;transform:translateX(-50%);overflow:hidden;border-radius:18px;
-    border:1px solid rgba(174,187,208,0.14);box-shadow:0 40px 120px rgba(0,0,0,0.55);opacity:0}
+    border:1px solid rgba(174,187,208,0.14);box-shadow:none;opacity:0}
   .surface img{display:block;width:100%;height:auto}
   .surface.bleed{border-radius:0;border:none;box-shadow:none}
   .surface.bleed img{width:1080px;height:1920px;object-fit:cover;object-position:50% 12%}
   .scrim{position:absolute;inset:0}
-  /* M2.2 role-aware treatment: EVIDENCE stays BRIGHT (only local scrims behind the top/bottom type);
-     ATMOSPHERIC dims moderately; BACKGROUND (proof backdrop) dims strongly. */
-  .surface.t-evidence .scrim{background:linear-gradient(180deg,rgba(6,8,12,0.55) 0%,rgba(6,8,12,0.0) 15%,rgba(6,8,12,0.0) 82%,rgba(6,8,12,0.60) 100%)}
+  /* M2.2 role-aware treatment, section-G revised: EVIDENCE (the finding's actual page) keeps NO
+     darkened/faded edges — only a mild bottom band strictly behind the hook type, never a top-and-bottom
+     vignette. ATMOSPHERIC/BACKGROUND are pure b-roll (never the finding's page) and may still dim. */
+  .surface.t-evidence .scrim{background:linear-gradient(180deg,rgba(6,8,12,0.0) 0%,rgba(6,8,12,0.0) 76%,rgba(6,8,12,0.42) 100%)}
   .surface.t-atmos .scrim{background:linear-gradient(180deg,rgba(6,8,12,0.55) 0%,rgba(6,8,12,0.14) 34%,rgba(6,8,12,0.55) 100%)}
   .surface.t-bg .scrim{background:linear-gradient(180deg,rgba(6,8,12,0.82) 0%,rgba(6,8,12,0.66) 45%,rgba(6,8,12,0.88) 100%)}
   .ring{position:absolute;border:3px solid var(--teal);border-radius:10px;box-shadow:0 0 26px rgba(127,227,199,0.35);opacity:0}

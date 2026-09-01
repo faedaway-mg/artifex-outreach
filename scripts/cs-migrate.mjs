@@ -22,6 +22,7 @@ const ORDER = [
   "content_studio_posted.sql",
   "content_studio_templates.sql",
   "content_studio_drafts.sql",
+  "content_studio_screenshot_jobs.sql",  // secure screenshot-capture job queue (section G)
 ];
 
 const url = process.env.CS_DATABASE_URL || process.env.DATABASE_URL;

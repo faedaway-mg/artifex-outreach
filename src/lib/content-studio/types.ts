@@ -52,6 +52,13 @@ export interface Piece {
   thumbRel: string; // public URL of the generated 1080×1920 cover
   recommendedRel: string | null; // public URL of the current recommended posting file
   hasThumbnailFirst: boolean; // whether the recommended file embeds the cover as frame zero
+  // ── Client videos (section F/G): the business binding, per-line evidence, and its live screenshot. ──
+  businessId?: string | null; // lead id for a client-<leadId> piece
+  narrationEvidence?: import("./template-schema").NarrationEvidence[]; // receipt per material narration line
+  evidenceState?: "evidence-backed" | "needs-evidence";
+  revision?: number;
+  ownerEdited?: boolean;
+  screenshotRel?: string | null; // authenticated route to the business's captured website screenshot
 }
 
 export interface AudioUpload {
