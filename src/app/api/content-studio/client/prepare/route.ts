@@ -14,6 +14,15 @@ import { createScreenshotJob, latestReadyShot, captureTargetFor } from "@/lib/co
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+// Auth: an operator session, OR the shared CS_CANARY_SECRET header (the same operator-held secret the
+// render canary uses) for headless reconcile/proof. The secret only ever regenerates an EVIDENCE-LED
+// template from a business's OWN stored evidence — it can never send or contact a prospect.
+function authorized(req: NextRequest): boolean {
+  if (isAuthenticated()) return true;
+  const secret = (process.env.CS_CANARY_SECRET ?? "").trim();
+  return secret.length > 0 && req.headers.get("x-cs-canary") === secret;
+}
+
 // POST { leadId, allowOverride?, regenerate? } → build an EVIDENCE-LED review video template for a
 // business, BOUND to it. Two gates are honored: readiness (unchanged) and section-F evidence (a
 // ratings/reviews-only review is refused as "needs evidence" — never a generic substitute). Every
@@ -23,7 +32,7 @@ export const dynamic = "force-dynamic";
 // Owner-edit protection (F #9): if the operator has hand-edited the script, a re-prepare does NOT silently
 // regenerate — pass regenerate:true to explicitly overwrite. Revisions are persisted (revision counter).
 export async function POST(req: NextRequest) {
-  if (!isAuthenticated()) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  if (!authorized(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   let body: any;
   try { body = await req.json(); } catch { return NextResponse.json({ error: "invalid JSON" }, { status: 400 }); }
   const leadId = String(body?.leadId ?? "").trim();

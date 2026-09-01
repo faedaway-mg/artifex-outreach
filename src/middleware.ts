@@ -26,6 +26,9 @@ export async function middleware(req: NextRequest) {
     // Internal render canary: enforces its own auth in-handler (operator session OR the CS_CANARY_SECRET
     // header). It can only enqueue a render of an approved-master piece — never sends or touches a prospect.
     pathname === "/api/content-studio/canary" ||
+    // Evidence-led client-video prepare/reconcile: enforces its own auth in-handler (operator session OR
+    // the CS_CANARY_SECRET header). It only regenerates a template from a business's own stored evidence.
+    pathname === "/api/content-studio/client/prepare" ||
     pathname.startsWith("/share/previews") ||
     // Public brand assets (the constellation mark PNG) must be fetchable by email
     // clients and browsers without a session, or the mark degrades to alt text.
