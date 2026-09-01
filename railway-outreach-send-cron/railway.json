@@ -1,0 +1,10 @@
+{
+  "$schema": "https://railway.com/railway.schema.json",
+  "build": { "builder": "NIXPACKS" },
+  "deploy": {
+    "startCommand": "node outreach-send.mjs",
+    "//cronSchedule": "05:00–07:00 America/Los_Angeles: 12:00–14:59 UTC (PDT) / 13:00–14:59 UTC (PST). The app re-gates to the exact LA window; this range only needs to cover it.",
+    "cronSchedule": "*/5 12-14 * * 1-5",
+    "restartPolicyType": "NEVER"
+  }
+}
