@@ -186,11 +186,16 @@ async function main() {
         // 2) Merge the Observed opportunity into the BI profile at profile.businessProfile.opportunities
         //    (the exact path buildQuickReview reads). Deterministic id lets re-runs stay stable.
         const opps = toOpportunities(kept, r.row.id);
-        const biRow = (await sql`SELECT profile, generated_at FROM business_intelligence WHERE lead_id=${r.row.id} ORDER BY generated_at DESC LIMIT 1`)[0];
+        const biRow: any = (await sql`SELECT id, profile FROM business_intelligence WHERE lead_id=${r.row.id} ORDER BY generated_at DESC LIMIT 1`)[0];
         if (!biRow || !biRow.profile?.businessProfile) { console.log(`persist: ${r.row.id} — NO BI businessProfile, cannot bind opportunity`); continue; }
         const wrapper = biRow.profile;
-        wrapper.businessProfile.opportunities = opps;
-        await sql`UPDATE business_intelligence SET profile=${sql.json(wrapper)}, updated_at=now() WHERE lead_id=${r.row.id} AND generated_at=${biRow.generated_at}`;
+        // Prepend the deep-capture Observed opportunity so buildQuickReview/selectReviewFindings picks it
+        // FIRST on any re-prepare (durable: the template can't silently regress to needs-evidence). Match on
+        // the BI row's primary key (a Date-valued WHERE silently matched nothing).
+        const prior = Array.isArray(wrapper.businessProfile.opportunities) ? wrapper.businessProfile.opportunities.filter((o: any) => !String(o?.id ?? "").startsWith(`opp_${r.row.id}_`)) : [];
+        wrapper.businessProfile.opportunities = [...opps, ...prior];
+        const upd = await sql`UPDATE business_intelligence SET profile=${sql.json(wrapper)}, updated_at=now() WHERE id=${biRow.id} RETURNING id`;
+        if (!upd.length) { console.log(`persist: ${r.row.id} — BI UPDATE matched 0 rows (id ${biRow.id})`); }
 
         // 3) Build the evidence-backed template through the REAL product path, binding the finding's
         //    screenshot exactly, then verify the honest generation gate PASSES before saving.
