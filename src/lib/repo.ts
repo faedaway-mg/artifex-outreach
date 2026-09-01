@@ -9,7 +9,7 @@
 // callers now await. Rows map 1:1 to domain objects (schema uses camelCase JS keys
 // and string-mode timestamps), so the Postgres path needs almost no mapping.
 // ─────────────────────────────────────────────────────────────────────────────
-import { eq, and, inArray, lte, isNull, sql } from "drizzle-orm";
+import { eq, and, inArray, lte, gte, lt, isNull, sql } from "drizzle-orm";
 import { hasDb, getDb } from "@/db/client";
 import * as t from "@/db/schema";
 import { db as mem, newId, nowIso, normalizeName, domainFromUrl, normalizePhone, defaultSettings, defaultProspecting } from "./store";
@@ -1047,6 +1047,24 @@ export async function emailSendsByStepIds(stepIds: string[]): Promise<EmailSend[
   if (hasDb()) return (await getDb().select().from(t.emailSends).where(inArray(t.emailSends.stepId, stepIds))) as any;
   const set = new Set(stepIds);
   return memEmailSends().filter((r) => r.stepId != null && set.has(r.stepId));
+}
+
+// Sent-family statuses — an email that actually left the system (counts against the global daily cap).
+const SENT_FAMILY = ["sent", "delivered", "opened", "clicked"] as const;
+
+/** Count prospect emails that actually SENT with sentAt in [startIso, endIso) — the authoritative input to
+ *  the global 20/day cap (§5). Covers every send path (initial, follow-up, manual) since all land in
+ *  emailSends. Half-open range so a day boundary can't double-count. */
+export async function countSentEmailsBetween(startIso: string, endIso: string): Promise<number> {
+  if (hasDb()) {
+    const rows = (await getDb().select({ id: t.emailSends.id }).from(t.emailSends).where(and(
+      inArray(t.emailSends.status, SENT_FAMILY as unknown as string[]),
+      gte(t.emailSends.sentAt, startIso),
+      lt(t.emailSends.sentAt, endIso),
+    ))) as Array<{ id: string }>;
+    return rows.length;
+  }
+  return memEmailSends().filter((r) => r.sentAt != null && r.sentAt >= startIso && r.sentAt < endIso && (SENT_FAMILY as readonly string[]).includes(r.status)).length;
 }
 
 /**

@@ -13,9 +13,10 @@
 // The scheduler is provider-agnostic: it never sends directly, it calls
 // dispatchStep(), which owns the send-once guarantee.
 // ─────────────────────────────────────────────────────────────────────────────
-import { getSettings, dueStepsForSending, emailSendsByStepIds } from "../repo";
+import { getSettings, dueStepsForSending, emailSendsByStepIds, countSentEmailsBetween } from "../repo";
 import { isSent } from "./state";
 import { dispatchStep, type DispatchResult } from "./dispatch";
+import { laDayBoundsUtc, GLOBAL_DAILY_CAP } from "../acquisition/daily-cap";
 import type { SendingWindow, EmailSend } from "../types";
 
 const DEFAULT_WINDOW: SendingWindow = { timezone: "America/Los_Angeles", startHour: 8, endHour: 17, weekdays: [1, 2, 3, 4, 5] };
@@ -75,6 +76,9 @@ export interface SchedulerSummary {
   retried: number;
   failed: number;
   skipped: number;
+  capped: number;          // steps held back because the global daily cap was reached
+  capDate: string;         // the LA accounting date the cap was measured on
+  capBefore: number;       // prospect sends already counted on that LA date before this run
   results: DispatchResult[];
   failures: { stepId: string; reason?: string }[];
 }
@@ -90,12 +94,19 @@ export async function runDueSends(opts: { now?: Date; force?: boolean; limit?: n
   const window = settings.sendingWindow ?? DEFAULT_WINDOW;
   const windowOpen = opts.force ? true : withinSendingWindow(now, window);
 
-  const summary: SchedulerSummary = { ranAt: now.toISOString(), windowOpen, considered: 0, sent: 0, deduped: 0, retried: 0, failed: 0, skipped: 0, results: [], failures: [] };
+  // Global daily cap (§5): one shared ceiling of 20 prospect messages on the America/Los_Angeles accounting
+  // date, across initial + follow-up + manual sends in EVERY timezone. Measured once from the ledger, then
+  // enforced as we go so no path can push the LA-day total past 20 — even if `force` bypasses the window.
+  const bounds = laDayBoundsUtc(now);
+  const capBefore = await countSentEmailsBetween(bounds.startIso, bounds.endIso);
+  const summary: SchedulerSummary = { ranAt: now.toISOString(), windowOpen, considered: 0, sent: 0, deduped: 0, retried: 0, failed: 0, skipped: 0, capped: 0, capDate: bounds.date, capBefore, results: [], failures: [] };
   if (!windowOpen) return summary;
 
   const ids = await dueStepIds(now, opts.limit ?? 500);
   summary.considered = ids.length;
   for (const id of ids) {
+    // Hard admission check BEFORE dispatch: remaining = 20 − (already-sent-today + newly-sent-this-run).
+    if (capBefore + summary.sent >= GLOBAL_DAILY_CAP) { summary.capped++; continue; }
     const r = await dispatchStep(id, { now });
     summary.results.push(r);
     switch (r.outcome) {

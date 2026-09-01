@@ -1261,6 +1261,9 @@ export interface Settings {
   launchReviewConfirmedBy?: string | null;
   // ── Client-agreement defaults ───────────────────────────────────────────────
   agreementDefaults?: AgreementDefaults;
+  // ── Nationwide refill checkpoint (rolling-reserve mandate) ───────────────────
+  // Persisted so the auto-refill loop resumes its geographic rotation + search budget across cron ticks.
+  refillCheckpoint?: import("./acquisition/refill").RefillCheckpoint;
 }
 
 export interface AgreementDefaults {
