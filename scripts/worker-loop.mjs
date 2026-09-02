@@ -132,10 +132,16 @@ function realRenderFn(job, { signal }) {
     });
   });
 }
-function dbToFileJob(job) {
+export function dbToFileJob(job) {
+  // Forward the evidence binding to the renderer. Without screenshotKey/Sha the client-video cover falls
+  // back to the generated template thumbnail; without storyboard compositeStoryboard injects ZERO evidence
+  // scenes — so the SHA-verified website screenshot reached neither the cover nor the interior scenes in
+  // production. These three fields carry it through the DB→file-job boundary. (jsonb storyboard arrives
+  // already parsed from postgres.js.)
   return { id: job.id, pieceId: job.piece_id, inputVersion: job.input_version, status: "queued", progress: 0,
     stage: "Queued", mode: job.mode, audioKind: "uploaded", audioFile: null, audioKey: job.audio_key ?? null,
-    audioSha: job.audio_sha ?? null, outputFile: null, outputRel: null, outputKey: null, posterKey: null,
+    audioSha: job.audio_sha ?? null, screenshotKey: job.screenshot_key ?? null, screenshotSha: job.screenshot_sha ?? null,
+    storyboard: job.storyboard ?? null, outputFile: null, outputRel: null, outputKey: null, posterKey: null,
     thumbRel: null, error: null, attempt: job.attempt, pid: null, createdAt: job.created_at, updatedAt: job.created_at,
     startedAt: null, finishedAt: null };
 }

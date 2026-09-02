@@ -16,6 +16,7 @@ const ORDER = [
   "field_note_jobs.sql",                 // content_studio_jobs base
   "content_studio_jobs_lifecycle.sql",   // + RenderJob columns
   "content_studio_jobs_screenshot.sql",  // + screenshot_key/screenshot_sha (I-C)
+  "content_studio_jobs_storyboard.sql",  // + storyboard jsonb (F addendum — interior screenshot compositing)
   "content_studio_shares.sql",           // shares + email drafts base
   "content_studio_shares_lifecycle.sql", // + ShareRecord display columns
   "content_studio_uploads.sql",

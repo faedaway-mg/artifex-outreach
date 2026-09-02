@@ -44,6 +44,9 @@ function rowToJob(r: Record<string, unknown>): RenderJob {
     posterKey: (r.poster_key as string) ?? null,
     screenshotKey: (r.screenshot_key as string) ?? null,
     screenshotSha: (r.screenshot_sha as string) ?? null,
+    // jsonb — postgres.js returns it already parsed; the render worker composites the SHA-verified
+    // screenshot into the interior scenes this storyboard names (F addendum). Dropped here = no interior shot.
+    storyboard: (r.storyboard as RenderJob["storyboard"]) ?? null,
     thumbRel: (r.thumb_rel as string) ?? null,
     error: (r.error as string) ?? null,
     attempt: Number(r.attempt ?? 0),
@@ -63,12 +66,13 @@ export async function writeJobPg(job: RenderJob): Promise<void> {
   await sql`
     INSERT INTO content_studio_jobs
       (id, piece_id, input_version, status, progress, stage, mode, audio_kind, audio_key, audio_sha,
-       audio_label, output_key, poster_key, screenshot_key, screenshot_sha, output_rel, thumb_rel, error, attempt,
+       audio_label, output_key, poster_key, screenshot_key, screenshot_sha, storyboard, output_rel, thumb_rel, error, attempt,
        created_at, updated_at, started_at, finished_at)
     VALUES
       (${job.id}, ${job.pieceId}, ${job.inputVersion}, ${job.status}, ${job.progress}, ${job.stage},
        ${job.mode}, ${job.audioKind}, ${job.audioKey}, ${job.audioSha}, ${job.audioLabel},
-       ${job.outputKey}, ${job.posterKey}, ${job.screenshotKey ?? null}, ${job.screenshotSha ?? null}, ${job.outputRel}, ${job.thumbRel}, ${job.error}, ${job.attempt},
+       ${job.outputKey}, ${job.posterKey}, ${job.screenshotKey ?? null}, ${job.screenshotSha ?? null},
+       ${job.storyboard ? sql.json(job.storyboard as unknown as Record<string, never>) : null}, ${job.outputRel}, ${job.thumbRel}, ${job.error}, ${job.attempt},
        ${job.createdAt}, ${job.updatedAt}, ${job.startedAt}, ${job.finishedAt})
     ON CONFLICT (id) DO UPDATE SET
       stage = EXCLUDED.stage, progress = EXCLUDED.progress, error = EXCLUDED.error,
