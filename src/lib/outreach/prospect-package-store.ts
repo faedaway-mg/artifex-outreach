@@ -1,0 +1,237 @@
+// ─────────────────────────────────────────────────────────────────────────────
+// Frozen Prospect Sales Package — PERSISTENCE + ORCHESTRATION (the I/O layer over prospect-package.ts).
+// Mirrors the proven frozen-review pattern: state lives in the append-only audit log keyed to the lead
+// (latest record wins), so no new table/migration is required and history is preserved. Lifecycle:
+//   assembleDraftPackage()  — at video READY (or email-only): build/refresh a DRAFT (no freeze)
+//   freezeProspectPackage() — from Approve*: validate + bind + snapshot an immutable FROZEN version
+//   markPackageState()      — SCHEDULED / SENT transitions (append-only)
+//   revokePackageShare()    — immediate revocation checked by the /pv route
+//   resolvePackageForSendById() — fail-closed pre-dispatch verification of every component
+// ─────────────────────────────────────────────────────────────────────────────
+import { randomBytes } from "node:crypto";
+import { getLead, getBusinessIntelligence, appendAudit, auditForTarget } from "../repo";
+import { nowIso } from "../store";
+import { currentOperatorId } from "../auth";
+import { buildQuickReview, cachedBrand } from "./quick-review";
+import { quickReviewApproved } from "./review-approval";
+import { resolveFrozenReviewForSend } from "./quick-review-freeze";
+import { listJobs } from "../content-studio/store";
+import { latestReadyJob } from "../content-studio/job";
+import { getArtifactStore } from "../content-studio/storage-factory";
+import type { BusinessProfile } from "../business-intelligence/types";
+import {
+  computePackageDigest, validateForFreeze, assessDraftReadiness, resolvePackageForSend,
+  normalizeRecipient, PROSPECT_PACKAGE_RECORD_VERSION, currentShareKeyVersion,
+  verifyPackageShare, envShareKeyResolver, buildPackageShareUrl, assertAttachmentsFitResend,
+  type ProspectPackageDraft, type FrozenProspectPackage, type ProspectPackageState,
+  type ReviewBinding, type VideoBinding, type EvidenceProvenance, type ShareIdentity,
+} from "./prospect-package";
+
+export const PROSPECT_PACKAGE_ACTION = "prospect.package";
+export const PROSPECT_SHARE_REVOKED_ACTION = "prospect.package.share_revoked";
+const pieceIdFor = (leadId: string) => `client-${leadId}`;
+
+// ── Draft assembly (video READY or email-only) ───────────────────────────────────────────────────────
+export interface AssembleDeps {
+  loadLead?: typeof getLead;
+  loadProfile?: (leadId: string) => Promise<BusinessProfile | null>;
+  resolveReview?: (leadId: string) => Promise<{ ok: boolean; sha256?: string; byteSize?: number; filename?: string; version?: number; binding?: { blobKey: string } }>;
+  loadVideo?: (leadId: string) => Promise<VideoBinding | null>;
+  mintPublicId?: () => string;
+  now?: () => string;
+}
+const defaults = {
+  loadLead: getLead,
+  loadProfile: async (leadId: string) => ((await getBusinessIntelligence(leadId))?.profile?.businessProfile as BusinessProfile | undefined) ?? null,
+  resolveReview: (leadId: string) => resolveFrozenReviewForSend(leadId),
+  loadVideo: async (leadId: string): Promise<VideoBinding | null> => {
+    const ready = latestReadyJob(await listJobs(), pieceIdFor(leadId));
+    if (!ready?.outputKey) return null;
+    const meta = await getArtifactStore().getMeta(ready.outputKey).catch(() => null);
+    if (!meta?.sha256) return null;
+    return { jobId: ready.id, inputVersion: ready.inputVersion, videoKey: ready.outputKey, sha256: meta.sha256 };
+  },
+  mintPublicId: () => "pub_" + randomBytes(18).toString("hex"),
+  now: () => nowIso(),
+};
+
+/** Build (or refresh) the DRAFT package for a lead. Never freezes. videoRequired=true when the lead's
+ *  package includes a video (a video job exists or is expected); email-only leaves video/share null. */
+export async function assembleDraftPackage(
+  leadId: string,
+  input: { subject: string; bodyHtml: string; bodyText: string; videoRequired: boolean },
+  deps: AssembleDeps = {},
+): Promise<{ draft: ProspectPackageDraft; state: "INCOMPLETE" | "READY_TO_APPROVE"; blockers: string[] }> {
+  const d = { ...defaults, ...deps };
+  const lead = await d.loadLead(leadId);
+  const profile = await d.loadProfile(leadId);
+  const prior = await latestProspectPackage(leadId);
+  const packageVersion = prior ? prior.packageVersion : 1;
+
+  const review = await d.resolveReview(leadId);
+  const reviewBinding: ReviewBinding | null = review.ok && review.binding
+    ? { reviewVersion: review.version!, blobKey: review.binding.blobKey, sha256: review.sha256!, byteSize: review.byteSize!, filename: review.filename! }
+    : null;
+
+  const video = input.videoRequired ? await d.loadVideo(leadId) : null;
+
+  // Evidence provenance: the prospect-specific findings + a stable digest (the frozen review SHA fingerprints
+  // the evidence-bearing artifact; findings come from the current review build).
+  const evidence: EvidenceProvenance = { findingIds: [], digests: [] };
+  if (profile && lead) {
+    const rev = buildQuickReview(lead, profile, cachedBrand(profile), { approved: await quickReviewApproved(leadId) });
+    evidence.findingIds = (rev.findings ?? []).map((f) => String(f.id));
+    evidence.digests = [reviewBinding?.sha256 ?? "no-review", ...evidence.findingIds].filter(Boolean);
+  }
+
+  // Reuse the prior share identity if one exists at this version (stable "Copy link"); otherwise mint one
+  // when the package has a video.
+  let share: ShareIdentity | null = prior?.share ?? null;
+  if (input.videoRequired && video && !share) {
+    share = { publicId: d.mintPublicId(), shareVersion: 1, keyVersion: currentShareKeyVersion() };
+  }
+
+  const draft: ProspectPackageDraft = {
+    leadId, packageVersion,
+    recipientEmail: normalizeRecipient(lead?.publicEmail ?? ""),
+    subject: input.subject, bodyHtml: input.bodyHtml, bodyText: input.bodyText,
+    videoRequired: input.videoRequired, review: reviewBinding, video, evidence, share,
+  };
+  const readiness = assessDraftReadiness(draft);
+  return { draft, state: readiness.state, blockers: readiness.blockers };
+}
+
+// ── Freeze (from Approve*) ────────────────────────────────────────────────────────────────────────────
+export interface FreezeResult { ok: boolean; packageVersion?: number; digest?: string; blocked?: boolean; reason?: string; idempotent?: boolean }
+
+/** Freeze a draft into an immutable package version. Idempotent for identical content (same digest →
+ *  returns the existing frozen version); any content change mints packageVersion+1. Only call from an
+ *  Approve action. */
+export async function freezeProspectPackage(
+  leadId: string,
+  input: { subject: string; bodyHtml: string; bodyText: string; videoRequired: boolean },
+  deps: AssembleDeps = {},
+): Promise<FreezeResult> {
+  const d = { ...defaults, ...deps };
+  const { draft } = await assembleDraftPackage(leadId, input, deps);
+  const valid = validateForFreeze(draft);
+  if (!valid.ok) return { ok: false, blocked: true, reason: valid.reason };
+
+  const prior = await latestProspectPackage(leadId);
+  // Idempotency: an existing FROZEN+ package with the SAME digest is a no-op.
+  if (prior && (prior.state === "FROZEN" || prior.state === "SCHEDULED" || prior.state === "SENT") && prior.packageDigest === valid.digest) {
+    return { ok: true, idempotent: true, packageVersion: prior.packageVersion, digest: prior.packageDigest };
+  }
+  const packageVersion = prior ? prior.packageVersion + (prior.state === "INCOMPLETE" || prior.state === "READY_TO_APPROVE" ? 0 : 1) : 1;
+  const frozen: FrozenProspectPackage = {
+    ...draft, packageVersion, recordVersion: PROSPECT_PACKAGE_RECORD_VERSION,
+    review: draft.review!, share: draft.share,
+    packageDigest: "", state: "FROZEN", frozenAt: d.now(), approvedBy: currentOperatorId() ?? "operator",
+  };
+  frozen.packageDigest = computePackageDigest(frozen);
+  await appendAudit({ action: PROSPECT_PACKAGE_ACTION, actor: frozen.approvedBy, targetType: "lead", targetId: leadId, meta: { pkg: frozen } as unknown as Record<string, unknown>, ip: null });
+  return { ok: true, packageVersion: frozen.packageVersion, digest: frozen.packageDigest };
+}
+
+/** The newest persisted package record for a lead (draft or frozen), or null. */
+export async function latestProspectPackage(leadId: string): Promise<FrozenProspectPackage | null> {
+  const rows = (await auditForTarget("lead", leadId))
+    .filter((r) => r.action === PROSPECT_PACKAGE_ACTION && (r.meta as Record<string, unknown>)?.pkg)
+    .sort((a, b) => (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0));
+  const latest = rows[rows.length - 1];
+  return latest ? ((latest.meta as Record<string, unknown>).pkg as FrozenProspectPackage) : null;
+}
+
+/** Append a lifecycle transition (SCHEDULED / SENT), preserving the immutable frozen content. */
+export async function markPackageState(leadId: string, state: Extract<ProspectPackageState, "SCHEDULED" | "SENT">): Promise<boolean> {
+  const cur = await latestProspectPackage(leadId);
+  if (!cur) return false;
+  const next: FrozenProspectPackage = { ...cur, state };
+  await appendAudit({ action: PROSPECT_PACKAGE_ACTION, actor: currentOperatorId() ?? "operator", targetType: "lead", targetId: leadId, meta: { pkg: next } as unknown as Record<string, unknown>, ip: null });
+  return true;
+}
+
+// ── Share revocation (checked by the /pv route) ───────────────────────────────────────────────────────
+export async function revokePackageShare(leadId: string, publicId: string): Promise<boolean> {
+  await appendAudit({ action: PROSPECT_SHARE_REVOKED_ACTION, actor: currentOperatorId() ?? "operator", targetType: "lead", targetId: leadId, meta: { publicId, at: nowIso() } as unknown as Record<string, unknown>, ip: null });
+  return true;
+}
+export async function isShareRevoked(leadId: string, publicId: string): Promise<boolean> {
+  const rows = await auditForTarget("lead", leadId);
+  return rows.some((r) => r.action === PROSPECT_SHARE_REVOKED_ACTION && (r.meta as Record<string, unknown>)?.publicId === publicId);
+}
+
+// ── Public recipient-link resolution (the /pv route) ──────────────────────────────────────────────────
+export interface PublicShareResult { ok: boolean; status: number; reason?: string; videoKey?: string; businessName?: string | null; posterKey?: string | null }
+/** Resolve a public /pv request: load the package by packageId(=leadId), confirm the publicId matches,
+ *  verify the signature (constant-time, key-version aware), then check DB revocation + package state +
+ *  version. Returns the videoKey to stream on success. Never exposes anything on any failure. */
+export async function resolvePublicShare(input: { publicId: string; packageId: string; packageVersion: number; keyVersion: number; sig: string }): Promise<PublicShareResult> {
+  const leadId = input.packageId;
+  const pkg = await latestProspectPackage(leadId);
+  if (!pkg || !pkg.share || !pkg.video) return { ok: false, status: 404, reason: "not found" };
+  if (pkg.share.publicId !== input.publicId) return { ok: false, status: 404, reason: "not found" };
+  const v = verifyPackageShare(
+    { packageId: leadId, publicId: input.publicId, packageVersion: input.packageVersion, shareVersion: pkg.share.shareVersion, keyVersion: input.keyVersion, sig: input.sig },
+    envShareKeyResolver(),
+  );
+  if (!v.ok) return { ok: false, status: 403, reason: "invalid link" };
+  if (input.packageVersion !== pkg.packageVersion) return { ok: false, status: 410, reason: "superseded" };
+  if (await isShareRevoked(leadId, input.publicId)) return { ok: false, status: 410, reason: "revoked" };
+  if (pkg.state !== "FROZEN" && pkg.state !== "SCHEDULED" && pkg.state !== "SENT") return { ok: false, status: 404, reason: "not ready" };
+  return { ok: true, status: 200, videoKey: pkg.video.videoKey, businessName: pkg.video ? (await getLead(leadId))?.businessName ?? null : null };
+}
+
+/** Build the stable recipient URL for previews / Copy link / dispatch (server-side; null if unsigned). */
+export function packageShareUrl(pkg: FrozenProspectPackage, baseUrl: string): string | null {
+  if (!pkg.share) return null;
+  return buildPackageShareUrl(baseUrl, pkg.leadId, pkg.packageVersion, pkg.share, envShareKeyResolver());
+}
+
+// ── Package-aware outbound email (frozen PDF attachment + signed video CTA) ───────────────────────────
+export interface PackageEmail {
+  subject: string; text: string; html: string; viewUrl: string | null;
+  attachment: { filename: string; pdfBase64: string; sha256: string } | null;
+  sizeGuard: { ok: boolean; encodedBytes: number; reason?: string };
+}
+/** Build the outbound email bound to the frozen package version: the frozen Quick Review PDF is ATTACHED,
+ *  the finished sales video is a LINKED CTA (never attached). Fails the size guard before Resend if the
+ *  base64 attachment total would exceed the provider limit. */
+export async function buildPackageEmail(leadId: string, opts: { baseUrl: string; recipientName?: string | null }): Promise<{ ok: boolean; reason?: string; email?: PackageEmail; pkg?: FrozenProspectPackage }> {
+  const pkg = await latestProspectPackage(leadId);
+  if (!pkg) return { ok: false, reason: "no package" };
+  const lead = await getLead(leadId);
+  const who = lead?.businessName || "your business";
+  const review = await resolveFrozenReviewForSend(leadId);
+  const attachment = review.ok && review.pdfBase64
+    ? { filename: review.filename || "Quick-Review.pdf", pdfBase64: review.pdfBase64, sha256: review.sha256! }
+    : null;
+  const viewUrl = packageShareUrl(pkg, opts.baseUrl);
+
+  // Size guard: only the PDF is attached; the MP4 is a link. Raw bytes = base64 length × 3/4.
+  const rawPdf = attachment ? Math.floor((attachment.pdfBase64.length * 3) / 4) : 0;
+  const guard = assertAttachmentsFitResend([rawPdf]);
+
+  const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]!));
+  const name = opts.recipientName ? " " + opts.recipientName : "";
+  const cta = viewUrl ? `\n\nWatch your short video review: ${viewUrl}` : "";
+  const text = `Hi${name},\n\nI put together a short, focused review for ${who} — the PDF is attached${viewUrl ? ", and there's a 60-second video" : ""}.${cta}\n\nIf it's useful, just reply to this email.\n\n— Artifex Labs`;
+  const htmlCta = viewUrl ? `<p><a href="${viewUrl}" style="color:#2c5ac4;font-weight:bold">▶ Watch your video review</a></p>` : "";
+  const html = `<div style="font-family:Arial,Helvetica,sans-serif;color:#0C1220;font-size:15px;line-height:1.5"><p>Hi${esc(name)},</p><p>I put together a short, focused review for <strong>${esc(who)}</strong> — the PDF is attached${viewUrl ? ", and there's a 60-second video" : ""}.</p>${htmlCta}<p>If it's useful, just reply to this email.</p><p style="color:#5A6B85;font-size:13px">— Artifex Labs</p></div>`;
+
+  const subject = pkg.subject || `A short review for ${who}`;
+  return { ok: guard.ok, reason: guard.ok ? undefined : guard.reason, pkg, email: { subject, text, html, viewUrl, attachment, sizeGuard: guard } };
+}
+
+// ── Fail-closed pre-dispatch resolution ───────────────────────────────────────────────────────────────
+export async function resolvePackageForSendById(leadId: string): Promise<{ ok: boolean; reason?: string; pkg?: FrozenProspectPackage }> {
+  const pkg = await latestProspectPackage(leadId);
+  if (!pkg) return { ok: false, reason: "no frozen package (approve to freeze first)" };
+  const review = await resolveFrozenReviewForSend(leadId);
+  const currentReviewSha = review.ok ? review.sha256 ?? null : null;
+  let currentVideoSha: string | null = null;
+  if (pkg.video) currentVideoSha = (await getArtifactStore().getMeta(pkg.video.videoKey).catch(() => null))?.sha256 ?? null;
+  const shareRevoked = pkg.share ? await isShareRevoked(leadId, pkg.share.publicId) : false;
+  const verdict = resolvePackageForSend({ pkg, currentReviewSha, currentVideoSha, shareRevoked });
+  return { ok: verdict.ok, reason: verdict.reason, pkg };
+}

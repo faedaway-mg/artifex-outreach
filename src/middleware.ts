@@ -38,6 +38,10 @@ export async function middleware(req: NextRequest) {
     // stays authenticated.
     pathname.startsWith("/v/") ||
     pathname.startsWith("/api/v/") ||
+    // Prospect sales-package recipient links: the /pv viewer page + its Range-media route are reached by a
+    // prospect with NO session. Capability is the HMAC signature in the URL (verified in-handler); every
+    // request also checks DB revocation + package state. Nothing else about the package is exposed.
+    pathname.startsWith("/pv/") ||
     pathname.startsWith("/icon") ||
     pathname.startsWith("/manifest") ||
     pathname.startsWith("/api/placeholder");
