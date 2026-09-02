@@ -82,6 +82,7 @@ export async function POST(req: NextRequest) {
   // Persist with a bumped revision (F #9: revisions are tracked). A fresh generation clears ownerEdited.
   template.revision = (existing?.revision ?? 0) + 1;
   template.ownerEdited = false;
+  (template as { workflow?: "social" | "prospect" }).workflow = "prospect"; // mandate I: an evidence-led business video is always a prospect package
   await saveTemplate(template);
 
   // Enqueue a secure capture of the verified website (idempotent — an in-flight capture is reused).

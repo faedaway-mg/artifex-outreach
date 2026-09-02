@@ -4,6 +4,8 @@ import { setPosted, listJobs, readApprovals } from "@/lib/content-studio/store";
 import { getCaption } from "@/lib/content-studio/caption-store";
 import { latestReadyJob } from "@/lib/content-studio/job";
 import { reconcileTaskOnClientVideoPosted } from "@/lib/content-studio/client-video-reconcile";
+import { getPieces } from "@/lib/content-studio/store";
+import { isProspectVideo } from "@/lib/content-studio/workflow";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -15,6 +17,9 @@ const APPROVED_MASTER = ["001", "002", "003", "004", "005", "006"];
 // can't be fabricated into published history.
 export async function POST(_req: NextRequest, { params }: { params: { id: string } }) {
   if (!isAuthenticated()) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  // mandate I: a Prospect Video Sales Package is never "posted" to social — it ships via its sales package.
+  const p = (await getPieces()).find((x) => x.id === params.id);
+  if (p && isProspectVideo(p)) return NextResponse.json({ error: "Prospect video packages are delivered to the prospect, not posted to social." }, { status: 400 });
   const [jobs, approvals] = await Promise.all([listJobs(), readApprovals()]);
   const ready = latestReadyJob(jobs, params.id);
   const approval = approvals[params.id];

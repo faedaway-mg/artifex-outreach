@@ -12,6 +12,7 @@ import type { AudioUpload, Piece, RenderJob } from "./types";
 import { CATALOG, baseCatalogPiece, recommendedCandidates } from "./catalog";
 import { jobsForPiece, latestReadyJob } from "./job";
 import { latestReadyShot } from "./screenshot-jobs";
+import { workflowOf } from "./workflow";
 import type { ContentTemplate } from "./template-schema";
 import * as pg from "./cs-lifecycle-pg";
 
@@ -221,6 +222,7 @@ function draftToPiece(d: DraftPiece): Piece {
     id: d.id, title: d.title, concept: d.concept, narration: d.narration,
     captionIG: null, captionLI: null, sceneBasename: null, renderable: false,
     targetSeconds: null, thumbRel: "", recommendedRel: null, hasThumbnailFirst: false,
+    workflow: "social", // operator-created drafts are Field Notes
   };
 }
 
@@ -252,7 +254,7 @@ export async function getPieces(): Promise<Piece[]> {
       recommendedRel = firstExisting(recommendedCandidates(entry.id));
       hasThumbnailFirst = Boolean(recommendedRel && recommendedRel.includes("-final-vo-thumb"));
     }
-    return { ...base, recommendedRel, hasThumbnailFirst } as Piece;
+    return { ...base, recommendedRel, hasThumbnailFirst, workflow: "social" as const } as Piece;
   });
   // Template (data-driven) pieces — rendered by the generic engine, so they are renderable.
   const templateIds = (await listTemplateIds()).filter((id) => !CATALOG.some((c) => c.id === id));
@@ -275,6 +277,7 @@ export async function getPieces(): Promise<Piece[]> {
       // Cover thumbnail is served from the authenticated poster route (the real frame-zero of the latest
       // render, or a clean fallback tile) — the old /content/thumbnails/*.png path 404'd for client videos.
       thumbRel: `/api/content-studio/poster/${encodeURIComponent(id)}`, recommendedRel, hasThumbnailFirst,
+      workflow: workflowOf({ workflow: (t as { workflow?: "social" | "prospect" }).workflow, businessId: t.businessId ?? null, id }),
       businessId: t.businessId ?? null,
       narrationEvidence: t.narrationEvidence ?? [],
       evidenceState: t.evidenceState,

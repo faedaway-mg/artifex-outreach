@@ -3,6 +3,7 @@ import { isAuthenticated } from "@/lib/auth";
 import { listJobs, setApproval, clearApproval, getPieces } from "@/lib/content-studio/store";
 import { ensureCaption } from "@/lib/content-studio/caption-store";
 import { latestReadyJob } from "@/lib/content-studio/job";
+import { isProspectVideo } from "@/lib/content-studio/workflow";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -25,8 +26,9 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
   await setApproval({ pieceId: params.id, jobId: ready.id, inputVersion: ready.inputVersion, outputRel: outputRef, audioSig: ready.audioKind, approvedAt });
   // Posting-ready must ALWAYS have a caption: generate + save one from the approved script if absent
   // (idempotent — never overwrites an existing/owner-edited caption). The owner can edit/regenerate it.
+  // Field Notes must always ship with a social caption; a Prospect Video package NEVER gets one (mandate I).
   const piece = (await getPieces()).find((p) => p.id === params.id);
-  if (piece) await ensureCaption({ id: piece.id, title: piece.title, concept: piece.concept, narration: piece.narration ?? [] });
+  if (piece && !isProspectVideo(piece)) await ensureCaption({ id: piece.id, title: piece.title, concept: piece.concept, narration: piece.narration ?? [] });
   return NextResponse.json({ ok: true, approvedAt, outputRel: outputRef });
 }
 

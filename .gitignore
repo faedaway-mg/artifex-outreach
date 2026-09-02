@@ -21,3 +21,5 @@ artifacts/
 /public/content/**/*.wav
 /public/content/thumbnails/_prefix-white-bar-originals/
 /public/content/shares
+.backups/
+.proof/

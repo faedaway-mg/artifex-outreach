@@ -126,6 +126,11 @@ export const templateSchema = z.object({
   // Client/prospect videos are the SAME data-driven template, bound to a business + its evidence.
   businessId: z.string().max(64).optional(),
   businessName: z.string().max(120).optional(),
+  // Explicit, PERSISTED workflow discriminator (mandate I). "prospect" = a Prospect Video Sales Package
+  // (evidence-led, business-bound; NEVER shows social caption / posting / share controls). "social" = a
+  // Field Note (captions, approve-for-posting, mark-posted, social share). Optional for back-compat; when
+  // absent it is derived from businessId / the client- id prefix (see workflowOf).
+  workflow: z.enum(["social", "prospect"]).optional(),
   seed: z.number().int().default(20260107),
   narration: z.array(str(200)).min(2).max(12),
   beats: z.array(beatSchema).min(2).max(10),

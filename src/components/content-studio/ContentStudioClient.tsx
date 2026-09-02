@@ -8,6 +8,7 @@ import {
 import { SectionHeader } from "@/components/ui";
 import { clientVideoPieceId } from "@/lib/content-studio/client-video-routing";
 import { renderLifecycle, canGenerate, type RenderState } from "@/lib/content-studio/render-lifecycle";
+import { isProspectVideo } from "@/lib/content-studio/workflow";
 import { fetchMediaFile, shareOrDownloadFile, type ShareOutcome } from "@/lib/content-studio/media-share";
 import type { StudioItem, SafeJob } from "./types";
 import type { WorkerHealth } from "@/lib/content-studio/worker-health";
@@ -151,8 +152,8 @@ export function ContentStudioClient({ initialItems, preview = false, deepLink, v
         subtitle="Social · Field Notes. Prepare narration, upload your voiceover, generate the video, preview and download — all from here."
         right={
           <div className="flex items-center gap-2">
-            <Link href="/content-studio?section=client" className="btn-ghost flex items-center gap-1.5 text-xs" title="Prepare and render per-business review videos here">
-              <Users size={14} /> Client videos
+            <Link href="/content-studio?section=client" className="btn-ghost flex items-center gap-1.5 text-xs" title="Prepare and render per-business prospect sales videos here">
+              <Users size={14} /> Prospect videos
             </Link>
             <button disabled={preview} onClick={() => !preview && setCreating(true)} title={preview ? "Disabled in preview" : ""} className="btn-secondary flex items-center gap-1.5 text-xs disabled:opacity-40"><Plus size={14} /> New video</button>
           </div>
@@ -179,11 +180,12 @@ export function ContentStudioClient({ initialItems, preview = false, deepLink, v
       <div className="card flex items-start gap-3 p-3.5">
         <span className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-white/[0.07] bg-white/[0.03] text-azure-300"><Clapperboard size={16} /></span>
         <p className="text-xs leading-relaxed text-chalk-400">
-          <span className="font-medium text-chalk-200">Two video workflows, one studio.</span> The public
-          <span className="text-chalk-200"> Field Notes</span> (social) are in the list below. Per-business
-          <span className="text-chalk-200"> client review videos</span> are prepared and rendered in the
-          <span className="text-chalk-200"> Client videos</span> panel above — through the same engine, bound to the
-          business and its evidence. A Today "Prepare video" task opens that business's project here directly.
+          <span className="font-medium text-chalk-200">Two separate workflows, one engine.</span> The public
+          <span className="text-chalk-200"> Field Notes</span> (social — captions, approve for posting, share) are in the
+          list below. <span className="text-chalk-200">Prospect video sales packages</span> (evidence-led, delivered to
+          the prospect by secure link — never posted to social) are prepared in the
+          <span className="text-chalk-200"> Prospect videos</span> panel above, bound to the business and its evidence.
+          A Today "Prepare video" task opens that business's package here directly.
         </p>
       </div>
 
@@ -263,8 +265,8 @@ function ClientVideosPanel({ onPrepared, onSelect, defaultOpen = false, repairLe
       <button onClick={() => setOpen((o) => !o)} className="flex w-full items-center gap-2 text-left">
         <span className="grid h-8 w-8 place-items-center rounded-lg border border-white/[0.07] bg-white/[0.03] text-teal-300"><Users size={16} /></span>
         <span className="min-w-0 flex-1">
-          <span className="block text-sm font-semibold text-chalk-100">Client videos <span className="ml-1 rounded-md border border-teal-400/25 bg-teal-400/10 px-1.5 py-0.5 text-[10px] text-teal-300">evidence-backed</span>{pendingCount > 0 && <span className="ml-1 rounded-md border border-amber-400/25 bg-amber-400/10 px-1.5 py-0.5 text-[10px] text-amber-300">{pendingCount} to create</span>}</span>
-          <span className="block text-xs text-chalk-500">Prepare a review video from a business's evidence — same engine, bound to the business.</span>
+          <span className="block text-sm font-semibold text-chalk-100">Prospect video packages <span className="ml-1 rounded-md border border-teal-400/25 bg-teal-400/10 px-1.5 py-0.5 text-[10px] text-teal-300">evidence-backed</span>{pendingCount > 0 && <span className="ml-1 rounded-md border border-amber-400/25 bg-amber-400/10 px-1.5 py-0.5 text-[10px] text-amber-300">{pendingCount} to create</span>}</span>
+          <span className="block text-xs text-chalk-500">Prepare a prospect sales video from a business's evidence — delivered by secure link, never posted to social.</span>
         </span>
         <span className="text-chalk-500">{open ? "▾" : "▸"}</span>
       </button>
@@ -399,17 +401,19 @@ const TONE = {
 // derived from server data (jobs, uploads, posted, provenance) so it survives refresh and never reads
 // "unprepared" once a client project exists.
 function statusOf(item: StudioItem): { label: string; tone: string; icon: any } {
-  const isClient = item.piece.id.startsWith("client-");
+  const isClient = isProspectVideo(item.piece);
   const queued = item.jobs.find((j) => j.status === "queued");
   const rendering = item.jobs.find((j) => j.status === "rendering");
   if (rendering) return { label: rendering.stage || "Rendering", tone: TONE.active, icon: Loader2 };
   if (queued) return { label: "Queued", tone: TONE.active, icon: Clock };
-  if (item.postedAt) return { label: "Posted", tone: TONE.ready, icon: Radio };
+  if (!isClient && item.postedAt) return { label: "Posted", tone: TONE.ready, icon: Radio };
   const failed = item.jobs.find((j) => j.status === "failed");
   if (failed && !item.piece.recommendedRel) return { label: "Failed — retry available", tone: TONE.fail, icon: CircleAlert };
   const pv = item.provenance;
   if (item.piece.recommendedRel) {
     if (pv.audioKind === "placeholder") return { label: "Preview only", tone: TONE.warn, icon: CircleAlert };
+    // Prospect video ready → the next step is the sales package, not social posting.
+    if (isClient) return { label: pv.approved ? "Ready — approve package" : "Ready — review", tone: TONE.ready, icon: CircleCheck };
     if (pv.approved || pv.audioKind === "approved-master") return { label: "Posting-ready", tone: TONE.ready, icon: CircleCheck };
     return { label: "Review & approve", tone: TONE.active, icon: Clock };
   }
@@ -432,7 +436,7 @@ function PieceRow({ item, active, onClick }: { item: StudioItem; active: boolean
         {item.piece.thumbRel ? <img src={item.piece.thumbRel} alt="" className="h-full w-full object-cover" /> : <span className="grid h-full w-full place-items-center text-chalk-600"><Film size={14} /></span>}
       </span>
       <span className="min-w-0 flex-1">
-        <span className="flex items-center gap-1.5 text-[10.5px] text-chalk-500">{item.piece.id.startsWith("client-") ? "Client video" : `#${item.piece.id}`}</span>
+        <span className="flex items-center gap-1.5 text-[10.5px] text-chalk-500">{isProspectVideo(item.piece) ? "Prospect video" : `#${item.piece.id}`}</span>
         <span className="block truncate text-sm font-semibold text-chalk-100">{item.piece.title}</span>
         <span className={`mt-1 inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] font-medium ${s.tone}`}>
           <Icon size={10} className={Icon === Loader2 ? "animate-spin" : ""} /> {s.label}
@@ -593,7 +597,10 @@ function PieceDetail({ item, onChanged, setJobOverride }: { item: StudioItem; on
   const narrationText = piece.narration.join("\n");
   // Honest lifecycle (section I-D): one derived state from real server truth. Client videos also need a
   // verified screenshot before the single Generate action unlocks.
-  const isClientPiece = piece.id.startsWith("client-");
+  // mandate I: prospect video packages branch on the PERSISTED workflow discriminator (never the id prefix
+  // alone). A prospect video NEVER shows social caption / approve-for-posting / mark-posted / social share.
+  const isClientPiece = isProspectVideo(piece);
+  const isProspect = isClientPiece;
   // A client project whose evidence hasn't cleared the gate: hide its (possibly stale) script from the
   // active voiceover workflow and disable Copy / Upload / Generate until a supported finding is captured.
   const needsEvidence = isClientPiece && piece.evidenceState === "needs-evidence";
@@ -643,13 +650,13 @@ function PieceDetail({ item, onChanged, setJobOverride }: { item: StudioItem; on
             {piece.thumbRel ? <img src={piece.thumbRel} alt={`Thumbnail for ${piece.title}`} className="h-full w-full object-cover" /> : <span className="grid h-full w-full place-items-center text-chalk-600"><Film size={20} /></span>}
           </div>
           <div className="min-w-0 flex-1">
-            <p className="text-[11px] uppercase tracking-wide text-chalk-500">{piece.id.startsWith("client-") ? "Client video · evidence-backed" : `Field Note #${piece.id}`}</p>
+            <p className="text-[11px] uppercase tracking-wide text-chalk-500">{isProspect ? "Prospect video package · evidence-backed" : `Field Note #${piece.id}`}</p>
             <h3 className="text-lg font-semibold text-chalk-50">{piece.title}</h3>
             <p className="mt-0.5 text-sm text-chalk-400">{piece.concept}</p>
             <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-chalk-500">
               {piece.targetSeconds && <span className="rounded-md border border-white/[0.07] bg-white/[0.02] px-1.5 py-0.5">1080×1920 · ~{piece.targetSeconds}s</span>}
               {piece.hasThumbnailFirst && <span className="rounded-md border border-teal-400/25 bg-teal-400/10 px-1.5 py-0.5 text-teal-300">thumbnail = frame zero</span>}
-              {item.postedAt && <span className="rounded-md border border-teal-400/25 bg-teal-400/10 px-1.5 py-0.5 text-teal-300">Posted {new Date(item.postedAt).toLocaleDateString()}</span>}
+              {!isProspect && item.postedAt && <span className="rounded-md border border-teal-400/25 bg-teal-400/10 px-1.5 py-0.5 text-teal-300">Posted {new Date(item.postedAt).toLocaleDateString()}</span>}
               {piece.evidenceState === "needs-evidence" && <span className="rounded-md border border-amber-400/25 bg-amber-400/10 px-1.5 py-0.5 text-amber-300">needs evidence</span>}
               {piece.evidenceState === "evidence-backed" && <span className="rounded-md border border-teal-400/25 bg-teal-400/10 px-1.5 py-0.5 text-teal-300">evidence-backed</span>}
               {piece.ownerEdited && <span className="rounded-md border border-azure-400/25 bg-azure-400/10 px-1.5 py-0.5 text-azure-300">owner-edited</span>}
@@ -726,7 +733,7 @@ function PieceDetail({ item, onChanged, setJobOverride }: { item: StudioItem; on
         ) : (
           <p className="text-xs text-chalk-500">This piece was finished in VEED without a captured timing sheet. Enter narration when regenerating, or copy from the captions below.</p>
         )}
-        {(piece.captionIG || piece.captionLI) && (
+        {!isProspect && (piece.captionIG || piece.captionLI) && (
           <div className="mt-3 flex flex-wrap gap-2 border-t border-white/[0.06] pt-3">
             {piece.captionIG && <CopyBtn text={piece.captionIG} label="Copy IG / TikTok caption" />}
             {piece.captionLI && <CopyBtn text={piece.captionLI} label="Copy LinkedIn caption" />}
@@ -808,8 +815,10 @@ function PieceDetail({ item, onChanged, setJobOverride }: { item: StudioItem; on
         return (
           <div className="card p-4">
             <div className="mb-3 flex items-center justify-between gap-2">
-              <h4 className="text-sm font-semibold text-chalk-100">{isPlaceholder ? "Preview" : "Preview & download"}</h4>
-              {isPlaceholder ? (
+              <h4 className="text-sm font-semibold text-chalk-100">{isProspect ? "Preview" : isPlaceholder ? "Preview" : "Preview & download"}</h4>
+              {isProspect ? (
+                <span className="rounded-md border border-azure-500/25 bg-azure-500/10 px-1.5 py-0.5 text-[10px] text-azure-300">delivered via secure link — not social</span>
+              ) : isPlaceholder ? (
                 <span className="rounded-md border border-amber-400/30 bg-amber-400/10 px-1.5 py-0.5 text-[10px] text-amber-300">Preview only — replace placeholder voiceover</span>
               ) : postable ? (
                 <span className="rounded-md border border-teal-400/25 bg-teal-400/10 px-1.5 py-0.5 text-[10px] text-teal-300">{pv.audioKind === "approved-master" ? "approved audio · posting-ready" : "approved for posting"}</span>
@@ -824,23 +833,32 @@ function PieceDetail({ item, onChanged, setJobOverride }: { item: StudioItem; on
                 {piece.targetSeconds ? <p className="text-center text-[10px] text-chalk-500">~{piece.targetSeconds}s · if the player shows 0:00, the length above is authoritative</p> : null}
               </div>
               <div className="space-y-2">
-                <MediaActions url={downloadHref} filename={`field-note-${piece.id}.mp4`} mimeType="video/mp4" label={isPlaceholder ? "preview" : "video"} primary={!isPlaceholder} />
-                {piece.thumbRel && <MediaActions url={piece.thumbRel} filename={`field-note-${piece.id}-cover.png`} mimeType="image/png" label="thumbnail" />}
-                {!isPlaceholder && !pv.approved && pv.audioKind === "uploaded" && (
-                  <button disabled={preview} onClick={approve} title={preview ? "Disabled in preview" : ""} className="btn-primary flex w-full items-center justify-center gap-1.5 text-sm disabled:opacity-40 sm:w-auto"><CircleCheck size={15} /> Approve for posting</button>
+                {isProspect ? (
+                  // A Prospect Video Sales Package is delivered to the prospect through its secure viewing
+                  // link + email package (below) — never posted to social. No caption, no approve-for-posting,
+                  // no mark-posted, no social share/download.
+                  <p className="text-[11px] leading-relaxed text-chalk-500">This is a prospect sales video. It reaches the prospect through its secure viewing link and email package below — it is never posted to social media. Use <span className="text-chalk-300">Approve package</span> / <span className="text-chalk-300">Copy video link</span> below to send it.</p>
+                ) : (
+                  <>
+                    <MediaActions url={downloadHref} filename={`field-note-${piece.id}.mp4`} mimeType="video/mp4" label={isPlaceholder ? "preview" : "video"} primary={!isPlaceholder} />
+                    {piece.thumbRel && <MediaActions url={piece.thumbRel} filename={`field-note-${piece.id}-cover.png`} mimeType="image/png" label="thumbnail" />}
+                    {!isPlaceholder && !pv.approved && pv.audioKind === "uploaded" && (
+                      <button disabled={preview} onClick={approve} title={preview ? "Disabled in preview" : ""} className="btn-primary flex w-full items-center justify-center gap-1.5 text-sm disabled:opacity-40 sm:w-auto"><CircleCheck size={15} /> Approve for posting</button>
+                    )}
+                    <button disabled={preview || !postable} onClick={markPosted} title={preview ? "Disabled in preview" : postable ? "" : "Approve a non-placeholder render first"} className="btn-ghost flex w-full items-center justify-center gap-1.5 text-xs disabled:opacity-40 sm:w-auto"><Radio size={13} /> {item.postedAt ? "Update posted date" : "Mark as posted"}</button>
+                    {isPlaceholder
+                      ? <p className="pt-1 text-[11px] leading-relaxed text-amber-300/90">This render uses a placeholder voiceover for layout/timing preview only. Upload your real voiceover to produce a postable video — it is not an approved or final asset.</p>
+                      : <p className="pt-1 text-[11px] leading-relaxed text-chalk-500">The thumbnail is also embedded as the first frame — still upload it as the cover when posting; platforms don’t all pick frame zero.</p>}
+                  </>
                 )}
-                <button disabled={preview || !postable} onClick={markPosted} title={preview ? "Disabled in preview" : postable ? "" : "Approve a non-placeholder render first"} className="btn-ghost flex w-full items-center justify-center gap-1.5 text-xs disabled:opacity-40 sm:w-auto"><Radio size={13} /> {item.postedAt ? "Update posted date" : "Mark as posted"}</button>
-                {isPlaceholder
-                  ? <p className="pt-1 text-[11px] leading-relaxed text-amber-300/90">This render uses a placeholder voiceover for layout/timing preview only. Upload your real voiceover to produce a postable video — it is not an approved or final asset.</p>
-                  : <p className="pt-1 text-[11px] leading-relaxed text-chalk-500">The thumbnail is also embedded as the first frame — still upload it as the cover when posting; platforms don’t all pick frame zero.</p>}
               </div>
             </div>
           </div>
         );
       })()}
 
-      {/* Social caption — required + copyable for any finished video (enforced at posting). */}
-      {piece.recommendedRel && <CaptionPanel item={item} onChanged={onChanged} setMsg={setMsg} />}
+      {/* Social caption — Field Notes ONLY. A prospect video package never carries a social caption. */}
+      {!isProspect && piece.recommendedRel && <CaptionPanel item={item} onChanged={onChanged} setMsg={setMsg} />}
 
       {/* Sharing & outreach — only for an approved, non-placeholder video */}
       {item.provenance.postingAllowed && item.provenance.audioKind !== "placeholder" && <SharePanel item={item} />}

@@ -3,6 +3,7 @@ import { isAuthenticated } from "@/lib/auth";
 import { getPieces } from "@/lib/content-studio/store";
 import { getCaption, saveCaption, regenerateCaption } from "@/lib/content-studio/caption-store";
 import type { CaptionSource } from "@/lib/content-studio/caption-generator";
+import { isProspectVideo } from "@/lib/content-studio/workflow";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -13,9 +14,16 @@ async function sourceFor(pieceId: string): Promise<CaptionSource | null> {
   return { id: piece.id, title: piece.title, concept: piece.concept, narration: piece.narration ?? [] };
 }
 
+// mandate I defense-in-depth: a Prospect Video Sales Package NEVER carries a social caption, even via API.
+async function isProspect(pieceId: string): Promise<boolean> {
+  const piece = (await getPieces()).find((p) => p.id === pieceId);
+  return !!piece && isProspectVideo(piece);
+}
+
 // GET → the piece's current caption + revision history (or {caption:null} when none exists yet).
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   if (!isAuthenticated()) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  if (await isProspect(params.id)) return NextResponse.json({ caption: null, prospect: true });
   const caption = await getCaption(params.id);
   return NextResponse.json({ caption });
 }
@@ -25,6 +33,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
 // owner-edited caption unless force is set (UI confirms first) → returns { needsConfirm:true }.
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   if (!isAuthenticated()) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  if (await isProspect(params.id)) return NextResponse.json({ error: "Prospect video packages have no social caption." }, { status: 400 });
   const body = await req.json().catch(() => ({}));
   const action = String(body.action ?? "save");
 
