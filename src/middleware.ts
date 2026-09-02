@@ -59,6 +59,18 @@ export async function middleware(req: NextRequest) {
     url.searchParams.set("from", pathname);
     return NextResponse.redirect(url);
   }
+
+  // Hard-simplification (mandate I): the old operator lead workspace is removed from the operator
+  // path. Every legacy /leads/<id>[/anything] link — including old bookmarks — redirects to the one
+  // focused send-package screen for that company. The lead's data/evidence/audit stay in the backend;
+  // only the operator UI is gone. `.slice(0, 200)` bounds a pathological id.
+  const legacyLead = pathname.match(/^\/leads\/([^/]+)(?:\/.*)?$/);
+  if (legacyLead) {
+    const url = req.nextUrl.clone();
+    url.pathname = `/company/${legacyLead[1].slice(0, 200)}`;
+    url.search = "";
+    return NextResponse.redirect(url);
+  }
   return NextResponse.next();
 }
 
