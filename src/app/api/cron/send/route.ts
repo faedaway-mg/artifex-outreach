@@ -24,12 +24,22 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
   }
 
+  // DRY-RUN — authenticated, structurally cannot send. Proves the automatic follow-up runner's exact
+  // selection (window → due steps → gates → cap) with ZERO sends. Safe even with prospect delivery live.
+  const wantsDryRun = req.nextUrl.searchParams.get("dryRun") === "1" || req.nextUrl.searchParams.get("dry_run") === "1";
+  if (wantsDryRun) {
+    const { previewDueSends } = await import("@/lib/comms/scheduler");
+    const force = req.nextUrl.searchParams.get("force") === "1";
+    const preview = await previewDueSends({ force });
+    return NextResponse.json({ ok: true, dispatched: false, dryRun: true, ...preview });
+  }
+
   if (process.env.COMMS_AUTOSEND_ENABLED !== "1") {
     return NextResponse.json({
       ok: true,
       dispatched: false,
       sent: 0,
-      reason: "Unattended sending is disabled by policy (COMMS_AUTOSEND_ENABLED is not \"1\"). Due work is made visible by /api/cron/materialize and sent by the operator.",
+      reason: "Unattended sending is disabled by policy (COMMS_AUTOSEND_ENABLED is not \"1\"). Set it to \"1\" to arm the automatic follow-up runner (prospect delivery already gated separately).",
     });
   }
 

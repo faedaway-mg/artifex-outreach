@@ -93,6 +93,15 @@ export async function dispatchStep(stepId: string, opts: { now?: Date; operatorR
   const lead = await getLead(plan.leadId);
   if (!lead) return { stepId, outcome: "skipped", reason: "lead not found" };
 
+  // A follow-up (step 2+) can NEVER precede a provider-accepted initial. Defense-in-depth at the send
+  // core so no caller (scheduler, retry, canary) can dispatch a follow-up before its introduction has
+  // actually left the system. The intro is the lowest-numbered email step; require it to have sentAt.
+  if (step.stepNumber >= 2) {
+    const planStepsGuard = await stepsForPlan(plan.id);
+    const priorSent = planStepsGuard.some((s) => s.channel === "email" && s.stepNumber < step.stepNumber && !!s.sentAt);
+    if (!priorSent) return { stepId, outcome: "skipped", reason: "prior initial message not yet provider-accepted" };
+  }
+
   const settings = await getSettings();
 
   // Authoritative suppression re-check at send time. If newly suppressed, stop the

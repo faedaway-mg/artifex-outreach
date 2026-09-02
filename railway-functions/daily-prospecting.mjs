@@ -53,6 +53,12 @@ const BASE = "https://outreach.artifexlabs.tech";
 // sends (dispatch happens only on the separate outreach-send cron) and persists its checkpoint server-side.
 const REFILL_ENDPOINT = `${BASE}/api/cron/refill?discover=1&auto=1&advance=1`;
 const MATERIALIZE_ENDPOINT = `${BASE}/api/cron/materialize`;
+// The ONE scheduled follow-up runner. Fires on EVERY tick; it self-gates on the LA send window
+// (08:00–17:00 weekdays — so the 10:30/13:30/16:30 PT top-up ticks are in-window), the shared 20/LA-day
+// cap, the runtime pause, and the COMMS_AUTOSEND_ENABLED policy flag. It is DORMANT until that flag is
+// "1" (then it dispatches due follow-ups through the idempotent, compliant dispatchStep — never a bare
+// or duplicate send). Prospect delivery remains separately gated by COMMS_PROSPECT_DELIVERY_ENABLED.
+const SEND_ENDPOINT = `${BASE}/api/cron/send`;
 
 function laParts() {
   const fmt = new Intl.DateTimeFormat("en-US", {
@@ -157,6 +163,24 @@ async function main() {
     }));
   } finally {
     clearTimeout(mTimer);
+  }
+
+  // ── 3. AUTOMATIC FOLLOW-UP RUNNER (the one scheduled runner) — runs every tick, self-gating ────────
+  // Dormant until COMMS_AUTOSEND_ENABLED=1. Even when armed it only sends inside the LA window + under the
+  // shared 20/day cap, and only compliant, idempotent, prior-initial-accepted follow-ups. A slow response
+  // means the send loop is still running server-side (non-fatal). `sent` is logged for the daily record.
+  const sController = new AbortController();
+  const sTimer = setTimeout(() => sController.abort(), 120_000);
+  try {
+    const res = await fetch(SEND_ENDPOINT, { method: "POST", headers: { Authorization: `Bearer ${secret}` }, signal: sController.signal });
+    let summary = null;
+    try { const body = await res.json(); summary = { dispatched: body?.dispatched ?? null, sent: body?.sent ?? null, considered: body?.considered ?? null, capped: body?.capped ?? null, windowOpen: body?.windowOpen ?? null, reason: body?.reason ?? null }; }
+    catch { summary = { note: "non-JSON response" }; }
+    console.log(JSON.stringify({ utc, la: la.stamp, action: "send", runKind, testMode, status: res.status, result: res.ok ? "ok" : "failure", summary }));
+  } catch (err) {
+    console.log(JSON.stringify({ utc, la: la.stamp, action: "send", runKind, result: err?.name === "AbortError" ? "triggered-async" : "error", reason: err?.name === "AbortError" ? "send loop still running server-side (non-fatal)" : "network error" }));
+  } finally {
+    clearTimeout(sTimer);
   }
 
   // Intraday TOP-UP firings do materialize ONLY (above): they replenish the operator queue but never run

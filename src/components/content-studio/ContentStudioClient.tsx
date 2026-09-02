@@ -1,6 +1,7 @@
 "use client";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   Film, Upload, Copy, Check, Download, Play, RefreshCw, Loader2, Plus, X,
   CircleCheck, CircleAlert, Clapperboard, Users, ExternalLink, Clock, Radio, Eye, Mail,
@@ -78,7 +79,7 @@ const fmtDur = (s: number | null) => (s == null ? "—" : `${Math.floor(s / 60)}
 
 type DeepLink = { piece?: string | null; lead?: string | null; section?: string | null; from?: string | null };
 
-export function ContentStudioClient({ initialItems, preview = false, deepLink, videosToCreate = 0, workerHealth }: { initialItems: StudioItem[]; preview?: boolean; deepLink?: DeepLink; videosToCreate?: number; workerHealth?: WorkerHealth }) {
+export function ContentStudioClient({ initialItems, preview = false, deepLink, videosToCreate = 0, workerHealth, advanceHref }: { initialItems: StudioItem[]; preview?: boolean; deepLink?: DeepLink; videosToCreate?: number; workerHealth?: WorkerHealth; advanceHref?: string }) {
   // A Today client-video task maps to the STABLE project id client-<leadId> (never name matching).
   const targetPieceId = deepLink?.piece || (deepLink?.lead ? clientVideoPieceId(deepLink.lead) : null);
   const [items, setItems] = useState<StudioItem[]>(initialItems);
@@ -202,7 +203,7 @@ export function ContentStudioClient({ initialItems, preview = false, deepLink, v
         </div>
 
         {/* ── Detail ─────────────────────────────────────────────────── */}
-        {selected && <PieceDetail key={selected.piece.id} item={selected} onChanged={refetch} setJobOverride={setJobOverride} />}
+        {selected && <PieceDetail key={selected.piece.id} item={selected} onChanged={refetch} setJobOverride={setJobOverride} advanceHref={advanceHref} />}
       </div>
 
       {creating && !preview && <NewPieceModal onClose={() => setCreating(false)} onCreated={async () => { setCreating(false); await refetch(); }} />}
@@ -649,7 +650,7 @@ function PackagePanel({ leadId }: { leadId: string }) {
   );
 }
 
-function PieceDetail({ item, onChanged, setJobOverride }: { item: StudioItem; onChanged: () => Promise<void>; setJobOverride: (f: (o: Record<string, SafeJob>) => Record<string, SafeJob>) => void }) {
+function PieceDetail({ item, onChanged, setJobOverride, advanceHref }: { item: StudioItem; onChanged: () => Promise<void>; setJobOverride: (f: (o: Record<string, SafeJob>) => Record<string, SafeJob>) => void; advanceHref?: string }) {
   const preview = usePreview();
   const { piece } = item;
   const [msg, setMsg] = useState<{ tone: "ok" | "err"; text: string } | null>(null);
@@ -805,7 +806,7 @@ function PieceDetail({ item, onChanged, setJobOverride }: { item: StudioItem; on
       </div>
 
       {/* Voiceover upload + playback — disabled while a client project needs evidence (nothing to voice yet). */}
-      <UploadPanel item={item} onChanged={onChanged} setMsg={setMsg} disabled={needsEvidence} disabledReason="Needs evidence — capture a supported finding before recording a voiceover." />
+      <UploadPanel item={item} onChanged={onChanged} setMsg={setMsg} disabled={needsEvidence} disabledReason="Needs evidence — capture a supported finding before recording a voiceover." advanceHref={advanceHref} autoGenerates={isProspect} />
 
       {/* Generate */}
       <div className="card p-4">
@@ -841,6 +842,11 @@ function PieceDetail({ item, onChanged, setJobOverride }: { item: StudioItem; on
                     <span className="text-xs text-chalk-500">{genGate.reason}</span>
                   </div>
                 );
+              }
+              // Mandate B: prospect videos generate AUTOMATICALLY on voiceover upload. In the normal path
+              // there is NO Generate button; the only manual control is Retry after a genuine failure.
+              if (isProspect && !lastFailed) {
+                return <p className="text-xs leading-relaxed text-chalk-500">Generation starts automatically when you upload a voiceover — no button to press. This renders in the background and moves the company to Ready to schedule when the verified video and package are assembled.</p>;
               }
               return (
                 <div className="flex flex-wrap items-center gap-2">
@@ -998,8 +1004,9 @@ function uploadWithProgress(pieceId: string, file: File, durationSeconds: number
   });
 }
 
-function UploadPanel({ item, onChanged, setMsg, disabled = false, disabledReason }: { item: StudioItem; onChanged: () => Promise<void>; setMsg: (m: { tone: "ok" | "err"; text: string } | null) => void; disabled?: boolean; disabledReason?: string }) {
+function UploadPanel({ item, onChanged, setMsg, disabled = false, disabledReason, advanceHref, autoGenerates = false }: { item: StudioItem; onChanged: () => Promise<void>; setMsg: (m: { tone: "ok" | "err"; text: string } | null) => void; disabled?: boolean; disabledReason?: string; advanceHref?: string; autoGenerates?: boolean }) {
   const preview = usePreview();
+  const router = useRouter();
   const { piece } = item;
   const [uploading, setUploading] = useState(false);
   const [pct, setPct] = useState(0);
@@ -1017,7 +1024,22 @@ function UploadPanel({ item, onChanged, setMsg, disabled = false, disabledReason
       const duration = await detectDuration(file).catch(() => null);
       const { ok, data } = await uploadWithProgress(piece.id, file, duration, setPct);
       if (!ok) { setMsg({ tone: "err", text: (data?.error || "Upload failed.") + " Your previous voiceover is untouched." }); }
-      else { setMsg({ tone: "ok", text: `Uploaded ${file.name} (${fmtDur(duration)}).` }); setLastFile(null); await onChanged(); }
+      else {
+        setLastFile(null);
+        // Mandate B: the server auto-enqueued exactly one render on this upload. Reflect it, then — in the
+        // focused one-company flow — advance immediately to the next company so Jordan keeps uploading while
+        // this one renders in the background. If evidence wasn't ready the server returns renderError.
+        const rendered = data?.render && !data?.renderError;
+        if (autoGenerates && rendered) {
+          setMsg({ tone: "ok", text: `Uploaded ${file.name} — generating video automatically…` });
+          if (advanceHref) { router.push(advanceHref); return; }
+        } else if (data?.renderError) {
+          setMsg({ tone: "err", text: `Uploaded, but generation couldn't start: ${data.renderError}` });
+        } else {
+          setMsg({ tone: "ok", text: `Uploaded ${file.name} (${fmtDur(duration)}).` });
+        }
+        await onChanged();
+      }
     } catch (e: any) { setMsg({ tone: "err", text: String(e?.message ?? e) + " Your previous voiceover is untouched." }); }
     finally { setUploading(false); if (inputRef.current) inputRef.current.value = ""; }
   };

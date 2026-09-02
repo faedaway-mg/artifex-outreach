@@ -72,6 +72,23 @@ export async function POST(req: NextRequest) {
     kind, detectedType: detected.type,
   };
   await writeUploadMeta(meta);
-  // Never return a filesystem path — only the object key + integrity + detected type.
-  return NextResponse.json({ upload: { ...meta, file: undefined, objectKey, sha256, detectedType: detected.type } }, { status: 201 });
+
+  // AUTOMATIC GENERATION (mandate B): a valid voiceover immediately enqueues EXACTLY ONE render — no
+  // manual Generate. createRenderJob binds the correct lead, narration/script version, verified
+  // screenshot + storyboard, and the immutable audio+screenshot SHAs into the input version, and
+  // de-duplicates by (pieceId + inputVersion) so repeated uploads / refreshes / double taps / concurrent
+  // requests converge to ONE in-flight job. A NEW upload is a new audio SHA → a new version → a new job
+  // (a replacement never destroys the last valid package). If evidence isn't ready the upload still
+  // persists and we return the specific reason so the UI can show "Needs attention" (never a silent drop).
+  let render: { jobId: string; status: string; deduped: boolean } | null = null;
+  let renderError: string | null = null;
+  try {
+    const { createRenderJob } = await import("@/lib/content-studio/runner");
+    const { job, deduped } = await createRenderJob(pieceId, { useUpload: true });
+    render = { jobId: job.id, status: job.status, deduped };
+  } catch (e: any) {
+    renderError = String(e?.message ?? e);
+  }
+  // Never return a filesystem path — only the object key + integrity + detected type + the auto-render.
+  return NextResponse.json({ upload: { ...meta, file: undefined, objectKey, sha256, detectedType: detected.type }, render, renderError }, { status: 201 });
 }

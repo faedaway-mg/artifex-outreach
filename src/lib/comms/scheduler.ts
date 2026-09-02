@@ -13,7 +13,8 @@
 // The scheduler is provider-agnostic: it never sends directly, it calls
 // dispatchStep(), which owns the send-once guarantee.
 // ─────────────────────────────────────────────────────────────────────────────
-import { getSettings, dueStepsForSending, emailSendsByStepIds, countSentEmailsBetween } from "../repo";
+import { getSettings, dueStepsForSending, emailSendsByStepIds, countSentEmailsBetween, getStep, getPlan, getLead, stepsForPlan, isSuppressed } from "../repo";
+import { validEmail } from "../acquisition/compliance";
 import { isSent } from "./state";
 import { dispatchStep, type DispatchResult } from "./dispatch";
 import { laDayBoundsUtc, GLOBAL_DAILY_CAP } from "../acquisition/daily-cap";
@@ -81,6 +82,54 @@ export interface SchedulerSummary {
   capBefore: number;       // prospect sends already counted on that LA date before this run
   results: DispatchResult[];
   failures: { stepId: string; reason?: string }[];
+}
+
+export interface DueSendPreview {
+  ranAt: string;
+  windowOpen: boolean;
+  capDate: string;
+  capBefore: number;
+  capRemaining: number;
+  wouldSend: Array<{ stepId: string; leadId: string; business: string; stepNumber: number; followUp: boolean }>;
+  held: Array<{ stepId: string; reason: string }>;
+}
+
+/**
+ * DRY-RUN — authenticated but STRUCTURALLY incapable of sending. Runs the exact production selection
+ * (window → dueStepIds → per-step dispatch-time gates → global cap) and reports what WOULD be sent this
+ * tick. Never imports the transport, never claims a ledger row, never mutates a step. Safe to run even
+ * with prospect delivery live: it proves the automatic follow-up runner's decisions with zero sends.
+ */
+export async function previewDueSends(opts: { now?: Date; force?: boolean; limit?: number } = {}): Promise<DueSendPreview> {
+  const now = opts.now ?? new Date();
+  const settings = await getSettings();
+  const window = settings.sendingWindow ?? DEFAULT_WINDOW;
+  const windowOpen = opts.force ? true : withinSendingWindow(now, window);
+  const bounds = laDayBoundsUtc(now);
+  const capBefore = await countSentEmailsBetween(bounds.startIso, bounds.endIso);
+  const out: DueSendPreview = { ranAt: now.toISOString(), windowOpen, capDate: bounds.date, capBefore, capRemaining: Math.max(0, GLOBAL_DAILY_CAP - capBefore), wouldSend: [], held: [] };
+  if (!windowOpen) return out;
+  const ids = await dueStepIds(now, opts.limit ?? 500);
+  let projected = capBefore;
+  for (const stepId of ids) {
+    const step = await getStep(stepId);
+    if (!step) { out.held.push({ stepId, reason: "step not found" }); continue; }
+    const plan = await getPlan(step.planId);
+    if (!plan || plan.status !== "active" || plan.approvalStatus !== "approved") { out.held.push({ stepId, reason: "plan not active/approved" }); continue; }
+    const lead = await getLead(plan.leadId);
+    if (!lead) { out.held.push({ stepId, reason: "lead not found" }); continue; }
+    // Same gates dispatchStep enforces, evaluated read-only.
+    if (step.stepNumber >= 2) {
+      const planSteps = await stepsForPlan(plan.id);
+      if (!planSteps.some((s) => s.channel === "email" && s.stepNumber < step.stepNumber && !!s.sentAt)) { out.held.push({ stepId, reason: "prior initial not yet provider-accepted" }); continue; }
+    }
+    if (!validEmail(lead.publicEmail)) { out.held.push({ stepId, reason: "invalid recipient" }); continue; }
+    if (await isSuppressed({ email: lead.publicEmail, domain: lead.websiteDomain, phone: lead.phone })) { out.held.push({ stepId, reason: "suppressed" }); continue; }
+    if (projected >= GLOBAL_DAILY_CAP) { out.held.push({ stepId, reason: "daily cap reached" }); continue; }
+    projected += 1;
+    out.wouldSend.push({ stepId, leadId: lead.id, business: lead.businessName, stepNumber: step.stepNumber, followUp: step.stepNumber >= 2 });
+  }
+  return out;
 }
 
 /**

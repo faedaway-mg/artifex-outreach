@@ -58,7 +58,7 @@ export default async function CompanyFocusPage({ params }: { params: { leadId: s
       </div>
 
       {match ? (
-        <ContentStudioClient initialItems={items} deepLink={{ piece: pieceId, lead: leadId, section: "client", from: "today" }} videosToCreate={videosToCreate} workerHealth={workerHealth} />
+        <ContentStudioClient initialItems={items} deepLink={{ piece: pieceId, lead: leadId, section: "client", from: "today" }} videosToCreate={videosToCreate} workerHealth={workerHealth} advanceHref={next ? `/company/${next}` : "/"} />
       ) : (
         <div className="rounded-xl border border-white/10 bg-white/[0.02] p-6 text-[13px] text-chalk-400">
           No prospect video package exists for {lead.businessName} yet. The backend prepares one automatically once its evidence and recipient are resolved.
