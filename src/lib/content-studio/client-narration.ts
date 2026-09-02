@@ -93,11 +93,12 @@ function mobile(f: ObservedFinding, short: string): { lines: ComposedLine[]; anc
 function booking(f: ObservedFinding, short: string): { lines: ComposedLine[]; anchors: string[] } {
   const inspected = num(f.details.inspected) ?? 0;
   const svc = str(f.details.serviceWord) || "appointment";
-  const anchors = [`${inspected} pages`, "no scheduler", `book a ${svc}`];
+  const aan = /^[aeiou]/i.test(svc) ? "an" : "a";
+  const anchors = [`${inspected} pages`, "no scheduler", `book ${aan} ${svc}`];
   return {
     anchors,
     lines: [
-      { role: "hook", text: `Someone lands on ${short} ready to book a ${svc}, and the only way forward is a phone call.` },
+      { role: "hook", text: `Someone lands on ${short} ready to book ${aan} ${svc}, and the only way forward is a phone call.` },
       { role: "friction", text: `Across the ${inspected} pages we reviewed there's no scheduler — no "book" or "request appointment" control anywhere.` },
       { role: "consequence", text: `If they're browsing after hours, that ready intent has nowhere to go and quietly disappears.` },
       { role: "solution", text: `We'd ${f.recommendation}.` },
@@ -250,8 +251,10 @@ export function assessScriptQuality(n: ComposedNarration): ScriptQuality {
   if (!/\b(has to|have to|can't|cannot|won't|will not|nowhere to go|disappears?|slips|hesitat|back to|hold the thought|harder to)\b/i.test(byRole("consequence")))
     reasons.push("consequence beat does not explain a customer impact");
 
-  // 4) A concrete proposed change ("we'd" + a build verb).
-  if (!/\bwe'd\b/i.test(byRole("solution")) || !/\b(add|rebuild|build|map|design|create|route|reflow|restructure|reduce|replace|standardi[sz]e|finish|align|repair|give)\b/i.test(byRole("solution")))
+  // 4) A concrete proposed change ("we'd" + a build/intervention verb). The verb list mirrors the
+  // topic interventions the review engine actually emits (rework, surface, simplify, consolidate…), so a
+  // real evidence-led recommendation is never rejected for using an action word the gate hadn't listed.
+  if (!/\bwe'd\b/i.test(byRole("solution")) || !/\b(add|rebuild|build|map|design|create|route|reflow|restructure|reduce|replace|standardi[sz]e|finish|align|repair|give|rework|surface|simplify|consolidate|reorgani[sz]e|redesign|clarify|remove|redirect|profile|cut|prioriti[sz]e|audit|instrument|improve|stand up|set up)\b/i.test(byRole("solution")))
     reasons.push("solution beat is not a concrete proposed change");
 
   // 5) A practical benefit in the value beat.

@@ -9,7 +9,8 @@ import type { FindingPresentation } from "../outreach/review-hooks";
 import type { ReviewFinding } from "../outreach/review-evidence";
 import { reviewVideoReadiness, type ReviewVideoReadiness } from "../review-video/readiness";
 import type { Beat, ContentTemplate, NarrationEvidence } from "./template-schema";
-import type { ComposedNarration } from "./client-narration";
+import { composeClientNarration, assessScriptQuality, type ComposedNarration } from "./client-narration";
+import type { ObservedFinding } from "./site-evidence";
 
 function clip(s: string, n: number): string { return s.length > n ? s.slice(0, n - 1).trimEnd() + "…" : s; }
 
@@ -133,6 +134,64 @@ function buildFromComposed(
     }
   }
   return { narration, beats, narrationEvidence };
+}
+
+// Lower-case the first letter and drop a trailing period, so a topic intervention ("Rework the mobile
+// layout…") reads correctly after the composer's "We'd " prefix ("We'd rework the mobile layout…").
+function normalizeRecommendation(s: string): string {
+  let r = (s || "").trim().replace(/\s*\.\s*$/, "");
+  if (r) r = r.charAt(0).toLowerCase() + r.slice(1);
+  return r;
+}
+
+// Reconstruct a directly-observed finding from the review's strongest MATERIAL finding, so the
+// value-dense composer can run in the HTTP prepare path WITHOUT re-capturing the site (a re-capture
+// would mint a NEW screenshot SHA and break the existing evidence binding). Everything the composer
+// references is read back from the finding itself: the exact page count from the observation/basis, the
+// way the business can currently be reached, the booking noun from the industry, and the recommendation
+// from the review engine's topic intervention. Returns null when there's no material observed finding.
+export function reviewToObservedFinding(review: QuickReview, industry?: string | null): ObservedFinding | null {
+  const f = review.findings.find((x) => x.topic !== "reviews" && (x.evidence?.confidence === "Observed" || x.evidence?.confidence === "Reported"));
+  if (!f) return null;
+  const obs = f.observation || "";
+  const hay = obs + " " + (f.evidence?.basis || []).join(" ");
+  const pageMatch = hay.match(/(?:any of the\s+)?(\d+)\s+(?:inspected\s+)?pages|(\d+)\s+inspected/i);
+  const inspected = pageMatch ? Number(pageMatch[1] || pageMatch[2]) : 0;
+  const ind = (industry || review.industryLabel || "").toLowerCase();
+  const serviceWord = /massage/.test(ind) || /massage/.test(obs) ? "massage"
+    : /salon|spa|hair|nail|barber|beauty/.test(ind) ? "visit"
+    : "appointment";
+  const hasPhone = /phone/i.test(obs), hasMail = /email/i.test(obs);
+  const reach = hasPhone && hasMail ? "a phone number and an email address" : hasMail && !hasPhone ? "an email address" : "a phone number";
+  return {
+    key: f.id,
+    topic: f.topic as unknown as ObservedFinding["topic"],
+    category: f.category,
+    impactLevel: (f.impactLevel === "High" ? "High" : "Moderate") as ObservedFinding["impactLevel"],
+    observation: obs,
+    whyItMatters: f.whyItMatters || "",
+    basis: f.evidence?.basis || [],
+    reproduction: [],
+    sourcePageUrl: f.evidence?.sourceUrl || review.website || "",
+    sourcePageTitle: "Homepage",
+    recommendation: normalizeRecommendation(f.whatWedDo || ""),
+    details: {
+      inspected,
+      serviceWord,
+      reach,
+      kind: /viewport/i.test(obs) ? "no-viewport" : /scroll|overflow|past the edge/i.test(obs) ? "overflow" : "no-viewport",
+    },
+  };
+}
+
+// The value-dense six-beat narration for the review's strongest observed finding, or null if there is
+// no material finding OR the composed script fails the section-E quality gate. The HTTP prepare route
+// uses this so operator regeneration is evidence-led — never the terse finding-title fallback.
+export function composeReviewNarration(review: QuickReview, industry?: string | null): ComposedNarration | null {
+  const of = reviewToObservedFinding(review, industry);
+  if (!of) return null;
+  const composed = composeClientNarration(of, review.businessName || "this business");
+  return assessScriptQuality(composed).ok ? composed : null;
 }
 
 // Build a business video template from a Quick Review. Honors TWO gates, in order:

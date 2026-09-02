@@ -6,7 +6,7 @@ import { getLead, getBusinessIntelligence } from "@/lib/repo";
 import { buildQuickReview, cachedBrand } from "@/lib/outreach/quick-review";
 import { quickReviewApproved } from "@/lib/outreach/review-approval";
 import type { BusinessProfile } from "@/lib/business-intelligence/types";
-import { buildBusinessTemplate, type ScreenshotByFinding } from "@/lib/content-studio/client-video";
+import { buildBusinessTemplate, composeReviewNarration, type ScreenshotByFinding } from "@/lib/content-studio/client-video";
 import { saveTemplate, loadTemplate, REPO_ROOT } from "@/lib/content-studio/store";
 import { normalizeCaptureUrl } from "@/lib/content-studio/ssrf-guard";
 import { createScreenshotJob, latestReadyShot, captureTargetFor } from "@/lib/content-studio/screenshot-jobs";
@@ -67,7 +67,11 @@ export async function POST(req: NextRequest) {
   const shot = await latestReadyShot(leadId, "mobile").catch(() => null);
   if (shot?.outputKey && review.findings[0]) screenshots[review.findings[0].id] = shot.outputKey;
 
-  const { template, readiness, narrationNote, evidenceState, blockedReason } = buildBusinessTemplate(review, { leadId, allowOverride, screenshots });
+  // Value-dense narration (mandate D): compose the six-beat, evidence-led script from the review's
+  // strongest observed finding so operator regeneration is never the terse finding-title fallback (which
+  // read as a swappable template). Reuses the EXISTING screenshot above — no re-capture, SHA preserved.
+  const composedNarration = composeReviewNarration(review, lead.industry ?? null);
+  const { template, readiness, narrationNote, evidenceState, blockedReason } = buildBusinessTemplate(review, { leadId, allowOverride, screenshots, composedNarration });
   if (!template) {
     return NextResponse.json({
       error: evidenceState === "needs-evidence" ? (blockedReason || "Needs evidence.") : "Not eligible for a review video.",
