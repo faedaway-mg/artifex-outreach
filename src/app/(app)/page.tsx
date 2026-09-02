@@ -18,6 +18,20 @@ import { TodayControls } from "@/components/TodayControls";
 import { MorningWarming } from "@/components/MorningWarming";
 import { WorkQueue } from "@/components/WorkQueue";
 import { DailyMission } from "@/components/DailyMission";
+import { TodayCommandCenter } from "@/components/TodayCommandCenter";
+import { computeFunnel, sendableNowCount } from "@/lib/outreach/funnel-counts";
+import { deriveLeadFacts } from "@/lib/outreach/today-funnel";
+import { listJobs as csListJobs } from "@/lib/content-studio/store";
+import { latestReadyJob as csLatestReadyJob } from "@/lib/content-studio/job";
+import { listScheduledBindings } from "@/lib/outreach/scheduled-batch";
+import { emailQueueEligibility } from "@/lib/outreach/email-queue-eligibility";
+import { getEditorialState } from "@/lib/outreach/review-revisions";
+import { buildQuickReview } from "@/lib/outreach/quick-review";
+import { quickReviewApproved } from "@/lib/outreach/review-approval";
+import { validEmail } from "@/lib/acquisition/compliance";
+import { isSuppressed } from "@/lib/repo";
+import { resolveSendingWindow, nextSendingDateKey, ACCOUNTING_TZ } from "@/lib/outreach/sending-window";
+import { withinMorningWindow } from "@/lib/outreach/outreach-scheduler";
 import { buildWorkQueue, buildDailyMission, buildReplyCard, surfaceTodaysTasks, channelCapacity, channelOf, workKindForTask, channelReadiness, emailInventory } from "@/lib/work-queue";
 import { orderEmailProspects } from "@/lib/acquisition/email-ordering";
 import { reservoirBand, reservoirLabel } from "@/lib/acquisition/reservoir";
@@ -215,58 +229,71 @@ export default async function TodayPage({ searchParams }: { searchParams?: { vie
 
   const revenueWon = proposals.filter((p) => p.status === "accepted").reduce((s, p) => s + (p.amount ?? 0), 0);
 
+  // ── CANONICAL FUNNEL (mandate IV/VI) — one reconciled snapshot for the batch command center. Every
+  //    count on Today comes from computeFunnel() over per-lead facts, so it can never disagree with itself.
+  const csJobs = await csListJobs();
+  const scheduledBindings = await listScheduledBindings().catch(() => [] as Awaited<ReturnType<typeof listScheduledBindings>>);
+  const scheduledLeadIds = new Set(scheduledBindings.map((b) => b.leadId));
+  const sendWindow = resolveSendingWindow(settings);
+  const windowOpen = withinMorningWindow(now, sendWindow.timezone, sendWindow);
+  const nextDateLabel = new Date(nextSendingDateKey(now, sendWindow) + "T12:00:00Z").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
+
+  const candidateIds = new Set(scopedOpen.filter((t) => t.type === "review_and_send" || t.type === "prepare_video").map((t) => t.leadId));
+  const facts: import("@/lib/outreach/funnel-counts").LeadFunnelFacts[] = [];
+  const disp = new Map<string, { business: string; recipient: string | null; finding: string | null; videoRequired: boolean; packageState: string; state: string; stage: string | null; error: string | null }>();
+  for (const leadId of candidateIds) {
+    const lead = leadMap.get(leadId);
+    if (!lead || internalLeadIds.has(leadId)) continue;
+    try {
+      const openForLead = scopedOpen.filter((t) => t.leadId === leadId);
+      const hasOpenVideoTask = openForLead.some((t) => t.type === "prepare_video");
+      const pieceId = `client-${leadId}`;
+      const readyJob = csLatestReadyJob(csJobs, pieceId);
+      const activeJob = csJobs.find((j) => j.pieceId === pieceId && (j.status === "queued" || j.status === "rendering"));
+      const jobsForPiece = csJobs.filter((j) => j.pieceId === pieceId);
+      const lastJob = jobsForPiece[jobsForPiece.length - 1];
+      const videoReady = !!readyJob?.outputKey;
+      const videoRendering = !!activeJob;
+      const videoFailed = !videoReady && lastJob?.status === "failed";
+      const biE = biByLead.get(leadId);
+      const review = buildQuickReview(lead, biE?.profile?.businessProfile ?? null, null, { approved: await quickReviewApproved(leadId) });
+      const est = await getEditorialState(leadId);
+      const elig = emailQueueEligibility({ review, recipientValid: validEmail(lead.publicEmail), suppressed: await isSuppressed({ email: lead.publicEmail, domain: lead.websiteDomain, phone: lead.phone }), held: !!est.held });
+      const scheduled = scheduledLeadIds.has(leadId);
+      const sentToday = emailSends.some((e) => e.leadId === leadId && isSameDay(e.sentAt, now));
+      const finding = (review.findings?.[0] as { observation?: string } | undefined)?.observation ?? null;
+      facts.push(deriveLeadFacts({ lead, hasOpenVideoTask, videoReady, videoRendering, videoFailed, sendEligible: elig.ready, blockedReason: elig.detail ?? null, scheduled, sentToday, finding, recipient: lead.publicEmail ?? null }));
+      disp.set(leadId, { business: lead.businessName, recipient: lead.publicEmail ?? null, finding, videoRequired: hasOpenVideoTask, packageState: videoReady || !hasOpenVideoTask ? "ready" : "awaiting video", state: videoRendering ? "rendering" : videoFailed ? "failed" : "ready", stage: activeJob?.stage ?? null, error: videoFailed ? (lastJob?.error ?? "render failed") : null });
+    } catch { /* one bad lead never breaks the board */ }
+  }
+  const funnel = computeFunnel({ leads: facts, dailyCap: 20, sentToday: emailsSentToday });
+  const d = (id: string) => disp.get(id)!;
+  const readyRows = funnel.readyToApproveAndSchedule.filter((id) => disp.has(id)).map((id) => ({ leadId: id, business: d(id).business, recipient: d(id).recipient, finding: d(id).finding, videoRequired: d(id).videoRequired, packageState: d(id).packageState }));
+  const videoRows = funnel.needsVoiceover.filter((id) => disp.has(id)).map((id) => ({ leadId: id, business: d(id).business, finding: d(id).finding, href: `/content-studio?section=client&from=today&piece=client-${id}` }));
+  const renderRows = funnel.renderingOrFailed.filter((id) => disp.has(id)).map((id) => ({ leadId: id, business: d(id).business, state: d(id).state, stage: d(id).stage, error: d(id).error, href: `/content-studio?section=client&piece=client-${id}` }));
+  const followUpRows = scopedDue.filter((t) => t.type === "follow_up" && leadMap.has(t.leadId)).map((t) => ({ leadId: t.leadId, business: leadMap.get(t.leadId)!.businessName, dueLabel: relativeDate(t.dueAt), href: `/leads/${t.leadId}/send` }));
+  const recentRows = [
+    ...scheduledBindings.filter((b) => leadMap.has(b.leadId)).slice(0, 8).map((b) => ({ leadId: b.leadId, business: leadMap.get(b.leadId)!.businessName, when: new Date((b.binding as { scheduledAt?: string }).scheduledAt ?? now.toISOString()).toLocaleString("en-US", { timeZone: ACCOUNTING_TZ, month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }), tz: "PT", providerState: "scheduled" })),
+    ...emailSends.filter((e) => e.leadId && isSameDay(e.sentAt, now) && leadMap.has(e.leadId)).slice(0, 8).map((e) => ({ leadId: e.leadId as string, business: leadMap.get(e.leadId as string)!.businessName, when: new Date(e.sentAt!).toLocaleString("en-US", { timeZone: ACCOUNTING_TZ, month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }), tz: "PT", providerState: String(e.status) })),
+  ];
+
   return (
     <div className="space-y-6">
       {/* Today's work — the hero. The eye lands on what to do now, not on a counter
           (ES-010: work outranks metrics). */}
       <div>
-        <p className="eyebrow mb-3">{dateLabel} · Today's work</p>
-        <WorkQueue categories={workQueue} />
-        {/* Board composition — value-first, not quotas. Emails lead: what's send-safe today vs
-            the deeper prepared reservoir. Calls are shown as "warm ready", never a cold quota. */}
-        {showComposition && (
-          <p className="mt-2.5 text-[12px] text-chalk-500">
-            Emails ready to send today: <span className="text-chalk-300">{inventory.readyToday}</span>
-            {inventory.beyondToday > 0 && <span className="text-chalk-600"> · {inventory.beyondToday} more Review{inventory.beyondToday === 1 ? "" : "s"} prepared</span>}
-            {/* Supply health — the reservoir band, so a thin morning reads as a supply state, not a bug. */}
-            {" · "}Reservoir: <span className="text-chalk-300">{reservoirLabel(reservoirBand(inventory.prepared))}</span>
-            {/* No quota on calls or videos — both are signal-triggered; zero is a healthy morning. */}
-            {ready.call > 0 && <>{" · "}Warm calls: <span className="text-chalk-300">{ready.call}</span></>}
-            {videosToCreate > 0 && <>{" · "}<Link href="/content-studio?section=client&from=today" className="ring-focus hover:text-chalk-300">Videos to create: <span className="text-chalk-300">{videosToCreate}</span></Link></>}
-          </p>
-        )}
-        {/* Why now — the top email prospect's own observed evidence (never predicted intent). */}
-        {topEmailWhyNow && (
-          <p className="mt-1 text-[12px] text-chalk-500">
-            <span className="text-chalk-400">Why now:</span> <span className="text-chalk-300">{topEmailWhyNow}</span>
-          </p>
-        )}
-        {/* Queue ledger — where everything else is, so "where did my leads go?" is
-            never a mystery. One quiet line; shown only when something is out of view. */}
-        {(ledger.beyondCap > 0 || ledger.waitingFuture > 0 || ledger.snoozed > 0 || ledger.noWorkActive > 0 || emailCeilingReached
-          || sequences.futureScheduledSteps > 0 || sequences.plansAwaitingApproval > 0 || sequences.dueStepsMissingTask > 0) && (
-          <p className="mt-2.5 text-[12px] text-chalk-500">
-            {[
-              emailCeilingReached ? `${emailDeferred} more email${emailDeferred === 1 ? "" : "s"} ready — today's safe send capacity is used up (resets tomorrow)` : null,
-              ledger.beyondCap > 0 ? `${ledger.beyondCap} more due today (beyond today's capacity)` : null,
-              ledger.waitingFuture > 0 ? `${ledger.waitingFuture} scheduled for later dates` : null,
-              ledger.snoozed > 0 ? `${ledger.snoozed} snoozed` : null,
-              ledger.noWorkActive > 0 ? `${ledger.noWorkActive} businesses with nothing queued` : null,
-              sequences.futureScheduledSteps > 0 ? `${sequences.futureScheduledSteps} follow-ups scheduled ahead` : null,
-              sequences.plansAwaitingApproval > 0 ? `${sequences.plansAwaitingApproval} sequences waiting on approval` : null,
-              sequences.dueStepsMissingTask > 0 ? `${sequences.dueStepsMissingTask} due follow-ups not yet queued` : null,
-            ].filter(Boolean).join(" · ")}
-          </p>
-        )}
-        {/* Queue health — who owns the off-board businesses: you vs the system. Makes the old
-            opaque "N nothing queued / M needs attention" an honest, actionable breakdown. */}
-        {showQueueHealth && (
-          <p className="mt-1 text-[12px] text-chalk-500">
-            Queue health · <span className="text-chalk-300">{queueAudit.byOwner.human}</span> genuinely need you
-            {queueAudit.byOwner["software-research"] > 0 && <> · <span className="text-chalk-400">{queueAudit.byOwner["software-research"]}</span> preparing (system researching)</>}
-            {queueAudit.byOwner.defect > 0 && <> · <span className="text-amber-300/80">{queueAudit.byOwner.defect}</span> auto-fixing on next refresh</>}
-          </p>
-        )}
+        <p className="eyebrow mb-3">{dateLabel} · Today</p>
+        <TodayCommandCenter
+          counts={funnel}
+          ready={readyRows}
+          needsVoiceover={videoRows}
+          renderingFailed={renderRows}
+          followUps={followUpRows}
+          recent={recentRows}
+          windowOpen={windowOpen}
+          nextDateLabel={nextDateLabel}
+          sendableNow={sendableNowCount(funnel)}
+        />
       </div>
 
       {/* Today's mission — quiet progress context, beneath the work it measures. */}
