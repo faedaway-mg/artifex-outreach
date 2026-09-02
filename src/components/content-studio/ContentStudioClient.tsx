@@ -1,9 +1,9 @@
 "use client";
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import {
   Film, Upload, Copy, Check, Download, Play, RefreshCw, Loader2, Plus, X,
-  CircleCheck, CircleAlert, Clapperboard, Users, ExternalLink, Clock, Radio, Eye,
+  CircleCheck, CircleAlert, Clapperboard, Users, ExternalLink, Clock, Radio, Eye, Mail,
 } from "lucide-react";
 import { SectionHeader } from "@/components/ui";
 import { clientVideoPieceId } from "@/lib/content-studio/client-video-routing";
@@ -586,6 +586,69 @@ function LifecycleBadge({ state }: { state: RenderState }) {
   return <span className={`rounded-md border px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide ${m.cls}`}>{m.label}</span>;
 }
 
+// Prospect Video Sales Package controls (mandate III) — the prospect-side counterpart to the social
+// caption/share controls. Shows the frozen-package lifecycle and the operator actions: Approve package
+// (freeze), Copy video link (reconstructable signed URL), Preview email (frozen PDF + video CTA). Never
+// any social caption/posting language. Loads state from /api/content-studio/client/package.
+function PackagePanel({ leadId }: { leadId: string }) {
+  const preview = usePreview();
+  const [state, setState] = useState<{ state: string; packageVersion: number | null; hasVideo: boolean; hasReview: boolean; shareUrl: string | null } | null>(null);
+  const [blockers, setBlockers] = useState<string[]>([]);
+  const [emailPreview, setEmailPreview] = useState<{ subject: string; hasPdf: boolean; viewUrl: string | null; sizeGuard: { ok: boolean; reason?: string } } | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [busy, start] = useTransition();
+
+  const load = useCallback(async () => {
+    try {
+      const r = await fetch(`/api/content-studio/client/package?leadId=${encodeURIComponent(leadId)}`);
+      if (r.ok) setState(await r.json());
+      const a = await fetch("/api/content-studio/client/package", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ leadId, action: "assemble" }) });
+      if (a.ok) { const d = await a.json(); setBlockers(d.blockers ?? []); }
+    } catch { /* best-effort */ }
+  }, [leadId]);
+  useEffect(() => { load(); }, [load]);
+
+  const act = (action: string) => start(async () => {
+    setMsg(null);
+    if (preview) { setMsg("Disabled in preview."); return; }
+    const r = await fetch("/api/content-studio/client/package", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ leadId, action }) });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) { setMsg(d.error || "Action failed."); return; }
+    if (action === "freeze") { setMsg(d.idempotent ? "Package already frozen at this version." : `Package approved & frozen (v${d.packageVersion}).`); await load(); }
+    if (action === "copyLink") { if (d.shareUrl) { try { await navigator.clipboard.writeText(d.shareUrl); setCopied(true); setTimeout(() => setCopied(false), 1600); } catch {} } setMsg(d.shareUrl ? "Video link copied." : "No link yet."); }
+    if (action === "previewEmail") setEmailPreview({ subject: d.subject, hasPdf: d.hasPdf, viewUrl: d.viewUrl, sizeGuard: d.sizeGuard });
+  });
+
+  const st = state?.state ?? "INCOMPLETE";
+  const frozen = st === "FROZEN" || st === "SCHEDULED" || st === "SENT";
+  return (
+    <div className="card p-4">
+      <div className="mb-2 flex items-center justify-between">
+        <h4 className="text-sm font-semibold text-chalk-100">Prospect sales package</h4>
+        <span className="rounded-md border border-azure-500/25 bg-azure-500/10 px-1.5 py-0.5 text-[10px] text-azure-300">{st}{state?.packageVersion ? ` · v${state.packageVersion}` : ""}</span>
+      </div>
+      {!frozen && blockers.length > 0 && (
+        <p className="mb-2 text-[11px] leading-relaxed text-amber-300/90">Not ready to approve: {blockers.join("; ")}.</p>
+      )}
+      <p className="mb-3 text-[11px] leading-relaxed text-chalk-500">One frozen package = the approved email, the frozen Quick Review PDF, this video, and a secure recipient link — bound to one immutable version so a later edit can’t silently change a scheduled message. The video is <span className="text-chalk-300">linked</span>, never attached.</p>
+      <div className="flex flex-wrap gap-2">
+        <button disabled={preview || busy || (!frozen && blockers.length > 0)} onClick={() => act("freeze")} className="btn-primary flex items-center gap-1.5 text-sm disabled:opacity-40"><CircleCheck size={15} /> {frozen ? "Re-approve package" : "Approve package"}</button>
+        <button disabled={preview || busy || !state?.shareUrl} onClick={() => act("copyLink")} title={state?.shareUrl ? "" : "Approve the package to mint the link"} className="btn-ghost flex items-center gap-1.5 text-xs disabled:opacity-40">{copied ? <Check size={13} className="text-teal-300" /> : <Copy size={13} />} {copied ? "Copied" : "Copy video link"}</button>
+        <button disabled={preview || busy} onClick={() => act("previewEmail")} className="btn-ghost flex items-center gap-1.5 text-xs disabled:opacity-40"><Mail size={13} /> Preview email</button>
+      </div>
+      {msg && <p className="mt-2 text-[11px] text-chalk-400">{msg}</p>}
+      {emailPreview && (
+        <div className="mt-3 rounded-lg border border-white/10 bg-white/[0.02] p-3 text-[11px] text-chalk-400">
+          <p className="text-chalk-200"><span className="text-chalk-500">Subject:</span> {emailPreview.subject}</p>
+          <p className="mt-1">Attachment: {emailPreview.hasPdf ? "frozen Quick Review PDF" : "none"} · Video: {emailPreview.viewUrl ? "linked CTA (secure /pv link)" : "none"}</p>
+          {!emailPreview.sizeGuard.ok && <p className="mt-1 text-amber-300">{emailPreview.sizeGuard.reason}</p>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function PieceDetail({ item, onChanged, setJobOverride }: { item: StudioItem; onChanged: () => Promise<void>; setJobOverride: (f: (o: Record<string, SafeJob>) => Record<string, SafeJob>) => void }) {
   const preview = usePreview();
   const { piece } = item;
@@ -860,8 +923,11 @@ function PieceDetail({ item, onChanged, setJobOverride }: { item: StudioItem; on
       {/* Social caption — Field Notes ONLY. A prospect video package never carries a social caption. */}
       {!isProspect && piece.recommendedRel && <CaptionPanel item={item} onChanged={onChanged} setMsg={setMsg} />}
 
-      {/* Sharing & outreach — only for an approved, non-placeholder video */}
-      {item.provenance.postingAllowed && item.provenance.audioKind !== "placeholder" && <SharePanel item={item} />}
+      {/* Prospect sales package (mandate III) — Approve, Copy video link, Preview email. Prospect ONLY. */}
+      {isProspect && piece.businessId && piece.recommendedRel && <PackagePanel leadId={piece.businessId} />}
+
+      {/* Sharing & outreach — Field Notes social sharing ONLY (prospect uses the package above). */}
+      {!isProspect && item.provenance.postingAllowed && item.provenance.audioKind !== "placeholder" && <SharePanel item={item} />}
 
       {/* Version history */}
       {item.jobs.length > 0 && (

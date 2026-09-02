@@ -29,6 +29,10 @@ export async function middleware(req: NextRequest) {
     // Evidence-led client-video prepare/reconcile: enforces its own auth in-handler (operator session OR
     // the CS_CANARY_SECRET header). It only regenerates a template from a business's own stored evidence.
     pathname === "/api/content-studio/client/prepare" ||
+    // Prospect sales-package operations: enforces its own auth in-handler (operator session OR the
+    // CS_CANARY_SECRET header). It only assembles/freezes a package from the business's own evidence and
+    // never sends or contacts a prospect.
+    pathname === "/api/content-studio/client/package" ||
     pathname.startsWith("/share/previews") ||
     // Public brand assets (the constellation mark PNG) must be fetchable by email
     // clients and browsers without a session, or the mark degrades to alt text.
