@@ -29,8 +29,8 @@ describe("value-dense narration composer", () => {
     for (const [f, name] of [[MOBILE, "Morris Automotive Machine"], [BOOKING, "a2z Health Massage Schools"], [CONTACT, "Robert Hall & Associates"]] as const) {
       const c = composeClientNarration(f, name);
       expect(c.lines.map((l) => l.role)).toEqual(["hook", "friction", "consequence", "solution", "value", "close"]);
-      expect(c.wordCount).toBeGreaterThanOrEqual(68);
-      expect(c.wordCount).toBeLessThanOrEqual(120);
+      expect(c.wordCount).toBeGreaterThanOrEqual(70);
+      expect(c.wordCount).toBeLessThanOrEqual(110);
       const q = assessScriptQuality(c);
       expect(q.ok, `${name}: ${q.reasons.join("; ")}`).toBe(true);
     }

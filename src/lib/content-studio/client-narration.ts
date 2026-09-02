@@ -76,15 +76,15 @@ function mobile(f: ObservedFinding, short: string): { lines: ComposedLine[]; anc
   const anchors = isOverflow ? [`${overflow} pixels`, `${vw}-pixel`] : ["no mobile layout", "desktop page"];
   const friction = isOverflow
     ? `But on a ${vw}-pixel phone the homepage runs ${overflow} pixels past the edge, so it scrolls sideways.`
-    : `But the homepage ships no mobile layout, so a phone loads the desktop page and shrinks the text.`;
+    : `But the homepage has no mobile layout — a phone loads the desktop page and shrinks the text.`;
   return {
     anchors,
     lines: [
-      { role: "hook", text: `Most people meet ${short} for the first time on a phone, straight from a search result.` },
+      { role: "hook", text: `Most people first meet ${short} on a phone, straight from a search result.` },
       { role: "friction", text: friction },
-      { role: "consequence", text: `A visitor has to pinch and zoom just to read the services or find the number.` },
-      { role: "solution", text: `We'd ${f.recommendation}, sizing the name, services, and tap-to-call for a thumb.` },
-      { role: "value", text: `The first ten seconds become legible instead of a zoom-and-hunt, so the visitors you earn can act.` },
+      { role: "consequence", text: `A visitor has to pinch and zoom to read the services or find the number.` },
+      { role: "solution", text: `We'd ${f.recommendation}, sized for the thumb.` },
+      { role: "value", text: `The first ten seconds become legible instead of a zoom-and-hunt, so visitors can act.` },
       { role: "close", text: `Artifex can make the current site fit the phone it opens on.` },
     ],
   };
@@ -114,11 +114,11 @@ function contact(f: ObservedFinding, short: string): { lines: ComposedLine[]; an
   return {
     anchors,
     lines: [
-      { role: "hook", text: `A prospective client reads about ${short}, decides you're the one, and looks for a way to reach out.` },
-      { role: "friction", text: `The contact page, and all ${inspected} pages we reviewed, has no form — the only way to reach you is ${reach}.` },
-      { role: "consequence", text: `So anyone deciding at night or on a weekend has to remember to call back later — and many won't.` },
+      { role: "hook", text: `A prospective client decides ${short} is the one, and looks for a way to reach out.` },
+      { role: "friction", text: `Across all ${inspected} pages we reviewed, including the contact page, there's no form — only ${reach}.` },
+      { role: "consequence", text: `So anyone deciding at night or on a weekend has to remember to call back — and many won't.` },
       { role: "solution", text: `We'd ${f.recommendation}.` },
-      { role: "value", text: `That captures the client at the moment they're ready, instead of asking them to become a phone call later.` },
+      { role: "value", text: `That captures the client the moment they're ready, instead of asking them to call back later.` },
       { role: "close", text: `Artifex can add that form to your existing contact page in a single pass.` },
     ],
   };
@@ -221,9 +221,9 @@ export interface ScriptQuality {
   reasons: string[];   // empty when ok
 }
 
-// The word band the mandate sets ("approximately 70–110 spoken words"), with a small tolerance so a valid
-// script is never rejected for one word over/under.
-const MIN_WORDS = 68, MAX_WORDS = 120;
+// The word band the mandate sets: 70–110 spoken words, enforced as a hard ceiling/floor. A script outside
+// the band fails the gate (ok:false) and its template stays needs-evidence — never a silent overflow.
+const MIN_WORDS = 70, MAX_WORDS = 110;
 
 // Section-E script quality gate. A composed script is voiceover-ready only when it carries an exact observed
 // detail, a customer scenario, an explained consequence, a concrete proposed change, a practical benefit, no
