@@ -21,10 +21,11 @@
 //
 // It is idempotent and fail-closed at every step; a per-lead failure degrades that lead, never the run.
 
-import { listLeads, getLead, getSettings, countSentEmailsBetween } from "../repo";
+import { listLeads, getLead, getSettings, updateSettings, countSentEmailsBetween } from "../repo";
 import type { Lead } from "../types";
 import { gatherDeliveryContext } from "./refill-context";
 import { assessDeliveryReadiness, tallyFunnel, type DeliveryContext } from "./delivery-ready";
+import { emptyCheckpoint, type RefillCheckpoint } from "./refill";
 import { capState, laDayBoundsUtc, laAccountingDate, GLOBAL_DAILY_CAP } from "./daily-cap";
 import { approveAndFreezeQuickReview } from "../outreach/quick-review-freeze";
 import { scheduleBatch, listScheduledBindings, MORNING_WINDOW } from "../outreach/scheduled-batch";
@@ -223,6 +224,22 @@ export async function advanceReadyInventory(opts: AdvanceOptions = {}): Promise<
     scheduled = res.scheduled.length;
     for (const s of res.scheduled) scheduledLeadIds.push(s.leadId);
     for (const r of res.removed) removed.push(r);
+  }
+
+  // Persist the TRUE post-advance state to the owner-visible checkpoint (§5). runRefillCycle writes a
+  // pre-advance snapshot earlier in the same request; this write lands last so the health screen reflects
+  // the real reserve + funnel + scheduled count, never a stale 0. Best-effort; skipped on dryRun.
+  if (!dryRun) {
+    try {
+      const settings = await getSettings();
+      const cp: RefillCheckpoint = { ...emptyCheckpoint(), ...(settings.refillCheckpoint ?? {}) };
+      cp.lastReserveReady = deliveryReadyAfter;
+      cp.lastFunnel = funnelAfter;
+      cp.lastRefillAt = now.toISOString();
+      cp.updatedAt = now.toISOString();
+      (cp as RefillCheckpoint & { lastScheduledReady?: number }).lastScheduledReady = alreadyScheduledIds.size + scheduled;
+      await updateSettings({ refillCheckpoint: cp });
+    } catch { /* best-effort persist */ }
   }
 
   return {

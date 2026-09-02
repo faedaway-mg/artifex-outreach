@@ -22,6 +22,7 @@ export default async function HealthPage() {
   const refillReady = cp.lastReserveReady ?? 0;
   const refillHolding = refillReady >= DEFAULT_REFILL_POLICY.refillThreshold;
   const refillReadyDelivery = cp.lastFunnel?.deliveryReady ?? null;
+  const refillScheduled = (cp as { lastScheduledReady?: number }).lastScheduledReady ?? null;
 
   return (
     <div className="space-y-8">
@@ -87,7 +88,8 @@ export default async function HealthPage() {
           <MetricStat metric={metric("Refill status", refillHolding ? "Idle — at/above threshold" : "Refilling")} tone={refillHolding ? undefined : "amber"} />
           <MetricStat metric={metric("Last refill run", lastRefill ? new Date(lastRefill).toLocaleString() : "never", lastRefill != null)} />
           <MetricStat metric={metric("Next refill run", "5:30 AM PT daily (auto)", true, "no manual POST")} tone="teal" />
-          <MetricStat metric={metric("Delivery-ready (last)", refillReadyDelivery == null ? null : refillReadyDelivery, refillReadyDelivery != null)} />
+          <MetricStat metric={metric("Delivery-ready (last)", refillReadyDelivery == null ? null : refillReadyDelivery, refillReadyDelivery != null)} tone={refillReadyDelivery ? "teal" : undefined} />
+          <MetricStat metric={metric("Scheduled outreach", refillScheduled == null ? null : `${refillScheduled} / 20`, refillScheduled != null, "next weekday window")} tone={refillScheduled ? "teal" : undefined} />
           <MetricStat metric={metric("Discovery budget", `${cp.searchBudgetSpent} / ${cp.searchBudgetLimit}`)} />
           <MetricStat metric={metric("Rotation offset", cp.rotationOffset)} />
           <MetricStat metric={metric("Discovery source", h.places.mode === "disabled" ? "Places key absent" : `Places ${h.places.mode}`)} tone={h.places.mode === "disabled" ? "amber" : "teal"} />
