@@ -1,7 +1,7 @@
 "use client";
 import { useMemo, useState, useTransition } from "react";
 import { CalendarClock, Check, X, AlertTriangle, Ban } from "lucide-react";
-import { scheduleMondayBatchAction, cancelScheduledAction } from "@/lib/outreach/schedule-actions";
+import { scheduleNextEligibleBatchAction, cancelScheduledAction } from "@/lib/outreach/schedule-actions";
 
 type Item = { leadId: string; business: string; recipient: string; subject: string; pdfFilename: string; revisionId: string; proposedAt: string };
 type Scheduled = { leadId: string; business: string; recipient: string; scheduledAt: string; batchId: string; pdfSha256: string };
@@ -24,7 +24,7 @@ export function ScheduleBatchPanel({ eligible, scheduled, notReady, window, date
 
   function confirmSchedule() {
     start(async () => {
-      const res = await scheduleMondayBatchAction([...selected]);
+      const res = await scheduleNextEligibleBatchAction([...selected]);
       setReceipt({ batchId: res.batchId, authorized: res.scheduled.length, removed: res.removed.length, scheduled: res.scheduled.map((s) => ({ leadId: s.leadId, recipient: s.recipient, scheduledAt: s.scheduledAt })), removedItems: res.removed });
       setConfirming(false);
     });
@@ -109,7 +109,7 @@ export function ScheduleBatchPanel({ eligible, scheduled, notReady, window, date
       {/* Confirm action */}
       {!confirming ? (
         <button disabled={pending || selectedItems.length === 0} onClick={() => setConfirming(true)} className="btn-primary w-full justify-center !py-3 text-[15px] disabled:opacity-50">
-          <CalendarClock size={17} /> Schedule {selectedItems.length} email{selectedItems.length === 1 ? "" : "s"} for Monday
+          <CalendarClock size={17} /> Schedule {selectedItems.length} email{selectedItems.length === 1 ? "" : "s"} for {dateLabel}
         </button>
       ) : (
         <div className="rounded-lg border border-white/10 bg-white/[0.03] p-3.5">

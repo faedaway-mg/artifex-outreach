@@ -33,6 +33,7 @@ import { quickReviewApproved } from "@/lib/outreach/review-approval";
 import { approveQuickReviewAction } from "@/lib/outreach/send-actions";
 import { renderPersonalEmailHtml } from "@/lib/outreach/email-render";
 import { readingSeconds } from "@/lib/outreach/voice-engine";
+import { nextSendingDateKey, resolveSendingWindow } from "@/lib/outreach/sending-window";
 import { determineContactStrategy, buildCallBrief, buildCallScript, findInstagram } from "@/lib/outreach/contact-strategy";
 import { memoryReferences } from "@/lib/reasoning";
 import { deslug } from "@/lib/utils";
@@ -140,6 +141,9 @@ export default async function BatchPage({ params, searchParams }: { params: { ki
   const total = ids.length;
   const title = categoryTitle(kind);
   const Icon = ICON[kind];
+  // Next real LA sending day for the schedule CTA — never a hardcoded "Monday" (V).
+  const nextSendLabel = new Date(nextSendingDateKey(now, resolveSendingWindow(settings)) + "T12:00:00Z")
+    .toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
 
   const i = Math.max(0, Math.min(total, parseInt(searchParams.i ?? "0", 10) || 0));
 
@@ -175,7 +179,7 @@ export default async function BatchPage({ params, searchParams }: { params: { ki
             </ul>
           </div>
         )}
-        {kind === "email" && <Link href="/schedule" className="btn-secondary mt-6 justify-center !py-2.5"><CalendarClock size={16} /> Schedule ready emails for Monday</Link>}
+        {kind === "email" && <Link href="/schedule" className="btn-secondary mt-6 justify-center !py-2.5"><CalendarClock size={16} /> Schedule ready emails for {nextSendLabel}</Link>}
         <Link href="/" className="btn-secondary mt-6 justify-center !py-2.5"><ArrowLeft size={16} /> Back to today's work</Link>
       </div>
     );

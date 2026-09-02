@@ -11,7 +11,7 @@ import { getSettings } from "../repo";
 import { scheduleBatch, cancelScheduled, type ScheduleResult } from "./scheduled-batch";
 import { resolveSendingWindow, nextSendingDateKey } from "./sending-window";
 
-export async function scheduleMondayBatchAction(leadIds: string[]): Promise<ScheduleResult & { deliveryBlocked: true; note: string }> {
+export async function scheduleNextEligibleBatchAction(leadIds: string[]): Promise<ScheduleResult & { deliveryBlocked: true; note: string }> {
   // Target the next real LA sending day (from the Settings window) — never a stale hardcoded date.
   const window = resolveSendingWindow(await getSettings());
   const dateKey = nextSendingDateKey(new Date(), window);

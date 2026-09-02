@@ -51,6 +51,32 @@ describe("sending window — Settings-driven, America/Los_Angeles, never reinter
       for (const k of [friAfter, sat, sun]) expect(laDow(k)).toBe("Monday");
       expect(sat).toBe("2026-09-07");
     });
+
+    // ── Mandate V boundary cases: midnight, Friday night, weekends, PDT, PST ──
+    it("MIDNIGHT LA on a weekday still resolves to that same weekday (before the 07:00 close)", () => {
+      // Monday 2026-08-31 00:30 LA (PDT) = 07:30 UTC — a weekday, LA hour 0 < 7 → today.
+      const k = nextSendingDateKey(new Date("2026-08-31T07:30:00Z"), W);
+      expect(k).toBe("2026-08-31");
+      expect(laDow(k)).toBe("Monday");
+    });
+    it("FRIDAY NIGHT (LA, past close) rolls across the weekend to Monday", () => {
+      // Friday 2026-09-04 22:00 LA (PDT) = Saturday 05:00 UTC — Friday hour 22 ≥ close → Monday.
+      const k = nextSendingDateKey(new Date("2026-09-05T05:00:00Z"), W);
+      expect(k).toBe("2026-09-07");
+      expect(laDow(k)).toBe("Monday");
+    });
+    it("PST (winter, UTC-8): a weekday before close resolves to that day", () => {
+      // Monday 2026-01-05 04:00 LA (PST) = 12:00 UTC — weekday, hour 4 < 7 → today.
+      const k = nextSendingDateKey(new Date("2026-01-05T12:00:00Z"), W);
+      expect(k).toBe("2026-01-05");
+      expect(laDow(k)).toBe("Monday");
+    });
+    it("PST (winter, UTC-8): Friday night past close rolls to the following Monday", () => {
+      // Friday 2026-01-02 22:00 LA (PST) = Saturday 06:00 UTC → next Monday 2026-01-05.
+      const k = nextSendingDateKey(new Date("2026-01-03T06:00:00Z"), W);
+      expect(k).toBe("2026-01-05");
+      expect(laDow(k)).toBe("Monday");
+    });
   });
 
   it("laDateKey returns the LA calendar day even across the UTC midnight boundary", () => {
