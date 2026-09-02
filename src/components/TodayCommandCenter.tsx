@@ -69,6 +69,7 @@ export function TodayCommandCenter(p: TodayCommandCenterProps) {
         <Count label="Sent today" value={p.counts.sentToday} />
         <Count label="Remaining cap" value={p.counts.remainingCapacity} />
       </div>
+      <p className="text-[12px] text-chalk-500">next window: <span className="text-chalk-300">{p.nextDateLabel}</span> · {p.windowOpen ? "open now" : "closed — Approve & schedule targets the next window"}</p>
 
       {/* 1 — READY TO APPROVE AND SCHEDULE */}
       <section>

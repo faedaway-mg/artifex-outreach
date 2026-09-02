@@ -181,9 +181,9 @@ export function ContentStudioClient({ initialItems, preview = false, deepLink, v
         <span className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-white/[0.07] bg-white/[0.03] text-azure-300"><Clapperboard size={16} /></span>
         <p className="text-xs leading-relaxed text-chalk-400">
           <span className="font-medium text-chalk-200">Two separate workflows, one engine.</span> The public
-          <span className="text-chalk-200"> Field Notes</span> (social — captions, approve for posting, share) are in the
+          <span className="text-chalk-200"> Field Notes</span> (social content, with captioning and posting tools) are in the
           list below. <span className="text-chalk-200">Prospect video sales packages</span> (evidence-led, delivered to
-          the prospect by secure link — never posted to social) are prepared in the
+          the prospect by secure link) are prepared in the
           <span className="text-chalk-200"> Prospect videos</span> panel above, bound to the business and its evidence.
           A Today "Prepare video" task opens that business's package here directly.
         </p>
