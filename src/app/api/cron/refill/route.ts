@@ -40,7 +40,10 @@ export async function POST(req: NextRequest) {
     // scheduled bindings under the shared 20/day cap. This is what turns "discovered" into "scheduled
     // outreach". It still sends nothing (dispatch happens only on the authorized outreach runner).
     // ?advanceDry=1 measures the downstream funnel without approving or scheduling anything.
-    const wantAdvance = sp.get("advance") === "1" || sp.get("advanceDry") === "1";
+    // AUTONOMY IS ROBUST TO THE CRON IMAGE: any autonomous (auto=1) refill runs the downstream by
+    // default, so the scheduled cron drives the whole pipeline even if only the web app is up to date.
+    // Explicit ?advance=0 opts out (e.g. a pure measurement tick).
+    const wantAdvance = sp.get("advance") === "1" || sp.get("advanceDry") === "1" || (autoThreshold && sp.get("advance") !== "0");
     const advance = wantAdvance
       ? await advanceReadyInventory({
           maxLeads,
