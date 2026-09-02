@@ -47,8 +47,11 @@
 // ─────────────────────────────────────────────────────────────────────────────
 const BASE = "https://outreach.artifexlabs.tech";
 // ONE autonomous refill invocation (§5): discover=1 permits bounded discovery; auto=1 enforces the
-// "do nothing when reserve ≥ 40" hysteresis. It never sends and persists its own checkpoint server-side.
-const REFILL_ENDPOINT = `${BASE}/api/cron/refill?discover=1&auto=1`;
+// "do nothing when reserve ≥ 40" hysteresis; advance=1 runs the WHOLE downstream pipeline after
+// discovery — bounded enrichment, deterministic automatic approval (freeze SENDABLE fully-qualified
+// leads → DELIVERY_READY), and persisting real scheduled bindings under the shared 20/day cap. It never
+// sends (dispatch happens only on the separate outreach-send cron) and persists its checkpoint server-side.
+const REFILL_ENDPOINT = `${BASE}/api/cron/refill?discover=1&auto=1&advance=1`;
 const MATERIALIZE_ENDPOINT = `${BASE}/api/cron/materialize`;
 
 function laParts() {
@@ -105,6 +108,10 @@ async function main() {
           status: body?.refillStatus ?? null,
           discoverRan: body?.discoverRan ?? null,
           tomorrow: body?.tomorrowScheduled ?? null,
+          // downstream advance (§5 "entire pipeline"): approvals minted + bindings scheduled this run.
+          approved: body?.advance?.approve?.approved ?? null,
+          deliveryReady: body?.advance?.deliveryReadyAfter ?? null,
+          scheduled: body?.advance?.schedule?.scheduled ?? null,
         };
       } catch {
         summary = { note: "non-JSON response" };

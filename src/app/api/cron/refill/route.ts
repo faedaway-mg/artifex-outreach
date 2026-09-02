@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { runRefillCycle } from "@/lib/acquisition/refill-run";
+import { advanceReadyInventory } from "@/lib/acquisition/pipeline-advance";
 import { getSettings } from "@/lib/repo";
 
 export const runtime = "nodejs";
@@ -34,11 +35,28 @@ export async function POST(req: NextRequest) {
 
     const report = await runRefillCycle({ discover, autoThreshold, discoverCap, maxLeads });
 
+    // ?advance=1 → run the DOWNSTREAM pipeline after discovery: bounded enrichment, deterministic
+    // automatic approval (freeze SENDABLE fully-qualified leads → DELIVERY_READY), and persist real
+    // scheduled bindings under the shared 20/day cap. This is what turns "discovered" into "scheduled
+    // outreach". It still sends nothing (dispatch happens only on the authorized outreach runner).
+    // ?advanceDry=1 measures the downstream funnel without approving or scheduling anything.
+    const wantAdvance = sp.get("advance") === "1" || sp.get("advanceDry") === "1";
+    const advance = wantAdvance
+      ? await advanceReadyInventory({
+          maxLeads,
+          dryRun: sp.get("advanceDry") === "1",
+          enrichCap: Math.max(0, Math.min(200, Number(sp.get("enrichCap") ?? 24))),
+          approveCap: Math.max(0, Math.min(200, Number(sp.get("approveCap") ?? 40))),
+          scheduleCap: Math.max(0, Math.min(20, Number(sp.get("scheduleCap") ?? 20))),
+        })
+      : null;
+
     return NextResponse.json({
       ok: true,
-      sentEmails: report.emailsSentDuringRefill, // always 0 — refill never sends
+      sentEmails: (report.emailsSentDuringRefill as number) + (advance?.emailsSent ?? 0), // always 0 — never sends
       discoverRequested: wantDiscover,
       discoverRan: !!report.discovery?.ran,
+      advance, // downstream pipeline result (enrich → automatic approval → schedule); null unless ?advance=1
       reserve: report.visibility.readyReserve,
       refillStatus: report.visibility.refillStatus,
       reserveBefore: report.reserveBefore,
