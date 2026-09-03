@@ -214,7 +214,7 @@ export function ContentStudioClient({ initialItems, preview = false, deepLink, v
           grow the document or push the detail below it; the detail top-aligns beside it and scrolls on its own. */}
       <div className="grid gap-5 lg:grid-cols-[340px_1fr] lg:items-start">
         {/* ── Piece list (bounded scroll) ────────────────────────────── */}
-        <div className="space-y-2 overflow-y-auto overscroll-contain lg:sticky lg:top-4 lg:max-h-[calc(100dvh-8rem)] lg:min-h-0 [-webkit-overflow-scrolling:touch]">
+        <div data-piece-list className="space-y-2 overflow-y-auto overscroll-contain max-h-[55vh] lg:sticky lg:top-4 lg:max-h-[calc(100dvh-8rem)] lg:min-h-0 [-webkit-overflow-scrolling:touch]">
           {mergedItems.map((it) => (
             <PieceRow key={it.piece.id} item={it} active={it.piece.id === selected?.piece.id} onClick={() => setSelectedId(it.piece.id)} />
           ))}
