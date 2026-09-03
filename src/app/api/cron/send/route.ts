@@ -29,9 +29,10 @@ export async function POST(req: NextRequest) {
   const wantsDryRun = req.nextUrl.searchParams.get("dryRun") === "1" || req.nextUrl.searchParams.get("dry_run") === "1";
   if (wantsDryRun) {
     const { previewDueSends } = await import("@/lib/comms/scheduler");
+    const { currentAllocation } = await import("@/lib/outreach/allocation-state");
     const force = req.nextUrl.searchParams.get("force") === "1";
-    const preview = await previewDueSends({ force });
-    return NextResponse.json({ ok: true, dispatched: false, dryRun: true, ...preview });
+    const [preview, allocation] = await Promise.all([previewDueSends({ force }), currentAllocation(new Date())]);
+    return NextResponse.json({ ok: true, dispatched: false, dryRun: true, allocation, ...preview });
   }
 
   if (process.env.COMMS_AUTOSEND_ENABLED !== "1") {
@@ -52,7 +53,11 @@ export async function POST(req: NextRequest) {
   const force = req.nextUrl.searchParams.get("force") === "1";
   try {
     const provider = getEmailProvider();
-    const summary = await runDueSends({ force });
+    // Follow-up allocation (mandate 1): bound this tick to the reserved-plus-borrowed follow-up slice so a
+    // morning first-touch batch can never consume the whole 20-cap and starve follow-ups.
+    const { currentAllocation } = await import("@/lib/outreach/allocation-state");
+    const alloc = await currentAllocation(new Date());
+    const summary = await runDueSends({ force, maxSends: alloc.followSendNow });
 
     // Audit only when work happened, so idle ticks don't flood the log.
     if (summary.sent || summary.failed || summary.retried) {
@@ -68,14 +73,17 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       ok: true,
+      dispatched: summary.sent > 0,
       provider: provider.name,
       canSend: provider.canSend,
       windowOpen: summary.windowOpen,
+      allocation: { followTarget: alloc.followTarget, followSendNow: alloc.followSendNow, firstTarget: alloc.firstTarget, sentFollowToday: alloc.sentFollowToday, sentFirstToday: alloc.sentFirstToday },
       considered: summary.considered,
       sent: summary.sent,
       deduped: summary.deduped,
       retried: summary.retried,
       failed: summary.failed,
+      capped: summary.capped,
       skipped: summary.skipped,
       failures: summary.failures,
     });

@@ -78,11 +78,15 @@ export async function POST(req: NextRequest) {
   // the recipient gate (prospects still refused unless COMMS_PROSPECT_DELIVERY_ENABLED=1). Resend only.
   const { runScheduledOutreach } = await import("@/lib/outreach/outreach-scheduler");
   const { sendCompliantOutreach } = await import("@/lib/comms/outreach-transport");
+  const { currentAllocation } = await import("@/lib/outreach/allocation-state");
   const campaignId = due[0]?.binding.batchId ?? "scheduled-outreach";
+  // First-touch allocation (mandate 1): bound this tick to the reserved-plus-borrowed first-touch slice so
+  // the morning batch leaves the follow-up reserve intact for the later in-window ticks.
+  const alloc = await currentAllocation(now);
   const summary = await runScheduledOutreach(due.map((d) => d.leadId), {
-    now, campaignId, window: activeWindow, // owner-configured LA window (default 05:00–07:00)
+    now, campaignId, window: activeWindow, maxThisTick: alloc.firstSendNow, // owner-configured LA window (default 05:00–07:00)
     send: ({ leadId, auth }) => sendCompliantOutreach({ leadId, auth }),
   });
-  await appendAudit({ action: "outreach.runner.dispatched", actor: "cron", targetType: "comms", targetId: null, meta: { laDay: summary.laDay, sent: summary.sent, quotaRemaining: summary.quotaRemaining }, ip: null });
-  return NextResponse.json({ ok: true, dispatched: true, due: due.length, sent: summary.sent, quotaRemaining: summary.quotaRemaining, outcomes: summary.outcomes });
+  await appendAudit({ action: "outreach.runner.dispatched", actor: "cron", targetType: "comms", targetId: null, meta: { laDay: summary.laDay, sent: summary.sent, quotaRemaining: summary.quotaRemaining, firstAllocated: alloc.firstSendNow }, ip: null });
+  return NextResponse.json({ ok: true, dispatched: true, due: due.length, sent: summary.sent, quotaRemaining: summary.quotaRemaining, allocation: { firstTarget: alloc.firstTarget, firstSendNow: alloc.firstSendNow, followTarget: alloc.followTarget }, outcomes: summary.outcomes });
 }

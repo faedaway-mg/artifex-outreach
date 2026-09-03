@@ -28,6 +28,8 @@ import { listJobs as csListJobs } from "../content-studio/store";
 import { latestReadyJob as csLatestReadyJob } from "../content-studio/job";
 import { resolveSendingWindow, nextSendingDateKey, ACCOUNTING_TZ } from "./sending-window";
 import { withinMorningWindow } from "./outreach-scheduler";
+import { retryEligibility, terminalFailureReason } from "../comms/failure-classification";
+import { isSent, MAX_ATTEMPTS } from "../comms/state";
 
 const TERMINAL = new Set(["Won", "Lost", "Disqualified", "Nurture"]);
 
@@ -51,7 +53,7 @@ const AUTO_RETRIES: Record<BlockedReasonKey, boolean> = {
   "review-insufficient": false, "suppressed": false, "duplicate": false,
 };
 
-export interface FocusRow { leadId: string; business: string; recipient: string | null; finding: string | null; state: FocusState; }
+export interface FocusRow { leadId: string; business: string; recipient: string | null; finding: string | null; state: FocusState; failedAction?: string; failReason?: string; retryAvailable?: boolean; }
 export type FocusState = "needs-voiceover" | "generating" | "needs-attention" | "ready-to-schedule" | "scheduled" | "sent";
 export interface ScheduledRow { leadId: string; business: string; recipient: string; scheduledAt: string; }
 export interface SentRow { leadId: string; business: string; when: string; providerState: string; }
@@ -91,6 +93,14 @@ export async function buildCompanySnapshot(now: Date = new Date()): Promise<Comp
   const scheduledLeadIds = new Set(scheduledBindings.map((b) => b.leadId));
   const biByLead = new Map(bi.map((b) => [b.leadId, b]));
   const contacted = new Set(emailSends.filter((e) => e.leadId).map((e) => e.leadId as string));
+  // Latest ledger row per lead — so a terminally-failed follow-up surfaces under Needs attention (mandate 3).
+  const tsOf = (e: any) => e.sentAt || e.failedAt || e.sendingAt || e.queuedAt || "";
+  const latestSendByLead = new Map<string, any>();
+  for (const e of emailSends) {
+    if (!e.leadId) continue;
+    const prev = latestSendByLead.get(e.leadId);
+    if (!prev || tsOf(e) > tsOf(prev)) latestSendByLead.set(e.leadId, e);
+  }
   // A reply "needs Jordan" when it hasn't been reviewed yet (reviewedAt null) and isn't a bare auto/opt-out class.
   const repliedLeadIds = new Set(inbound.filter((m) => m.reviewedAt == null && m.classification !== "auto_reply" && m.classification !== "opt_out").map((m) => m.leadId));
   const window = resolveSendingWindow(settings);
@@ -148,6 +158,18 @@ export async function buildCompanySnapshot(now: Date = new Date()): Promise<Comp
 
     // 5) Ready to schedule — SENDABLE, valid recipient, uncontacted (parity with the schedule engine)
     if (elig.ready && review.status === "SENDABLE" && !contacted.has(lead.id)) { snap.ready.push(row("ready-to-schedule")); continue; }
+
+    // 5b) Terminal / exhausted-retry follow-up failure → Needs attention (mandate 3). A genuine failure
+    // is never hidden: show company + failed action + plain reason + whether an operator retry is safe.
+    const latest = latestSendByLead.get(lead.id);
+    if (latest && latest.status === "failed" && !isSent(latest.status)) {
+      const elig = retryEligibility(latest);
+      const exhausted = (latest.attempts ?? 1) >= MAX_ATTEMPTS;
+      if (!elig.retryable || exhausted) {
+        snap.needsAttention.push({ ...row("needs-attention"), failedAction: latest.stepId ? "Follow-up email" : "Outreach email", failReason: terminalFailureReason(latest), retryAvailable: elig.retryable });
+        continue;
+      }
+    }
 
     // 6) Blocked — bucket by plain-language reason (mirrors the census → reconciles to 80)
     if (contacted.has(lead.id)) { addBlocked("duplicate", lead); continue; }

@@ -12,12 +12,13 @@ import { EmailSignatures } from "@/components/EmailSignatures";
 import { TEST_LEAD_SOURCE } from "@/lib/testing/email-test-lead";
 import { OUTREACH_SIGNERS, signerProfile, signatureHtml, signatureText } from "@/lib/outreach/email-render";
 import { formatRange } from "@/lib/utils";
+import { currentAllocation } from "@/lib/outreach/allocation-state";
 import { CheckCircle2, Circle } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
 export default async function SettingsPage() {
-  const [settings, suppressions, runs, leads, tasks] = await Promise.all([getSettings(), listSuppressions(), listProspectingRuns(1), listLeads(), allTasks()]);
+  const [settings, suppressions, runs, leads, tasks, allocation] = await Promise.all([getSettings(), listSuppressions(), listProspectingRuns(1), listLeads(), allTasks(), currentAllocation(new Date())]);
   // Does a PENDING (not-yet-sent) internal test lead already exist? Drives the CTA label.
   const testLeadExists = leads.some((l) => l.source === TEST_LEAD_SOURCE && tasks.some((t) => t.leadId === l.id && t.status === "open" && t.type === "review_and_send"));
   // The canonical Artifex signature for each signer — same renderer the emails use, so
@@ -46,6 +47,13 @@ export default async function SettingsPage() {
       <div>
         <p className="label">Settings</p>
         <h1 className="mt-1 text-2xl font-semibold text-chalk-50">Configuration</h1>
+      </div>
+
+      {/* Daily-cap allocation (mandate 1): configurable reserves via DAILY_RESERVE_FIRST / DAILY_RESERVE_FOLLOW. */}
+      <div className="card p-4">
+        <h2 className="text-sm font-semibold text-chalk-100">Daily send allocation</h2>
+        <p className="mt-1 text-[12.5px] text-chalk-400">One shared cap of {allocation.cap} emails per LA accounting day. Reserve {allocation.reserveFirst} for qualified first-touch packages and {allocation.reserveFollow} for due follow-ups; unused reserve from either group transfers to the other, never exceeding {allocation.cap}. Oldest valid follow-ups go first within their allocation.</p>
+        <p className="mt-2 text-[12px] text-chalk-500">Today: first-touch target <span className="text-teal-300">{allocation.firstTarget}</span> · follow-up target <span className="text-azure-300">{allocation.followTarget}</span> · sent {allocation.sentFirstToday + allocation.sentFollowToday} · remaining {allocation.remainingTotal}. Configure via <code className="text-chalk-400">DAILY_RESERVE_FIRST</code> / <code className="text-chalk-400">DAILY_RESERVE_FOLLOW</code>.</p>
       </div>
 
       {/* Automatic daily lead engine */}

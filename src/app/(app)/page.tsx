@@ -31,11 +31,11 @@ export default async function TodayPage() {
           hint={c.needsVoiceover > 0 ? "Upload a voiceover and the rest is automatic" : "None waiting on you"}
         />
         <Row
-          href={firstAttention ? `/company/${firstAttention}` : undefined}
+          href={c.needsAttention > 0 ? `/needs-attention` : undefined}
           label="Needs attention"
           count={c.needsAttention}
           icon={<AlertTriangle size={16} className="text-coral-300" />}
-          hint={c.needsAttention > 0 ? "A render or package failed — open to resolve" : "Nothing needs a fix"}
+          hint={c.needsAttention > 0 ? "A render, package, or send failed — open to resolve" : "Nothing needs a fix"}
         />
       </Section>
 

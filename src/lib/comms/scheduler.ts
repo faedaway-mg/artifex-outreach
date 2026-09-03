@@ -137,11 +137,15 @@ export async function previewDueSends(opts: { now?: Date; force?: boolean; limit
  * dispatches sequentially for provider-rate safety, and returns a summary with
  * permanent failures surfaced for logging/monitoring.
  */
-export async function runDueSends(opts: { now?: Date; force?: boolean; limit?: number } = {}): Promise<SchedulerSummary> {
+export async function runDueSends(opts: { now?: Date; force?: boolean; limit?: number; maxSends?: number } = {}): Promise<SchedulerSummary> {
   const now = opts.now ?? new Date();
   const settings = await getSettings();
   const window = settings.sendingWindow ?? DEFAULT_WINDOW;
   const windowOpen = opts.force ? true : withinSendingWindow(now, window);
+  // Follow-up allocation ceiling for THIS tick (mandate 1). Beyond the shared 20/day cap, follow-ups are
+  // additionally bounded by their reserved-plus-borrowed slice so a morning first-touch batch can't starve
+  // them. Undefined = no extra bound (back-compat / manual runs).
+  const maxSends = opts.maxSends;
 
   // Global daily cap (§5): one shared ceiling of 20 prospect messages on the America/Los_Angeles accounting
   // date, across initial + follow-up + manual sends in EVERY timezone. Measured once from the ledger, then
@@ -154,6 +158,8 @@ export async function runDueSends(opts: { now?: Date; force?: boolean; limit?: n
   const ids = await dueStepIds(now, opts.limit ?? 500);
   summary.considered = ids.length;
   for (const id of ids) {
+    // Follow-up allocation ceiling reached this tick → stop (the rest wait for a later tick / tomorrow).
+    if (maxSends != null && summary.sent >= maxSends) { summary.capped++; continue; }
     // Hard admission check BEFORE dispatch: remaining = 20 − (already-sent-today + newly-sent-this-run).
     if (capBefore + summary.sent >= GLOBAL_DAILY_CAP) { summary.capped++; continue; }
     const r = await dispatchStep(id, { now });
