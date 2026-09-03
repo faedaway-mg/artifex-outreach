@@ -3,7 +3,7 @@ import { isAuthenticated } from "@/lib/auth";
 import { getLead } from "@/lib/repo";
 import {
   assembleDraftPackage, freezeProspectPackage, latestProspectPackage, packageShareUrl,
-  buildPackageEmail, revokePackageShare, resolvePackageForSendById,
+  buildPackageEmail, revokePackageShare, resolvePackageForSendById, autoAssembleFromRender,
 } from "@/lib/outreach/prospect-package-store";
 
 export const runtime = "nodejs";
@@ -56,6 +56,12 @@ export async function POST(req: NextRequest) {
   if (action === "assemble") {
     const { draft, state, blockers } = await assembleDraftPackage(leadId, draftInput);
     return NextResponse.json({ state, blockers, packageVersion: draft.packageVersion, hasVideo: !!draft.video, hasReview: !!draft.review });
+  }
+  // Post-render AUTOMATIC assembly → persists a READY_TO_APPROVE draft. Idempotent per render input
+  // version. Called by the worker after it publishes a verified prospect MP4 (and by the canary).
+  if (action === "autoAssemble") {
+    const r = await autoAssembleFromRender(leadId);
+    return NextResponse.json(r, { status: r.ok ? 200 : 422 });
   }
   if (action === "freeze") {
     const r = await freezeProspectPackage(leadId, draftInput);

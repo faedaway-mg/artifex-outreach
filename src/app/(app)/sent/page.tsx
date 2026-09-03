@@ -1,141 +1,113 @@
 import Link from "next/link";
 import { listAudit, allEmailSends, listLeads } from "@/lib/repo";
 import { receiptsFromAudit } from "@/lib/comms/receipt";
-import { Mail, Paperclip, CheckCircle2, ExternalLink, CalendarClock } from "lucide-react";
+import { Mail, CheckCircle2, CalendarClock, AlertTriangle, Clock } from "lucide-react";
 import { EmptyState } from "@/components/ui";
+import { buildCompanySnapshot } from "@/lib/outreach/company-snapshot";
 import { currentAllocation } from "@/lib/outreach/allocation-state";
-import { listScheduledBindings } from "@/lib/outreach/scheduled-batch";
 import { ACCOUNTING_TZ } from "@/lib/outreach/sending-window";
 import type { EmailSend, Lead } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
-const fmtTime = (iso: string) => new Date(iso).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
-const fmtDay = (iso: string) => new Date(iso).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
-const dayKey = (iso: string) => new Date(iso).toISOString().slice(0, 10);
+const fmtTime = (iso: string) => new Date(iso).toLocaleString("en-US", { timeZone: ACCOUNTING_TZ, month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 
-// Truthful delivery label from what the ledger actually knows (never claim "delivered" unless known).
-function statusLabel(s: EmailSend | undefined): { text: string; tone: string } {
-  if (!s) return { text: "Sent", tone: "text-teal-300" };
-  if (s.bouncedAt) return { text: "Bounced", tone: "text-coral-300" };
+// Provider-backed state only (mandate part 5): Provider accepted / Delivered / Bounced / Replied.
+function providerState(s: EmailSend | undefined, replied: boolean): { text: string; tone: string } {
+  if (replied) return { text: "Replied", tone: "text-emerald-300" };
+  if (!s) return { text: "Provider accepted", tone: "text-azure-300" };
+  if (s.bouncedAt || s.status === "bounced") return { text: "Bounced", tone: "text-coral-300" };
   if (s.complainedAt) return { text: "Complaint", tone: "text-coral-300" };
-  if (s.deliveredAt) return { text: "Delivered", tone: "text-teal-300" };
-  if (s.openedAt) return { text: "Opened", tone: "text-emerald-300" };
-  if (s.status === "failed") return { text: "Failed", tone: "text-coral-300" };
-  return { text: "Sent / accepted", tone: "text-teal-300" };
+  if (s.deliveredAt || s.status === "delivered") return { text: "Delivered", tone: "text-teal-300" };
+  return { text: "Provider accepted", tone: "text-azure-300" };
 }
 
-export default async function SentPage() {
-  const [audit, sends, leads, alloc, scheduled] = await Promise.all([listAudit(2000), allEmailSends(), listLeads(), currentAllocation(new Date()), listScheduledBindings()]);
+const TABS = [
+  { key: "upcoming", label: "Upcoming" },
+  { key: "sent", label: "Sent" },
+  { key: "attention", label: "Needs attention" },
+] as const;
+
+export default async function ActivityPage({ searchParams }: { searchParams?: { tab?: string } }) {
+  const tab = (["upcoming", "sent", "attention"].includes(searchParams?.tab ?? "") ? searchParams!.tab : "upcoming") as "upcoming" | "sent" | "attention";
+  const [audit, sends, leads, snap, alloc] = await Promise.all([listAudit(2000), allEmailSends(), listLeads(), buildCompanySnapshot(new Date()), currentAllocation(new Date())]);
   const receipts = receiptsFromAudit(audit);
   const sendById = new Map<string, EmailSend>(sends.map((s) => [s.id, s]));
   const leadById = new Map<string, Lead>(leads.map((l) => [l.id, l]));
-  const schedSorted = [...scheduled].sort((a, b) => (a.binding.scheduledAt < b.binding.scheduledAt ? -1 : 1));
-
-  // Group by calendar day (newest first) so "who did I email today" is the top group.
-  const groups: { key: string; label: string; items: typeof receipts }[] = [];
-  for (const r of receipts) {
-    const k = dayKey(r.sentAt);
-    let g = groups.find((x) => x.key === k);
-    if (!g) { g = { key: k, label: fmtDay(r.sentAt), items: [] }; groups.push(g); }
-    g.items.push(r);
-  }
+  const repliedLeads = new Set(snap.replies.map((r) => r.leadId));
+  const nextSched = [...snap.scheduled].sort((a, b) => (a.scheduledAt < b.scheduledAt ? -1 : 1))[0];
 
   return (
-    <div className="space-y-6">
+    <div className="mx-auto max-w-2xl space-y-5">
       <div>
         <p className="eyebrow mb-1">Outreach</p>
-        <h1 className="text-2xl font-semibold text-chalk-50">Sent &amp; Scheduled</h1>
-        <p className="mt-1 text-sm text-chalk-400">Every approved email that left Artifex, plus what’s scheduled to send — and today’s daily-cap allocation.</p>
+        <h1 className="text-2xl font-semibold text-chalk-50">Activity</h1>
       </div>
 
-      {/* Daily-cap allocation (mandate 1) — the 10/10 reserve with cross-transfer, today's split. */}
-      <div className="rounded-xl border border-white/10 bg-white/[0.02] p-4">
-        <div className="mb-2 flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-chalk-200">Today’s send allocation</h2>
-          <span className="text-[11px] text-chalk-500">cap {alloc.cap}/LA-day · reserve {alloc.reserveFirst} first · {alloc.reserveFollow} follow-up</span>
-        </div>
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-          <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2"><div className="text-lg font-semibold tabular-nums text-teal-300">{alloc.firstTarget}</div><div className="text-[10.5px] uppercase tracking-wide text-chalk-500">First-touch today</div></div>
-          <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2"><div className="text-lg font-semibold tabular-nums text-azure-300">{alloc.followTarget}</div><div className="text-[10.5px] uppercase tracking-wide text-chalk-500">Follow-ups today</div></div>
-          <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2"><div className="text-lg font-semibold tabular-nums text-chalk-200">{alloc.sentFirstToday + alloc.sentFollowToday}</div><div className="text-[10.5px] uppercase tracking-wide text-chalk-500">Sent so far</div></div>
-          <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2"><div className="text-lg font-semibold tabular-nums text-chalk-200">{alloc.remainingTotal}</div><div className="text-[10.5px] uppercase tracking-wide text-chalk-500">Remaining</div></div>
-        </div>
-        <p className="mt-2 text-[11.5px] text-chalk-500">Demand now: {alloc.firstDemand} first-touch ready · {alloc.followDemand} follow-ups due. Unused reserve from either group transfers to the other, never exceeding {alloc.cap}.</p>
+      {/* Concise top summary only — next send, scheduled, sent today, remaining capacity. No allocation lecture. */}
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <Stat label="Next send" value={nextSched ? fmtTime(nextSched.scheduledAt).replace(", ", " ") : "—"} tone="text-azure-300" small />
+        <Stat label="Scheduled" value={String(snap.counts.scheduled)} tone="text-azure-300" />
+        <Stat label="Sent today" value={String(snap.counts.sentToday)} tone="text-teal-300" />
+        <Stat label="Remaining today" value={String(alloc.remainingTotal)} tone="text-chalk-200" />
       </div>
 
-      {schedSorted.length > 0 && (
-        <section>
-          <h2 className="mb-2 flex items-center gap-2 text-[12px] font-medium uppercase tracking-wide text-chalk-500"><CalendarClock size={13} className="text-azure-300" /> Scheduled · {schedSorted.length}</h2>
+      <div className="flex gap-1 border-b border-white/10">
+        {TABS.map((t) => (
+          <Link key={t.key} href={`/sent?tab=${t.key}`} className={`-mb-px border-b-2 px-3 py-2 text-[13px] ${tab === t.key ? "border-azure-400 text-chalk-100" : "border-transparent text-chalk-500 hover:text-chalk-300"}`}>{t.label}</Link>
+        ))}
+      </div>
+
+      {tab === "upcoming" && (
+        snap.scheduled.length === 0 ? <EmptyState icon={CalendarClock} title="Nothing upcoming." hint="Scheduled messages appear here with their future send time." /> : (
           <ul className="divide-y divide-white/5 rounded-xl border border-white/10 bg-white/[0.02]">
-            {schedSorted.map((s) => (
+            {[...snap.scheduled].sort((a, b) => (a.scheduledAt < b.scheduledAt ? -1 : 1)).map((s) => (
               <li key={s.leadId} className="flex items-center justify-between gap-3 px-4 py-2.5">
-                <div className="min-w-0"><div className="truncate text-[13px] text-chalk-100">{leadById.get(s.leadId)?.businessName ?? s.leadId}</div><div className="truncate text-[11.5px] text-chalk-500">{s.binding.recipient} · Quick Review PDF + video link</div></div>
-                <span className="shrink-0 text-[11.5px] text-azure-300">{new Date(s.binding.scheduledAt).toLocaleString("en-US", { timeZone: ACCOUNTING_TZ, weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })} PT</span>
+                <div className="min-w-0"><div className="truncate text-[13px] text-chalk-100">{leadById.get(s.leadId)?.businessName ?? s.leadId}</div><div className="truncate text-[11.5px] text-chalk-500">{s.recipient}</div></div>
+                <span className="flex shrink-0 items-center gap-1 text-[11.5px] text-azure-300"><Clock size={11} /> {fmtTime(s.scheduledAt)} PT</span>
               </li>
             ))}
           </ul>
-        </section>
+        )
       )}
 
-      {receipts.length === 0 ? (
-        <EmptyState icon={Mail} title="No emails sent yet." hint="Approved Business Technology Review emails will appear here with a full receipt." />
-      ) : (
-        <div className="space-y-6">
-          {groups.map((g) => (
-            <section key={g.key}>
-              <h2 className="mb-2 text-[12px] font-medium uppercase tracking-wide text-chalk-500">{g.label} · {g.items.length}</h2>
-              <div className="space-y-2">
-                {g.items.map((r) => {
-                  const st = statusLabel(sendById.get(r.sendId));
-                  const lead = leadById.get(r.leadId);
-                  return (
-                    <details key={r.id} className="card group p-4">
-                      <summary className="flex cursor-pointer list-none items-center justify-between gap-3">
-                        <div className="min-w-0">
-                          <p className="truncate text-sm font-semibold text-chalk-50">{r.businessName}</p>
-                          <p className="truncate text-[12.5px] text-chalk-400">{r.subject}</p>
-                          <p className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11.5px] text-chalk-500">
-                            <span>To {r.toAddr}</span>
-                            {r.attachmentFilename && <span className="inline-flex items-center gap-1 text-chalk-400"><Paperclip size={11} /> Review attached</span>}
-                          </p>
-                        </div>
-                        <div className="shrink-0 text-right">
-                          <p className="text-[12px] tabular-nums text-chalk-300">{fmtTime(r.sentAt)}</p>
-                          <p className={`inline-flex items-center gap-1 text-[11px] ${st.tone}`}><CheckCircle2 size={11} /> {st.text}</p>
-                        </div>
-                      </summary>
-                      {/* The receipt — the EXACT payload dispatched. Not a regenerable draft. */}
-                      <div className="mt-3 space-y-3 border-t border-white/[0.06] pt-3">
-                        <div>
-                          <p className="text-[11px] font-medium uppercase tracking-wide text-chalk-500">Subject sent</p>
-                          <p className="mt-0.5 text-[13px] text-chalk-200">{r.subject}</p>
-                        </div>
-                        <div>
-                          <p className="text-[11px] font-medium uppercase tracking-wide text-chalk-500">Body sent (exact)</p>
-                          <pre className="mt-0.5 whitespace-pre-wrap font-sans text-[13px] leading-relaxed text-chalk-300">{r.bodyText}</pre>
-                        </div>
-                        {r.attachmentFilename && (
-                          <div>
-                            <p className="text-[11px] font-medium uppercase tracking-wide text-chalk-500">Review attached</p>
-                            <p className="mt-0.5 text-[13px] text-chalk-300">{r.attachmentFilename} <span className="text-chalk-600">· sha256 {r.attachmentSha256?.slice(0, 12)}…</span></p>
-                          </div>
-                        )}
-                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11.5px] text-chalk-500">
-                          <span>Sent {new Date(r.sentAt).toLocaleString()}</span>
-                          {r.providerMessageId && <span>Message-ID {r.providerMessageId}</span>}
-                          {lead?.nextFollowUpAt && <span className="text-amber-300/80">Follow-up {new Date(lead.nextFollowUpAt).toLocaleDateString()}</span>}
-                          <Link href={`/leads/${r.leadId}`} className="inline-flex items-center gap-1 text-azure-300 hover:text-azure-200">Open business <ExternalLink size={11} /></Link>
-                        </div>
-                      </div>
-                    </details>
-                  );
-                })}
-              </div>
-            </section>
-          ))}
-        </div>
+      {tab === "sent" && (
+        receipts.length === 0 ? <EmptyState icon={Mail} title="No emails sent yet." hint="Provider-accepted emails appear here with delivery state." /> : (
+          <ul className="divide-y divide-white/5 rounded-xl border border-white/10 bg-white/[0.02]">
+            {receipts.slice(0, 100).map((r) => {
+              const st = providerState(sendById.get(r.sendId), repliedLeads.has(r.leadId));
+              return (
+                <li key={r.id} className="flex items-center justify-between gap-3 px-4 py-2.5">
+                  <div className="min-w-0"><div className="truncate text-[13px] text-chalk-100">{r.businessName}</div><div className="truncate text-[11.5px] text-chalk-500">{r.toAddr} · {fmtTime(r.sentAt)} PT</div></div>
+                  <span className={`flex shrink-0 items-center gap-1 text-[11.5px] ${st.tone}`}><CheckCircle2 size={11} /> {st.text}</span>
+                </li>
+              );
+            })}
+          </ul>
+        )
       )}
+
+      {tab === "attention" && (
+        snap.needsAttention.length === 0 ? <EmptyState icon={AlertTriangle} title="Nothing needs attention." hint="Genuine automation failures appear here." /> : (
+          <ul className="divide-y divide-white/5 rounded-xl border border-white/10 bg-white/[0.02]">
+            {snap.needsAttention.map((r) => (
+              <li key={r.leadId} className="flex items-center justify-between gap-3 px-4 py-2.5">
+                <div className="min-w-0"><div className="truncate text-[13px] text-chalk-100">{r.business}</div><div className="truncate text-[11.5px] text-chalk-500">{r.failedAction ?? "Video render"} failed{r.failReason ? ` · ${r.failReason}` : ""}</div></div>
+                <span className="shrink-0 text-[11px] text-chalk-500">{r.retryAvailable ? "retryable" : "terminal"}</span>
+              </li>
+            ))}
+          </ul>
+        )
+      )}
+    </div>
+  );
+}
+
+function Stat({ label, value, tone, small }: { label: string; value: string; tone: string; small?: boolean }) {
+  return (
+    <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2">
+      <div className={`${small ? "text-[13px]" : "text-lg"} font-semibold tabular-nums ${tone}`}>{value}</div>
+      <div className="text-[10.5px] uppercase tracking-wide text-chalk-500">{label}</div>
     </div>
   );
 }

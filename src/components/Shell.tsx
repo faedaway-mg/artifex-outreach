@@ -19,12 +19,14 @@ import { BrandMark } from "@/components/BrandMark";
 // Hard-simplification (mandate V): ONE shared nav, only the operator-facing surfaces. Everything
 // that is automatic (discovery, pipeline, approvals, scoring, portfolio management, launch, insights,
 // team) lives in the backend and is NOT navigable. Sent & Scheduled is a single destination.
+// Desktop uses descriptive labels; mobile uses SHORT labels that never wrap (mandate part 5). Both route
+// to the same surfaces. Replies = the conversation inbox; Activity = upcoming/sent/needs-attention.
 const NAV = [
-  { href: "/", label: "Today", icon: LayoutGrid },
-  { href: "/meetings", label: "Conversations", icon: CalendarClock },
-  { href: "/sent", label: "Sent & Scheduled", icon: Mail },
-  { href: "/content-studio", label: "Content Studio", icon: Clapperboard },
-  { href: "/settings", label: "Settings", icon: SettingsIcon },
+  { href: "/", label: "Today", short: "Today", icon: LayoutGrid },
+  { href: "/meetings", label: "Replies", short: "Replies", icon: CalendarClock },
+  { href: "/sent", label: "Activity", short: "Activity", icon: Mail },
+  { href: "/content-studio", label: "Content Studio", short: "Studio", icon: Clapperboard },
+  { href: "/settings", label: "Settings", short: "Settings", icon: SettingsIcon },
 ];
 
 // With only five destinations, the same five are the mobile bottom bar (no drawer overflow).
@@ -32,9 +34,10 @@ const MOBILE_PRIMARY = NAV;
 
 const TITLES: Record<string, string> = {
   "/": "Today",
-  "/meetings": "Conversations",
-  "/sent": "Sent & Scheduled",
-  "/blocked": "Blocked",
+  "/meetings": "Replies",
+  "/sent": "Activity",
+  "/blocked": "Automatically excluded",
+  "/needs-attention": "Needs attention",
   "/content-studio": "Content Studio",
   "/settings": "Settings",
 };
@@ -171,12 +174,12 @@ export function Shell({ children }: { children: React.ReactNode }) {
 
         {/* Mobile bottom navigation — the 3 daily destinations + Menu (the full map) */}
         <nav className="fixed inset-x-0 bottom-0 z-30 flex items-stretch justify-around glass-1 pb-[env(safe-area-inset-bottom)] md:hidden" aria-label="Primary">
-          {MOBILE_PRIMARY.map(({ href, label, icon: Icon }) => {
+          {MOBILE_PRIMARY.map(({ href, short, icon: Icon }) => {
             const active = isActive(href);
             return (
-              <Link key={href} href={href} aria-current={active ? "page" : undefined} className={cn("flex flex-1 flex-col items-center gap-0.5 py-2.5 text-[10.5px]", active ? "text-azure-300" : "text-chalk-500")}>
+              <Link key={href} href={href} aria-current={active ? "page" : undefined} className={cn("flex flex-1 flex-col items-center gap-0.5 py-2.5 text-[10px]", active ? "text-azure-300" : "text-chalk-500")}>
                 <Icon size={20} strokeWidth={active ? 2.1 : 1.7} />
-                {label}
+                <span className="whitespace-nowrap">{short}</span>
               </Link>
             );
           })}

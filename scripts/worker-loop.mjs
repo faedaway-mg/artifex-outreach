@@ -85,6 +85,29 @@ export async function renderWithLease(sql, job, renderFn, { timeoutMs, leaseMs }
   }
 }
 
+// POST-RENDER HOOK (prospect videos only): after a verified MP4 is published, ask the app to AUTOMATICALLY
+// assemble a DRAFT prospect package → READY_TO_APPROVE. Field Notes (non client-* pieces) are skipped.
+// Best-effort + idempotent server-side: a failure here NEVER breaks the drain; the app hook converges on
+// retry / next completion. Auth via the shared CS_CANARY_SECRET header (never a prospect send).
+export async function assemblePackageHook(job) {
+  const pieceId = job?.piece_id ?? job?.pieceId;
+  if (typeof pieceId !== "string" || !pieceId.startsWith("client-")) return;
+  const leadId = pieceId.slice("client-".length);
+  const base = process.env.CS_APP_BASE || process.env.PUBLIC_BASE_URL || "https://outreach.artifexlabs.tech";
+  const secret = process.env.CS_CANARY_SECRET;
+  if (!secret || !leadId) return;
+  try {
+    const res = await fetch(`${base.replace(/\/$/, "")}/api/content-studio/client/package`, {
+      method: "POST", headers: { "content-type": "application/json", "x-cs-canary": secret },
+      body: JSON.stringify({ leadId, action: "autoAssemble" }),
+    });
+    const body = await res.json().catch(() => ({}));
+    console.log(JSON.stringify({ hook: "autoAssemble", leadId, status: res.status, ok: body.ok ?? null, state: body.state ?? null, idempotent: body.idempotent ?? null, reason: body.reason ?? null }));
+  } catch (e) {
+    console.log(JSON.stringify({ hook: "autoAssemble", leadId, error: String(e?.message ?? e).slice(0, 160) }));
+  }
+}
+
 // Drain the queue: claim → render → publish, up to maxJobs, then RETURN (caller exits). Bounded.
 export async function drainQueue(sql, renderFn, opts = cfg()) {
   const recovered = await recoverStale(sql, opts);
@@ -95,7 +118,7 @@ export async function drainQueue(sql, renderFn, opts = cfg()) {
     try {
       const result = await renderWithLease(sql, job, renderFn, opts);
       const published = await publishSuccess(sql, job, result);
-      if (published) done.rendered++;
+      if (published) { done.rendered++; await assemblePackageHook(job); }
       else done.skippedOwnership++; // a newer attempt won — we discard, never overwrite
     } catch (e) {
       await failOrRetry(sql, job, String(e?.message ?? e), opts);

@@ -30,6 +30,7 @@ import { resolveSendingWindow, nextSendingDateKey, ACCOUNTING_TZ } from "./sendi
 import { withinMorningWindow } from "./outreach-scheduler";
 import { retryEligibility, terminalFailureReason } from "../comms/failure-classification";
 import { isSent, MAX_ATTEMPTS } from "../comms/state";
+import { resolveFrozenReviewForSend } from "./quick-review-freeze";
 
 const TERMINAL = new Set(["Won", "Lost", "Disqualified", "Nurture"]);
 
@@ -108,6 +109,7 @@ export async function buildCompanySnapshot(now: Date = new Date()): Promise<Comp
   const windowOpen = withinMorningWindow(now, window.timezone, window);
   const nextDateLabel = new Date(dateKey + "T12:00:00Z").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
   const isSameDay = (iso?: string | null) => { if (!iso) return false; const d = new Date(iso); return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate(); };
+  const nowIso = now.toISOString();
 
   const snap: CompanySnapshot = {
     counts: { needsVoiceover: 0, needsAttention: 0, readyToSchedule: 0, scheduled: 0, sentToday: 0, replies: 0, blocked: 0, remainingCapacity: Math.max(0, 20 - emailsSentToday) },
@@ -130,8 +132,13 @@ export async function buildCompanySnapshot(now: Date = new Date()): Promise<Comp
     // 2) Replies that actually need Jordan
     if (repliedLeadIds.has(lead.id)) { const m = inbound.find((x) => x.leadId === lead.id); snap.replies.push({ leadId: lead.id, business: lead.businessName, when: m?.receivedAt ? new Date(m.receivedAt).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "" }); continue; }
 
-    // 3) Scheduled (future send bound)
-    if (scheduledLeadIds.has(lead.id)) { const b = scheduledBindings.find((x) => x.leadId === lead.id)!.binding; snap.scheduled.push({ leadId: lead.id, business: lead.businessName, recipient: b.recipient, scheduledAt: b.scheduledAt }); continue; }
+    // 3) Scheduled — ONLY genuinely FUTURE bindings. A past-due timestamp is never "Scheduled": it is
+    // being reconciled (rescheduled forward or terminated) and must not show as future work.
+    if (scheduledLeadIds.has(lead.id)) {
+      const b = scheduledBindings.find((x) => x.leadId === lead.id)!.binding;
+      if (b.scheduledAt > nowIso) { snap.scheduled.push({ leadId: lead.id, business: lead.businessName, recipient: b.recipient, scheduledAt: b.scheduledAt }); continue; }
+      // past-due → fall through; it is not shown as scheduled until the reconciler moves it forward.
+    }
 
     // Package/video state for this lead
     const pieceId = `client-${lead.id}`;
@@ -148,12 +155,18 @@ export async function buildCompanySnapshot(now: Date = new Date()): Promise<Comp
     const elig = emailQueueEligibility({ review, recipientValid: validEmail(lead.publicEmail), suppressed: await isSuppressed({ email: lead.publicEmail, domain: lead.websiteDomain, phone: lead.phone }), held: !!est.held });
     const row = (state: FocusState): FocusRow => ({ leadId: lead.id, business: lead.businessName, recipient: lead.publicEmail ?? null, finding, state });
 
-    // 4) Video-required, not yet ready → the operator's voiceover (or a render in flight / failed)
+    // 4) Video-required, not yet ready. A company enters "Record voiceovers" ONLY when everything EXCEPT
+    // the voiceover is already prepared: a client piece exists, a directly-observed finding, a resolved
+    // recipient, and a frozen-ready Quick Review PDF. Anything less is upstream automatic-preparation work
+    // (not the operator's) → it falls through to the excluded buckets, never a false voiceover row.
     if (videoRequired && !videoReady) {
-      if (active) { snap.needsVoiceover.push(row("generating")); }        // rendering: shows as generating in the queue
-      else if (lastJob?.status === "failed") { snap.needsAttention.push(row("needs-attention")); }
-      else { snap.needsVoiceover.push(row("needs-voiceover")); }
-      continue;
+      if (active) { snap.needsVoiceover.push(row("generating")); continue; }        // a render is in flight
+      if (lastJob?.status === "failed") { snap.needsAttention.push(row("needs-attention")); continue; }
+      const pieceExists = jobsForPiece.length > 0;
+      let prepared = pieceExists && !!finding && validEmail(lead.publicEmail) && review.status !== "INSUFFICIENT_EVIDENCE";
+      if (prepared) { const frozen = await resolveFrozenReviewForSend(lead.id).catch(() => ({ ok: false })); prepared = !!(frozen as { ok: boolean }).ok; }
+      if (prepared) { snap.needsVoiceover.push(row("needs-voiceover")); continue; }
+      // not prepared → fall through to the excluded buckets (in automatic preparation).
     }
 
     // 5) Ready to schedule — SENDABLE, valid recipient, uncontacted (parity with the schedule engine)

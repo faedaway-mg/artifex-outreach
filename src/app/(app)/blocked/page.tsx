@@ -12,8 +12,8 @@ export default async function BlockedPage() {
   return (
     <div className="mx-auto max-w-2xl">
       <div className="flex items-center gap-2 text-[13px] text-chalk-400"><Link href="/" className="hover:underline"><ArrowLeft size={14} className="inline" /> Today</Link></div>
-      <h1 className="mt-2 flex items-center gap-2 text-xl font-semibold text-chalk-50"><Ban size={20} className="text-chalk-400" /> Blocked · {snap.counts.blocked}</h1>
-      <p className="mt-1 text-[13px] text-chalk-400">Why these companies aren’t ready to send. Automation retries what it safely can; the rest is genuinely stuck until its input changes.</p>
+      <h1 className="mt-2 flex items-center gap-2 text-xl font-semibold text-chalk-50"><Ban size={20} className="text-chalk-400" /> Automatically excluded · {snap.counts.blocked}</h1>
+      <p className="mt-1 text-[13px] text-chalk-400">These companies are not your workload — automation excluded them and retries what it safely can. The rest are genuinely stuck until their input changes.</p>
 
       <div className="mt-5 space-y-4">
         {snap.blocked.map((b) => (

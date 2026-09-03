@@ -133,6 +133,12 @@ export async function POST(req: NextRequest) {
 
     const summary = await materializeDueSteps({ apply: !dryRun, horizon });
 
+    // Past-due scheduled reconciler (never sends): a missed cron tick must not leave an Aug-31 timestamp
+    // displayed as future "Scheduled" work. Provider-accepted → cleared; still-eligible → moved to the
+    // next future window (idempotent); ineligible → terminated. Runs every tick; safe + convergent.
+    const { reconcileScheduledBindings } = await import("@/lib/outreach/scheduled-batch");
+    const scheduleReconcile = await reconcileScheduledBindings({ now: new Date(), apply: !dryRun });
+
     // ── Inventory diagnostic (read-only) ──────────────────────────────────────
     // Answers "why is the email reservoir only N?" from live data, without a second analytics
     // system: a queue-state breakdown (who owns each off-board business) + the email-prep
@@ -252,6 +258,7 @@ export async function POST(req: NextRequest) {
       dryRun,
       horizon,
       sent: 0, // this route never sends — stated explicitly so monitoring can assert it
+      scheduleReconcile, // past-due bindings: rescheduled forward / terminated / cleared-if-sent
       routed: routing, // understand-placeholder → execution-stream materialization (null on dryRun)
       emailPrep: prep, // bounded email-inventory preparation (null unless EMAIL_PREP_ENABLED=1)
       inventory, // read-only reservoir + queue-state diagnostic (dryRun only) — why is readyToday what it is

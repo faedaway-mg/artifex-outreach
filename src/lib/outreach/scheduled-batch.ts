@@ -11,7 +11,8 @@
 // silent replacement, stale attachment, or bare email.
 // ─────────────────────────────────────────────────────────────────────────────
 import { createHash } from "crypto";
-import { getLead, isSuppressed, appendAudit, commitReviewEditorial, allBusinessIntelligence } from "../repo";
+import { getLead, isSuppressed, appendAudit, commitReviewEditorial, allBusinessIntelligence, allEmailSends, getSettings } from "../repo";
+import { resolveSendingWindow, nextSendingDateKey } from "./sending-window";
 import { validEmail } from "../acquisition/compliance";
 import {
   effectiveReviewFor, renderCurrentArtifact, revisionFingerprint, getEditorialState, TEMPLATE_VERSION,
@@ -113,6 +114,55 @@ export async function scheduleBatch(leadIds: string[], opts: { dateKey: string; 
     else result.removed.push({ leadId, reason: "another edit landed first (retry)" });
   }
   await appendAudit({ action: "outreach.schedule.batch", actor: opts.by, targetType: "campaign", targetId: opts.batchId, meta: { dateKey: opts.dateKey, scheduled: result.scheduled.length, removed: result.removed.length }, ip: null });
+  return result;
+}
+
+// ── PAST-DUE RECONCILER — a missed cron tick must never leave a past timestamp shown as future work ────
+export interface ScheduledReconcileResult {
+  ranAt: string;
+  pastDue: number;
+  alreadySent: Array<{ leadId: string; providerId: string | null }>;
+  rescheduled: Array<{ leadId: string; from: string; to: string }>;
+  terminated: Array<{ leadId: string; reason: string }>;
+}
+
+/**
+ * Reconcile every PAST-DUE scheduled binding (scheduledAt <= now):
+ *   • already provider-accepted in the ledger → clear the binding (it's Sent, not scheduled);
+ *   • still eligible (re-verified via validateScheduled) → reschedule idempotently into the NEXT future
+ *     window (staggered), preserving ledger identity + duplicate protection (never sends);
+ *   • suppressed / replied / drifted / invalid → cancel the binding (terminal) with a reason.
+ * Idempotent: a second run sees the rescheduled items as future and leaves them alone. apply:false = report.
+ */
+export async function reconcileScheduledBindings(opts: { now?: Date; apply?: boolean } = {}): Promise<ScheduledReconcileResult> {
+  const now = opts.now ?? new Date();
+  const nowIso = now.toISOString();
+  const apply = opts.apply !== false;
+  const [all, sends, settings] = await Promise.all([listScheduledBindings(), allEmailSends(), getSettings()]);
+  const pastDue = all.filter((b) => b.binding.scheduledAt <= nowIso);
+  const win = resolveSendingWindow(settings);
+  const window = { tz: win.timezone, startHour: win.startHour, endHour: win.endHour };
+  const dateKey = nextSendingDateKey(now, win);
+  const times = staggeredTimes(dateKey, pastDue.length, window);
+  const result: ScheduledReconcileResult = { ranAt: nowIso, pastDue: pastDue.length, alreadySent: [], rescheduled: [], terminated: [] };
+
+  let i = 0;
+  for (const { leadId, binding } of pastDue) {
+    // Provider-accepted already? Then it's Sent — clear the stale scheduled binding.
+    const sent = sends.find((s) => s.leadId === leadId && (s.status === "sent" || s.status === "delivered" || !!s.sentAt));
+    if (sent) { if (apply) await persistBinding(leadId, null); result.alreadySent.push({ leadId, providerId: sent.providerMessageId ?? null }); continue; }
+    // Re-verify at the boundary; ineligible → terminate (Needs attention), never silently resend.
+    const v = await validateScheduled(leadId, binding);
+    if (!v.ok) { if (apply) await persistBinding(leadId, null); result.terminated.push({ leadId, reason: v.reason ?? "no longer eligible" }); continue; }
+    // Eligible → move forward to the next future window slot (idempotent; keeps batchId + revision).
+    const to = times[i++] ?? times[times.length - 1];
+    const from = binding.scheduledAt;
+    if (apply) await persistBinding(leadId, { ...binding, scheduledAt: to });
+    result.rescheduled.push({ leadId, from, to });
+  }
+  if (apply && (result.rescheduled.length || result.terminated.length || result.alreadySent.length)) {
+    await appendAudit({ action: "outreach.schedule.reconcile", actor: "system", targetType: "campaign", targetId: null, meta: { pastDue: result.pastDue, rescheduled: result.rescheduled.length, terminated: result.terminated.length, alreadySent: result.alreadySent.length, dateKey }, ip: null });
+  }
   return result;
 }
 
