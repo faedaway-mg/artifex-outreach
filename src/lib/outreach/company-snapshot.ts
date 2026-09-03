@@ -14,8 +14,10 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import type { Lead } from "../types";
 import {
-  listLeads, allBusinessIntelligence, allEmailSends, allTasks, getSettings, isSuppressed, listOperators, allInbound,
+  listLeads, allBusinessIntelligence, allEmailSends, allTasks, getSettings, isSuppressed, listOperators, allInbound, listAudit,
 } from "../repo";
+import { PROSPECT_PACKAGE_ACTION } from "./prospect-package-store";
+import type { FrozenProspectPackage } from "./prospect-package";
 import { isInternalLead } from "../operators/assignment";
 import { emailsSentOn } from "./send-capacity";
 import { validEmail } from "../acquisition/compliance";
@@ -86,9 +88,17 @@ const REASON_MAP: Record<string, BlockedReasonKey> = {
 };
 
 export async function buildCompanySnapshot(now: Date = new Date()): Promise<CompanySnapshot> {
-  const [leads, bi, emailSends, everyTask, settings, operators, csJobs, scheduledBindings, inbound] = await Promise.all([
-    listLeads(), allBusinessIntelligence(), allEmailSends(), allTasks(), getSettings(), listOperators(), csListJobs(), listScheduledBindings(), allInbound(),
+  const [leads, bi, emailSends, everyTask, settings, operators, csJobs, scheduledBindings, inbound, audit] = await Promise.all([
+    listLeads(), allBusinessIntelligence(), allEmailSends(), allTasks(), getSettings(), listOperators(), csListJobs(), listScheduledBindings(), allInbound(), listAudit(5000),
   ]);
+  // Latest prospect package per lead (bulk; audit is recent-first). The persisted draft is the authoritative
+  // signal of "prepared, awaiting only voiceover" (INCOMPLETE) or "assembled, awaiting approval" (READY_TO_APPROVE).
+  const pkgByLead = new Map<string, FrozenProspectPackage>();
+  for (const a of audit) {
+    if (a.action !== PROSPECT_PACKAGE_ACTION) continue;
+    const pkg = (a.meta as { pkg?: FrozenProspectPackage } | undefined)?.pkg;
+    if (pkg?.leadId && !pkgByLead.has(pkg.leadId)) pkgByLead.set(pkg.leadId, pkg); // first seen = latest
+  }
   const internal = new Set(leads.filter(isInternalLead).map((l) => l.id));
   const emailsSentToday = emailsSentOn(emailSends, now, { excludeLeadIds: internal });
   const scheduledLeadIds = new Set(scheduledBindings.map((b) => b.leadId));
@@ -154,20 +164,19 @@ export async function buildCompanySnapshot(now: Date = new Date()): Promise<Comp
     const est = await getEditorialState(lead.id);
     const elig = emailQueueEligibility({ review, recipientValid: validEmail(lead.publicEmail), suppressed: await isSuppressed({ email: lead.publicEmail, domain: lead.websiteDomain, phone: lead.phone }), held: !!est.held });
     const row = (state: FocusState): FocusRow => ({ leadId: lead.id, business: lead.businessName, recipient: lead.publicEmail ?? null, finding, state });
+    const pkg = pkgByLead.get(lead.id);
 
-    // 4) Video-required, not yet ready. A company enters "Record voiceovers" ONLY when everything EXCEPT
-    // the voiceover is already prepared: a client piece exists, a directly-observed finding, a resolved
-    // recipient, and a frozen-ready Quick Review PDF. Anything less is upstream automatic-preparation work
-    // (not the operator's) → it falls through to the excluded buckets, never a false voiceover row.
-    if (videoRequired && !videoReady) {
+    // 4) A PREPARED prospect-video package is the authoritative "Record voiceovers" signal. The upstream
+    // orchestrator only persists an INCOMPLETE draft once EVERYTHING except the voiceover exists (client
+    // piece + finding + recipient + frozen PDF + narration + screenshot). So a company is voiceover-ready
+    // iff it has an INCOMPLETE draft; a READY_TO_APPROVE draft (video assembled) is ready-to-schedule.
+    if (pkg && (pkg.state === "INCOMPLETE" || pkg.state === "READY_TO_APPROVE")) {
+      if (pkg.state === "READY_TO_APPROVE" || videoReady) { snap.ready.push(row("ready-to-schedule")); continue; }
       if (active) { snap.needsVoiceover.push(row("generating")); continue; }        // a render is in flight
       if (lastJob?.status === "failed") { snap.needsAttention.push(row("needs-attention")); continue; }
-      const pieceExists = jobsForPiece.length > 0;
-      let prepared = pieceExists && !!finding && validEmail(lead.publicEmail) && review.status !== "INSUFFICIENT_EVIDENCE";
-      if (prepared) { const frozen = await resolveFrozenReviewForSend(lead.id).catch(() => ({ ok: false })); prepared = !!(frozen as { ok: boolean }).ok; }
-      if (prepared) { snap.needsVoiceover.push(row("needs-voiceover")); continue; }
-      // not prepared → fall through to the excluded buckets (in automatic preparation).
+      snap.needsVoiceover.push(row("needs-voiceover")); continue;
     }
+    void videoRequired;
 
     // 5) Ready to schedule — SENDABLE, valid recipient, uncontacted (parity with the schedule engine)
     if (elig.ready && review.status === "SENDABLE" && !contacted.has(lead.id)) { snap.ready.push(row("ready-to-schedule")); continue; }

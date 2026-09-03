@@ -173,6 +173,28 @@ export async function reconcileReadyProspectPackages(): Promise<{ scanned: numbe
   return out;
 }
 
+/**
+ * Create/refresh the INCOMPLETE draft prospect package for a lead that is being prepared (pre-video):
+ * binds the frozen review + evidence + (minted) share, persists it so the lead has a real draft record
+ * "awaiting only voiceover/video". Idempotent: if a package for this review version already exists at a
+ * non-frozen state it is a no-op; a frozen/scheduled/sent package is never touched. Never freezes/sends.
+ */
+export async function ensureDraftPackage(leadId: string, input: { subject: string; bodyHtml: string; bodyText: string }, deps: AssembleDeps = {}): Promise<{ ok: boolean; state?: ProspectPackageState; reason?: string; packageVersion?: number; created?: boolean }> {
+  const { draft, state } = await assembleDraftPackage(leadId, { ...input, videoRequired: true }, deps);
+  if (!draft.review) return { ok: false, reason: "review not frozen yet" };
+  const prior = await latestProspectPackage(leadId);
+  if (prior && ["FROZEN", "SCHEDULED", "SENT"].includes(prior.state)) return { ok: true, state: prior.state, packageVersion: prior.packageVersion, created: false };
+  // Idempotent on identical review binding + no video yet (draft phase): don't churn duplicate rows.
+  if (prior && prior.state === state && prior.review?.sha256 === draft.review.sha256 && !prior.video && !draft.video) return { ok: true, state: prior.state, packageVersion: prior.packageVersion, created: false };
+  const record: FrozenProspectPackage = {
+    ...draft, recordVersion: PROSPECT_PACKAGE_RECORD_VERSION, review: draft.review, share: draft.share,
+    packageDigest: "", state, frozenAt: "", approvedBy: "system-prepare",
+  };
+  record.packageDigest = computePackageDigest(record);
+  await appendAudit({ action: PROSPECT_PACKAGE_ACTION, actor: "system-prepare", targetType: "lead", targetId: leadId, meta: { pkg: record } as unknown as Record<string, unknown>, ip: null });
+  return { ok: true, state, packageVersion: record.packageVersion, created: true };
+}
+
 // ── Freeze (from Approve*) ────────────────────────────────────────────────────────────────────────────
 export interface FreezeResult { ok: boolean; packageVersion?: number; digest?: string; blocked?: boolean; reason?: string; idempotent?: boolean }
 

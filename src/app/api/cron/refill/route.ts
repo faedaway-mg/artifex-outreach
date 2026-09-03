@@ -54,9 +54,22 @@ export async function POST(req: NextRequest) {
         })
       : null;
 
+    // PROSPECT-VIDEO PREPARATION (mandate 3): after discovery/enrichment, convert qualified stored leads
+    // into voiceover-ready prospect pieces (client piece + frozen PDF + narration + screenshot + draft
+    // package). Idempotent, bounded, NEVER sends. On by default; PROSPECT_PREP_ENABLED=0 disables.
+    const prepEnabled = process.env.PROSPECT_PREP_ENABLED !== "0";
+    let prepare: { considered: number; prepared: number; skipped: Record<string, number> } | null = null;
+    if (wantAdvance && prepEnabled && sp.get("advanceDry") !== "1") {
+      const { prepareProspectVideoCandidates } = await import("@/lib/content-studio/prepare-orchestrator");
+      const max = Math.max(0, Math.min(50, Number(sp.get("prepMax") ?? process.env.VOICEOVER_PREP_MAX ?? 20)));
+      const pr = await prepareProspectVideoCandidates({ max });
+      prepare = { considered: pr.considered, prepared: pr.prepared.length, skipped: pr.skipped };
+    }
+
     return NextResponse.json({
       ok: true,
       sentEmails: (report.emailsSentDuringRefill as number) + (advance?.emailsSent ?? 0), // always 0 — never sends
+      prepare, // prospect-video preparation orchestrator result (voiceover-ready pieces built this tick)
       discoverRequested: wantDiscover,
       discoverRan: !!report.discovery?.ran,
       advance, // downstream pipeline result (enrich → automatic approval → schedule); null unless ?advance=1
