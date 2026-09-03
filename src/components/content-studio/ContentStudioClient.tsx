@@ -140,6 +140,22 @@ export function ContentStudioClient({ initialItems, preview = false, deepLink, v
   const selected = mergedItems.find((it) => it.piece.id === selectedId) ?? mergedItems[0];
   const backToToday = deepLink?.from === "today";
 
+  // Focused one-company screen (Today → Start / prev-next): render ONLY the selected company's detail so
+  // the active work (finding · PDF · email · narration · upload) is at the top — never a candidate list.
+  if (advanceHref) {
+    return (
+      <PreviewCtx.Provider value={preview}>
+        <div className="mx-auto w-full max-w-3xl space-y-4">
+          {selected ? (
+            <PieceDetail key={selected.piece.id} item={selected} onChanged={refetch} setJobOverride={setJobOverride} advanceHref={advanceHref} />
+          ) : (
+            <div className="rounded-xl border border-white/10 bg-white/[0.02] p-6 text-[13px] text-chalk-400">Preparing this company… <Link href="/" className="text-azure-300">Back to Today</Link></div>
+          )}
+        </div>
+      </PreviewCtx.Provider>
+    );
+  }
+
   return (
     <PreviewCtx.Provider value={preview}>
     <div className="space-y-5">
@@ -194,16 +210,20 @@ export function ContentStudioClient({ initialItems, preview = false, deepLink, v
 
       <ClientVideosPanel onPrepared={refetch} onSelect={setSelectedId} defaultOpen={deepLink?.section === "client" || !!needsPrepareLead} repairLead={needsPrepareLead} pendingCount={videosToCreate} />
 
-      <div className="grid gap-5 lg:grid-cols-[340px_1fr]">
-        {/* ── Piece list ─────────────────────────────────────────────── */}
-        <div className="space-y-2">
+      {/* Bounded two-column workspace: the list is height-capped + independently scrollable so it can NEVER
+          grow the document or push the detail below it; the detail top-aligns beside it and scrolls on its own. */}
+      <div className="grid gap-5 lg:grid-cols-[340px_1fr] lg:items-start">
+        {/* ── Piece list (bounded scroll) ────────────────────────────── */}
+        <div className="space-y-2 overflow-y-auto overscroll-contain lg:sticky lg:top-4 lg:max-h-[calc(100dvh-8rem)] lg:min-h-0 [-webkit-overflow-scrolling:touch]">
           {mergedItems.map((it) => (
             <PieceRow key={it.piece.id} item={it} active={it.piece.id === selected?.piece.id} onClick={() => setSelectedId(it.piece.id)} />
           ))}
         </div>
 
-        {/* ── Detail ─────────────────────────────────────────────────── */}
-        {selected && <PieceDetail key={selected.piece.id} item={selected} onChanged={refetch} setJobOverride={setJobOverride} advanceHref={advanceHref} />}
+        {/* ── Detail (top-aligned, its own scroll) ───────────────────── */}
+        <div className="min-w-0 lg:min-h-0">
+          {selected && <PieceDetail key={selected.piece.id} item={selected} onChanged={refetch} setJobOverride={setJobOverride} advanceHref={advanceHref} />}
+        </div>
       </div>
 
       {creating && !preview && <NewPieceModal onClose={() => setCreating(false)} onCreated={async () => { setCreating(false); await refetch(); }} />}
