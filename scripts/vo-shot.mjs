@@ -1,0 +1,13 @@
+import { chromium } from "playwright";
+const BASE = "https://outreach.artifexlabs.tech", PW = process.env.OUTREACH_PASSWORD;
+const VO = process.env.VO_LEAD || "lead_HwlFktdTXe";
+const b = await chromium.launch(); const c = await b.newContext({ viewport: { width: 1280, height: 900 } });
+const p = await c.newPage(); await p.goto(BASE + "/login"); await p.fill("#password", PW);
+await Promise.all([p.waitForURL((u) => !u.pathname.startsWith("/login"), { timeout: 20000 }).catch(() => {}), p.click("button[type=submit]")]);
+await p.goto(BASE + "/", { waitUntil: "networkidle" }); await p.screenshot({ path: "/tmp/vo-today.png", fullPage: true });
+const body = await p.evaluate(() => document.body.innerText);
+console.log("TODAY voiceover hero:", /voiceovers ready/i.test(body), "|", (body.match(/\d+ voiceovers? ready/i) || [])[0]);
+await p.goto(BASE + `/company/${VO}`, { waitUntil: "networkidle" }); await p.screenshot({ path: "/tmp/vo-company.png", fullPage: true });
+const c2 = await p.evaluate(() => document.body.innerText);
+console.log("COMPANY materials:", JSON.stringify({ narration: /Narration script/i.test(c2), upload: /voiceover/i.test(c2), prospect: /Prospect video/i.test(c2), noMissing: !/No prospect video package exists/i.test(c2) }));
+await b.close();

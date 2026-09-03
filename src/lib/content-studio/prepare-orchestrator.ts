@@ -10,7 +10,7 @@
 // screenshot job de-dupes; the draft package de-dupes on review version. Frozen/scheduled/sent stay
 // immutable. Never sends, never contacts a prospect, never touches Field Notes.
 // ─────────────────────────────────────────────────────────────────────────────
-import { listLeads, getLead, getBusinessIntelligence, allEmailSends } from "../repo";
+import { listLeads, getLead, getBusinessIntelligence } from "../repo";
 import { listScheduledBindings } from "../outreach/scheduled-batch";
 import { isInternalLead } from "../operators/assignment";
 import { validEmail } from "../acquisition/compliance";
@@ -44,10 +44,11 @@ export async function prepareProspectVideoCandidates(opts: { now?: Date; max?: n
   const max = opts.max ?? 20;
   const s: PrepareResult = { ranAt: now.toISOString(), considered: 0, prepared: [], skipped: {}, errors: [] };
   const leads = opts.leadIds ? (await Promise.all(opts.leadIds.map((id) => getLead(id)))).filter((l): l is NonNullable<typeof l> => !!l) : await listLeads();
-  // Protect committed sends: never re-prepare a lead that already has a scheduled binding or a prior send
-  // (its email-only package stands). Skipped unless this is an explicit leadIds run (the canary).
-  const [bindings, sends] = opts.leadIds ? [[], []] : await Promise.all([listScheduledBindings(), allEmailSends()]);
-  const committed = new Set<string>([...bindings.map((b) => b.leadId), ...sends.filter((x) => x.leadId).map((x) => x.leadId as string)]);
+  // Protect committed sends: never re-prepare a lead that already has a SCHEDULED binding (its email-only
+  // package is committed to send). Prior-contacted leads may still become video prospects (a follow-up can
+  // carry a video), so they are NOT excluded. Skipped only when this is an explicit leadIds run (canary).
+  const bindings = opts.leadIds ? [] : await listScheduledBindings();
+  const committed = new Set<string>(bindings.map((b) => b.leadId));
 
   for (const lead of leads) {
     if (s.prepared.length >= max) break;
