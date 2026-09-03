@@ -139,6 +139,15 @@ export async function POST(req: NextRequest) {
     const { reconcileScheduledBindings } = await import("@/lib/outreach/scheduled-batch");
     const scheduleReconcile = await reconcileScheduledBindings({ now: new Date(), apply: !dryRun });
 
+    // Post-render package assembly GUARANTEE (app-side): any verified prospect render lacking its draft
+    // package is assembled to READY_TO_APPROVE here (idempotent), so a missed worker hook can't strand a
+    // finished video without a package. Never sends, never freezes.
+    let packageReconcile: unknown = null;
+    if (!dryRun) {
+      const { reconcileReadyProspectPackages } = await import("@/lib/outreach/prospect-package-store");
+      packageReconcile = await reconcileReadyProspectPackages();
+    }
+
     // ── Inventory diagnostic (read-only) ──────────────────────────────────────
     // Answers "why is the email reservoir only N?" from live data, without a second analytics
     // system: a queue-state breakdown (who owns each off-board business) + the email-prep

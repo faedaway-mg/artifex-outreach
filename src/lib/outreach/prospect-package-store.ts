@@ -150,6 +150,29 @@ export async function autoAssembleFromRender(leadId: string, deps: AssembleDeps 
   return { ok: true, state: "READY_TO_APPROVE", packageVersion: record.packageVersion, digest: record.packageDigest, publicId: record.share?.publicId ?? null, inputVersion: video.inputVersion };
 }
 
+/**
+ * APP-SIDE GUARANTEE for post-render assembly: scan every prospect piece (client-*) that has a verified
+ * READY render and ensure its DRAFT package is assembled (READY_TO_APPROVE). Idempotent per input version
+ * (a package already bound to that render is a no-op), so it converges even if the worker's inline hook was
+ * missed, retried, or fired twice. Runs on the materialize cron tick. Never touches Field Notes / frozen pkgs.
+ */
+export async function reconcileReadyProspectPackages(): Promise<{ scanned: number; assembled: Array<{ leadId: string; state: string }>; idempotent: number; failed: Array<{ leadId: string; reason: string }> }> {
+  const jobs = await listJobs();
+  const clientPieceIds = [...new Set(jobs.map((j) => j.pieceId).filter((p) => p.startsWith("client-")))];
+  const out = { scanned: 0, assembled: [] as Array<{ leadId: string; state: string }>, idempotent: 0, failed: [] as Array<{ leadId: string; reason: string }> };
+  for (const pieceId of clientPieceIds) {
+    const ready = latestReadyJob(jobs, pieceId);
+    if (!ready?.outputKey) continue; // no verified render yet
+    out.scanned += 1;
+    const leadId = pieceId.slice("client-".length);
+    const r = await autoAssembleFromRender(leadId);
+    if (!r.ok) out.failed.push({ leadId, reason: r.reason ?? "assembly failed" });
+    else if (r.idempotent) out.idempotent += 1;
+    else out.assembled.push({ leadId, state: r.state ?? "READY_TO_APPROVE" });
+  }
+  return out;
+}
+
 // ── Freeze (from Approve*) ────────────────────────────────────────────────────────────────────────────
 export interface FreezeResult { ok: boolean; packageVersion?: number; digest?: string; blocked?: boolean; reason?: string; idempotent?: boolean }
 
