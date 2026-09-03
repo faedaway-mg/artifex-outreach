@@ -26,7 +26,7 @@ import { quickReviewApproved } from "./review-approval";
 import { getEditorialState } from "./review-revisions";
 import { emailQueueEligibility } from "./email-queue-eligibility";
 import { listScheduledBindings } from "./scheduled-batch";
-import { listJobs as csListJobs } from "../content-studio/store";
+import { listJobs as csListJobs, listTemplateIds } from "../content-studio/store";
 import { latestReadyJob as csLatestReadyJob } from "../content-studio/job";
 import { resolveSendingWindow, nextSendingDateKey, ACCOUNTING_TZ } from "./sending-window";
 import { withinMorningWindow } from "./outreach-scheduler";
@@ -88,9 +88,12 @@ const REASON_MAP: Record<string, BlockedReasonKey> = {
 };
 
 export async function buildCompanySnapshot(now: Date = new Date()): Promise<CompanySnapshot> {
-  const [leads, bi, emailSends, everyTask, settings, operators, csJobs, scheduledBindings, inbound, audit] = await Promise.all([
-    listLeads(), allBusinessIntelligence(), allEmailSends(), allTasks(), getSettings(), listOperators(), csListJobs(), listScheduledBindings(), allInbound(), listAudit(5000),
+  const [leads, bi, emailSends, everyTask, settings, operators, csJobs, scheduledBindings, inbound, audit, templateIdList] = await Promise.all([
+    listLeads(), allBusinessIntelligence(), allEmailSends(), allTasks(), getSettings(), listOperators(), csListJobs(), listScheduledBindings(), allInbound(), listAudit(5000), listTemplateIds().catch(() => [] as string[]),
   ]);
+  // A company is voiceover-ready ONLY if a renderable client PIECE (template) exists — so the focused
+  // screen can always display it. A draft package without a template can never enter Record voiceovers.
+  const templateIds = new Set(templateIdList);
   // Latest prospect package per lead (bulk; audit is recent-first). The persisted draft is the authoritative
   // signal of "prepared, awaiting only voiceover" (INCOMPLETE) or "assembled, awaiting approval" (READY_TO_APPROVE).
   const pkgByLead = new Map<string, FrozenProspectPackage>();
@@ -170,7 +173,8 @@ export async function buildCompanySnapshot(now: Date = new Date()): Promise<Comp
     // orchestrator only persists an INCOMPLETE draft once EVERYTHING except the voiceover exists (client
     // piece + finding + recipient + frozen PDF + narration + screenshot). So a company is voiceover-ready
     // iff it has an INCOMPLETE draft; a READY_TO_APPROVE draft (video assembled) is ready-to-schedule.
-    if (pkg && (pkg.state === "INCOMPLETE" || pkg.state === "READY_TO_APPROVE")) {
+    const hasPiece = templateIds.has(pieceId);
+    if (pkg && hasPiece && (pkg.state === "INCOMPLETE" || pkg.state === "READY_TO_APPROVE")) {
       if (pkg.state === "READY_TO_APPROVE" || videoReady) { snap.ready.push(row("ready-to-schedule")); continue; }
       if (active) { snap.needsVoiceover.push(row("generating")); continue; }        // a render is in flight
       if (lastJob?.status === "failed") { snap.needsAttention.push(row("needs-attention")); continue; }
