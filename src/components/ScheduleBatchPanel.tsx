@@ -1,6 +1,6 @@
 "use client";
 import { useMemo, useState, useTransition } from "react";
-import { CalendarClock, Check, X, AlertTriangle, Ban } from "lucide-react";
+import { CalendarClock, Check, X, AlertTriangle } from "lucide-react";
 import { scheduleNextEligibleBatchAction, cancelScheduledAction } from "@/lib/outreach/schedule-actions";
 
 type Item = { leadId: string; business: string; recipient: string; subject: string; pdfFilename: string; revisionId: string; proposedAt: string };
@@ -33,16 +33,18 @@ export function ScheduleBatchPanel({ eligible, scheduled, notReady, window, date
 
   return (
     <div className="space-y-5">
-      {/* Persistent delivery-blocked banner — never implies these will be delivered. */}
-      <div className="flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-[13px] text-amber-200">
-        <Ban size={15} className="shrink-0" /> <span><b>Delivery blocked — approved transport required.</b> Scheduling prepares + authorizes a batch; nothing will send until a provider with written permission for this outreach is configured.</span>
+      {/* Accurate send-status note. Resend IS the authorized transport and is delivering; scheduling
+          authorizes a batch that the automatic scheduler sends in the next eligible LA window under the
+          shared 20/day cap. (The old "approved transport required" banner was stale — removed.) */}
+      <div className="flex items-center gap-2 rounded-lg border border-teal-500/25 bg-teal-500/[0.07] px-3 py-2.5 text-[13px] text-teal-100">
+        <CalendarClock size={15} className="shrink-0" /> <span>Scheduling authorizes this batch. The automatic scheduler delivers via Resend during the {String(window.startHour).padStart(2, "0")}:00–{String(window.endHour).padStart(2, "0")}:00 {window.tz} window, up to 20 per day.</span>
       </div>
 
       {/* Receipt (after confirm) */}
       {receipt && (
         <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
           <div className="flex items-center gap-2 text-[14px] font-semibold text-chalk-50"><Check size={16} className="text-emerald-300" /> Scheduled — batch {receipt.batchId}</div>
-          <div className="mt-2 text-[13px] text-chalk-300">{receipt.authorized} authorized · {receipt.removed} removed · {dateLabel} · {String(window.startHour).padStart(2, "0")}:00–{String(window.endHour).padStart(2, "0")}:00 {window.tz} · <span className="text-amber-300">Delivery blocked</span></div>
+          <div className="mt-2 text-[13px] text-chalk-300">{receipt.authorized} authorized · {receipt.removed} removed · {dateLabel} · {String(window.startHour).padStart(2, "0")}:00–{String(window.endHour).padStart(2, "0")}:00 {window.tz} · <span className="text-teal-300">will send in the next eligible window</span></div>
           <ul className="mt-3 space-y-1.5">
             {receipt.scheduled.map((s) => (
               <li key={s.leadId} className="flex items-center justify-between gap-3 text-[13px]">
