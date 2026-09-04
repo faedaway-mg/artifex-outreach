@@ -66,10 +66,25 @@ export async function POST(req: NextRequest) {
       prepare = { considered: pr.considered, prepared: pr.prepared.length, skipped: pr.skipped };
     }
 
+    // AUTOMATIC DEEP RECAPTURE (mandate part 3): drive a SMALL bounded recapture batch on the existing
+    // scheduled tick so eligible-but-stuck prospects are re-crawled + regenerated toward voiceover-ready
+    // without a separate schedule. Best-effort + tightly bounded so it never jeopardizes the refill run.
+    // Never sends. DEEP_RECAPTURE_ENABLED=0 disables; ?recapture=0 opts out of this tick.
+    let recapture: { eligible: number; attempted: number; recovered: number } | null = null;
+    if (wantAdvance && sp.get("advanceDry") !== "1" && process.env.DEEP_RECAPTURE_ENABLED !== "0" && sp.get("recapture") !== "0") {
+      try {
+        const { runDeepRecapture } = await import("@/lib/content-studio/deep-recapture");
+        const rmax = Math.max(1, Math.min(8, Number(sp.get("recaptureMax") ?? 4)));
+        const rr = await runDeepRecapture({ max: rmax });
+        recapture = { eligible: rr.eligible, attempted: rr.attempted, recovered: rr.outcomes.filter((o) => o.outcome === "VOICEOVER_READY").length };
+      } catch { /* recapture is best-effort; the refill run must still return */ }
+    }
+
     return NextResponse.json({
       ok: true,
       sentEmails: (report.emailsSentDuringRefill as number) + (advance?.emailsSent ?? 0), // always 0 — never sends
       prepare, // prospect-video preparation orchestrator result (voiceover-ready pieces built this tick)
+      recapture, // deep-recapture batch result (eligible/attempted/recovered) — null when not advancing
       discoverRequested: wantDiscover,
       discoverRan: !!report.discovery?.ran,
       advance, // downstream pipeline result (enrich → automatic approval → schedule); null unless ?advance=1
