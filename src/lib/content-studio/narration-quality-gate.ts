@@ -41,7 +41,7 @@ export const GENERIC_LINES = [
   "no obligation",
 ];
 
-const CONSEQUENCE = /(lose|lost|losing|miss|missing|friction|confus|leav|cost|costs|drop|walk away|give up|abandon|bounce|second-guess|hesitat|call during|can'?t tell|unsure what to do|slip away)/i;
+const CONSEQUENCE = /(lose|lost|losing|miss|missing|friction|confus|leav|cost|costs|drop|walk away|give up|abandon|bounce|second-guess|hesitat|call during|can'?t tell|unsure what to do|slip(s)? away|disappear|nowhere to go|many won'?t|won'?t (call|return|come back)|never (call|return)|harder to (remember|find|reach|search)|plants? a doubt|a doubt|unfinished|half-built|return visit|close(s)? the tab|the next (firm|business|shop)|has to (call|remember|wait|hunt)|quietly (cost|disappear|plant)|goes unanswered|left to (figure|guess))/i;
 // Numeric / superlative business-impact claims that must be evidence-backed (we never fabricate them).
 const UNSUPPORTED = /(\b\d+\s?%|\b\d+x\b|increase (your )?(revenue|conversions?|sales|traffic|leads)|boost .* by|double (your )?|triple (your )?|guarantee|\bROI\b|more revenue|drive more sales)/i;
 

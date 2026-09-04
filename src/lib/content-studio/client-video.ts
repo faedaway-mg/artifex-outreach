@@ -152,7 +152,9 @@ function normalizeRecommendation(s: string): string {
 // from the review engine's topic intervention. Returns null when there's no material observed finding.
 export function reviewToObservedFinding(review: QuickReview, industry?: string | null): ObservedFinding | null {
   const f = review.findings.find((x) => x.topic !== "reviews" && (x.evidence?.confidence === "Observed" || x.evidence?.confidence === "Reported"));
-  if (!f) return null;
+  return f ? observedFromFinding(f, review, industry) : null;
+}
+function observedFromFinding(f: QuickReview["findings"][number], review: QuickReview, industry?: string | null): ObservedFinding | null {
   const obs = f.observation || "";
   const hay = obs + " " + (f.evidence?.basis || []).join(" ");
   const pageMatch = hay.match(/(?:any of the\s+)?(\d+)\s+(?:inspected\s+)?pages|(\d+)\s+inspected/i);
@@ -188,10 +190,17 @@ export function reviewToObservedFinding(review: QuickReview, industry?: string |
 // no material finding OR the composed script fails the section-E quality gate. The HTTP prepare route
 // uses this so operator regeneration is evidence-led — never the terse finding-title fallback.
 export function composeReviewNarration(review: QuickReview, industry?: string | null): ComposedNarration | null {
-  const of = reviewToObservedFinding(review, industry);
-  if (!of) return null;
-  const composed = composeClientNarration(of, review.businessName || "this business");
-  return assessScriptQuality(composed).ok ? composed : null;
+  // Select the STRONGEST directly-observed finding that yields a coherent, quality-passing script. Iterating
+  // (not just the first finding) lets a business whose top finding is weak/unmappable — e.g. a contradicted
+  // noClearCTA — still get a valuable narration from its next supported finding (booking, contact, copy…).
+  const eligible = review.findings.filter((x) => x.topic !== "reviews" && (x.evidence?.confidence === "Observed" || x.evidence?.confidence === "Reported"));
+  for (const f of eligible) {
+    const of = observedFromFinding(f, review, industry);
+    if (!of) continue;
+    const composed = composeClientNarration(of, review.businessName || "this business");
+    if (assessScriptQuality(composed).ok) return composed;
+  }
+  return null;
 }
 
 // Build a business video template from a Quick Review. Honors TWO gates, in order:
@@ -221,10 +230,15 @@ export function buildBusinessTemplate(
   const name = review.businessName || "this business";
   const presentations = review.presentations.slice(0, 3);
 
+  // Self-compose when no script was supplied: the value-dense composer is the ONLY narration path. If it
+  // can't produce a coherent, quality-passing script from the observed findings, we fall through to
+  // needs-evidence below — never to a generic finding-title fallback.
+  const composedNarration = opts.composedNarration ?? composeReviewNarration(review, null);
+
   // Value-dense path (narration-quality mandate): when a composed six-beat script is supplied, it REPLACES
   // the terse finding-title narration while keeping every material line bound to the same evidence.
-  if (opts.composedNarration) {
-    const { narration, beats, narrationEvidence } = buildFromComposed(opts.composedNarration, review, opts.screenshots);
+  if (composedNarration) {
+    const { narration, beats, narrationEvidence } = buildFromComposed(composedNarration, review, opts.screenshots);
     const template: ContentTemplate = {
       version: 1,
       id: `client-${opts.leadId}`.replace(/[^0-9a-z_-]/gi, "-").slice(0, 40),
@@ -245,76 +259,16 @@ export function buildBusinessTemplate(
       evidenceState: "evidence-backed",
       revision: 1,
     };
-    return { readiness, template, evidenceState: "evidence-backed", narrationNote: `Value-dense script (${opts.composedNarration.wordCount} words, ${opts.composedNarration.lines.length} beats) — hook → friction → consequence → solution → value → close; friction bound to the finding, solution to the starting point.` };
+    return { readiness, template, evidenceState: "evidence-backed", narrationNote: `Value-dense script (${composedNarration.wordCount} words, ${composedNarration.lines.length} beats) — hook → friction → consequence → solution → value → close; friction bound to the finding, solution to the starting point.` };
   }
 
-  // Narration = the operator's script, assembled from evidence (opening hook → each finding → the
-  // recommended starting point → a soft close). One line per beat, in order. Every material line gets a
-  // receipt in narrationEvidence; framing lines are marked kind:"framing".
-  const narration: string[] = [];
-  const beats: Beat[] = [];
-  const narrationEvidence: NarrationEvidence[] = [];
-
-  narration.push(clip(review.openingHook || `A quick look at ${name}.`, 200));
-  beats.push({ type: "title", lines: [0], mood: "problem", eyebrow: "BUSINESS TECHNOLOGY REVIEW", headline: clip(review.openingHook || name, 120), sub: clip(name, 160) });
-  narrationEvidence.push({ line: 0, kind: "framing", basis: ["Synthesizing frame across the findings below"] });
-
-  presentations.forEach((p, i) => {
-    const idx = narration.length;
-    narration.push(clip(p.title, 200));
-    beats.push(findingBeat(p, idx));
-    const f = findingsFull[i];
-    if (f) narrationEvidence.push(findingEvidence(idx, f, opts.screenshots?.[f.id]));
-  });
-
-  const sp = review.start;
-  const startIdx = narration.length;
-  if (sp) {
-    // Prefer the CONCRETE recommended action over generic meta-rationale ("it's the clearest to
-    // evidence…"), and if that would duplicate a finding line, anchor to the specific starting point.
-    const spText = clip(sp.intervention || sp.why || sp.label, 200);
-    const dup = narration.some((l) => l.toLowerCase() === spText.toLowerCase());
-    narration.push(dup ? clip(`Where we'd start: ${sp.label.toLowerCase()}.`, 200) : spText);
-    beats.push({ type: "chain", lines: [startIdx], mood: "turn", caption: "WHERE WE'D START", nodes: [
-      { label: "TODAY", state: "gap" },
-      { label: clip(sp.label.toUpperCase(), 24), state: "on" },
-      { label: "RESULT", state: "on" },
-    ] });
-    const src = findingsFull.find((f) => f.id === sp.sourceFindingId);
-    narrationEvidence.push({
-      line: startIdx, kind: "starting-point",
-      confidence: src?.evidence.confidence, topic: src?.topic,
-      sourceLabel: src?.evidence.displayLabel || sp.proofReference || undefined,
-      sourceUrl: src?.evidence.sourceUrl || undefined,
-      basis: [sp.proofReference, ...(src?.evidence.basis ?? [])].filter(Boolean).slice(0, 6).map((b) => String(b).slice(0, 200)),
-      screenshotKey: (src && opts.screenshots?.[src.id]) || src?.evidence.screenshotRef || undefined,
-    });
-  }
-
-  const closeIdx = narration.length;
-  narration.push("Happy to walk you through it — no obligation.");
-  beats.push({ type: "brand", lines: [closeIdx], mood: "resolve", tagline: "A focused review from Artifex Labs." });
-  narrationEvidence.push({ line: closeIdx, kind: "framing", basis: ["Standard no-obligation close"] });
-
-  const template: ContentTemplate = {
-    version: 1,
-    id: `client-${opts.leadId}`.replace(/[^0-9a-z_-]/gi, "-").slice(0, 40),
-    title: clip(`${name} — review`, 80),
-    concept: clip(review.openingHook || `Evidence-backed review for ${name}`, 120),
-    businessId: opts.leadId,
-    businessName: name,
-    seed: 20260200,
-    narration,
-    beats,
-    thumbnail: {
-      headline: [clip(name, 24)],
-      secondary: clip(review.openingHook || "Business technology review", 60),
-      art: "statusCard",
-      rows: presentations.slice(0, 3).map((p) => ({ label: clip(p.title, 24), value: p.visualHook.primaryValue ? clip(p.visualHook.primaryValue, 40) : "reviewed" })),
-    },
-    narrationEvidence,
-    evidenceState: "evidence-backed",
-    revision: 1,
+  // NO composed value-dense script → there isn't enough evidence for a VALUABLE narration. We do NOT fall
+  // back to a generic finding-title script (the source of the shallow production narrations). Return
+  // needs-evidence so the company is excluded / queued for automatic reanalysis instead.
+  return {
+    readiness, template: null, evidenceState: "needs-evidence",
+    blockedReason: "no gate-passing evidence-led narration could be composed",
+    narrationNote: "Needs evidence: no coherent evidence-led script from the observed findings. Recapture the page or select another supported finding.",
   };
-  return { readiness, template, evidenceState: "evidence-backed", narrationNote: `Script assembled from ${presentations.length} evidence-backed finding(s) + starting point; every material line bound to its source.` };
+
 }

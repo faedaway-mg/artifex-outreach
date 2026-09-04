@@ -75,6 +75,12 @@ export default async function TodayPage() {
         </div>
       )}
 
+      {/* Quiet background status — retryable automation (narration/evidence reanalysis). NOT operator work:
+          informational only, never a call to action. */}
+      {c.reanalyzing > 0 && (
+        <p className="px-1 text-[12px] text-chalk-600">{c.reanalyzing} {c.reanalyzing === 1 ? "company is" : "companies are"} being reanalyzed automatically.</p>
+      )}
+
       {/* Automatically excluded — NOT Jordan's workload; secondary, inspectable. */}
       {c.blocked > 0 && (
         <Link href="/blocked" className="flex items-center justify-between px-1 pt-1 text-[12.5px] text-chalk-500 transition-colors hover:text-chalk-300">

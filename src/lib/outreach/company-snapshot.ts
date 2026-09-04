@@ -68,10 +68,11 @@ export interface BlockedBucket { reason: BlockedReasonKey; label: string; count:
 export interface CompanySnapshot {
   counts: {
     needsVoiceover: number; needsAttention: number; readyToSchedule: number;
-    scheduled: number; sentToday: number; replies: number; blocked: number; remainingCapacity: number;
+    scheduled: number; sentToday: number; replies: number; blocked: number; remainingCapacity: number; reanalyzing: number;
   };
   needsVoiceover: FocusRow[];   // operator's voiceover is the only thing left
-  needsAttention: FocusRow[];   // render/package failure an operator can resolve
+  needsAttention: FocusRow[];   // GENUINE human-only failure an operator must resolve
+  reanalyzing: FocusRow[];      // retryable automation work (narration/evidence) — quiet background status
   ready: FocusRow[];            // SENDABLE, valid recipient, uncontacted, non-terminal
   scheduled: ScheduledRow[];
   sentToday: SentRow[];
@@ -126,8 +127,8 @@ export async function buildCompanySnapshot(now: Date = new Date()): Promise<Comp
   const nowIso = now.toISOString();
 
   const snap: CompanySnapshot = {
-    counts: { needsVoiceover: 0, needsAttention: 0, readyToSchedule: 0, scheduled: 0, sentToday: 0, replies: 0, blocked: 0, remainingCapacity: Math.max(0, 20 - emailsSentToday) },
-    needsVoiceover: [], needsAttention: [], ready: [], scheduled: [], sentToday: [], replies: [], blocked: [],
+    counts: { needsVoiceover: 0, needsAttention: 0, readyToSchedule: 0, scheduled: 0, sentToday: 0, replies: 0, blocked: 0, remainingCapacity: Math.max(0, 20 - emailsSentToday), reanalyzing: 0 },
+    needsVoiceover: [], needsAttention: [], reanalyzing: [], ready: [], scheduled: [], sentToday: [], replies: [], blocked: [],
     nextDateLabel, windowOpen, dateKey, focusQueueIds: [],
   };
   const buckets = new Map<BlockedReasonKey, BlockedCompany[]>();
@@ -185,7 +186,9 @@ export async function buildCompanySnapshot(now: Date = new Date()): Promise<Comp
       const evidence = ((biByLead.get(lead.id)?.profile as unknown as { evidence?: Array<{ field?: string; value?: unknown }> })?.evidence) ?? [];
       const primaryCta = evidence.find((e) => e.field === "primaryCTA")?.value;
       const verdict = gateNarration({ narration: t?.narration ?? [], finding: { key: String(review.findings?.[0]?.id ?? ""), observation: finding }, domFacts: { primaryCta: primaryCta != null ? String(primaryCta) : null }, businessName: lead.businessName, url: lead.website, reviewCount: lead.reviewCount ?? null });
-      if (!verdict.ok) { snap.needsAttention.push({ ...row("needs-attention"), failedAction: "Prospect narration", failReason: "Needs stronger evidence — being reanalyzed", retryAvailable: true }); continue; }
+      // A narration-gate failure is RETRYABLE automation work — NOT operator work. It goes to the quiet
+      // "being reanalyzed" background status, never to Needs attention (mandate 1/6).
+      if (!verdict.ok) { snap.reanalyzing.push({ ...row("needs-attention"), failedAction: "Prospect narration", failReason: "being reanalyzed automatically", retryAvailable: true }); continue; }
       snap.needsVoiceover.push(row("needs-voiceover")); continue;
     }
     void videoRequired;
@@ -219,6 +222,7 @@ export async function buildCompanySnapshot(now: Date = new Date()): Promise<Comp
     needsVoiceover: snap.needsVoiceover.length, needsAttention: snap.needsAttention.length, readyToSchedule: snap.ready.length,
     scheduled: snap.scheduled.length, sentToday: snap.sentToday.length, replies: snap.replies.length,
     blocked: snap.blocked.reduce((s, b) => s + b.count, 0), remainingCapacity: Math.max(0, 20 - emailsSentToday),
+    reanalyzing: snap.reanalyzing.length,
   };
   return snap;
 }
