@@ -7,6 +7,14 @@ import { listJobs, listTemplateIds, latestUpload, loadTemplate } from "../src/li
 import { latestReadyShot } from "../src/lib/content-studio/screenshot-jobs";
 import { latestProspectPackage } from "../src/lib/outreach/prospect-package-store";
 import { resolveFrozenReviewForSend } from "../src/lib/outreach/quick-review-freeze";
+import { resolveProspectState } from "../src/lib/outreach/prospect-lifecycle";
+import { reanalysisEligibility } from "../src/lib/outreach/reanalysis-eligibility";
+import { buildQuickReview } from "../src/lib/outreach/quick-review";
+import { quickReviewApproved } from "../src/lib/outreach/review-approval";
+import { gateNarration } from "../src/lib/content-studio/narration-quality-gate";
+import { loadTemplate } from "../src/lib/content-studio/store";
+import { isSuppressed } from "../src/lib/repo";
+import { validEmail } from "../src/lib/acquisition/compliance";
 
 const NAMED = ["morris automotive", "we the people", "horizon roofing", "stability healthcare", "cobalt clean", "motion recruitment"];
 
@@ -28,7 +36,25 @@ async function main() {
     const pkg = await latestProspectPackage(lead.id).catch(() => null);
     const froze = await resolveFrozenReviewForSend(lead.id).catch(() => ({ ok: false } as any));
     const shot = await latestReadyShot(lead.id, "mobile").catch(() => null);
+    // Canonical resolved state (same resolver the snapshot uses).
+    const profile = (await getBusinessIntelligence(lead.id))?.profile?.businessProfile ?? null;
+    const review = buildQuickReview(lead, profile, null, { approved: await quickReviewApproved(lead.id) });
+    const finding = (review.findings?.[0] as any)?.observation ?? null;
+    const t = templateIds.has(pieceId) ? await loadTemplate(pieceId).catch(() => null) : null;
+    const narrationPass = t ? gateNarration({ narration: t.narration ?? [], finding: { key: String(review.findings?.[0]?.id ?? ""), observation: finding }, businessName: lead.businessName, url: lead.website, reviewCount: lead.reviewCount ?? null }).ok : false;
+    const suppressed = await isSuppressed({ email: lead.publicEmail, domain: lead.websiteDomain, phone: lead.phone });
+    const binding = bindings.find((b) => b.leadId === lead.id)?.binding;
+    const elg = reanalysisEligibility({ internal: false, pipelineStage: lead.pipelineStage, terminal: false, contacted: contacted.has(lead.id), scheduled: scheduled.has(lead.id), suppressed, hasWebsite: !!lead.website, recipientValid: validEmail(lead.publicEmail), packageState: pkg?.state ?? null });
+    const state = resolveProspectState({
+      internal: false, terminalStage: false, suppressed, contacted: contacted.has(lead.id), sent: sentLead.has(lead.id),
+      scheduledFuture: !!binding && binding.scheduledAt > new Date().toISOString(), eligible: elg.eligible, recaptureExcluded: false,
+      hasTemplate: templateIds.has(pieceId), hasFinding: !!finding, hasScreenshot: templateIds.has(pieceId), narrationPass,
+      frozenPdf: (froze as any).ok, emailSubject: !!pkg?.subject, emailBody: !!(pkg?.bodyHtml || pkg?.bodyText),
+      draftPackageState: pkg?.state ?? null, uploadPresent: !!up, renderActive: pjobs.some((j) => j.status === "queued" || j.status === "rendering"),
+      renderReadyVerified: !!readyJob, renderFailed: last?.status === "failed", renderAttempts: last?.attempt ?? 0, packageVideoBound: !!pkg?.video,
+    }).state;
     return {
+      canonicalState: state,
       name: lead.businessName, id: lead.id,
       template: templateIds.has(pieceId),
       upload: up ? `yes(sha=${(up.sha256 ?? "").slice(0, 8)},${up.kind})` : "NO",

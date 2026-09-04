@@ -80,9 +80,22 @@ export async function POST(req: NextRequest) {
       } catch { /* recapture is best-effort; the refill run must still return */ }
     }
 
+    // WHOLE-BOOK LIFECYCLE RECONCILE (mandate 12): on the scheduled tick, assemble verified renders into
+    // READY_TO_APPROVE, supersede stale email bindings where a video package now exists, and enqueue renders
+    // for orphaned uploads. Idempotent + best-effort + never sends. ?reconcile=0 opts out of this tick.
+    let lifecycle: { assembled: number; superseded: number; enqueued: number } | null = null;
+    if (wantAdvance && sp.get("advanceDry") !== "1" && sp.get("reconcile") !== "0") {
+      try {
+        const { reconcileProspectLifecycle } = await import("@/lib/outreach/lifecycle-reconcile");
+        const lr = await reconcileProspectLifecycle({});
+        lifecycle = { assembled: lr.assembled.length, superseded: lr.superseded.filter((s) => s.canceledBinding).length, enqueued: lr.rendersEnqueued.length };
+      } catch { /* best-effort; refill must still return */ }
+    }
+
     return NextResponse.json({
       ok: true,
       sentEmails: (report.emailsSentDuringRefill as number) + (advance?.emailsSent ?? 0), // always 0 — never sends
+      lifecycle, // whole-book lifecycle reconcile (assemble / supersede / enqueue) — null when not advancing
       prepare, // prospect-video preparation orchestrator result (voiceover-ready pieces built this tick)
       recapture, // deep-recapture batch result (eligible/attempted/recovered) — null when not advancing
       discoverRequested: wantDiscover,
