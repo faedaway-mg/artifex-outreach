@@ -29,9 +29,11 @@ describe("prepareProspectVideoCandidates — gating (never weakens evidence)", (
     await seed({ businessName: "NoEvidence" }); // has site+email but NO stored BI profile
     const r = await prepareProspectVideoCandidates({ max: 20 });
     expect(r.prepared.length).toBe(0); // none qualify without stored evidence — gate holds
-    expect(r.skipped["no-website"]).toBeGreaterThanOrEqual(1);
-    expect(r.skipped["no-recipient"]).toBeGreaterThanOrEqual(1);
-    expect(r.skipped["terminal-stage"]).toBeGreaterThanOrEqual(1);
+    // Whole-book runs now route structural exclusions through the CANONICAL eligibility selector,
+    // so the skip key is "ineligible:<reason>" (contacted/scheduled likewise excluded here).
+    expect(r.skipped["ineligible:no-website"]).toBeGreaterThanOrEqual(1);
+    expect(r.skipped["ineligible:no-recipient"]).toBeGreaterThanOrEqual(1);
+    expect(r.skipped["ineligible:terminal-stage"]).toBeGreaterThanOrEqual(1);
     expect(r.skipped["no-stored-evidence"]).toBeGreaterThanOrEqual(1);
   });
 });

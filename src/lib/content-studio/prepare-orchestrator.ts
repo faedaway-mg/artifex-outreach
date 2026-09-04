@@ -10,10 +10,13 @@
 // screenshot job de-dupes; the draft package de-dupes on review version. Frozen/scheduled/sent stay
 // immutable. Never sends, never contacts a prospect, never touches Field Notes.
 // ─────────────────────────────────────────────────────────────────────────────
-import { listLeads, getLead, getBusinessIntelligence } from "../repo";
+import { listLeads, getLead, getBusinessIntelligence, allEmailSends, isSuppressed, listAudit } from "../repo";
 import { listScheduledBindings } from "../outreach/scheduled-batch";
 import { isInternalLead } from "../operators/assignment";
 import { validEmail } from "../acquisition/compliance";
+import { reanalysisEligibility } from "../outreach/reanalysis-eligibility";
+import { PROSPECT_PACKAGE_ACTION } from "../outreach/prospect-package-store";
+import type { FrozenProspectPackage, ProspectPackageState } from "../outreach/prospect-package";
 import { buildQuickReview, cachedBrand } from "../outreach/quick-review";
 import { quickReviewApproved } from "../outreach/review-approval";
 import { approveAndFreezeQuickReview, resolveFrozenReviewForSend } from "../outreach/quick-review-freeze";
@@ -45,11 +48,22 @@ export async function prepareProspectVideoCandidates(opts: { now?: Date; max?: n
   const max = opts.max ?? 20;
   const s: PrepareResult = { ranAt: now.toISOString(), considered: 0, prepared: [], skipped: {}, errors: [] };
   const leads = opts.leadIds ? (await Promise.all(opts.leadIds.map((id) => getLead(id)))).filter((l): l is NonNullable<typeof l> => !!l) : await listLeads();
-  // Protect committed sends: never re-prepare a lead that already has a SCHEDULED binding (its email-only
-  // package is committed to send). Prior-contacted leads may still become video prospects (a follow-up can
-  // carry a video), so they are NOT excluded. Skipped only when this is an explicit leadIds run (canary).
-  const bindings = opts.leadIds ? [] : await listScheduledBindings();
-  const committed = new Set<string>(bindings.map((b) => b.leadId));
+  // CANONICAL ELIGIBILITY (mandate part 1/4): in a whole-book fresh-inventory run, a company may enter
+  // NEW-outreach preparation ONLY if the one authoritative selector says so — contacted, scheduled,
+  // suppressed, or already-assembled companies never reenter preparation. A targeted leadIds run
+  // (deep-recapture pre-filters eligibility; canary uses a test lead) keeps the lighter guards below.
+  const wholeBook = !opts.leadIds;
+  const [bindings, emailSends, audit] = wholeBook
+    ? await Promise.all([listScheduledBindings(), allEmailSends(), listAudit(5000)])
+    : ([[], [], []] as [Awaited<ReturnType<typeof listScheduledBindings>>, Awaited<ReturnType<typeof allEmailSends>>, Awaited<ReturnType<typeof listAudit>>]);
+  const scheduled = new Set(bindings.map((b) => b.leadId));
+  const contacted = new Set(emailSends.filter((e) => e.leadId).map((e) => e.leadId as string));
+  const pkgStateByLead = new Map<string, ProspectPackageState>();
+  for (const a of audit) {
+    if (a.action !== PROSPECT_PACKAGE_ACTION) continue;
+    const pkg = (a.meta as { pkg?: FrozenProspectPackage } | undefined)?.pkg;
+    if (pkg?.leadId && !pkgStateByLead.has(pkg.leadId)) pkgStateByLead.set(pkg.leadId, pkg.state);
+  }
   const preparedNarrations: Array<{ businessName: string; lines: string[] }> = []; // peers for similarity
 
   for (const lead of leads) {
@@ -57,10 +71,21 @@ export async function prepareProspectVideoCandidates(opts: { now?: Date; max?: n
     // Never prepare a real prospect that's terminal/contacted-out; canary/test leads only when asked.
     const isCanary = /canary/i.test(lead.businessName) || (lead as { test_only?: boolean }).test_only === true;
     if (!opts.includeInternal && (isInternalLead(lead) || lead.source === "internal-test" || isCanary)) { skip(s, "internal/test"); continue; }
-    if (TERMINAL.has(lead.pipelineStage)) { skip(s, "terminal-stage"); continue; }
-    if (committed.has(lead.id)) { skip(s, "already-scheduled-or-sent"); continue; }
-    if (!lead.website) { skip(s, "no-website"); continue; }
-    if (!validEmail(lead.publicEmail)) { skip(s, "no-recipient"); continue; }
+    if (wholeBook) {
+      const suppressed = await isSuppressed({ email: lead.publicEmail, domain: lead.websiteDomain, phone: lead.phone });
+      const verdict = reanalysisEligibility({
+        internal: false, pipelineStage: lead.pipelineStage, terminal: TERMINAL.has(lead.pipelineStage),
+        contacted: contacted.has(lead.id), scheduled: scheduled.has(lead.id), suppressed,
+        hasWebsite: !!lead.website, recipientValid: validEmail(lead.publicEmail), packageState: pkgStateByLead.get(lead.id) ?? null,
+      });
+      if (!verdict.eligible) { skip(s, "ineligible:" + verdict.reason); continue; }
+      if (!lead.website) { skip(s, "no-website"); continue; } // narrow for the crawl below (eligibility already required it)
+    } else {
+      // Targeted run — caller owns eligibility; keep only the hard structural guards.
+      if (TERMINAL.has(lead.pipelineStage)) { skip(s, "terminal-stage"); continue; }
+      if (!lead.website) { skip(s, "no-website"); continue; }
+      if (!validEmail(lead.publicEmail)) { skip(s, "no-recipient"); continue; }
+    }
 
     const bi = await getBusinessIntelligence(lead.id);
     const profile = ((bi?.profile as { businessProfile?: BusinessProfile } | undefined)?.businessProfile ?? null);

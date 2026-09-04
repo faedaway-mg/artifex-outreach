@@ -25,6 +25,7 @@ import { buildQuickReview } from "./quick-review";
 import { quickReviewApproved } from "./review-approval";
 import { getEditorialState } from "./review-revisions";
 import { emailQueueEligibility } from "./email-queue-eligibility";
+import { reanalysisEligibility } from "./reanalysis-eligibility";
 import { listScheduledBindings } from "./scheduled-batch";
 import { listJobs as csListJobs, listTemplateIds, loadTemplate } from "../content-studio/store";
 import { gateNarration } from "../content-studio/narration-quality-gate";
@@ -167,7 +168,8 @@ export async function buildCompanySnapshot(now: Date = new Date()): Promise<Comp
     const review = buildQuickReview(lead, profile, null, { approved: await quickReviewApproved(lead.id) });
     const finding = (review.findings?.[0] as { observation?: string } | undefined)?.observation ?? null;
     const est = await getEditorialState(lead.id);
-    const elig = emailQueueEligibility({ review, recipientValid: validEmail(lead.publicEmail), suppressed: await isSuppressed({ email: lead.publicEmail, domain: lead.websiteDomain, phone: lead.phone }), held: !!est.held });
+    const suppressed = await isSuppressed({ email: lead.publicEmail, domain: lead.websiteDomain, phone: lead.phone });
+    const elig = emailQueueEligibility({ review, recipientValid: validEmail(lead.publicEmail), suppressed, held: !!est.held });
     const row = (state: FocusState): FocusRow => ({ leadId: lead.id, business: lead.businessName, recipient: lead.publicEmail ?? null, finding, state });
     const pkg = pkgByLead.get(lead.id);
 
@@ -186,9 +188,22 @@ export async function buildCompanySnapshot(now: Date = new Date()): Promise<Comp
       const evidence = ((biByLead.get(lead.id)?.profile as unknown as { evidence?: Array<{ field?: string; value?: unknown }> })?.evidence) ?? [];
       const primaryCta = evidence.find((e) => e.field === "primaryCTA")?.value;
       const verdict = gateNarration({ narration: t?.narration ?? [], finding: { key: String(review.findings?.[0]?.id ?? ""), observation: finding }, domFacts: { primaryCta: primaryCta != null ? String(primaryCta) : null }, businessName: lead.businessName, url: lead.website, reviewCount: lead.reviewCount ?? null });
-      // A narration-gate failure is RETRYABLE automation work — NOT operator work. It goes to the quiet
-      // "being reanalyzed" background status, never to Needs attention (mandate 1/6).
-      if (!verdict.ok) { snap.reanalyzing.push({ ...row("needs-attention"), failedAction: "Prospect narration", failReason: "being reanalyzed automatically", retryAvailable: true }); continue; }
+      // A narration-gate failure is RETRYABLE automation work — but ONLY when the company is genuinely
+      // eligible for automatic new-outreach preparation. The CANONICAL selector decides: a contacted,
+      // scheduled, suppressed, or already-assembled company must NEVER sit in "being reanalyzed" — it is
+      // routed to its honest bucket instead (mandate 1/2). Only eligible companies enter deep recapture.
+      if (!verdict.ok) {
+        const prep = reanalysisEligibility({
+          internal: false, pipelineStage: lead.pipelineStage, terminal: TERMINAL.has(lead.pipelineStage),
+          contacted: contacted.has(lead.id), scheduled: scheduledLeadIds.has(lead.id), suppressed,
+          hasWebsite: !!lead.website, recipientValid: validEmail(lead.publicEmail), packageState: pkg.state,
+        });
+        if (prep.eligible) { snap.reanalyzing.push({ ...row("needs-attention"), failedAction: "Prospect narration", failReason: "being reanalyzed automatically", retryAvailable: true }); continue; }
+        // Ineligible → classify honestly by the ineligibility reason (never "being reanalyzed").
+        if (prep.reason === "suppressed") { addBlocked("suppressed", lead); continue; }
+        if (prep.reason === "no-recipient") { addBlocked("no-recipient", lead); continue; }
+        addBlocked("duplicate", lead); continue; // contacted / scheduled / assembled → prior/committed contact
+      }
       snap.needsVoiceover.push(row("needs-voiceover")); continue;
     }
     void videoRequired;
