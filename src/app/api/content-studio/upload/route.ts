@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { revalidatePath } from "next/cache";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { createHash } from "node:crypto";
@@ -89,6 +90,11 @@ export async function POST(req: NextRequest) {
   } catch (e: any) {
     renderError = String(e?.message ?? e);
   }
+  // ATOMIC STATE TRANSITION (mandate 12 part 3/10): the upload + the single render job are now the
+  // authoritative persisted state (upload → RENDERING). Revalidate every surface that reads the canonical
+  // snapshot so Today/Studio/focused screen immediately stop counting this company as voiceover-ready and
+  // show it as rendering — no stale in-memory snapshot survives the transition.
+  try { revalidatePath("/"); revalidatePath("/sent"); revalidatePath("/studio"); revalidatePath("/(app)", "layout"); } catch { /* revalidation is best-effort */ }
   // Never return a filesystem path — only the object key + integrity + detected type + the auto-render.
   return NextResponse.json({ upload: { ...meta, file: undefined, objectKey, sha256, detectedType: detected.type }, render, renderError }, { status: 201 });
 }

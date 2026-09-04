@@ -26,6 +26,9 @@ import { quickReviewApproved } from "./review-approval";
 import { getEditorialState } from "./review-revisions";
 import { emailQueueEligibility } from "./email-queue-eligibility";
 import { reanalysisEligibility } from "./reanalysis-eligibility";
+import { resolveProspectState } from "./prospect-lifecycle";
+import { REVIEW_APPROVED_ACTION } from "./review-approval";
+import { listUploads } from "../content-studio/store";
 import { listScheduledBindings } from "./scheduled-batch";
 import { listJobs as csListJobs, listTemplateIds, loadTemplate } from "../content-studio/store";
 import { gateNarration } from "../content-studio/narration-quality-gate";
@@ -59,7 +62,7 @@ const AUTO_RETRIES: Record<BlockedReasonKey, boolean> = {
 };
 
 export interface FocusRow { leadId: string; business: string; recipient: string | null; finding: string | null; state: FocusState; failedAction?: string; failReason?: string; retryAvailable?: boolean; }
-export type FocusState = "needs-voiceover" | "generating" | "needs-attention" | "ready-to-schedule" | "scheduled" | "sent";
+export type FocusState = "needs-voiceover" | "generating" | "rendering" | "needs-attention" | "ready-to-schedule" | "scheduled" | "sent";
 export interface ScheduledRow { leadId: string; business: string; recipient: string; scheduledAt: string; }
 export interface SentRow { leadId: string; business: string; when: string; providerState: string; }
 export interface ReplyRow { leadId: string; business: string; when: string; }
@@ -68,12 +71,13 @@ export interface BlockedBucket { reason: BlockedReasonKey; label: string; count:
 
 export interface CompanySnapshot {
   counts: {
-    needsVoiceover: number; needsAttention: number; readyToSchedule: number;
+    needsVoiceover: number; rendering: number; needsAttention: number; readyToSchedule: number;
     scheduled: number; sentToday: number; replies: number; blocked: number; remainingCapacity: number; reanalyzing: number;
   };
   needsVoiceover: FocusRow[];   // operator's voiceover is the only thing left
+  rendering: FocusRow[];        // voiceover uploaded → rendering / finishing assembly (NOT voiceover-ready)
   needsAttention: FocusRow[];   // GENUINE human-only failure an operator must resolve
-  reanalyzing: FocusRow[];      // retryable automation work (narration/evidence) — quiet background status
+  reanalyzing: FocusRow[];      // retryable automation work (narration/evidence/preparing) — quiet background
   ready: FocusRow[];            // SENDABLE, valid recipient, uncontacted, non-terminal
   scheduled: ScheduledRow[];
   sentToday: SentRow[];
@@ -105,11 +109,16 @@ export async function buildCompanySnapshot(now: Date = new Date()): Promise<Comp
     const pkg = (a.meta as { pkg?: FrozenProspectPackage } | undefined)?.pkg;
     if (pkg?.leadId && !pkgByLead.has(pkg.leadId)) pkgByLead.set(pkg.leadId, pkg); // first seen = latest
   }
+  // Cheap "a frozen Quick Review PDF exists" proxy from the audit log (a review-approved binding) — avoids
+  // loading PDF bytes for every lead on every page render. The reconciler does the full SHA verification.
+  const frozenApproved = new Set<string>();
+  for (const a of audit) if (a.action === REVIEW_APPROVED_ACTION && a.targetId) frozenApproved.add(a.targetId);
   const internal = new Set(leads.filter(isInternalLead).map((l) => l.id));
   const emailsSentToday = emailsSentOn(emailSends, now, { excludeLeadIds: internal });
   const scheduledLeadIds = new Set(scheduledBindings.map((b) => b.leadId));
   const biByLead = new Map(bi.map((b) => [b.leadId, b]));
   const contacted = new Set(emailSends.filter((e) => e.leadId).map((e) => e.leadId as string));
+  const sentLeadIds = new Set(emailSends.filter((e) => e.leadId && e.sentAt).map((e) => e.leadId as string));
   // Latest ledger row per lead — so a terminally-failed follow-up surfaces under Needs attention (mandate 3).
   const tsOf = (e: any) => e.sentAt || e.failedAt || e.sendingAt || e.queuedAt || "";
   const latestSendByLead = new Map<string, any>();
@@ -128,8 +137,8 @@ export async function buildCompanySnapshot(now: Date = new Date()): Promise<Comp
   const nowIso = now.toISOString();
 
   const snap: CompanySnapshot = {
-    counts: { needsVoiceover: 0, needsAttention: 0, readyToSchedule: 0, scheduled: 0, sentToday: 0, replies: 0, blocked: 0, remainingCapacity: Math.max(0, 20 - emailsSentToday), reanalyzing: 0 },
-    needsVoiceover: [], needsAttention: [], reanalyzing: [], ready: [], scheduled: [], sentToday: [], replies: [], blocked: [],
+    counts: { needsVoiceover: 0, rendering: 0, needsAttention: 0, readyToSchedule: 0, scheduled: 0, sentToday: 0, replies: 0, blocked: 0, remainingCapacity: Math.max(0, 20 - emailsSentToday), reanalyzing: 0 },
+    needsVoiceover: [], rendering: [], needsAttention: [], reanalyzing: [], ready: [], scheduled: [], sentToday: [], replies: [], blocked: [],
     nextDateLabel, windowOpen, dateKey, focusQueueIds: [],
   };
   const buckets = new Map<BlockedReasonKey, BlockedCompany[]>();
@@ -152,8 +161,12 @@ export async function buildCompanySnapshot(now: Date = new Date()): Promise<Comp
     // being reconciled (rescheduled forward or terminated) and must not show as future work.
     if (scheduledLeadIds.has(lead.id)) {
       const b = scheduledBindings.find((x) => x.leadId === lead.id)!.binding;
-      if (b.scheduledAt > nowIso) { snap.scheduled.push({ leadId: lead.id, business: lead.businessName, recipient: b.recipient, scheduledAt: b.scheduledAt }); continue; }
-      // past-due → fall through; it is not shown as scheduled until the reconciler moves it forward.
+      // A completed/active VIDEO supersedes a stale email-only binding (operator decision): only classify
+      // as email-SCHEDULED when the lead has NO video work. Video-work leads fall through to the resolver.
+      const pieceIdEarly = `client-${lead.id}`;
+      const hasVideoWork = templateIds.has(pieceIdEarly) || csJobs.some((j) => j.pieceId === pieceIdEarly) || !!pkgByLead.get(lead.id)?.video;
+      if (b.scheduledAt > nowIso && !hasVideoWork) { snap.scheduled.push({ leadId: lead.id, business: lead.businessName, recipient: b.recipient, scheduledAt: b.scheduledAt }); continue; }
+      // past-due, or a video-work lead → fall through to the canonical resolver.
     }
 
     // Package/video state for this lead
@@ -173,38 +186,45 @@ export async function buildCompanySnapshot(now: Date = new Date()): Promise<Comp
     const row = (state: FocusState): FocusRow => ({ leadId: lead.id, business: lead.businessName, recipient: lead.publicEmail ?? null, finding, state });
     const pkg = pkgByLead.get(lead.id);
 
-    // 4) A PREPARED prospect-video package is the authoritative "Record voiceovers" signal. The upstream
-    // orchestrator only persists an INCOMPLETE draft once EVERYTHING except the voiceover exists (client
-    // piece + finding + recipient + frozen PDF + narration + screenshot). So a company is voiceover-ready
-    // iff it has an INCOMPLETE draft; a READY_TO_APPROVE draft (video assembled) is ready-to-schedule.
+    // 4) CANONICAL PROSPECT LIFECYCLE (mandate 12). ONE resolver derives the operator state from persisted
+    // signals — no ad-hoc branching. Any record with prospect-video intent (template / render job / package)
+    // is classified here; RENDERING and AUTOMATIC_REPAIR are DISTINCT from NEEDS_VOICEOVER, so a rendering
+    // or not-yet-assembled piece can never be counted as "voiceover ready".
     const hasPiece = templateIds.has(pieceId);
-    if (pkg && hasPiece && (pkg.state === "INCOMPLETE" || pkg.state === "READY_TO_APPROVE")) {
-      if (pkg.state === "READY_TO_APPROVE" || videoReady) { snap.ready.push(row("ready-to-schedule")); continue; }
-      if (active) { snap.needsVoiceover.push(row("generating")); continue; }        // a render is in flight
-      if (lastJob?.status === "failed") { snap.needsAttention.push(row("needs-attention")); continue; }
-      // Re-audit the narration at read time: a shallow / contradicted / template-equivalent narration is
-      // NEVER shown as voiceover-ready — it becomes "being reanalyzed" until the pipeline regenerates it.
-      const t = await loadTemplate(pieceId).catch(() => null);
-      const evidence = ((biByLead.get(lead.id)?.profile as unknown as { evidence?: Array<{ field?: string; value?: unknown }> })?.evidence) ?? [];
-      const primaryCta = evidence.find((e) => e.field === "primaryCTA")?.value;
-      const verdict = gateNarration({ narration: t?.narration ?? [], finding: { key: String(review.findings?.[0]?.id ?? ""), observation: finding }, domFacts: { primaryCta: primaryCta != null ? String(primaryCta) : null }, businessName: lead.businessName, url: lead.website, reviewCount: lead.reviewCount ?? null });
-      // A narration-gate failure is RETRYABLE automation work — but ONLY when the company is genuinely
-      // eligible for automatic new-outreach preparation. The CANONICAL selector decides: a contacted,
-      // scheduled, suppressed, or already-assembled company must NEVER sit in "being reanalyzed" — it is
-      // routed to its honest bucket instead (mandate 1/2). Only eligible companies enter deep recapture.
-      if (!verdict.ok) {
-        const prep = reanalysisEligibility({
-          internal: false, pipelineStage: lead.pipelineStage, terminal: TERMINAL.has(lead.pipelineStage),
-          contacted: contacted.has(lead.id), scheduled: scheduledLeadIds.has(lead.id), suppressed,
-          hasWebsite: !!lead.website, recipientValid: validEmail(lead.publicEmail), packageState: pkg.state,
-        });
-        if (prep.eligible) { snap.reanalyzing.push({ ...row("needs-attention"), failedAction: "Prospect narration", failReason: "being reanalyzed automatically", retryAvailable: true }); continue; }
-        // Ineligible → classify honestly by the ineligibility reason (never "being reanalyzed").
-        if (prep.reason === "suppressed") { addBlocked("suppressed", lead); continue; }
-        if (prep.reason === "no-recipient") { addBlocked("no-recipient", lead); continue; }
-        addBlocked("duplicate", lead); continue; // contacted / scheduled / assembled → prior/committed contact
+    const hasVideoWork = hasPiece || !!active || videoReady || lastJob?.status === "failed" || pkg != null;
+    if (hasVideoWork) {
+      const uploadPresent = await listUploads(pieceId).then((u) => u.length > 0).catch(() => false);
+      let narrationPass = false;
+      if (hasPiece) {
+        const t = await loadTemplate(pieceId).catch(() => null);
+        const evidence = ((biByLead.get(lead.id)?.profile as unknown as { evidence?: Array<{ field?: string; value?: unknown }> })?.evidence) ?? [];
+        const primaryCta = evidence.find((e) => e.field === "primaryCTA")?.value;
+        narrationPass = gateNarration({ narration: t?.narration ?? [], finding: { key: String(review.findings?.[0]?.id ?? ""), observation: finding }, domFacts: { primaryCta: primaryCta != null ? String(primaryCta) : null }, businessName: lead.businessName, url: lead.website, reviewCount: lead.reviewCount ?? null }).ok;
       }
-      snap.needsVoiceover.push(row("needs-voiceover")); continue;
+      const elg = reanalysisEligibility({ internal: false, pipelineStage: lead.pipelineStage, terminal: TERMINAL.has(lead.pipelineStage), contacted: contacted.has(lead.id), scheduled: scheduledLeadIds.has(lead.id), suppressed, hasWebsite: !!lead.website, recipientValid: validEmail(lead.publicEmail), packageState: pkg?.state ?? null });
+      const binding = scheduledBindings.find((x) => x.leadId === lead.id)?.binding;
+      const scheduledFuture = !!binding && binding.scheduledAt > nowIso;
+      const verdict = resolveProspectState({
+        internal: false, terminalStage: TERMINAL.has(lead.pipelineStage), suppressed,
+        contacted: contacted.has(lead.id), sent: sentLeadIds.has(lead.id), scheduledFuture,
+        eligible: elg.eligible, recaptureExcluded: false,
+        hasTemplate: hasPiece, hasFinding: !!finding, hasScreenshot: hasPiece, narrationPass,
+        frozenPdf: frozenApproved.has(lead.id), emailSubject: !!pkg?.subject, emailBody: !!(pkg?.bodyHtml || pkg?.bodyText),
+        draftPackageState: pkg?.state ?? null, uploadPresent,
+        renderActive: !!active, renderReadyVerified: videoReady, renderFailed: lastJob?.status === "failed", renderAttempts: lastJob?.attempt ?? 0,
+        packageVideoBound: !!pkg?.video,
+      });
+      switch (verdict.state) {
+        case "NEEDS_VOICEOVER": snap.needsVoiceover.push(row("needs-voiceover")); continue;
+        case "RENDERING": snap.rendering.push(row("rendering")); continue;
+        case "AUTOMATIC_REPAIR": snap.rendering.push({ ...row("rendering"), failReason: verdict.reason }); continue; // finishing / repairing
+        case "READY_TO_APPROVE": snap.ready.push(row("ready-to-schedule")); continue;
+        case "NEEDS_ATTENTION": snap.needsAttention.push({ ...row("needs-attention"), failedAction: "Prospect video", failReason: verdict.reason, retryAvailable: false }); continue;
+        case "PREPARING_AUTOMATICALLY": snap.reanalyzing.push({ ...row("needs-attention"), failedAction: "Prospect preparation", failReason: verdict.reason, retryAvailable: true }); continue;
+        case "SCHEDULED": snap.scheduled.push({ leadId: lead.id, business: lead.businessName, recipient: binding?.recipient ?? lead.publicEmail ?? "", scheduledAt: binding?.scheduledAt ?? nowIso }); continue;
+        case "AUTOMATICALLY_EXCLUDED": { if (suppressed) { addBlocked("suppressed", lead); continue; } addBlocked("review-insufficient", lead); continue; }
+        case "SENT": addBlocked("duplicate", lead); continue;
+      }
     }
     void videoRequired;
 
@@ -234,7 +254,7 @@ export async function buildCompanySnapshot(now: Date = new Date()): Promise<Comp
     .map(([reason, companies]) => ({ reason, label: BLOCKED_LABEL[reason], count: companies.length, companies }))
     .sort((a, b) => b.count - a.count);
   snap.counts = {
-    needsVoiceover: snap.needsVoiceover.length, needsAttention: snap.needsAttention.length, readyToSchedule: snap.ready.length,
+    needsVoiceover: snap.needsVoiceover.length, rendering: snap.rendering.length, needsAttention: snap.needsAttention.length, readyToSchedule: snap.ready.length,
     scheduled: snap.scheduled.length, sentToday: snap.sentToday.length, replies: snap.replies.length,
     blocked: snap.blocked.reduce((s, b) => s + b.count, 0), remainingCapacity: Math.max(0, 20 - emailsSentToday),
     reanalyzing: snap.reanalyzing.length,

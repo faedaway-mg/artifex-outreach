@@ -21,7 +21,7 @@ export default async function TodayPage() {
     `${c.sentToday} sent today`,
     c.replies > 0 ? `${c.replies} ${c.replies === 1 ? "reply" : "replies"}` : null,
   ].filter(Boolean);
-  const nothing = c.needsVoiceover === 0 && c.readyToSchedule === 0 && c.needsAttention === 0 && c.scheduled === 0 && c.sentToday === 0 && c.replies === 0;
+  const nothing = c.needsVoiceover === 0 && c.rendering === 0 && c.readyToSchedule === 0 && c.needsAttention === 0 && c.scheduled === 0 && c.sentToday === 0 && c.replies === 0;
 
   return (
     <div className="mx-auto max-w-2xl space-y-4">
@@ -41,6 +41,14 @@ export default async function TodayPage() {
             <span className="btn-primary text-sm">Start <ArrowRight size={14} /></span>
           </div>
         </Link>
+      )}
+
+      {/* RENDERING — voiceover uploaded, video finishing in the background. NOT operator work; informational. */}
+      {c.rendering > 0 && (
+        <div className="flex items-center justify-between rounded-xl border border-white/10 bg-white/[0.02] px-4 py-3 text-[13.5px] text-chalk-300">
+          <span className="flex items-center gap-2"><Sparkles size={15} className="text-teal-300/80" /> {c.rendering} {c.rendering === 1 ? "video" : "videos"} rendering</span>
+          <span className="text-[12px] text-chalk-500">finishing automatically</span>
+        </div>
       )}
 
       {/* READY to schedule */}
