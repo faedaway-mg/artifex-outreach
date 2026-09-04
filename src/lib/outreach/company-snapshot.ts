@@ -26,7 +26,8 @@ import { quickReviewApproved } from "./review-approval";
 import { getEditorialState } from "./review-revisions";
 import { emailQueueEligibility } from "./email-queue-eligibility";
 import { listScheduledBindings } from "./scheduled-batch";
-import { listJobs as csListJobs, listTemplateIds } from "../content-studio/store";
+import { listJobs as csListJobs, listTemplateIds, loadTemplate } from "../content-studio/store";
+import { gateNarration } from "../content-studio/narration-quality-gate";
 import { latestReadyJob as csLatestReadyJob } from "../content-studio/job";
 import { resolveSendingWindow, nextSendingDateKey, ACCOUNTING_TZ } from "./sending-window";
 import { withinMorningWindow } from "./outreach-scheduler";
@@ -178,6 +179,13 @@ export async function buildCompanySnapshot(now: Date = new Date()): Promise<Comp
       if (pkg.state === "READY_TO_APPROVE" || videoReady) { snap.ready.push(row("ready-to-schedule")); continue; }
       if (active) { snap.needsVoiceover.push(row("generating")); continue; }        // a render is in flight
       if (lastJob?.status === "failed") { snap.needsAttention.push(row("needs-attention")); continue; }
+      // Re-audit the narration at read time: a shallow / contradicted / template-equivalent narration is
+      // NEVER shown as voiceover-ready — it becomes "being reanalyzed" until the pipeline regenerates it.
+      const t = await loadTemplate(pieceId).catch(() => null);
+      const evidence = ((biByLead.get(lead.id)?.profile as unknown as { evidence?: Array<{ field?: string; value?: unknown }> })?.evidence) ?? [];
+      const primaryCta = evidence.find((e) => e.field === "primaryCTA")?.value;
+      const verdict = gateNarration({ narration: t?.narration ?? [], finding: { key: String(review.findings?.[0]?.id ?? ""), observation: finding }, domFacts: { primaryCta: primaryCta != null ? String(primaryCta) : null }, businessName: lead.businessName, url: lead.website, reviewCount: lead.reviewCount ?? null });
+      if (!verdict.ok) { snap.needsAttention.push({ ...row("needs-attention"), failedAction: "Prospect narration", failReason: "Needs stronger evidence — being reanalyzed", retryAvailable: true }); continue; }
       snap.needsVoiceover.push(row("needs-voiceover")); continue;
     }
     void videoRequired;

@@ -56,7 +56,11 @@ export function analyzeWebsitePages(pages: SuppliedPage[]): Evidence[] {
   if (services.length) fact("market", "services", services.slice(0, 12).join("; "), `Advertises services: ${services.slice(0, 6).join(", ")}${services.length > 6 ? "…" : ""}.`, "Likely");
 
   // Primary CTA
-  const cta = primaryCta(allHtml);
+  // A prominent action counts whether it sits in a plain <a>/<button> (primaryCta) OR appears as a strong
+  // CTA phrase anywhere in the captured markup (strongCtaPhrase) — the latter catches nested/JS-rendered
+  // buttons like "Free Consultation" that the anchor scan misses. Only emit noClearCTA when NEITHER exists,
+  // so a page that visibly says "Free Consultation" is never labeled as having no call-to-action.
+  const cta = primaryCta(allHtml) || strongCtaPhrase(allHtml);
   if (cta) fact("channel", "primaryCTA", cta, `Primary call-to-action reads "${cta}".`);
   else friction("noClearCTA", "No obvious primary call-to-action on the page — may leave visitors unsure what to do next.");
 
@@ -188,9 +192,23 @@ function services_(html: string): string[] {
   }
   return [...items].slice(0, 15);
 }
-function primaryCta(html: string): string {
-  const candidates = [...html.matchAll(/<(?:a|button)\b[^>]*>([^<]{2,30})<\/(?:a|button)>/gi)].map((m) => m[1].trim());
-  return candidates.find((t) => /book|schedule|get (a )?quote|contact|call|request|start|sign up|get started|appointment/i.test(t)) ?? "";
+// Primary call-to-action detection. Matches anchor/button text INCLUDING nested markup (a "Free
+// Consultation" button often wraps its label in spans), strips inner tags, and recognizes the common
+// service-business actions — notably consultation/estimate/demo, whose omission wrongly fired noClearCTA
+// on pages that clearly DO have a prominent action (the Segal "Free Consultation" contradiction).
+// Raw-text CTA fallback: a strong, unambiguous call-to-action phrase anywhere in the captured markup
+// (link text, aria-label, button label, nested span) — catches the actions the anchor scan can't see.
+export function strongCtaPhrase(html: string): string {
+  const text = html.replace(/<[^>]+>/g, " ").replace(/&[a-z]+;/gi, " ").replace(/\s+/g, " ");
+  const m = text.match(/\b(free consultation|schedule (a|your) consultation|request (a )?(free )?consultation|book (now|online|a|your)|book an appointment|get (a )?free (quote|consultation|estimate)|request (a )?(free )?(quote|estimate)|schedule (a|your) (appointment|call)|get started today)\b/i);
+  return m ? m[0].replace(/\b\w/g, (c) => c.toUpperCase()) : "";
+}
+
+export function primaryCta(html: string): string {
+  const candidates = [...html.matchAll(/<(?:a|button)\b[^>]*>([\s\S]{2,120}?)<\/(?:a|button)>/gi)]
+    .map((m) => m[1].replace(/<[^>]+>/g, " ").replace(/&[a-z]+;/gi, " ").replace(/\s+/g, " ").trim())
+    .filter((t) => t.length >= 2 && t.length <= 42);
+  return candidates.find((t) => /\b(book|schedule|get (a )?quote|request (a )?quote|contact|call (us|now|today)|request|get started|sign up|appointment|consult|consultation|free consultation|estimate|get a demo|reserve|make an appointment|talk to (us|an)|get in touch|apply now|enroll|order now)\b/i.test(t)) ?? "";
 }
 function detectBooking(lc: string): string | null {
   const tools: Array<[RegExp, string]> = [[/calendly/, "Calendly"], [/acuityscheduling|acuity/, "Acuity"], [/squareup\.com\/appointments|square appointments/, "Square"], [/booksy/, "Booksy"], [/setmore/, "Setmore"], [/youcanbook\.me/, "YouCanBook.me"], [/simplybook/, "SimplyBook"], [/vagaro/, "Vagaro"]];

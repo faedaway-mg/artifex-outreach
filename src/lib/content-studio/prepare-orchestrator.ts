@@ -20,6 +20,7 @@ import { approveAndFreezeQuickReview, resolveFrozenReviewForSend } from "../outr
 import { ensureDraftPackage } from "../outreach/prospect-package-store";
 import { draftEmailCopy } from "../outreach/prospect-package-store";
 import { buildBusinessTemplate, composeReviewNarration, type ScreenshotByFinding } from "./client-video";
+import { gateNarration, type NarrationFailReason } from "./narration-quality-gate";
 import { saveTemplate, loadTemplate } from "./store";
 import { createScreenshotJob, latestReadyShot, captureTargetFor } from "./screenshot-jobs";
 import { normalizeCaptureUrl } from "./ssrf-guard";
@@ -49,6 +50,7 @@ export async function prepareProspectVideoCandidates(opts: { now?: Date; max?: n
   // carry a video), so they are NOT excluded. Skipped only when this is an explicit leadIds run (canary).
   const bindings = opts.leadIds ? [] : await listScheduledBindings();
   const committed = new Set<string>(bindings.map((b) => b.leadId));
+  const preparedNarrations: Array<{ businessName: string; lines: string[] }> = []; // peers for similarity
 
   for (const lead of leads) {
     if (s.prepared.length >= max) break;
@@ -80,10 +82,24 @@ export async function prepareProspectVideoCandidates(opts: { now?: Date; max?: n
         const composedNarration = composeReviewNarration(review, lead.industry ?? null);
         const { template } = buildBusinessTemplate(review, { leadId: lead.id, allowOverride: false, screenshots, composedNarration });
         if (!template) { skip(s, "evidence-gate-blocked-template"); continue; }
+        // NARRATION QUALITY + EVIDENCE-CONTRADICTION GATE — a shallow, contradicted, or template-equivalent
+        // narration can NEVER become voiceover-ready. Failing here = NEEDS_EVIDENCE (no save, no freeze,
+        // no package). primaryCTA evidence powers the contradiction check (a noClearCTA finding on a page
+        // whose captured evidence shows a prominent action, e.g. "Free Consultation", is rejected).
+        const evidence = ((bi?.profile as unknown as { evidence?: Array<{ field?: string; value?: unknown }> })?.evidence) ?? [];
+        const cta = evidence.find((e) => e.field === "primaryCTA")?.value;
+        const verdict = gateNarration({
+          narration: template.narration ?? [],
+          finding: { key: String(review.findings[0]?.id ?? ""), observation: review.findings[0]?.observation ?? null },
+          domFacts: { primaryCta: cta != null ? String(cta) : null },
+          businessName: lead.businessName, url: lead.website, reviewCount: lead.reviewCount ?? null, peers: preparedNarrations,
+        });
+        if (!verdict.ok) { skip(s, "narration:" + (verdict.reasons as NarrationFailReason[]).join("+")); continue; }
         template.revision = (existing?.revision ?? 0) + 1;
         template.ownerEdited = false;
         (template as { workflow?: "social" | "prospect" }).workflow = "prospect";
         await saveTemplate(template);
+        preparedNarrations.push({ businessName: lead.businessName, lines: template.narration ?? [] });
       }
       // 2) SHA-verified website screenshot (idempotent; in-flight capture reused).
       const norm = normalizeCaptureUrl(lead.website);
