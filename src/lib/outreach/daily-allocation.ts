@@ -26,14 +26,19 @@ export interface Allocation {
   firstSendNow: number;       // how many first-touches this tick may still send (target − already-sent)
   followSendNow: number;      // how many follow-ups this tick may still send
   remainingTotal: number;     // cap − everything already sent today
+  borrowedByFirst: number;    // slots first-touch borrowed from the follow-up reserve (observability)
+  borrowedByFollow: number;   // slots follow-up borrowed from the first-touch reserve (observability)
 }
 
 /** The reservation-with-borrowing split. Demand that fits the reserve stays; each group may then borrow
  *  the OTHER group's unused reserve, bounded by the total cap. Deterministic and order-independent. */
 export function allocateDailyCap(input: AllocationInput): Allocation {
   const cap = input.cap ?? 20;
-  const reserveFirst = input.reserveFirst ?? 10;
-  const reserveFollow = input.reserveFollow ?? 10;
+  // Reserves are clamped so a mis-set policy can never over-promise: each is bounded to [0, cap], and the
+  // pair is scaled down if they would jointly exceed the cap (borrowing still lets a lane use real spare).
+  let reserveFirst = Math.max(0, Math.min(cap, input.reserveFirst ?? 10));
+  let reserveFollow = Math.max(0, Math.min(cap, input.reserveFollow ?? 10));
+  if (reserveFirst + reserveFollow > cap) reserveFollow = cap - reserveFirst; // first-lane priority on clamp
   const firstDemand = Math.max(0, input.firstDemand);
   const followDemand = Math.max(0, input.followDemand);
 
@@ -63,7 +68,11 @@ export function allocateDailyCap(input: AllocationInput): Allocation {
   let firstSendNow = Math.max(0, Math.min(firstTarget - sentFirst, remainingTotal));
   let followSendNow = Math.max(0, Math.min(followTarget - sentFollow, remainingTotal - firstSendNow));
 
-  return { cap, reserveFirst, reserveFollow, firstTarget, followTarget, firstSendNow, followSendNow, remainingTotal };
+  // Observability: how much each lane borrowed from the other's reserve (target beyond its own base).
+  const borrowedByFirst = Math.max(0, firstTarget - Math.min(firstDemand, reserveFirst));
+  const borrowedByFollow = Math.max(0, followTarget - Math.min(followDemand, reserveFollow));
+
+  return { cap, reserveFirst, reserveFollow, firstTarget, followTarget, firstSendNow, followSendNow, remainingTotal, borrowedByFirst, borrowedByFollow };
 }
 
 /** Configurable reserves — env override (DAILY_RESERVE_FIRST / DAILY_RESERVE_FOLLOW), default 10/10. */

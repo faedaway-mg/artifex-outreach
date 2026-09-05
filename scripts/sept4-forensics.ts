@@ -5,9 +5,12 @@ import { allEmailSends, listAudit } from "../src/lib/repo";
 import { listScheduledBindings } from "../src/lib/outreach/scheduled-batch";
 
 const redact = (e?: string | null) => (e ? e.replace(/^[^@]+/, "***") : "—");
+// Ledger timestamps are stored space-separated ("2026-09-04 13:33:34.034"), NOT ISO-T — normalize before
+// any comparison (a naive string compare puts a space before "T", silently excluding real sends).
+const ms = (t?: string | null) => (t ? Date.parse(t.replace(" ", "T") + (/[zZ]|[+-]\d\d:?\d\d$/.test(t) ? "" : "Z")) : NaN);
 // LA (PDT, UTC-7) Sept 4 window.
-const DAY_START = "2026-09-04T07:00:00Z", DAY_END = "2026-09-05T07:00:00Z";
-const inSept4 = (iso?: string | null) => !!iso && iso >= DAY_START && iso < DAY_END;
+const DAY_START = ms("2026-09-04T07:00:00Z"), DAY_END = ms("2026-09-05T07:00:00Z");
+const inSept4 = (t?: string | null) => { const x = ms(t); return !Number.isNaN(x) && x >= DAY_START && x < DAY_END; };
 
 async function main() {
   const nowIso = new Date().toISOString();
