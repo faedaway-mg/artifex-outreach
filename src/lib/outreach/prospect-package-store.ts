@@ -321,6 +321,10 @@ export async function buildPackageEmail(leadId: string, opts: { baseUrl: string;
 export async function resolvePackageForSendById(leadId: string): Promise<{ ok: boolean; reason?: string; pkg?: FrozenProspectPackage }> {
   const pkg = await latestProspectPackage(leadId);
   if (!pkg) return { ok: false, reason: "no frozen package (approve to freeze first)" };
+  // FAIL-CLOSED integrity gate (mandate 16): a placeholder/test-content package can never dispatch.
+  const { detectPlaceholderContent } = await import("./dispatch-integrity");
+  const ph = detectPlaceholderContent({ subject: pkg.subject, body: pkg.bodyText || pkg.bodyHtml, businessName: (await getLead(leadId))?.businessName });
+  if (ph) return { ok: false, reason: `PLACEHOLDER_OR_TEST_CONTENT: ${ph}`, pkg };
   const review = await resolveFrozenReviewForSend(leadId);
   const currentReviewSha = review.ok ? review.sha256 ?? null : null;
   let currentVideoSha: string | null = null;

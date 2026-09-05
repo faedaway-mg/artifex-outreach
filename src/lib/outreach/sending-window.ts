@@ -8,6 +8,7 @@
 // converts to LA via Intl. DST (PST/PDT) is handled automatically by the IANA zone.
 // ─────────────────────────────────────────────────────────────────────────────
 import type { SendingWindow, Settings } from "../types";
+import { isBusinessHoliday } from "./business-calendar";
 
 export const ACCOUNTING_TZ = "America/Los_Angeles";
 
@@ -61,17 +62,19 @@ export function laDateKey(now: Date, tz: string = ACCOUNTING_TZ): string {
 export function nextSendingDateKey(now: Date, window: SendingWindow = DEFAULT_SENDING_WINDOW): string {
   const tz = window.timezone || ACCOUNTING_TZ;
   const today = laParts(now, tz);
-  const isSendingDay = (weekday: number) => window.weekdays.includes(weekday);
+  const keyOf = (y: number, m: number, d: number) => `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+  // A day is eligible only if it's a sending weekday AND not a configured business holiday (mandate 16).
+  const isSendingDay = (weekday: number, key: string) => window.weekdays.includes(weekday) && !isBusinessHoliday(key);
   // Today still counts only if it's a sending weekday and we haven't passed the window's close.
-  if (isSendingDay(today.weekday) && today.hour < window.endHour) {
-    return `${today.y}-${String(today.m).padStart(2, "0")}-${String(today.d).padStart(2, "0")}`;
+  if (isSendingDay(today.weekday, keyOf(today.y, today.m, today.d)) && today.hour < window.endHour) {
+    return keyOf(today.y, today.m, today.d);
   }
   // Walk forward from tomorrow (LA) to the next sending weekday. Step by whole LA days via noon-LA anchors.
-  for (let add = 1; add <= 8; add++) {
+  for (let add = 1; add <= 16; add++) {
     // Anchor at ~noon LA `add` days ahead to avoid DST edges, then read its LA calendar parts.
     const anchor = new Date(Date.UTC(today.y, today.m - 1, today.d, 19, 0, 0) + add * 86400000);
     const p = laParts(anchor, tz);
-    if (isSendingDay(p.weekday)) return `${p.y}-${String(p.m).padStart(2, "0")}-${String(p.d).padStart(2, "0")}`;
+    if (isSendingDay(p.weekday, keyOf(p.y, p.m, p.d))) return keyOf(p.y, p.m, p.d);
   }
   // Unreachable for any non-empty weekday set; keep the type total.
   return laDateKey(now, tz);

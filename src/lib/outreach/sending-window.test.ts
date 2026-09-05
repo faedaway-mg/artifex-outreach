@@ -44,12 +44,13 @@ describe("sending window — Settings-driven, America/Los_Angeles, never reinter
       expect(k).toBe("2026-09-01");
       expect(laDow(k)).toBe("Tuesday");
     });
-    it("skips the weekend: Friday-after-close, Saturday, and Sunday all resolve to Monday", () => {
+    it("skips the weekend AND the Labor-Day holiday: Fri-after-close/Sat/Sun before Sep-7 resolve to Tue Sep-8", () => {
+      // Mandate 16 holiday guard: Mon 2026-09-07 is Labor Day, so the next sending day is Tue 2026-09-08.
       const friAfter = nextSendingDateKey(new Date("2026-09-04T16:00:00Z"), W); // Fri 09:00 LA, past close
       const sat = nextSendingDateKey(new Date("2026-09-05T18:00:00Z"), W);
       const sun = nextSendingDateKey(new Date("2026-09-06T18:00:00Z"), W);
-      for (const k of [friAfter, sat, sun]) expect(laDow(k)).toBe("Monday");
-      expect(sat).toBe("2026-09-07");
+      for (const k of [friAfter, sat, sun]) expect(laDow(k)).toBe("Tuesday");
+      expect(sat).toBe("2026-09-08");
     });
 
     // ── Mandate V boundary cases: midnight, Friday night, weekends, PDT, PST ──
@@ -59,11 +60,12 @@ describe("sending window — Settings-driven, America/Los_Angeles, never reinter
       expect(k).toBe("2026-08-31");
       expect(laDow(k)).toBe("Monday");
     });
-    it("FRIDAY NIGHT (LA, past close) rolls across the weekend to Monday", () => {
-      // Friday 2026-09-04 22:00 LA (PDT) = Saturday 05:00 UTC — Friday hour 22 ≥ close → Monday.
+    it("FRIDAY NIGHT (LA, past close) rolls across the weekend + Labor Day to Tuesday", () => {
+      // Friday 2026-09-04 22:00 LA (PDT) = Saturday 05:00 UTC — Friday hour 22 ≥ close → weekend → Mon is
+      // Labor Day (holiday) → Tue 2026-09-08 (mandate 16 holiday guard).
       const k = nextSendingDateKey(new Date("2026-09-05T05:00:00Z"), W);
-      expect(k).toBe("2026-09-07");
-      expect(laDow(k)).toBe("Monday");
+      expect(k).toBe("2026-09-08");
+      expect(laDow(k)).toBe("Tuesday");
     });
     it("PST (winter, UTC-8): a weekday before close resolves to that day", () => {
       // Monday 2026-01-05 04:00 LA (PST) = 12:00 UTC — weekday, hour 4 < 7 → today.

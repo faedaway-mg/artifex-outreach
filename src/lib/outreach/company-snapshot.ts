@@ -27,6 +27,7 @@ import { getEditorialState } from "./review-revisions";
 import { emailQueueEligibility } from "./email-queue-eligibility";
 import { reanalysisEligibility } from "./reanalysis-eligibility";
 import { resolveProspectState } from "./prospect-lifecycle";
+import { detectPlaceholderContent } from "./dispatch-integrity";
 import { REVIEW_APPROVED_ACTION } from "./review-approval";
 import { listUploads } from "../content-studio/store";
 import { listScheduledBindings } from "./scheduled-batch";
@@ -218,7 +219,14 @@ export async function buildCompanySnapshot(now: Date = new Date()): Promise<Comp
         case "NEEDS_VOICEOVER": snap.needsVoiceover.push(row("needs-voiceover")); continue;
         case "RENDERING": snap.rendering.push(row("rendering")); continue;
         case "AUTOMATIC_REPAIR": snap.rendering.push({ ...row("rendering"), failReason: verdict.reason }); continue; // finishing / repairing
-        case "READY_TO_APPROVE": snap.ready.push(row("ready-to-schedule")); continue;
+        case "READY_TO_APPROVE": {
+          // FAIL-CLOSED integrity gate (mandate 16): a placeholder/test-content package (e.g. Silver's
+          // "BreakBot test"/"t") can NEVER show as Ready-to-approve — it is routed to Needs attention with
+          // PLACEHOLDER_OR_TEST_CONTENT until a real reviewed package replaces it.
+          const ph = detectPlaceholderContent({ subject: pkg?.subject, body: pkg?.bodyText || pkg?.bodyHtml, businessName: lead.businessName });
+          if (ph) { snap.needsAttention.push({ ...row("needs-attention"), failedAction: "Package content", failReason: `PLACEHOLDER_OR_TEST_CONTENT — ${ph}; needs a real reviewed package before approval`, retryAvailable: false }); continue; }
+          snap.ready.push(row("ready-to-schedule")); continue;
+        }
         case "NEEDS_ATTENTION": snap.needsAttention.push({ ...row("needs-attention"), failedAction: "Prospect video", failReason: verdict.reason, retryAvailable: false }); continue;
         case "PREPARING_AUTOMATICALLY": snap.reanalyzing.push({ ...row("needs-attention"), failedAction: "Prospect preparation", failReason: verdict.reason, retryAvailable: true }); continue;
         case "SCHEDULED": snap.scheduled.push({ leadId: lead.id, business: lead.businessName, recipient: binding?.recipient ?? lead.publicEmail ?? "", scheduledAt: binding?.scheduledAt ?? nowIso }); continue;

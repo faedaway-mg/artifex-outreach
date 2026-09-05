@@ -12,7 +12,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import { createHash } from "crypto";
 import { getLead, isSuppressed, appendAudit, commitReviewEditorial, allBusinessIntelligence, allEmailSends, getSettings } from "../repo";
-import { resolveSendingWindow, nextSendingDateKey } from "./sending-window";
+import { resolveSendingWindow, nextSendingDateKey, laDateKey } from "./sending-window";
+import { isBusinessHoliday, nextBusinessDayKey, addDaysKey } from "./business-calendar";
 import { validEmail } from "../acquisition/compliance";
 import {
   effectiveReviewFor, renderCurrentArtifact, revisionFingerprint, getEditorialState, TEMPLATE_VERSION,
@@ -166,6 +167,38 @@ export async function reconcileScheduledBindings(opts: { now?: Date; apply?: boo
   return result;
 }
 
+/**
+ * HOLIDAY GUARD reschedule (mandate 16): move every VALID scheduled binding that lands on a configured
+ * business holiday to the next business day's same-time slot, preserving batchId/revision/lineage. An
+ * INVALID binding (fails the boundary re-verify — incl. the placeholder guard) is quarantined (its binding
+ * cleared → the lead surfaces in Needs attention) instead of being moved. Idempotent, no duplicates, no
+ * slot consumption. apply:false reports only.
+ */
+export async function rescheduleHolidayBindings(opts: { now?: Date; apply?: boolean } = {}): Promise<{
+  examined: number; moved: Array<{ leadId: string; from: string; to: string }>; quarantined: Array<{ leadId: string; reason: string }>;
+}> {
+  const apply = opts.apply !== false;
+  const window = resolveSendingWindow(await getSettings());
+  const all = await listScheduledBindings();
+  const out = { examined: 0, moved: [] as Array<{ leadId: string; from: string; to: string }>, quarantined: [] as Array<{ leadId: string; reason: string }> };
+  for (const { leadId, binding } of all) {
+    const laKey = laDateKey(new Date(binding.scheduledAt), window.timezone);
+    if (!isBusinessHoliday(laKey)) continue;
+    out.examined += 1;
+    const v = await validateScheduled(leadId, binding);
+    if (!v.ok) { if (apply) await persistBinding(leadId, null); out.quarantined.push({ leadId, reason: v.reason ?? "no longer eligible" }); continue; }
+    const nextKey = nextBusinessDayKey(addDaysKey(laKey, 1), window.weekdays);
+    const to = binding.scheduledAt.replace(/^\d{4}-\d{2}-\d{2}/, nextKey);
+    if (to === binding.scheduledAt) continue; // already moved — idempotent
+    if (apply) await persistBinding(leadId, { ...binding, scheduledAt: to });
+    out.moved.push({ leadId, from: binding.scheduledAt, to });
+  }
+  if (apply && (out.moved.length || out.quarantined.length)) {
+    await appendAudit({ action: "outreach.schedule.holiday-reschedule", actor: "system", targetType: "campaign", targetId: null, meta: { examined: out.examined, moved: out.moved.length, quarantined: out.quarantined.length }, ip: null });
+  }
+  return out;
+}
+
 /** Cancel a lead's scheduled item before dispatch (idempotent). */
 export async function cancelScheduled(leadId: string): Promise<boolean> {
   const state = await getEditorialState(leadId);
@@ -197,6 +230,8 @@ export async function validateScheduled(leadId: string, binding: ScheduledBindin
   const lead = await getLead(leadId);
   if (!lead) return { ok: false, reason: "lead not found" };
   if (lead.publicEmail !== binding.recipient || !validEmail(binding.recipient)) return { ok: false, reason: "recipient changed" };
+  // FAIL-CLOSED integrity gate (mandate 16): a placeholder/test-content binding can never dispatch.
+  { const { detectPlaceholderContent } = await import("./dispatch-integrity"); const ph = detectPlaceholderContent({ subject: binding.subject, businessName: lead.businessName }); if (ph) return { ok: false, reason: `PLACEHOLDER_OR_TEST_CONTENT: ${ph}` }; }
   if (await isSuppressed({ email: binding.recipient, domain: lead.websiteDomain, phone: lead.phone })) return { ok: false, reason: "recipient suppressed since scheduling" };
   const state = await getEditorialState(leadId);
   if (state.held) return { ok: false, reason: "held since scheduling" };
