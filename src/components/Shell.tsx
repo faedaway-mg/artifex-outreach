@@ -167,7 +167,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
         <header className="sticky top-0 z-30 flex items-center gap-2 glass-1 px-4 pt-[calc(env(safe-area-inset-top)_+_0.625rem)] pb-2.5 md:hidden">
           <Link href="/" aria-label="Home"><BrandMark size={32} rounded="rounded-lg" /></Link>
           <span className="text-sm font-semibold text-chalk-100">{title}</span>
-          <button onClick={() => setPaletteOpen(true)} className="ml-auto rounded-lg border border-white/10 p-2 text-chalk-400"><Search size={16} /></button>
+          <button onClick={() => setPaletteOpen(true)} aria-label="Search or jump to" className="ml-auto rounded-lg border border-white/10 p-2 text-chalk-400"><Search size={16} /></button>
         </header>
 
         <main className="mx-auto w-full max-w-container flex-1 px-4 py-6 pb-24 md:px-8 md:py-8 md:pb-8">{children}</main>
