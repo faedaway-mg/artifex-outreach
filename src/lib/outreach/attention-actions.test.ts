@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { flagForManualFollowUpAction, attentionAck, MANUAL_FOLLOWUP_FLAG_ACTION } from "./attention-actions";
+import { flagForManualFollowUpAction } from "./attention-actions";
+import { attentionAck, MANUAL_FOLLOWUP_FLAG_ACTION } from "./attention-status";
 import { insertLead, allEmailSends, listAudit } from "../repo";
 import { __resetStoreForTests } from "../store";
 import type { Lead } from "../types";

@@ -2,7 +2,8 @@
 import { useState, useTransition } from "react";
 import Link from "next/link";
 import { AlertTriangle, PauseCircle, Flag, Loader2, Check, ArrowRight } from "lucide-react";
-import { holdProspectAction, flagForManualFollowUpAction, type AttentionAck } from "@/lib/outreach/attention-actions";
+import { holdProspectAction, flagForManualFollowUpAction } from "@/lib/outreach/attention-actions";
+import type { AttentionAck } from "@/lib/outreach/attention-status";
 
 export interface AttentionCardProps {
   leadId: string; business: string; reason: string; ack: AttentionAck;

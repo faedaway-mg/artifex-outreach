@@ -4,7 +4,7 @@ import { headers } from "next/headers";
 import { ArrowLeft, ArrowRight, Mic, Sparkles, CalendarClock, Mail, MessageSquare, AlertTriangle, CheckCircle2 } from "lucide-react";
 import { buildCompanySnapshot } from "@/lib/outreach/company-snapshot";
 import { latestProspectPackage, packageShareUrl } from "@/lib/outreach/prospect-package-store";
-import { attentionAck } from "@/lib/outreach/attention-actions";
+import { attentionAck } from "@/lib/outreach/attention-status";
 import { listAudit } from "@/lib/repo";
 import { ACCOUNTING_TZ } from "@/lib/outreach/sending-window";
 import { ReadyApproveCard } from "@/components/queue/ReadyApproveCard";
