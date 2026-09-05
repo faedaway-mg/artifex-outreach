@@ -230,8 +230,12 @@ export async function validateScheduled(leadId: string, binding: ScheduledBindin
   const lead = await getLead(leadId);
   if (!lead) return { ok: false, reason: "lead not found" };
   if (lead.publicEmail !== binding.recipient || !validEmail(binding.recipient)) return { ok: false, reason: "recipient changed" };
-  // FAIL-CLOSED integrity gate (mandate 16): a placeholder/test-content binding can never dispatch.
-  { const { detectPlaceholderContent } = await import("./dispatch-integrity"); const ph = detectPlaceholderContent({ subject: binding.subject, businessName: lead.businessName }); if (ph) return { ok: false, reason: `PLACEHOLDER_OR_TEST_CONTENT: ${ph}` }; }
+  // FAIL-CLOSED integrity gate (mandate 16/17): placeholder/test CONTENT or test-PROVENANCE can never dispatch.
+  { const { detectPlaceholderContent, testProvenanceReason } = await import("./dispatch-integrity");
+    const { isInternalLead } = await import("../operators/assignment");
+    const tp = testProvenanceReason(lead as { source?: string | null; businessName?: string | null; test_only?: boolean }, { internal: isInternalLead(lead) });
+    if (tp) return { ok: false, reason: `TEST_PROVENANCE: ${tp}` };
+    const ph = detectPlaceholderContent({ subject: binding.subject, businessName: lead.businessName }); if (ph) return { ok: false, reason: `PLACEHOLDER_OR_TEST_CONTENT: ${ph}` }; }
   if (await isSuppressed({ email: binding.recipient, domain: lead.websiteDomain, phone: lead.phone })) return { ok: false, reason: "recipient suppressed since scheduling" };
   const state = await getEditorialState(leadId);
   if (state.held) return { ok: false, reason: "held since scheduling" };

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { detectPlaceholderContent, assertDispatchable, classifyPackageType, type PackageIntegrityInput } from "./dispatch-integrity";
+import { detectPlaceholderContent, assertDispatchable, classifyPackageType, testProvenanceReason, type PackageIntegrityInput } from "./dispatch-integrity";
 
 const base: PackageIntegrityInput = {
   type: "EMAIL_VIDEO", subject: "A short review for Northstar", body: "Hi — I put together a short, focused review for your business.",
@@ -50,6 +50,16 @@ describe("assertDispatchable — fail-closed per package type", () => {
     expect(assertDispatchable(fu).code).toBe("MISSING_LINEAGE");
     expect(assertDispatchable({ ...fu, hasPriorReceipt: true }).ok).toBe(true);
   });
+  it("test-provenance is rejected at the dispatch boundary (mandate 17 Workstream 5)", () => {
+    expect(testProvenanceReason({ source: "internal-test", businessName: "Real Co" })).toMatch(/test source/);
+    expect(testProvenanceReason({ source: "breakbot", businessName: "Real Co" })).toMatch(/test source/);
+    expect(testProvenanceReason({ source: "google-places", businessName: "Real Co", test_only: true })).toMatch(/test_only/);
+    expect(testProvenanceReason({ source: "google-places", businessName: "BreakBot Canary" })).toMatch(/synthetic/);
+    expect(testProvenanceReason({ source: "google-places", businessName: "Real Co" }, { internal: true })).toMatch(/internal/);
+    // a genuine production lead passes
+    expect(testProvenanceReason({ source: "google-places", businessName: "Motion Recruitment" })).toBeNull();
+  });
+
   it("classifyPackageType maps artifacts → type", () => {
     expect(classifyPackageType({ video: {}, review: {} })).toBe("EMAIL_VIDEO");
     expect(classifyPackageType({ review: {} })).toBe("EMAIL_PDF");

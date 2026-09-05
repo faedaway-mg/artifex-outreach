@@ -33,6 +33,24 @@ export function detectPlaceholderContent(input: { subject?: string | null; body?
   return null;
 }
 
+// ── Test-provenance rejection at production boundaries (mandate 17 Workstream 5 safety core) ──────────
+// Production approval/scheduling/dispatch must REJECT any synthetic/test-provenance record so a Breakbot or
+// fixture lead can never dispatch to a real recipient, even if it somehow acquired a package or binding.
+export function testProvenanceReason(
+  lead: { source?: string | null; businessName?: string | null; test_only?: boolean } | null | undefined,
+  opts?: { internal?: boolean },
+): string | null {
+  if (!lead) return null;
+  if (opts?.internal) return "internal/test operator lead";
+  // The canonical PRODUCTION synthetic-record sources (matches prepare-orchestrator). NOT the generic "test"
+  // string, which is only a unit-test fixture convention — production leads never use it.
+  const src = (lead.source ?? "").toLowerCase();
+  if (src === "internal-test" || src === "breakbot") return `test source: "${src}"`;
+  if (lead.test_only === true) return "test_only flag set";
+  if (/\b(breakbot|canary|fixture|synthetic|test[-_ ]?(lead|user|only))\b/i.test(lead.businessName ?? "")) return "test/synthetic business name";
+  return null;
+}
+
 export type ProspectPackageType = "EMAIL_ONLY" | "EMAIL_PDF" | "EMAIL_VIDEO" | "VIDEO_FOLLOW_UP";
 
 export interface PackageIntegrityInput {
