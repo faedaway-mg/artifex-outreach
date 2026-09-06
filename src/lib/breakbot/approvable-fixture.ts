@@ -212,3 +212,79 @@ export async function seedContactedWithReceipt(businessName = "Copperline Cafe",
   } as any);
   return { leadId: lead.id, recipient };
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Mandate 25 — Content Studio TWO-TAB + expand-and-personalize fixtures (isolated tenant only). Seed real
+// content-studio templates (via saveTemplate) + leads/BI so the seeded videos appear in the workspaces with
+// deterministic narration-quality scenarios. Proposal templates carry workflow=prospect + businessId; content
+// templates carry workflow=social; the ambiguous one carries neither (NEEDS_CLASSIFICATION).
+// ─────────────────────────────────────────────────────────────────────────────
+import { saveTemplate } from "../content-studio/store";
+import type { ContentTemplate } from "../content-studio/template-schema";
+
+function narrationTemplate(id: string, businessName: string, narration: string[], opts: { workflow?: "social" | "prospect"; businessId?: string }): ContentTemplate {
+  const lines = narration.length >= 2 ? narration.slice(0, 12) : [...narration, "A focused review from Artifex Labs."];
+  return {
+    id, title: businessName, concept: "review", businessName,
+    narration: lines,
+    beats: [
+      { type: "title", lines: [0], mood: "problem", eyebrow: "REVIEW", headline: businessName, sub: "A focused review" },
+      { type: "brand", lines: [lines.length - 1], mood: "resolve", tagline: "A focused review from Artifex Labs." },
+    ],
+    ...(opts.workflow ? { workflow: opts.workflow } : {}),
+    ...(opts.businessId ? { businessId: opts.businessId } : {}),
+    revision: 1,
+  } as unknown as ContentTemplate;
+}
+
+// A narration finding-less BI (no opportunities) → INSUFFICIENT_EVIDENCE for expand.
+function evidencelessProfile(name: string): any {
+  return { businessProfile: { businessName: name, executiveSummary: `${name} — no verified findings yet.`, opportunities: [] }, evidenceConfidence: 10, improvement: { score: 10, treatment: "standard" }, evidence: [] };
+}
+
+async function seedProposalTemplate(slug: string, businessName: string, narration: string[], withEvidence: boolean): Promise<string> {
+  const lead: Lead = await insertLead(fixtureLead(businessName, slug));
+  await upsertBusinessIntelligence({ leadId: lead.id, profile: (withEvidence ? sendableProfile(businessName) : evidencelessProfile(businessName)), enrichmentDelta: null, generatedAt: new Date("2026-01-01T00:00:00Z").toISOString() });
+  await saveTemplate(narrationTemplate(`client-${lead.id}`, businessName, narration, { workflow: "prospect", businessId: lead.id }));
+  return lead.id;
+}
+
+const GENERIC_LONG = ["Hi there, I wanted to reach out today because we help businesses like yours grow and reach more people every single day.", "We have a great deal of experience across many different industries and we genuinely think we could really help you succeed.", "So many companies just like yours have seen wonderful results when they decide to work with our talented team.", "Please let me know if you might be interested in learning more about everything our services can offer you."];
+const SHORT_GENERIC = ["Hi, I made a quick video for you.", "Take a look and let me know."];
+const GOOD_SPECIFIC = ["Hi — I spent a few minutes on your website and one thing stood out.", "Right now there's no online booking, so a customer who searches for you can't schedule a job without calling.", "A lot of people won't make that call after hours, so those jobs quietly slip away.", "A simple booking page on the site you already have could capture those requests directly.", "No pressure — if it's useful, just reply and I'll walk you through it."];
+const SHARED_SIMILAR = ["Right now there's no online booking on the website so customers who search can't schedule a job without calling.", "A simple booking page could capture those requests directly and put them in front of you.", "If it's useful, just reply."];
+const UNSUPPORTED = ["Hi — I looked at your website and noticed there's no online booking.", "This will increase your revenue by 30% within a month, guaranteed.", "Reply if useful."];
+
+/** Seed the full isolated set of two-tab / narration fixtures. Returns every seeded id by scenario. */
+export async function seedVideoWorkspaceFixtures(): Promise<Record<string, string>> {
+  assertIsolatedStore();
+  const ids: Record<string, string> = {};
+  ids.shortGeneric = await seedProposalTemplate("bb-short-generic", "短 Short Generic Co", SHORT_GENERIC, true);
+  ids.shortSpecific = await seedProposalTemplate("bb-short-specific", "Cedar Dental", ["Quick note — your site has no online booking, so searchers can't schedule without calling.", "A simple booking page could capture those. Reply if useful."], true);
+  ids.longGeneric = await seedProposalTemplate("bb-long-generic", "Global Mega Corp", GENERIC_LONG, true);
+  ids.good = await seedProposalTemplate("bb-good", "Vertex Roofing", GOOD_SPECIFIC, true);
+  ids.similarA = await seedProposalTemplate("bb-similar-a", "Summit Plumbing", ["Hi — about Summit Plumbing.", ...SHARED_SIMILAR], true);
+  ids.similarB = await seedProposalTemplate("bb-similar-b", "Harbor Electric", ["Hi — about Harbor Electric.", ...SHARED_SIMILAR], true);
+  ids.insufficient = await seedProposalTemplate("bb-insufficient", "Riverside Bakery", SHORT_GENERIC, false); // no findings → expand blocked
+  ids.unsupported = await seedProposalTemplate("bb-unsupported", "Lakeside Cleaners", UNSUPPORTED, true);
+
+  // Proposal with EXISTING audio + ready render (accepting a revision must outdate it).
+  const withAudio = await seedNeedsNarrationFixture("Northstar Fitness", "bb-with-audio");
+  await saveTemplate(narrationTemplate(withAudio.pieceId, "Northstar Fitness", GOOD_SPECIFIC, { workflow: "prospect", businessId: withAudio.leadId }));
+  await studioUpload(withAudio.leadId); await studioAdvanceRender(withAudio.leadId);
+  ids.withAudio = withAudio.leadId;
+
+  // Frozen approved proposal (immutable — accept must be refused).
+  const frozen = await seedApprovableVideoFixture("Meridian Auto", "bb-frozen");
+  ids.frozen = frozen.leadId;
+
+  // Genuine CONTENT video (Artifex field note — must live ONLY in the Content tab).
+  await saveTemplate(narrationTemplate("bb-content-note", "Artifex Field Note", ["A quick field note about small-business websites.", "A focused review from Artifex Labs."], { workflow: "social" }));
+  ids.content = "bb-content-note";
+
+  // Ambiguous classification (no lineage → NEEDS_CLASSIFICATION → in neither tab until resolved).
+  await saveTemplate(narrationTemplate("BB_LEGACY_9", "Legacy Mystery", ["An unclassified legacy video.", "A focused review from Artifex Labs."], {}));
+  ids.ambiguous = "BB_LEGACY_9";
+
+  return ids;
+}
