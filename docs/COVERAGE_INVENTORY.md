@@ -46,11 +46,26 @@ concurrency, cross-instance, restart-retry, idempotent cancel, zero-provider.
 | Settings (`/settings`) | sending window, pause, calendar link | P (pause via safe-hold scripts) | Settings form controls untested via UI |
 | Media previews / downloads | PDF view, video share, download | P | Blob/Web-Share paths unit-tested; not synthetic-user-driven |
 
+## Content Studio — two-tab videos + expand-and-personalize (mandate 25)
+
+| Route / surface | Controls | Coverage | Evidence |
+|---|---|---|---|
+| Content Studio tabs (`/content-studio?type=proposal\|content`) | switch tab, per-group sections, select card, inspect quality, resolve-ambiguous indicator, Back/refresh, empty state | ✅ 100% | deterministic videos journey 57/57 + goal-driven 27/27 × 3 widths; server-level fixtures acceptance; studio-manifest CI (17 new controls, dead-registration guard) |
+| Proposal workspace | grouped by canonical prospect state (needs-narration/rendering/needs-attention/ready/scheduled/sent); quality badge + reasons; word count + duration; next action | ✅ 100% | `video-workspace` + `studio-workspaces` unit tests; live journey counts==lists |
+| Content workspace | grouped by content lifecycle; structurally barred from outreach | ✅ 100% | `assertNoContentInOutreach` (unit) + goal-driven "content can't enter outreach" (live) |
+| Expand-and-personalize | analyze → expand (evidence-grounded) → compare → edit → regenerate → accept (new revision, audio/render outdated) → cancel (no mutation) | ✅ 100% | `narration-expansion` + `narration-revision` unit tests; deterministic + goal-driven journeys × 3 widths |
+| Narration quality + similarity + unsupported-claims | evaluator badges/reasons; cross-company similarity; unsupported-claim refusal | ✅ 100% | `narration-quality` + `proposal-audit` unit tests; live similarity + accept-refusal |
+| CONTENT outreach bar | a content/unclassified video can never become a package video | ✅ 100% | `outreach-content-bar` seam test + workspace split guard |
+
 ## App-wide coverage summary
 - **Scheduled: 100%** deterministic + goal-driven (mandate 22).
 - **Content Studio / media: 100%** deterministic + goal-driven (mandate 23) — canonical preview, player
   Close/Back/Escape/focus, hash-verified download, upload→render→ready via fake worker, missing-artifact,
   cross-surface artifact equality; enforced by studio-manifest CI.
+- **Content Studio two-tab videos + expand-and-personalize: 100%** deterministic (57/57) + goal-driven
+  (27/27) × 3 widths (mandate 25) — Proposal/Content tabs, canonical grouping, quality evaluator,
+  expand→compare→edit→regenerate→accept revision (audio/render safety), frozen immutability, CONTENT
+  outreach bar; enforced by studio-manifest CI + server-level fixtures acceptance.
 - **Reject/Stop: complete** across surfaces (deterministic + unit, incl. concurrency).
 - **Approve & schedule: strong** deterministic; **no** goal-driven synthetic user yet.
 - **Remaining uncovered operator tasks (explicit) — next bounded surfaces:** Needs-Attention (Hold/Flag +
