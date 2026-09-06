@@ -156,6 +156,22 @@ export async function deleteVideoArtifact(leadId: string): Promise<boolean> {
   return true;
 }
 
+/** Morris-style Needs Attention fixture (mandate 24): a completed video package + a PRIOR SENT intro email
+ *  (contacted, video not delivered) — eligible for exactly one VIDEO_FOLLOW_UP. */
+export async function seedMorrisLikeFixture(businessName = "Morris Automotive", slug = "morris-like"): Promise<{ leadId: string; recipient: string }> {
+  assertIsolatedStore();
+  const { leadId } = await seedApprovableVideoFixture(businessName, slug);
+  const recipient = `ops+${slug}@${RESERVED_TEST_DOMAIN}`;
+  assertFakeRecipient(recipient);
+  await insertEmailSendIfAbsent({
+    idempotencyKey: `intro:${leadId}`, stepId: "step_intro", planId: "plan_1", leadId, toAddr: recipient, fromAddr: `ops@${RESERVED_TEST_DOMAIN}`,
+    subject: `Quick Review — ${businessName}`, status: "sent" as any, provider: "breakbot", providerMessageId: `pm_intro_${slug}`, attempts: 1,
+    lastError: null, lastErrorCode: null, nextAttemptAt: null, queuedAt: null, sendingAt: null, sentAt: new Date("2026-01-01T00:00:00Z").toISOString(),
+    deliveredAt: new Date("2026-01-01T00:01:00Z").toISOString(), openedAt: null, clickedAt: null, bouncedAt: null, complainedAt: null, unsubscribedAt: null, failedAt: null,
+  } as any);
+  return { leadId, recipient };
+}
+
 /** Seed a full isolated SCHEDULED queue (mandate 22): EMAIL_VIDEO, EMAIL_PDF (first/middle/last coverage),
  *  and an INVALID missing-artifact video binding — via the real ops + scheduler. Returns the ordered items. */
 export async function seedScheduledQueueFixtures(): Promise<{ ordered: Array<{ leadId: string; type: string; business: string }> }> {

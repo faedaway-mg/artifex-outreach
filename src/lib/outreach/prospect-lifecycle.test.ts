@@ -44,7 +44,18 @@ describe("resolveProspectState — canonical lifecycle (one prospect, one state)
   it("contacted company with a completed video → NEEDS_ATTENTION (lineage preserved, never auto-sent)", () => {
     const v = resolveProspectState(ready({ contacted: true, uploadPresent: true, renderReadyVerified: true, packageVideoBound: true }));
     expect(v.state).toBe("NEEDS_ATTENTION");
-    expect(v.reason).toMatch(/already contacted/i);
+    expect(v.reason).toMatch(/completed video not delivered/i); // mandate 24 reason wording (prepare follow-up / hold)
+  });
+
+  it("contacted + completed video + prepared follow-up → READY_TO_APPROVE (mandate 24)", () => {
+    const v = resolveProspectState(ready({ contacted: true, uploadPresent: true, renderReadyVerified: true, packageVideoBound: true, followUpPrepared: true }));
+    expect(v.state).toBe("READY_TO_APPROVE");
+  });
+
+  it("held contacted company with a completed video → AUTOMATICALLY_EXCLUDED (resumable)", () => {
+    const v = resolveProspectState(ready({ contacted: true, uploadPresent: true, renderReadyVerified: true, packageVideoBound: true, held: true }));
+    expect(v.state).toBe("AUTOMATICALLY_EXCLUDED");
+    expect(v.reason).toMatch(/held/i);
   });
 
   it("email-only scheduled send (no video) → SCHEDULED", () => {

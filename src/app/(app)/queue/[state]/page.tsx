@@ -90,7 +90,7 @@ export default async function QueuePage({ params }: { params: { state: string } 
             const audit = await listAudit(5000);
             return Promise.all(snap.needsAttention.map(async (r) => {
               const ack = await attentionAck(r.leadId, audit as Array<{ action?: string; targetId?: string }>);
-              return <AttentionCard key={r.leadId} leadId={r.leadId} business={r.business} reason={r.failReason ?? "Needs a human decision."} ack={ack} />;
+              return <AttentionCard key={r.leadId} leadId={r.leadId} business={r.business} reason={r.failReason ?? "Needs a human decision."} ack={ack} reasonCode={r.reasonCode} />;
             }));
           })()
         ) : state === "scheduled" ? (

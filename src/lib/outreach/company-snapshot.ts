@@ -62,7 +62,11 @@ const AUTO_RETRIES: Record<BlockedReasonKey, boolean> = {
   "review-insufficient": false, "suppressed": false, "duplicate": false,
 };
 
-export interface FocusRow { leadId: string; business: string; recipient: string | null; finding: string | null; state: FocusState; failedAction?: string; failReason?: string; retryAvailable?: boolean; }
+import type { NeedsAttentionReason } from "./attention-reasons";
+export type { NeedsAttentionReason } from "./attention-reasons";
+export { NEEDS_ATTENTION_ACTIONS } from "./attention-reasons";
+
+export interface FocusRow { leadId: string; business: string; recipient: string | null; finding: string | null; state: FocusState; failedAction?: string; failReason?: string; retryAvailable?: boolean; reasonCode?: NeedsAttentionReason; }
 export type FocusState = "needs-voiceover" | "generating" | "rendering" | "needs-attention" | "ready-to-schedule" | "scheduled" | "sent";
 export interface ScheduledRow { leadId: string; business: string; recipient: string; scheduledAt: string; }
 export interface SentRow { leadId: string; business: string; when: string; providerState: string; }
@@ -209,6 +213,7 @@ export async function buildCompanySnapshot(now: Date = new Date()): Promise<Comp
         internal: false, terminalStage: TERMINAL.has(lead.pipelineStage), suppressed,
         contacted: contacted.has(lead.id), sent: sentLeadIds.has(lead.id), scheduledFuture,
         eligible: elg.eligible, recaptureExcluded: false,
+        followUpPrepared: !!pkg?.followUp, held: !!est.held,
         hasTemplate: hasPiece, hasFinding: !!finding, hasScreenshot: hasPiece, narrationPass,
         frozenPdf: frozenApproved.has(lead.id), emailSubject: !!pkg?.subject, emailBody: !!(pkg?.bodyHtml || pkg?.bodyText),
         draftPackageState: pkg?.state ?? null, uploadPresent,
@@ -224,13 +229,14 @@ export async function buildCompanySnapshot(now: Date = new Date()): Promise<Comp
           // "BreakBot test"/"t") can NEVER show as Ready-to-approve — it is routed to Needs attention with
           // PLACEHOLDER_OR_TEST_CONTENT until a real reviewed package replaces it.
           const ph = detectPlaceholderContent({ subject: pkg?.subject, body: pkg?.bodyText || pkg?.bodyHtml, businessName: lead.businessName });
-          if (ph) { snap.needsAttention.push({ ...row("needs-attention"), failedAction: "Package content", failReason: `PLACEHOLDER_OR_TEST_CONTENT — ${ph}; needs a real reviewed package before approval`, retryAvailable: false }); continue; }
+          if (ph) { snap.needsAttention.push({ ...row("needs-attention"), failedAction: "Package content", failReason: `PLACEHOLDER_OR_TEST_CONTENT — ${ph}; needs a real reviewed package before approval`, retryAvailable: false, reasonCode: "invalid-content" }); continue; }
           snap.ready.push(row("ready-to-schedule")); continue;
         }
-        case "NEEDS_ATTENTION": snap.needsAttention.push({ ...row("needs-attention"), failedAction: "Prospect video", failReason: verdict.reason, retryAvailable: false }); continue;
+        case "NEEDS_ATTENTION": snap.needsAttention.push({ ...row("needs-attention"), failedAction: "Prospect video", failReason: verdict.reason, retryAvailable: false, reasonCode: "prior-sent-video-undelivered" }); continue;
         case "PREPARING_AUTOMATICALLY": snap.reanalyzing.push({ ...row("needs-attention"), failedAction: "Prospect preparation", failReason: verdict.reason, retryAvailable: true }); continue;
         case "SCHEDULED": snap.scheduled.push({ leadId: lead.id, business: lead.businessName, recipient: binding?.recipient ?? lead.publicEmail ?? "", scheduledAt: binding?.scheduledAt ?? nowIso }); continue;
-        case "AUTOMATICALLY_EXCLUDED": { if (suppressed) { addBlocked("suppressed", lead); continue; } addBlocked("review-insufficient", lead); continue; }
+        // A HELD company (resumable) leaves the active queues entirely — not shown as blocked or attention.
+        case "AUTOMATICALLY_EXCLUDED": { if (verdict.reason.includes("held")) continue; if (suppressed) { addBlocked("suppressed", lead); continue; } addBlocked("review-insufficient", lead); continue; }
         case "SENT": addBlocked("duplicate", lead); continue;
       }
     }
@@ -246,7 +252,7 @@ export async function buildCompanySnapshot(now: Date = new Date()): Promise<Comp
       const elig = retryEligibility(latest);
       const exhausted = (latest.attempts ?? 1) >= MAX_ATTEMPTS;
       if (!elig.retryable || exhausted) {
-        snap.needsAttention.push({ ...row("needs-attention"), failedAction: latest.stepId ? "Follow-up email" : "Outreach email", failReason: terminalFailureReason(latest), retryAvailable: elig.retryable });
+        snap.needsAttention.push({ ...row("needs-attention"), failedAction: latest.stepId ? "Follow-up email" : "Outreach email", failReason: terminalFailureReason(latest), retryAvailable: elig.retryable, reasonCode: elig.retryable ? "failed-render-retryable" : "failed-render-terminal" });
         continue;
       }
     }

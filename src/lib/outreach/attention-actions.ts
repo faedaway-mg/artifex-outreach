@@ -9,19 +9,34 @@ import { revalidatePath } from "next/cache";
 import { appendAudit, getLead } from "../repo";
 import { skipReview } from "./review-revisions";
 import { MANUAL_FOLLOWUP_FLAG_ACTION } from "./attention-status";
+import { prepareVideoFollowUp, holdCompany, type FollowUpResult } from "./video-follow-up";
 
-/** Choice A — HOLD: records the existing editorial "held" state (with a reason). Sends nothing. */
-export async function holdProspectAction(leadId: string): Promise<{ ok: boolean; reason?: string }> {
-  const r = await skipReview(leadId, "Held from Needs attention by operator");
+function revalidateAttention() {
   try { revalidatePath("/queue/attention"); revalidatePath("/needs-attention"); revalidatePath("/"); } catch { /* no request scope in tests */ }
+}
+
+/** HOLD (mandate 24): resumable editorial hold — leaves active Needs Attention, preserves history, distinct
+ *  from Reject/unsubscribe, sends/schedules nothing, idempotent. */
+export async function holdProspectAction(leadId: string): Promise<{ ok: boolean; reason?: string }> {
+  const r = await holdCompany(leadId);
+  revalidateAttention();
   return r;
 }
 
-/** Choice B — FLAG for a manual follow-up decision: an append-only operator-intent marker. Sends nothing,
- *  schedules nothing, changes no canonical state — it only records that the operator will decide manually. */
+/** PREPARE VIDEO FOLLOW-UP (mandate 24): the canonical Needs-Attention → Ready-to-Approve action for a
+ *  contacted company whose completed video wasn't delivered. Creates ONE reviewable VIDEO_FOLLOW_UP package
+ *  (never approves/schedules/sends). Idempotent; blocks rejected/suppressed/already-delivered. */
+export async function prepareVideoFollowUpAction(leadId: string): Promise<FollowUpResult> {
+  const r = await prepareVideoFollowUp({ leadId });
+  revalidateAttention();
+  return r;
+}
+
+/** DEPRECATED (mandate 24): the old "flag for manual follow-up" intent marker, kept only for back-compat
+ *  reconciliation of the pre-existing operator flag. New UI uses prepareVideoFollowUpAction / holdProspectAction. */
 export async function flagForManualFollowUpAction(leadId: string): Promise<{ ok: boolean }> {
   const lead = await getLead(leadId);
   await appendAudit({ action: MANUAL_FOLLOWUP_FLAG_ACTION, actor: "operator", targetType: "lead", targetId: leadId, meta: { business: lead?.businessName ?? null } as unknown as Record<string, unknown>, ip: null });
-  try { revalidatePath("/queue/attention"); revalidatePath("/needs-attention"); revalidatePath("/"); } catch { /* no request scope in tests */ }
+  revalidateAttention();
   return { ok: true };
 }

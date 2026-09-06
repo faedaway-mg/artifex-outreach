@@ -39,6 +39,10 @@ async function leadState(leadId: string) {
   const cur = await resolveCurrentVideo(leadId);
   const jobs = (await listJobs()).filter((j) => j.pieceId === `client-${leadId}`);
   const latest = jobs.sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1))[jobs.length - 1] ?? null;
+  const { latestProspectPackage } = await import("@/lib/outreach/prospect-package-store");
+  const { classifyPackageType } = await import("@/lib/outreach/dispatch-integrity");
+  const pkg = await latestProspectPackage(leadId).catch(() => null);
+  const naRow = snap.needsAttention.find((r) => r.leadId === leadId);
   return NextResponse.json({ ok: true,
     inReady: snap.ready.filter((r) => r.leadId === leadId).length,
     inScheduled: snap.scheduled.filter((s) => s.leadId === leadId).length,
@@ -61,6 +65,12 @@ async function leadState(leadId: string) {
     video: { available: cur.available, source: cur.source, sha256: cur.sha256, revisionId: cur.revisionId, stale: cur.stale, operatorPreviewUrl: cur.operatorPreviewUrl, recipientShareState: cur.recipientShare.state, reason: cur.reason },
     renderJobStatus: latest?.status ?? null,
     renderJobs: jobs.length,
+    // Needs Attention + VIDEO_FOLLOW_UP (mandate 24)
+    inNeedsAttentionReason: naRow?.reasonCode ?? null,
+    followUpPrepared: !!pkg?.followUp,
+    followUpPriorReceiptId: (pkg?.followUp as any)?.priorReceiptId ?? null,
+    packageType: classifyPackageType(pkg),
+    heldNow: !!(await import("@/lib/outreach/review-revisions").then((m) => m.getEditorialState(leadId)).then((s) => s.held).catch(() => false)),
   });
 }
 
@@ -106,5 +116,8 @@ export async function POST(req: NextRequest) {
   if (action === "studio-advance-render") { const r = await fx.studioAdvanceRender(leadId); return NextResponse.json({ ok: true, ...r }); }
   if (action === "studio-fail-render") { await fx.studioFailRender(leadId); return NextResponse.json({ ok: true }); }
   if (action === "delete-video-artifact") { const r = await fx.deleteVideoArtifact(leadId); return NextResponse.json({ ok: true, deleted: r }); }
+  // ── Needs Attention + VIDEO_FOLLOW_UP (mandate 24) ──
+  if (action === "seed-morris-like") { const r = await fx.seedMorrisLikeFixture(); return NextResponse.json({ ok: true, ...r }); }
+  if (action === "mark-video-delivered") { const { markPackageState } = await import("@/lib/outreach/prospect-package-store"); const ok = await markPackageState(leadId, "SENT"); return NextResponse.json({ ok }); }
   return NextResponse.json({ ok: false, error: "unknown action" }, { status: 400 });
 }

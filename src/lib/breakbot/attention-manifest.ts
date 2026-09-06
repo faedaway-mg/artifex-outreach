@@ -1,0 +1,26 @@
+// ─────────────────────────────────────────────────────────────────────────────
+// NEEDS ATTENTION ACTION MANIFEST (mandate 24). Canonical registry of every interactive Needs Attention
+// control. CI fails (attention-manifest.test) if a control ships without a registered acceptance scenario
+// and a rendered DOM marker.
+// ─────────────────────────────────────────────────────────────────────────────
+export interface AttentionActionSpec {
+  id: string; surface: string; precondition: string; goal: string; expectedUi: string; expectedPersisted: string;
+  queueCount: string; audit: string; sideEffect: "none" | "render" | "provider"; deterministicTest: string;
+  syntheticJourney: string; domMarker: string | null;
+}
+
+export const ATTENTION_ACTIONS: AttentionActionSpec[] = [
+  { id: "attention.open-queue", surface: "/queue/attention", precondition: "Today", goal: "open Needs attention", expectedUi: "list; count==list", expectedPersisted: "none", queueCount: "count equals list", audit: "none", sideEffect: "none", deterministicTest: "breakbot-attention-journey", syntheticJourney: "attention-goal", domMarker: "[data-queue-list]" },
+  { id: "attention.inspect-reason", surface: "/queue/attention", precondition: "queue open", goal: "understand why an item needs attention", expectedUi: "plain-language reason + reason code", expectedPersisted: "none", queueCount: "unchanged", audit: "none", sideEffect: "none", deterministicTest: "breakbot-attention-journey", syntheticJourney: "attention-goal", domMarker: "[data-attention-reason]" },
+  { id: "attention.prepare-follow-up", surface: "AttentionCard", precondition: "prior-sent-video-undelivered", goal: "prepare a video follow-up without sending", expectedUi: "confirm effect → success → leaves attention", expectedPersisted: "ONE VIDEO_FOLLOW_UP package READY_TO_APPROVE", queueCount: "attention −1, ready +1", audit: "prospect.video-followup.prepared", sideEffect: "none", deterministicTest: "breakbot-attention-journey", syntheticJourney: "attention-goal", domMarker: "[data-action-prepare]" },
+  { id: "attention.hold", surface: "AttentionCard", precondition: "any attention item", goal: "hold the company (resumable)", expectedUi: "confirm effect → held → leaves attention", expectedPersisted: "editorial held + prospect.hold audit", queueCount: "attention −1", audit: "prospect.hold", sideEffect: "none", deterministicTest: "breakbot-attention-journey", syntheticJourney: "attention-goal", domMarker: "[data-action-hold]" },
+  { id: "attention.cancel", surface: "AttentionCard", precondition: "confirm panel open", goal: "cancel without mutating", expectedUi: "panel closes; nothing changes", expectedPersisted: "no mutation", queueCount: "unchanged", audit: "none", sideEffect: "none", deterministicTest: "breakbot-attention-journey", syntheticJourney: "attention-goal", domMarker: "[data-attention-cancel]" },
+  { id: "attention.confirm", surface: "AttentionCard", precondition: "reason + action chosen", goal: "confirm the action", expectedUi: "success state", expectedPersisted: "per action", queueCount: "per action", audit: "per action", sideEffect: "none", deterministicTest: "breakbot-attention-journey", syntheticJourney: "attention-goal", domMarker: "[data-attention-confirm-yes]" },
+  { id: "attention.reject", surface: "AttentionCard", precondition: "any attention item", goal: "reject / stop future outreach", expectedUi: "reason panel → confirm; leaves pipeline", expectedPersisted: "pipelineStage Rejected", queueCount: "attention −1", audit: "lead.rejected", sideEffect: "none", deterministicTest: "breakbot-reject-journey", syntheticJourney: "attention-goal", domMarker: "[data-reject-control]" },
+  { id: "attention.preview-video", surface: "/company/[leadId]?from=attention", precondition: "canonical video available", goal: "preview + close the canonical video", expectedUi: "player Close/Back/Escape; return to queue", expectedPersisted: "none", queueCount: "unchanged", audit: "none", sideEffect: "none", deterministicTest: "breakbot-media-journey", syntheticJourney: "attention-goal", domMarker: "[data-operator-preview-open]" },
+  { id: "attention.back", surface: "browser", precondition: "detail open", goal: "browser Back to the queue", expectedUi: "returns to Needs attention", expectedPersisted: "none", queueCount: "unchanged", audit: "none", sideEffect: "none", deterministicTest: "breakbot-attention-journey", syntheticJourney: "attention-goal", domMarker: null },
+  { id: "attention.refresh", surface: "/queue/attention", precondition: "queue open", goal: "refresh preserves canonical truth", expectedUi: "same list", expectedPersisted: "none", queueCount: "unchanged", audit: "none", sideEffect: "none", deterministicTest: "breakbot-attention-journey", syntheticJourney: "attention-goal", domMarker: null },
+  { id: "attention.empty-state", surface: "/queue/attention", precondition: "no attention items", goal: "honest empty state", expectedUi: "empty message; no dead controls", expectedPersisted: "none", queueCount: "count 0", audit: "none", sideEffect: "none", deterministicTest: "breakbot-attention-journey", syntheticJourney: "attention-goal", domMarker: null },
+];
+
+export function attentionActionIds(): string[] { return ATTENTION_ACTIONS.map((a) => a.id); }

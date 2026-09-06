@@ -31,6 +31,8 @@ export interface LifecycleSignals {
   scheduledFuture: boolean;         // a FUTURE email-only scheduled binding exists
   eligible: boolean;                // reanalysisEligibility().eligible
   recaptureExcluded: boolean;       // recapture state machine reached AUTOMATICALLY_EXCLUDED
+  followUpPrepared?: boolean;       // a VIDEO_FOLLOW_UP package is prepared (mandate 24) → Ready, not Attention
+  held?: boolean;                   // operator "held" (resumable) — leaves active queues, preserves history
   // operator-ready prerequisites (video prospect)
   hasTemplate: boolean;
   hasFinding: boolean;
@@ -84,15 +86,19 @@ export function resolveProspectState(s: LifecycleSignals): LifecycleVerdict {
   const maxAttempts = s.maxRenderAttempts ?? 3;
   const hasCompletedVideo = s.renderReadyVerified || s.packageVideoBound;
 
-  // 0) Durable exclusions first.
+  // 0) Durable exclusions first. A rejected/suppressed company (or one the operator explicitly HELD) leaves
+  //    the active operator queues; held is resumable and preserves all history (mandate 24).
   if (s.suppressed) return { state: "AUTOMATICALLY_EXCLUDED", missing: [], reason: "suppressed or unsubscribed" };
   if (s.terminalStage) return { state: "AUTOMATICALLY_EXCLUDED", missing: [], reason: "terminal pipeline stage" };
+  if (s.held) return { state: "AUTOMATICALLY_EXCLUDED", missing: [], reason: "held by operator (resumable)" };
   if (s.recaptureExcluded && !hasVideoIntent(s)) return { state: "AUTOMATICALLY_EXCLUDED", missing: [], reason: "evidence insufficient after bounded recapture" };
 
   // 1) Outreach lineage (part 5). A completed voiceover on a company we've already contacted/sent is a
-  //    genuine human decision — never auto-send, never discard the operator's recording.
+  //    genuine human decision — never auto-send. A PREPARED video follow-up (mandate 24) is reviewable →
+  //    Ready to Approve; otherwise it stays Needs Attention until the operator prepares a follow-up or holds.
   if ((s.contacted || s.sent) && hasCompletedVideo) {
-    return { state: "NEEDS_ATTENTION", missing: [], reason: "already contacted — completed video ready; bind to a follow-up or skip (your call)" };
+    if (s.followUpPrepared) return { state: "READY_TO_APPROVE", missing: [], reason: "video follow-up prepared — review & approve" };
+    return { state: "NEEDS_ATTENTION", missing: [], reason: "prior email sent; completed video not delivered — prepare a follow-up or hold" };
   }
   if (s.sent) return { state: "SENT", missing: [], reason: "outreach sent" };
 
