@@ -1,6 +1,7 @@
 // MANDATE 22 — read-only check of prod migration state before applying the additive enum change.
 // Reports: whether 'Rejected' is already an enum value, whether drizzle's __drizzle_migrations table exists,
 // and how many migrations it has recorded. Writes NOTHING.
+export {}; // make this a module so its top-level `main` doesn't collide with other scripts under tsc
 async function main() {
   const url = process.env.DATABASE_URL;
   if (!url) { console.log("no DATABASE_URL"); return; }

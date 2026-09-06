@@ -17,7 +17,7 @@ import { buildQuickReview, cachedBrand } from "./quick-review";
 import { quickReviewApproved } from "./review-approval";
 import { resolveFrozenReviewForSend } from "./quick-review-freeze";
 import { listJobs } from "../content-studio/store";
-import { latestReadyJob } from "../content-studio/job";
+import { latestReadyJob, isOutputStale } from "../content-studio/job";
 import { getArtifactStore } from "../content-studio/storage-factory";
 import type { BusinessProfile } from "../business-intelligence/types";
 import {
@@ -228,6 +228,84 @@ export async function freezeProspectPackage(
   frozen.packageDigest = computePackageDigest(frozen);
   await appendAudit({ action: PROSPECT_PACKAGE_ACTION, actor: frozen.approvedBy, targetType: "lead", targetId: leadId, meta: { pkg: frozen } as unknown as Record<string, unknown>, ip: null });
   return { ok: true, packageVersion: frozen.packageVersion, digest: frozen.packageDigest };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// THE ONE CANONICAL CURRENT-VIDEO RESOLVER (mandate 23). Every surface — Content Studio, Ready-to-Approve,
+// Full Package, Scheduled detail, quick-video controls, operator preview, download, and approval/scheduling
+// /pre-dispatch validation — resolves the operator's current video through THIS function, so they can never
+// disagree. Canonical LINEAGE wins over "latest timestamp": a committed package's bound video is the truth
+// (that is what will be sent); only when no committed package exists do we fall back to the newest render.
+// A superseded/stale render is flagged, never silently presented as current. The RECIPIENT share is tracked
+// SEPARATELY (its own lifetime/revocation) and never substituted for the authenticated operator preview.
+// ─────────────────────────────────────────────────────────────────────────────
+export interface CurrentVideo {
+  leadId: string;
+  pieceId: string;
+  available: boolean;               // the canonical artifact bytes exist in the store
+  source: "frozen-package" | "ready-package" | "latest-render" | "none";
+  artifactKey: string | null;
+  sha256: string | null;
+  hashVerified: boolean;            // the stored artifact's SHA matches the bound package SHA (integrity)
+  inputVersion: string | null;
+  revisionId: string | null;
+  stale: boolean;                   // a newer render supersedes this output
+  operatorPreviewUrl: string | null; // authenticated, canonical, no expiry — NEVER the recipient share
+  recipientShare: { url: string | null; state: "active" | "revoked" | "none" | "not-frozen" };
+  reason: string | null;            // when unavailable, why
+}
+
+const COMMITTED_STATES: ProspectPackageState[] = ["FROZEN", "SCHEDULED", "SENT"];
+
+export async function resolveCurrentVideo(leadId: string, opts: { baseUrl?: string } = {}): Promise<CurrentVideo> {
+  const pieceId = pieceIdFor(leadId);
+  const operatorPreviewUrl = `/api/content-studio/operator-video/${leadId}`;
+  const [pkg, jobs] = await Promise.all([latestProspectPackage(leadId), listJobs()]);
+  const readyJob = latestReadyJob(jobs, pieceId);
+  const store = getArtifactStore();
+  const none = (reason: string): CurrentVideo => ({ leadId, pieceId, available: false, source: "none", artifactKey: null, sha256: null, hashVerified: false, inputVersion: null, revisionId: null, stale: false, operatorPreviewUrl: null, recipientShare: { url: null, state: pkg?.share ? "not-frozen" : "none" }, reason });
+
+  // Canonical lineage: a package's BOUND video is authoritative when the package carries one. A committed
+  // (FROZEN/SCHEDULED/SENT) or assembled (READY_TO_APPROVE) package's binding is the video that will be sent.
+  if (pkg?.video && (COMMITTED_STATES.includes(pkg.state) || pkg.state === "READY_TO_APPROVE")) {
+    const meta = await store.getMeta(pkg.video.videoKey).catch(() => null);
+    const available = !!meta;
+    const hashVerified = !!meta && meta.sha256 === pkg.video.sha256;
+    const committed = COMMITTED_STATES.includes(pkg.state);
+    // A committed package's bound video IS the canonical current artifact (never "stale"). For an assembled
+    // draft (READY_TO_APPROVE) not yet frozen, a newer render with a different input version supersedes it.
+    const stale = committed ? false : (!!readyJob && readyJob.inputVersion !== pkg.video.inputVersion);
+    const recipientShare = pkg.share
+      ? { url: committed ? packageShareUrl(pkg, opts.baseUrl ?? "") : null, state: (committed ? (await isShareRevoked(leadId, pkg.share.publicId) ? "revoked" : "active") : "not-frozen") as "active" | "revoked" | "not-frozen" }
+      : { url: null, state: "none" as const };
+    return {
+      leadId, pieceId, available,
+      source: committed ? "frozen-package" : "ready-package",
+      artifactKey: pkg.video.videoKey, sha256: pkg.video.sha256, hashVerified,
+      inputVersion: pkg.video.inputVersion, revisionId: `pkgv${pkg.packageVersion}`,
+      stale, operatorPreviewUrl: available ? operatorPreviewUrl : null, recipientShare,
+      reason: available ? null : "bound video artifact missing from the store",
+    };
+  }
+
+  // No committed/assembled package binding → fall back to the newest READY render (operator preview only;
+  // no recipient share exists until the package is frozen). A stale render is flagged, not hidden.
+  if (readyJob?.outputKey) {
+    const meta = await store.getMeta(readyJob.outputKey).catch(() => null);
+    const available = !!meta;
+    return {
+      leadId, pieceId, available,
+      source: "latest-render",
+      artifactKey: readyJob.outputKey, sha256: meta?.sha256 ?? null, hashVerified: !!meta,
+      inputVersion: readyJob.inputVersion, revisionId: `job-${readyJob.id}`,
+      stale: isOutputStale(jobs, readyJob),
+      operatorPreviewUrl: available ? operatorPreviewUrl : null,
+      recipientShare: { url: null, state: "not-frozen" },
+      reason: available ? null : "render output artifact missing from the store",
+    };
+  }
+
+  return none("no committed package video and no completed render for this company");
 }
 
 /** The newest persisted package record for a lead (draft or frozen), or null. */
