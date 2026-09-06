@@ -12,6 +12,11 @@ const REQUIRED_IDS = [
   "studio.open", "studio.open-company", "studio.preview-video", "studio.close-preview", "studio.back-preview",
   "studio.escape-preview", "studio.download", "studio.upload-narration", "studio.observe-rendering",
   "studio.retry-failed-render", "studio.preview-completed", "studio.reject", "studio.return-today", "studio.missing-artifact",
+  // mandate 25 — two tabs + expand-and-personalize
+  "studio.tab-proposal", "studio.tab-content", "studio.tab-back-refresh", "studio.workspace-group", "studio.workspace-empty",
+  "studio.select-card", "studio.inspect-quality", "studio.resolve-ambiguous", "studio.expand-open", "studio.expand-run",
+  "studio.expand-compare", "studio.expand-edit", "studio.expand-regenerate", "studio.expand-accept", "studio.expand-cancel",
+  "studio.upload-replacement-narration", "studio.rerender-after-revision",
 ];
 
 describe("mandate 23 — Content Studio action manifest completeness", () => {
@@ -27,7 +32,7 @@ describe("mandate 23 — Content Studio action manifest completeness", () => {
   it("side-effect allowances are honest (only upload/retry may trigger a render; none call a provider)", () => {
     for (const a of STUDIO_ACTIONS) {
       expect(a.sideEffect).not.toBe("provider"); // media/studio actions NEVER contact an email provider
-      if (a.sideEffect === "render") expect(/upload|retry/.test(a.id)).toBe(true);
+      if (a.sideEffect === "render") expect(/upload|retry|rerender/.test(a.id)).toBe(true);
     }
   });
   it("every non-null DOM marker is rendered by a Studio/media surface (dead-registration detection)", () => {
@@ -38,6 +43,7 @@ describe("mandate 23 — Content Studio action manifest completeness", () => {
       "src/app/(app)/company/[leadId]/page.tsx",
       "src/app/(app)/queue/[state]/page.tsx",
       "src/components/queue/RejectControl.tsx",
+      "src/components/content-studio/ContentStudioClient.tsx",
     ].map((p) => readFileSync(join(root, p), "utf8")).join("\n");
     for (const a of STUDIO_ACTIONS) {
       if (!a.domMarker) continue;
