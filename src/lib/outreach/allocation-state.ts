@@ -4,6 +4,7 @@
 // honored regardless of which tick fires first. Read-only; sends nothing.
 import { allEmailSends, allSteps, allPlans, listLeads, isSuppressed } from "../repo";
 import { validEmail } from "../acquisition/compliance";
+import { isRejectedLead } from "./rejection-core";
 import { listScheduledBindings } from "./scheduled-batch";
 import { laDayBoundsUtc } from "../acquisition/daily-cap";
 import { allocateDailyCap, configuredReserves, type Allocation } from "./daily-allocation";
@@ -81,6 +82,7 @@ export async function currentAllocation(now: Date = new Date()): Promise<Allocat
     if (!plan || plan.status !== "active" || plan.approvalStatus !== "approved" || s.approvalStatus !== "approved") continue;
     const lead = leadById.get(plan.leadId);
     if (!lead || !validEmail(lead.publicEmail)) continue;
+    if (isRejectedLead(lead)) continue; // rejected companies contribute no follow-up demand (mandate 21)
     const prior = (stepsByPlan.get(s.planId) ?? []).some((p) => p.channel === "email" && p.stepNumber < s.stepNumber && !!p.sentAt);
     if (!prior) continue;
     if (await isSuppressed({ email: lead.publicEmail, domain: lead.websiteDomain, phone: lead.phone })) continue;

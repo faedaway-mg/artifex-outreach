@@ -5,7 +5,7 @@
 // autoAssembleFromRender. Deterministic synthetic bytes. Isolated tenant only (fail-closed).
 // ─────────────────────────────────────────────────────────────────────────────
 import { assertIsolatedStore, BREAKBOT_PROVENANCE, RESERVED_TEST_DOMAIN, assertFakeRecipient } from "./isolation";
-import { insertLead, upsertBusinessIntelligence } from "../repo";
+import { insertLead, upsertBusinessIntelligence, insertEmailSendIfAbsent } from "../repo";
 import { getArtifactStore } from "../content-studio/storage-factory";
 import { writeJob } from "../content-studio/store";
 import { approveAndFreezeQuickReview } from "../outreach/quick-review-freeze";
@@ -78,4 +78,62 @@ export async function seedApprovableVideoFixture(businessName = "Vertex Roofing"
   if (!asm.ok) throw new Error(`assemble failed: ${asm.reason} ${JSON.stringify(asm.blockers ?? [])}`);
   const pkg = await latestProspectPackage(leadId);
   return { leadId, pieceId, packageVersion: pkg?.packageVersion ?? 1 };
+}
+
+/** Seed a scheduled EMAIL_PDF item (real ops): SENDABLE review → frozen Quick Review PDF → scheduleBatch.
+ *  No video package — proves the Scheduled detail must render email + PDF, never a "no video" warning. */
+export async function seedScheduledEmailPdfFixture(businessName = "Circle City Bargains", slug = "email-pdf"): Promise<{ leadId: string; scheduledAt: string | null }> {
+  assertIsolatedStore();
+  const lead: Lead = await insertLead(fixtureLead(businessName, slug));
+  await upsertBusinessIntelligence({ leadId: lead.id, profile: sendableProfile(businessName), enrichmentDelta: null, generatedAt: new Date("2026-01-01T00:00:00Z").toISOString() });
+  const froze = await approveAndFreezeQuickReview({ leadId: lead.id });
+  if (!froze.ok) throw new Error(`freeze failed: ${froze.reason}`);
+  const { scheduleBatch } = await import("../outreach/scheduled-batch");
+  const { resolveSendingWindow, nextSendingDateKey } = await import("../outreach/sending-window");
+  const { getSettings } = await import("../repo");
+  const window = resolveSendingWindow(await getSettings());
+  const dateKey = nextSendingDateKey(new Date(), window);
+  const res = await scheduleBatch([lead.id], { dateKey, by: "breakbot", batchId: "bb_pdf", window: { tz: window.timezone, startHour: window.startHour, endHour: window.endHour } });
+  return { leadId: lead.id, scheduledAt: res.scheduled[0]?.scheduledAt ?? null };
+}
+
+/** Seed a full isolated SCHEDULED queue (mandate 22): EMAIL_VIDEO, EMAIL_PDF (first/middle/last coverage),
+ *  and an INVALID missing-artifact video binding — via the real ops + scheduler. Returns the ordered items. */
+export async function seedScheduledQueueFixtures(): Promise<{ ordered: Array<{ leadId: string; type: string; business: string }> }> {
+  assertIsolatedStore();
+  const { approveAndScheduleSelectedAction } = await import("../outreach/batch-actions");
+  const out: Array<{ leadId: string; type: string; business: string }> = [];
+
+  const v1 = await seedApprovableVideoFixture("Northstar Hospitality", "sched-video-1");
+  await approveAndScheduleSelectedAction([v1.leadId]);
+  out.push({ leadId: v1.leadId, type: "EMAIL_VIDEO", business: "Northstar Hospitality" });
+
+  const p1 = await seedScheduledEmailPdfFixture("Circle City Bargains", "sched-pdf-1");
+  out.push({ leadId: p1.leadId, type: "EMAIL_PDF", business: "Circle City Bargains" });
+  const p2 = await seedScheduledEmailPdfFixture("Cobalt Clean", "sched-pdf-2");
+  out.push({ leadId: p2.leadId, type: "EMAIL_PDF", business: "Cobalt Clean" });
+
+  // INVALID: a video package scheduled, then its video artifact removed → declares video but it's missing.
+  const inv = await seedApprovableVideoFixture("Vertex Roofing", "sched-invalid");
+  await approveAndScheduleSelectedAction([inv.leadId]);
+  await getArtifactStore().del(`content-studio/breakbot/${inv.leadId}/video.mp4`);
+  out.push({ leadId: inv.leadId, type: "INVALID_VIDEO", business: "Vertex Roofing" });
+
+  return { ordered: out };
+}
+
+/** Seed a PREVIOUSLY-CONTACTED fixture with a fake DELIVERED receipt (isolated tenant only). Used to prove
+ *  "Stop future outreach" preserves the delivered email + receipt and writes no unsubscribe. */
+export async function seedContactedWithReceipt(businessName = "Copperline Cafe", slug = "contacted-receipt"): Promise<{ leadId: string; recipient: string }> {
+  assertIsolatedStore();
+  const recipient = `ops+${slug}@${RESERVED_TEST_DOMAIN}`;
+  assertFakeRecipient(recipient);
+  const lead: Lead = await insertLead({ ...fixtureLead(businessName, slug), pipelineStage: "Contacted", lastContactAt: new Date("2026-01-01T00:00:00Z").toISOString() });
+  await insertEmailSendIfAbsent({
+    idempotencyKey: `breakbot:${lead.id}`, stepId: null, planId: null, leadId: lead.id, toAddr: recipient, fromAddr: `ops@${RESERVED_TEST_DOMAIN}`,
+    subject: `Quick Review — ${businessName}`, status: "sent" as any, provider: "breakbot", providerMessageId: "bb_pm_1", attempts: 1, lastError: null, lastErrorCode: null,
+    nextAttemptAt: null, queuedAt: null, sendingAt: null, sentAt: new Date("2026-01-01T00:05:00Z").toISOString(), deliveredAt: new Date("2026-01-01T00:06:00Z").toISOString(),
+    openedAt: null, clickedAt: null, bouncedAt: null, complainedAt: null, unsubscribedAt: null, failedAt: null,
+  } as any);
+  return { leadId: lead.id, recipient };
 }

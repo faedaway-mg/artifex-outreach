@@ -16,9 +16,14 @@ export async function GET() {
   const store = storageStatus();
 
   const healthy = dbConfigured ? dbConnected : true; // dev/mock is "healthy" without a DB
+  // Exact deployed Git SHA (mandate 21B): APP_VERSION is set to the committed full SHA at deploy time; fall
+  // back to Railway's git SHA. This is the source-of-truth commit the running container was built from —
+  // reported independently of the container image digest.
+  const commit = process.env.APP_VERSION ?? process.env.RAILWAY_GIT_COMMIT_SHA ?? "unknown";
   const body = {
     status: healthy ? "ok" : "degraded",
-    version: process.env.APP_VERSION ?? process.env.RAILWAY_GIT_COMMIT_SHA?.slice(0, 7) ?? "0.1.0",
+    version: commit === "unknown" ? "0.1.0" : commit.slice(0, 7),
+    commit,
     time: new Date().toISOString(),
     database: { configured: dbConfigured, connected: dbConnected },
     storage: { provider: store.provider, configured: store.configured },

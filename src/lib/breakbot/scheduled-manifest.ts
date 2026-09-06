@@ -1,0 +1,48 @@
+// ─────────────────────────────────────────────────────────────────────────────
+// SCHEDULED WORKFLOW ACTION MANIFEST (mandate 22). The canonical, machine-checkable registry of EVERY
+// operator task + interactive control in the Scheduled workflow. Breakbot/CI fails if a Scheduled control
+// ships without a registered action ID + acceptance scenario here (see scheduled-manifest.test.ts and the
+// deterministic journey, which assert each control's data-action-id / marker is present and functional).
+//
+// This is the coverage mechanism: it makes "which operator actions are untested" explicit and enforceable.
+// ─────────────────────────────────────────────────────────────────────────────
+export interface ActionSpec {
+  id: string;                 // stable action ID (also the data-action-id / DOM marker where applicable)
+  surface: string;            // route the action lives on
+  startState: string;         // operator's starting state
+  goal: string;               // the operator's goal
+  expectedUi: string;         // expected UI result
+  expectedPersisted: string;  // expected persisted result
+  expectedQueue: string;      // expected queue/count result
+  expectedAudit: string;      // expected audit result
+  expectedScheduler: string;  // expected scheduler-selection result
+  providerAllowed: boolean;   // may this action cause provider activity?
+  deterministicTest: string;  // the deterministic test/journey that covers it
+  syntheticJourney: string;   // the goal-driven synthetic-user journey that covers it
+  domMarker: string | null;   // a data-* marker proving the control is present (null = route/gesture)
+}
+
+export const SCHEDULED_ACTIONS: ActionSpec[] = [
+  { id: "scheduled.open-queue", surface: "/queue/scheduled", startState: "on Today", goal: "open the Scheduled queue", expectedUi: "list of scheduled companies; count == list length", expectedPersisted: "none", expectedQueue: "count equals canonical bindings", expectedAudit: "none", expectedScheduler: "unchanged", providerAllowed: false, deterministicTest: "breakbot-scheduled-journey", syntheticJourney: "scheduled-goal", domMarker: "[data-queue-list]" },
+  { id: "scheduled.open-company", surface: "/queue/scheduled", startState: "queue open", goal: "open a scheduled company", expectedUi: "company detail with package-aware card", expectedPersisted: "none", expectedQueue: "unchanged", expectedAudit: "none", expectedScheduler: "unchanged", providerAllowed: false, deterministicTest: "breakbot-scheduled-journey", syntheticJourney: "scheduled-goal", domMarker: "[data-scheduled-detail]" },
+  { id: "scheduled.inspect-email", surface: "/company/[leadId]?from=scheduled", startState: "detail open", goal: "inspect the exact email that will send", expectedUi: "frozen subject + body shown", expectedPersisted: "none", expectedQueue: "unchanged", expectedAudit: "none", expectedScheduler: "unchanged", providerAllowed: false, deterministicTest: "breakbot-scheduled-journey", syntheticJourney: "scheduled-goal", domMarker: "[data-scheduled-email]" },
+  { id: "scheduled.inspect-pdf", surface: "/company/[leadId]?from=scheduled", startState: "detail open (EMAIL_PDF/VIDEO)", goal: "inspect the exact frozen PDF", expectedUi: "PDF link to /api/quick-review/<id>/pdf", expectedPersisted: "none", expectedQueue: "unchanged", expectedAudit: "none", expectedScheduler: "unchanged", providerAllowed: false, deterministicTest: "breakbot-scheduled-journey", syntheticJourney: "scheduled-goal", domMarker: "[data-scheduled-pdf]" },
+  { id: "scheduled.inspect-video", surface: "/company/[leadId]?from=scheduled", startState: "detail open (EMAIL_VIDEO)", goal: "inspect the completed video + share", expectedUi: "video/share control", expectedPersisted: "none", expectedQueue: "unchanged", expectedAudit: "none", expectedScheduler: "unchanged", providerAllowed: false, deterministicTest: "breakbot-scheduled-journey", syntheticJourney: "scheduled-goal", domMarker: "[data-scheduled-video]" },
+  { id: "scheduled.next", surface: "/company/[leadId]?from=scheduled", startState: "detail open (not last)", goal: "go to the next company in order", expectedUi: "next company loads; title/recipient/package/position change; disabled on last", expectedPersisted: "none", expectedQueue: "unchanged", expectedAudit: "none", expectedScheduler: "unchanged", providerAllowed: false, deterministicTest: "breakbot-scheduled-journey", syntheticJourney: "scheduled-goal", domMarker: "[data-nav-next]" },
+  { id: "scheduled.prev", surface: "/company/[leadId]?from=scheduled", startState: "detail open (not first)", goal: "go to the previous company in order", expectedUi: "previous company loads; disabled on first", expectedPersisted: "none", expectedQueue: "unchanged", expectedAudit: "none", expectedScheduler: "unchanged", providerAllowed: false, deterministicTest: "breakbot-scheduled-journey", syntheticJourney: "scheduled-goal", domMarker: "[data-nav-prev]" },
+  { id: "scheduled.close", surface: "/company/[leadId]?from=scheduled", startState: "detail open", goal: "close/X back to the Scheduled list", expectedUi: "returns to /queue/scheduled", expectedPersisted: "none", expectedQueue: "unchanged", expectedAudit: "none", expectedScheduler: "unchanged", providerAllowed: false, deterministicTest: "breakbot-scheduled-journey", syntheticJourney: "scheduled-goal", domMarker: "[data-nav-close]" },
+  { id: "scheduled.back", surface: "browser", startState: "detail open", goal: "browser Back returns to the correct list position", expectedUi: "Scheduled list at prior position", expectedPersisted: "none", expectedQueue: "unchanged", expectedAudit: "none", expectedScheduler: "unchanged", providerAllowed: false, deterministicTest: "breakbot-scheduled-journey", syntheticJourney: "scheduled-goal", domMarker: null },
+  { id: "scheduled.refresh", surface: "/company/[leadId]?from=scheduled", startState: "detail open", goal: "refresh preserves company + context", expectedUi: "same company + Scheduled context", expectedPersisted: "none", expectedQueue: "unchanged", expectedAudit: "none", expectedScheduler: "unchanged", providerAllowed: false, deterministicTest: "breakbot-scheduled-journey", syntheticJourney: "scheduled-goal", domMarker: null },
+  { id: "scheduled.reject-open", surface: "/company/[leadId]?from=scheduled", startState: "detail open", goal: "open the Reject/Stop control", expectedUi: "reason panel appears", expectedPersisted: "none", expectedQueue: "unchanged", expectedAudit: "none", expectedScheduler: "unchanged", providerAllowed: false, deterministicTest: "breakbot-reject-journey", syntheticJourney: "scheduled-goal", domMarker: "[data-reject-control]" },
+  { id: "scheduled.reject-cancel", surface: "/company/[leadId]?from=scheduled", startState: "reason panel open", goal: "cancel the rejection", expectedUi: "panel closes; nothing changes", expectedPersisted: "no mutation", expectedQueue: "unchanged", expectedAudit: "no event", expectedScheduler: "unchanged", providerAllowed: false, deterministicTest: "breakbot-scheduled-journey", syntheticJourney: "scheduled-goal", domMarker: "[data-reject-panel]" },
+  { id: "scheduled.reject-confirm", surface: "/company/[leadId]?from=scheduled", startState: "reason selected", goal: "confirm rejection / stop future outreach", expectedUi: "confirmation states; leaves queue", expectedPersisted: "pipelineStage Rejected; binding voided", expectedQueue: "count decremented", expectedAudit: "one lead.rejected event", expectedScheduler: "excluded from dry-run", providerAllowed: false, deterministicTest: "breakbot-reject-journey", syntheticJourney: "scheduled-goal", domMarker: "[data-reject-confirm]" },
+  { id: "scheduled.invalid-quarantine", surface: "/company/[leadId]?from=scheduled", startState: "invalid binding", goal: "see an honest Needs Attention state for a missing-artifact binding", expectedUi: "quarantine card; no fake-complete view", expectedPersisted: "none (display); void only on authorized action", expectedQueue: "excluded from dispatch", expectedAudit: "none", expectedScheduler: "not dispatch-eligible", providerAllowed: false, deterministicTest: "breakbot-scheduled-journey", syntheticJourney: "scheduled-goal", domMarker: "[data-scheduled-quarantined]" },
+  { id: "scheduled.switch-filter", surface: "/queue/scheduled", startState: "queue open", goal: "switch to another queue filter", expectedUi: "URL-addressable filter change", expectedPersisted: "none", expectedQueue: "list matches selected filter", expectedAudit: "none", expectedScheduler: "unchanged", providerAllowed: false, deterministicTest: "breakbot-scheduled-journey", syntheticJourney: "scheduled-goal", domMarker: "[role=tablist]" },
+  { id: "scheduled.return-today", surface: "/queue/scheduled", startState: "queue open", goal: "return to Today", expectedUi: "Today loads", expectedPersisted: "none", expectedQueue: "unchanged", expectedAudit: "none", expectedScheduler: "unchanged", providerAllowed: false, deterministicTest: "breakbot-scheduled-journey", syntheticJourney: "scheduled-goal", domMarker: null },
+  { id: "scheduled.empty-state", surface: "/queue/scheduled", startState: "no scheduled items", goal: "see an honest empty state", expectedUi: "empty message; no dead controls", expectedPersisted: "none", expectedQueue: "count 0", expectedAudit: "none", expectedScheduler: "unchanged", providerAllowed: false, deterministicTest: "breakbot-scheduled-journey", syntheticJourney: "scheduled-goal", domMarker: null },
+];
+
+/** Every action ID must be unique and fully specified — the shape test enforces this. */
+export function manifestActionIds(): string[] {
+  return SCHEDULED_ACTIONS.map((a) => a.id);
+}

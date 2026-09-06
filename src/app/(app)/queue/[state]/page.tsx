@@ -9,6 +9,7 @@ import { listAudit } from "@/lib/repo";
 import { ACCOUNTING_TZ } from "@/lib/outreach/sending-window";
 import { ReadyApproveCard } from "@/components/queue/ReadyApproveCard";
 import { AttentionCard } from "@/components/queue/AttentionCard";
+import { RejectControl } from "@/components/queue/RejectControl";
 
 export const dynamic = "force-dynamic";
 
@@ -94,7 +95,7 @@ export default async function QueuePage({ params }: { params: { state: string } 
           })()
         ) : state === "scheduled" ? (
           snap.scheduled.map((r) => (
-            <Row key={r.leadId} leadId={r.leadId} business={r.business}
+            <RejectableRow key={r.leadId} leadId={r.leadId} business={r.business} from="scheduled"
               sub={`${r.recipient} · ${new Date(r.scheduledAt).toLocaleString("en-US", { timeZone: ACCOUNTING_TZ, weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })} PT`} />
           ))
         ) : state === "sent" ? (
@@ -104,7 +105,7 @@ export default async function QueuePage({ params }: { params: { state: string } 
         ) : (
           // voiceover + rendering
           (state === "voiceover" ? snap.needsVoiceover : snap.rendering).map((r) => (
-            <Row key={r.leadId} leadId={r.leadId} business={r.business} sub={r.finding ?? (state === "rendering" ? "Finishing…" : "Ready to record")} href={`/company/${r.leadId}`} />
+            <RejectableRow key={r.leadId} leadId={r.leadId} business={r.business} from={state} sub={r.finding ?? (state === "rendering" ? "Finishing…" : "Ready to record")} href={`/company/${r.leadId}?from=${state}`} />
           ))
         )}
       </div>
@@ -124,4 +125,16 @@ function Row({ leadId, business, sub, href, noLink }: { leadId: string; business
   );
   if (noLink) return inner;
   return <Link href={href ?? `/company/${leadId}`} className="block transition-colors hover:bg-white/[0.02]">{inner}</Link>;
+}
+
+// A queue row with the shared Reject / Stop-future-outreach control beneath it (unsent surfaces). The
+// control sits OUTSIDE the row's Link so tapping it never navigates. All these buckets are uncontacted
+// first-touch work, so the label is "Reject". `from` preserves the list context for Prev/Next.
+function RejectableRow({ leadId, business, sub, href, from }: { leadId: string; business: string; sub: string; href?: string; from?: string }) {
+  return (
+    <div className="space-y-1.5">
+      <Row leadId={leadId} business={business} sub={sub} href={href ?? `/company/${leadId}${from ? `?from=${from}` : ""}`} />
+      <div className="pl-1"><RejectControl leadId={leadId} contacted={false} size="xs" /></div>
+    </div>
+  );
 }

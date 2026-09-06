@@ -12,7 +12,7 @@ import { emailQueueEligibility } from "./email-queue-eligibility";
 import { staggeredTimes } from "./scheduled-batch";
 import { resolveSendingWindow, nextSendingDateKey } from "./sending-window";
 
-const TERMINAL = new Set(["Won", "Lost", "Disqualified", "Nurture"]);
+const TERMINAL = new Set(["Won", "Lost", "Disqualified", "Nurture", "Rejected"]);
 
 export interface SchedulableItem { leadId: string; business: string; recipient: string; subject: string; pdfFilename: string; revisionId: string; proposedAt: string; }
 export interface ScheduledItem { leadId: string; business: string; recipient: string; scheduledAt: string; batchId: string; pdfSha256: string; }

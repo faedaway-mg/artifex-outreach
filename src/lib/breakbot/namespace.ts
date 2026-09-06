@@ -78,12 +78,17 @@ export async function seedBreakbotFixtures(ids?: string[]): Promise<{ seeded: Ar
 }
 
 /** Read-only state summary for scenario assertions (all breakbot-provenance). */
-export async function breakbotStateSummary(): Promise<{ leads: number; breakbotLeads: number; realRecipients: number; fakeProviderCalls: number; ready: number; scheduled: number; readyBusinesses: string[] }> {
+export async function breakbotStateSummary(): Promise<{ leads: number; breakbotLeads: number; realRecipients: number; fakeProviderCalls: number; ready: number; scheduled: number; readyBusinesses: string[]; scheduledLeadIds: string[]; scheduledList: Array<{ leadId: string; business: string }> }> {
   assertIsolatedStore();
   const { buildCompanySnapshot } = await import("../outreach/company-snapshot");
   const leads = await listLeads();
   const breakbotLeads = leads.filter((l) => l.source === "breakbot").length;
   const realRecipients = leads.filter((l) => l.publicEmail && !/@([a-z0-9-]+\.)?example\.invalid$/i.test(l.publicEmail)).length;
   const snap = await buildCompanySnapshot();
-  return { leads: leads.length, breakbotLeads, realRecipients, fakeProviderCalls: recordedOutreach().length, ready: snap.counts.readyToSchedule, scheduled: snap.counts.scheduled, readyBusinesses: snap.ready.map((r) => r.business) };
+  return {
+    leads: leads.length, breakbotLeads, realRecipients, fakeProviderCalls: recordedOutreach().length,
+    ready: snap.counts.readyToSchedule, scheduled: snap.counts.scheduled, readyBusinesses: snap.ready.map((r) => r.business),
+    scheduledLeadIds: snap.scheduled.map((s) => s.leadId),                                   // canonical scheduled ORDER (== list + nav)
+    scheduledList: snap.scheduled.map((s) => ({ leadId: s.leadId, business: s.business })),
+  };
 }

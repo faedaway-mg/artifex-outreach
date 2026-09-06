@@ -13,6 +13,7 @@ import { listJobs, listTemplateIds, latestUpload } from "../content-studio/store
 import { latestReadyJob } from "../content-studio/job";
 import { reconcileReadyProspectPackages, latestProspectPackage } from "./prospect-package-store";
 import { listScheduledBindings, cancelScheduled } from "./scheduled-batch";
+import { isRejectedLead } from "./rejection-core";
 
 export interface LifecycleReconcileResult {
   ranAt: string;
@@ -38,9 +39,13 @@ export async function reconcileProspectLifecycle(opts: { now?: Date; apply?: boo
   const templateIds = new Set(tidList);
   const scheduledByLead = new Map(bindings.map((b) => [b.leadId, b.binding]));
   const jobPieces = new Set(jobs.map((j) => j.pieceId));
+  // Rejected companies (mandate 21) are terminal — the reconciler never reactivates them (no assemble, no
+  // supersede bookkeeping, no render enqueue). ASSEMBLE above is already gated inside autoAssembleFromRender.
+  const rejected = new Set(leads.filter((l) => isRejectedLead(l)).map((l) => l.id));
 
   // 2) SUPERSEDE — a lead with a video-bound package AND a scheduled email binding: cancel the binding.
   for (const [leadId] of scheduledByLead) {
+    if (rejected.has(leadId)) continue;
     const pkg = await latestProspectPackage(leadId).catch(() => null);
     const hasVideoPackage = !!pkg?.video && (pkg.state === "READY_TO_APPROVE" || pkg.state === "FROZEN");
     if (!hasVideoPackage) continue;
@@ -54,6 +59,7 @@ export async function reconcileProspectLifecycle(opts: { now?: Date; apply?: boo
   const { createRenderJob } = apply ? await import("../content-studio/runner") : { createRenderJob: null as any };
   for (const pieceId of clientPieces) {
     const leadId = pieceId.slice("client-".length);
+    if (rejected.has(leadId)) continue; // never enqueue a render for a rejected company (mandate 21)
     const up = await latestUpload(pieceId).catch(() => null);
     if (!up) continue;
     const ready = latestReadyJob(jobs, pieceId);

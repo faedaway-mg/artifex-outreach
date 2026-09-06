@@ -24,21 +24,34 @@ export async function GET(req: NextRequest) {
 async function leadState(leadId: string) {
   const { buildCompanySnapshot } = await import("@/lib/outreach/company-snapshot");
   const { listScheduledBindings, dueScheduled, validateScheduled } = await import("@/lib/outreach/scheduled-batch");
-  const { listAudit } = await import("@/lib/repo");
+  const { resolvePackageForSendById } = await import("@/lib/outreach/prospect-package-store");
+  const { getLead, listAudit, allEmailSends, isSuppressed } = await import("@/lib/repo");
+  const { isRejectedLead, REJECTION_ACTION } = await import("@/lib/outreach/rejection-core");
   const snap = await buildCompanySnapshot();
   const bindings = (await listScheduledBindings()).filter((b) => b.leadId === leadId);
   const audit = await listAudit(5000);
   const binding = bindings[0]?.binding ?? null;
   const due = binding ? (await dueScheduled(new Date(binding.scheduledAt))).some((d) => d.leadId === leadId) : false;
+  const lead = await getLead(leadId);
+  const sends = (await allEmailSends()).filter((e) => e.leadId === leadId);
   return NextResponse.json({ ok: true,
     inReady: snap.ready.filter((r) => r.leadId === leadId).length,
     inScheduled: snap.scheduled.filter((s) => s.leadId === leadId).length,
+    inNeedsAttention: snap.needsAttention.filter((r) => r.leadId === leadId).length,
     bindings: bindings.length,
     revisionId: binding?.revisionId ?? null,
     dryRunSelected: due,
     validateOk: binding ? (await validateScheduled(leadId, binding)).ok : false,
+    resolveSendOk: (await resolvePackageForSendById(leadId)).ok,
     scheduleAudit: audit.some((a) => a.action === "outreach.schedule.batch"),
     readyCount: snap.counts.readyToSchedule, scheduledCount: snap.counts.scheduled,
+    // Rejection disposition (mandate 21) — proves the terminal state, distinct from suppression.
+    pipelineStage: lead?.pipelineStage ?? null,
+    rejected: isRejectedLead(lead),
+    rejectionEvents: audit.filter((a) => a.action === REJECTION_ACTION && a.targetId === leadId).length,
+    suppressed: await isSuppressed({ email: lead?.publicEmail, domain: lead?.websiteDomain, phone: lead?.phone }),
+    sends: sends.length,
+    sentReceipts: sends.filter((e) => !!e.sentAt).length,
   });
 }
 
@@ -58,5 +71,23 @@ export async function POST(req: NextRequest) {
     const r = await seedApprovableVideoFixture();
     return NextResponse.json({ ok: true, ...r, state: await ns.breakbotStateSummary() });
   }
-  return NextResponse.json({ ok: false, error: "unknown action (seed|reset)" }, { status: 400 });
+  if (action === "seed-scheduled-queue") {
+    // A full isolated Scheduled queue (EMAIL_VIDEO + EMAIL_PDF x2 + an invalid missing-artifact binding).
+    const { seedScheduledQueueFixtures } = await import("@/lib/breakbot/approvable-fixture");
+    const r = await seedScheduledQueueFixtures();
+    return NextResponse.json({ ok: true, ...r, state: await ns.breakbotStateSummary() });
+  }
+  if (action === "seed-contacted-receipt") {
+    // A previously-contacted company carrying a fake DELIVERED receipt (real ops).
+    const { seedContactedWithReceipt } = await import("@/lib/breakbot/approvable-fixture");
+    const r = await seedContactedWithReceipt();
+    return NextResponse.json({ ok: true, ...r, state: await ns.breakbotStateSummary() });
+  }
+  if (action === "reconcile") {
+    // Run the whole-book reconciler + ready-package assembly — proves a rejected company never reactivates.
+    const { reconcileProspectLifecycle } = await import("@/lib/outreach/lifecycle-reconcile");
+    const r = await reconcileProspectLifecycle({ apply: true });
+    return NextResponse.json({ ok: true, reconcile: { assembled: r.assembled.length, superseded: r.superseded.length }, state: await ns.breakbotStateSummary() });
+  }
+  return NextResponse.json({ ok: false, error: "unknown action (seed|seed-approvable|seed-contacted-receipt|reconcile|reset)" }, { status: 400 });
 }

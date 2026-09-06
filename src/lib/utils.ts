@@ -57,6 +57,7 @@ export const STAGE_COLORS: Record<PipelineStage, string> = {
   Lost: "text-red-300 border-red-500/30",
   Nurture: "text-chalk-400 border-white/10",
   Disqualified: "text-chalk-500 border-white/10",
+  Rejected: "text-chalk-500 border-white/10",
   "Proposal Accepted": "text-amber-200 border-amber-400/50",
   "Agreement Signed": "text-emerald-300 border-emerald-400/40",
   "Deposit Paid": "text-emerald-300 border-emerald-400/50",

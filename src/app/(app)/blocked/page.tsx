@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ArrowLeft, RotateCcw, Ban, ChevronRight } from "lucide-react";
 import { buildCompanySnapshot } from "@/lib/outreach/company-snapshot";
+import { RejectControl } from "@/components/queue/RejectControl";
 
 export const dynamic = "force-dynamic";
 
@@ -26,15 +27,19 @@ export default async function ExcludedPage() {
               </summary>
               <ul className="divide-y divide-white/5 border-t border-white/10">
                 {b.companies.map((c) => (
-                  <li key={c.leadId} className="flex items-center justify-between gap-3 px-4 py-2.5">
+                  <li key={c.leadId} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 px-4 py-2.5">
                     <span className="truncate text-[13px] text-chalk-200">{c.business}</span>
-                    {terminalDuplicate ? (
-                      <span className="shrink-0 text-[11.5px] text-chalk-500">prior contact — not retried</span>
-                    ) : c.willRetry ? (
-                      <span className="flex shrink-0 items-center gap-1 text-[11.5px] text-teal-300"><RotateCcw size={12} /> automation will retry</span>
-                    ) : (
-                      <span className="shrink-0 text-[11.5px] text-chalk-500">needs an input change</span>
-                    )}
+                    <div className="flex items-center gap-3">
+                      {terminalDuplicate ? (
+                        <span className="shrink-0 text-[11.5px] text-chalk-500">prior contact — not retried</span>
+                      ) : c.willRetry ? (
+                        <span className="flex shrink-0 items-center gap-1 text-[11.5px] text-teal-300"><RotateCcw size={12} /> automation will retry</span>
+                      ) : (
+                        <span className="shrink-0 text-[11.5px] text-chalk-500">needs an input change</span>
+                      )}
+                      {/* Deliberately remove a poor-fit / insufficient-evidence company from the pipeline. */}
+                      <RejectControl leadId={c.leadId} contacted={terminalDuplicate} size="xs" />
+                    </div>
                   </li>
                 ))}
               </ul>

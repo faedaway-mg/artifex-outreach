@@ -317,7 +317,7 @@ export function assessReadiness(input: {
 }
 
 async function leadIsEligible(lead: Lead): Promise<boolean> {
-  const TERMINAL = new Set(["Won", "Lost", "Disqualified"]);
+  const TERMINAL = new Set(["Won", "Lost", "Disqualified", "Rejected"]);
   return !TERMINAL.has(lead.pipelineStage) && (lead as any).acquisitionStrategy !== "Do Not Contact";
 }
 

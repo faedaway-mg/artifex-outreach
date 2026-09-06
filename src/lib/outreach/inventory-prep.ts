@@ -139,7 +139,7 @@ export async function prepareEmailInventory(input: {
   /** Record every check outcome (for backoff + the pipeline UI hold-reason). */
   recordOutcome?: (leadId: string, result: ContactGateResult) => Promise<void>;
 }): Promise<PrepareEmailInventorySummary> {
-  const TERMINAL = new Set(["Won", "Lost", "Disqualified"]);
+  const TERMINAL = new Set(["Won", "Lost", "Disqualified", "Rejected"]);
   const eligible = input.leads.filter(
     (l) =>
       !TERMINAL.has(l.pipelineStage) &&

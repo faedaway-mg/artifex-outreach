@@ -22,7 +22,7 @@ import { canReceiveNewWork, activeConversationsTransferable, shortName } from ".
 import { workKindForTask } from "../work-queue";
 
 /** Businesses in these stages are finished. They are never redistributed. */
-export const TERMINAL_STAGES = new Set(["Won", "Lost", "Disqualified", "Closed Won", "Closed Lost", "Client"]);
+export const TERMINAL_STAGES = new Set(["Won", "Lost", "Disqualified", "Closed Won", "Closed Lost", "Client", "Rejected"]);
 
 /**
  * Internal test rows — real leads in the database that are not real businesses.

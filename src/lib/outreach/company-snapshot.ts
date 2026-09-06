@@ -40,7 +40,7 @@ import { retryEligibility, terminalFailureReason } from "../comms/failure-classi
 import { isSent, MAX_ATTEMPTS } from "../comms/state";
 import { resolveFrozenReviewForSend } from "./quick-review-freeze";
 
-const TERMINAL = new Set(["Won", "Lost", "Disqualified", "Nurture"]);
+const TERMINAL = new Set(["Won", "Lost", "Disqualified", "Nurture", "Rejected"]);
 
 // The operator-facing blocked reason buckets (mandate III). Each maps one-or-more internal
 // eligibility reasons to a plain-language label + whether backend automation will safely retry it.

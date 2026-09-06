@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { headers } from "next/headers";
 import { ChevronLeft, ChevronRight, X } from "lucide-react";
 import { studioSnapshot } from "@/lib/content-studio/store";
 import { ContentStudioClient } from "@/components/content-studio/ContentStudioClient";
@@ -9,19 +10,34 @@ import { pendingClientVideoCount } from "@/lib/content-studio/client-video-tasks
 import { getWorkerHealth } from "@/lib/content-studio/worker-health";
 import { readPosted } from "@/lib/content-studio/store";
 import { buildCompanySnapshot } from "@/lib/outreach/company-snapshot";
+import { resolveScheduledDetail } from "@/lib/outreach/scheduled-detail";
+import { ScheduledPackageCard } from "@/components/queue/ScheduledPackageCard";
 import { ApproveScheduleButton } from "@/components/queue/ApproveScheduleButton";
+import { RejectControl } from "@/components/queue/RejectControl";
 
 export const dynamic = "force-dynamic";
+
+// The operator queue a company was opened FROM, so Prev/Next walk the correct ordering and Back/Close
+// return to the right list (mandate 22). Falls back to the focus queue when no context is supplied.
+type QueueCtx = "scheduled" | "ready" | "attention" | "voiceover" | "rendering" | "today";
+const CTX_ROUTE: Record<QueueCtx, string> = {
+  scheduled: "/queue/scheduled", ready: "/queue/ready", attention: "/queue/attention",
+  voiceover: "/queue/voiceover", rendering: "/queue/rendering", today: "/",
+};
 
 // Mandate II: the ONE operator-facing company screen — one company at a time. Legacy /leads/[id] links
 // redirect here (middleware). It reuses the proven prospect-package piece UI (exact subject/body, PDF
 // preview, narration + copy, upload/replace voiceover, package state) but is fed ONLY this company's
 // prospect piece, so nothing else is visible. A Prev/Next rail walks the focus queue (voiceover → ready).
-export default async function CompanyFocusPage({ params }: { params: { leadId: string } }) {
+export default async function CompanyFocusPage({ params, searchParams }: { params: { leadId: string }; searchParams?: { from?: string } }) {
   const leadId = params.leadId;
   const pieceId = `client-${leadId}`;
-  const [raw, tasks, posted, workerHealth, lead, snap] = await Promise.all([
-    studioSnapshot(), allTasks(), readPosted(), getWorkerHealth(), getLead(leadId), buildCompanySnapshot(),
+  const h = headers();
+  const proto = h.get("x-forwarded-proto") ?? "https";
+  const host = h.get("host") ?? "";
+  const baseUrl = host ? `${proto}://${host}` : (process.env.APP_BASE_URL ?? "");
+  const [raw, tasks, posted, workerHealth, lead, snap, scheduledDetail] = await Promise.all([
+    studioSnapshot(), allTasks(), readPosted(), getWorkerHealth(), getLead(leadId), buildCompanySnapshot(), resolveScheduledDetail(leadId, baseUrl),
   ]);
   if (!lead) notFound();
 
@@ -36,46 +52,99 @@ export default async function CompanyFocusPage({ params }: { params: { leadId: s
     : [];
   const videosToCreate = pendingClientVideoCount(tasks, Object.keys(posted));
 
-  // Prev/Next across the focus queue (needs-you first, then ready-to-schedule).
-  const queue = snap.focusQueueIds;
+  // Prev/Next across the CURRENT list context (mandate 22). The `from` query param names the queue the
+  // company was opened from, so navigation matches that list's exact ordering — including Scheduled, which
+  // the focus queue does not contain. We pick the ordering that actually holds this lead, preferring `from`.
+  const orderings: Record<QueueCtx, string[]> = {
+    scheduled: snap.scheduled.map((s) => s.leadId),
+    ready: snap.ready.map((r) => r.leadId),
+    attention: snap.needsAttention.map((r) => r.leadId),
+    voiceover: snap.needsVoiceover.map((r) => r.leadId),
+    rendering: snap.rendering.map((r) => r.leadId),
+    today: snap.focusQueueIds,
+  };
+  const requested = (searchParams?.from as QueueCtx | undefined);
+  const ctx: QueueCtx = (requested && orderings[requested]?.includes(leadId)) ? requested
+    : (orderings.scheduled.includes(leadId) ? "scheduled"
+    : (orderings.ready.includes(leadId) ? "ready"
+    : (snap.focusQueueIds.includes(leadId) ? "today" : (requested ?? "today"))));
+  const queue = orderings[ctx];
   const idx = queue.indexOf(leadId);
   const prev = idx > 0 ? queue[idx - 1] : null;
   const next = idx >= 0 && idx < queue.length - 1 ? queue[idx + 1] : null;
   const pos = idx >= 0 ? `${idx + 1} of ${queue.length}` : "";
+  const backHref = CTX_ROUTE[ctx];
+  const withCtx = (id: string) => `/company/${id}?from=${ctx}`;
   // Full Package "Approve & schedule" (mandate 20): shown when this company's package is READY_TO_APPROVE,
   // invoking the SAME canonical operation as the Ready-to-Approve card.
   const isReadyToApprove = snap.ready.some((r) => r.leadId === leadId);
+  // A previously-contacted company shows "Stop future outreach"; an unsent one shows "Reject" (mandate 21).
+  const contacted = !!lead.lastContactAt || lead.pipelineStage === "Contacted" || lead.pipelineStage === "Follow-Up";
 
   return (
     <div className="mx-auto w-full max-w-3xl">
-      {/* Focused rail — company name, position, and Previous / Next (mandate II items 1 & 10). */}
+      {/* Focused rail — company name, position, and Previous / Next (mandate 22: real ordering + edge
+          disabling). Disabled controls are rendered as inert spans (no href="#"), so nothing looks
+          clickable without a working target. Back/Close return to the list this company was opened from. */}
       <div className="mb-4 flex items-center justify-between gap-3">
-        <Link href="/" aria-label="Close" className="rounded-lg border border-white/10 p-2 text-chalk-400 hover:text-chalk-100"><X size={16} /></Link>
+        <Link href={backHref} aria-label="Close" data-nav-close className="rounded-lg border border-white/10 p-2 text-chalk-400 hover:text-chalk-100"><X size={16} /></Link>
         <div className="min-w-0 text-center">
           <div className="truncate text-sm font-semibold text-chalk-50">{lead.businessName}</div>
-          {pos && <div className="text-[11px] text-chalk-500">{pos} in your queue</div>}
+          {pos && <div className="text-[11px] text-chalk-500" data-nav-position>{pos} in {ctx === "today" ? "your queue" : ctx}</div>}
         </div>
         <div className="flex items-center gap-1.5">
-          <Link href={prev ? `/company/${prev}` : "#"} aria-disabled={!prev} className={`rounded-lg border border-white/10 p-2 ${prev ? "text-chalk-300 hover:text-chalk-100" : "pointer-events-none text-chalk-700"}`}><ChevronLeft size={16} /></Link>
-          <Link href={next ? `/company/${next}` : "#"} aria-disabled={!next} className={`rounded-lg border border-white/10 p-2 ${next ? "text-chalk-300 hover:text-chalk-100" : "pointer-events-none text-chalk-700"}`}><ChevronRight size={16} /></Link>
+          {prev ? (
+            <Link href={withCtx(prev)} aria-label="Previous company" data-nav-prev className="rounded-lg border border-white/10 p-2 text-chalk-300 hover:text-chalk-100"><ChevronLeft size={16} /></Link>
+          ) : (
+            <span aria-label="Previous company" aria-disabled="true" data-nav-prev data-nav-disabled className="rounded-lg border border-white/10 p-2 text-chalk-700 opacity-40 cursor-not-allowed"><ChevronLeft size={16} /></span>
+          )}
+          {next ? (
+            <Link href={withCtx(next)} aria-label="Next company" data-nav-next className="rounded-lg border border-white/10 p-2 text-chalk-300 hover:text-chalk-100"><ChevronRight size={16} /></Link>
+          ) : (
+            <span aria-label="Next company" aria-disabled="true" data-nav-next data-nav-disabled className="rounded-lg border border-white/10 p-2 text-chalk-700 opacity-40 cursor-not-allowed"><ChevronRight size={16} /></span>
+          )}
         </div>
       </div>
+
+      {/* Package-aware Scheduled detail (mandate 22): show the EXACT frozen content this binding will send,
+          resolved by package type — never a bogus "no video package" message for an email package. */}
+      {scheduledDetail && (
+        <div className="mb-4">
+          <ScheduledPackageCard detail={scheduledDetail} />
+        </div>
+      )}
 
       {/* READY_TO_APPROVE → the canonical Approve & schedule action, right at the top of the Full Package. */}
       {isReadyToApprove && (
         <div data-approve-fullpackage className="mb-4 rounded-2xl border border-teal-400/25 bg-teal-400/[0.05] p-4">
           <div className="text-[13px] font-medium text-chalk-100">Ready to approve — {lead.businessName}</div>
           <div className="mt-0.5 text-[12px] text-chalk-400">Approving freezes the exact package revision and schedules it for the next eligible window.</div>
-          <ApproveScheduleButton leadId={leadId} className="mt-3" />
+          <div className="mt-3 flex flex-wrap items-center gap-3">
+            <ApproveScheduleButton leadId={leadId} />
+            <RejectControl leadId={leadId} contacted={contacted} />
+          </div>
+        </div>
+      )}
+
+      {/* The shared Reject / Stop-future-outreach control is available on the Full Package view for EVERY
+          state (mandate 21), so a poor-fit company can be removed regardless of where it sits in the pipeline. */}
+      {!isReadyToApprove && (
+        <div data-reject-fullpackage className="mb-4 flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/[0.02] px-4 py-3">
+          <div className="text-[12.5px] text-chalk-400">Not a fit? Remove {lead.businessName} from the pipeline.</div>
+          <RejectControl leadId={leadId} contacted={contacted} />
         </div>
       )}
 
       {match ? (
-        <ContentStudioClient initialItems={items} deepLink={{ piece: pieceId, lead: leadId, section: "client", from: "today" }} videosToCreate={videosToCreate} workerHealth={workerHealth} advanceHref={next ? `/company/${next}` : "/"} />
+        <ContentStudioClient initialItems={items} deepLink={{ piece: pieceId, lead: leadId, section: "client", from: "today" }} videosToCreate={videosToCreate} workerHealth={workerHealth} advanceHref={next ? withCtx(next) : backHref} />
+      ) : scheduledDetail ? (
+        // A scheduled EMAIL_ONLY / EMAIL_PDF item has no Content Studio video piece — and that is CORRECT.
+        // The package-aware card above already shows the exact outreach; no missing-video warning here.
+        null
       ) : (
         <div className="rounded-xl border border-white/10 bg-white/[0.02] p-6 text-[13px] text-chalk-400">
           No prospect video package exists for {lead.businessName} yet. The backend prepares one automatically once its evidence and recipient are resolved.
-          <div className="mt-3"><Link href="/" className="btn-ghost text-xs">Back to Today</Link></div>
+          <div className="mt-3"><Link href={backHref} className="btn-ghost text-xs">Back</Link></div>
         </div>
       )}
     </div>

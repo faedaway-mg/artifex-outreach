@@ -12,6 +12,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import { getLead, appendAudit, isSuppressed } from "../repo";
 import { validEmail } from "../acquisition/compliance";
+import { isRejectedLead } from "./rejection-core";
 import { effectiveReviewFor, getEditorialState, deliveryReadiness, revisionFingerprint, evidenceDigestOf, TEMPLATE_VERSION } from "./review-revisions";
 import { resolveApprovedArtifactForSend } from "./resolve-approved-artifact";
 
@@ -48,6 +49,7 @@ function autosendEnabled(): boolean {
 export async function authorizeForSend(leadId: string, opts: { campaignId: string; now?: string }): Promise<AuthResult> {
   const lead = await getLead(leadId);
   if (!lead) return { authorized: false, reason: "lead not found" };
+  if (isRejectedLead(lead)) return { authorized: false, reason: "lead rejected — removed from pipeline" };
   const recipient = lead.publicEmail ?? "";
   if (!validEmail(recipient)) return { authorized: false, reason: "no valid recipient email" };
   if (await isSuppressed({ email: recipient, domain: lead.websiteDomain, phone: lead.phone })) return { authorized: false, reason: "recipient suppressed" };
@@ -100,6 +102,7 @@ export async function authorizeForSend(leadId: string, opts: { campaignId: strin
 export async function authorizationValidForDispatch(leadId: string, auth: SendAuthorization): Promise<{ ok: boolean; reason?: string }> {
   const lead = await getLead(leadId);
   if (!lead) return { ok: false, reason: "lead not found" };
+  if (isRejectedLead(lead)) return { ok: false, reason: "lead rejected — removed from pipeline" };
   if (lead.publicEmail !== auth.recipient || !validEmail(auth.recipient)) return { ok: false, reason: "recipient changed" };
   if (await isSuppressed({ email: auth.recipient, domain: lead.websiteDomain, phone: lead.phone })) return { ok: false, reason: "recipient suppressed since authorization" };
   const state = await getEditorialState(leadId);

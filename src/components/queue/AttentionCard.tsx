@@ -4,14 +4,18 @@ import Link from "next/link";
 import { AlertTriangle, PauseCircle, Flag, Loader2, Check, ArrowRight } from "lucide-react";
 import { holdProspectAction, flagForManualFollowUpAction } from "@/lib/outreach/attention-actions";
 import type { AttentionAck } from "@/lib/outreach/attention-status";
+import { RejectControl } from "./RejectControl";
 
 export interface AttentionCardProps {
   leadId: string; business: string; reason: string; ack: AttentionAck;
+  // Needs-attention cards typically follow a prior send, so the shared control defaults to "Stop future
+  // outreach"; rejectLead re-derives the true contacted/sent facts server-side regardless of this label.
+  contacted?: boolean;
 }
 
 // A NEEDS_ATTENTION recovery card with exactly TWO safe, non-sending choices (mandate 15 Part 3). Neither
 // sends email nor changes canonical lifecycle state; each records operator intent and shows the result.
-export function AttentionCard({ leadId, business, reason, ack: initialAck }: AttentionCardProps) {
+export function AttentionCard({ leadId, business, reason, ack: initialAck, contacted = true }: AttentionCardProps) {
   const [pending, start] = useTransition();
   const [ack, setAck] = useState<AttentionAck>(initialAck);
   const [error, setError] = useState<string | null>(null);
@@ -58,6 +62,8 @@ export function AttentionCard({ leadId, business, reason, ack: initialAck }: Att
         <div className="mt-3 flex flex-wrap gap-2">
           <button onClick={() => setConfirming("hold")} className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-[13px] text-chalk-100 transition-colors hover:bg-white/[0.06]"><PauseCircle size={14} /> Hold package</button>
           <button onClick={() => setConfirming("flag")} className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-[13px] text-chalk-100 transition-colors hover:bg-white/[0.06]"><Flag size={14} /> Flag for follow-up</button>
+          {/* The shared terminal control — remove the company from the pipeline entirely. */}
+          <RejectControl leadId={leadId} contacted={contacted} />
         </div>
       )}
       {error && <p className="mt-2 flex items-center gap-1 text-[12.5px] text-coral-200"><AlertTriangle size={13} /> {error}</p>}

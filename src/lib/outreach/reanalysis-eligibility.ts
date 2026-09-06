@@ -67,7 +67,9 @@ export function isAssembledPackageState(state: ProspectPackageState | null | und
  */
 export function reanalysisEligibility(i: PrepEligibilityInput): PrepEligibilityVerdict {
   if (i.internal) return { eligible: false, reason: "internal" };
-  if (i.terminal) return { eligible: false, reason: "terminal-stage" };
+  // A terminally REJECTED company (mandate 21) is never re-prepared for new outreach, independent of how
+  // the caller computed `terminal` — the stage itself is decisive (kept as a literal to keep this file pure).
+  if (i.terminal || i.pipelineStage === "Rejected") return { eligible: false, reason: "terminal-stage" };
   if (i.suppressed) return { eligible: false, reason: "suppressed" };
   if (i.scheduled) return { eligible: false, reason: "scheduled" };
   if (isAssembledPackageState(i.packageState)) return { eligible: false, reason: "assembled-package" };

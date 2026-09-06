@@ -360,6 +360,50 @@ export async function commitReviewEditorial(args: {
   return { ok: true, conflict: false };
 }
 
+// ── Atomic exactly-once terminal-rejection claim (mandate 21B) ─────────────────
+// Flips a lead active→"Rejected" AND appends the ONE lead.rejected audit event in a SINGLE transaction,
+// selecting the winner with a row-locked read + conditional flip. Under the row lock, only ONE of N
+// concurrent requests transitions the row and writes the event; every other observes "already rejected"
+// and appends nothing. Works for EVERY lead (no BI/editorial row needed), and — because the guard is at
+// the storage layer — the exactly-once property holds across separate instances, retries, and process
+// restarts. The guard is on the TRANSITION (active→Rejected): a future restore (→active) followed by a
+// fresh rejection legitimately claims again and logs a new event, distinct from a duplicate of one transition.
+export async function claimLeadRejection(args: {
+  leadId: string;
+  audit: Omit<AuditEntry, "id" | "createdAt">;
+  rejectedStage?: string;
+}): Promise<{ claimed: boolean; priorStage: string | null }> {
+  const rejected = (args.rejectedStage ?? "Rejected") as any;
+  const auditRow: AuditEntry = { ...args.audit, id: newId("audit"), createdAt: nowIso() };
+  if (hasDb()) {
+    const db = getDb();
+    let claimed = false;
+    let priorStage: string | null = null;
+    await db.transaction(async (tx) => {
+      // Row-locked read: a concurrent tx blocks here until the first commits, then sees "Rejected".
+      const cur = (await tx.select({ stage: t.leads.pipelineStage }).from(t.leads).where(eq(t.leads.id, args.leadId)).for("update"))[0] as any;
+      if (!cur) return;                        // lead not found → not claimed
+      if (cur.stage === rejected) return;      // already rejected → duplicate of this transition
+      priorStage = cur.stage ?? null;
+      await tx.update(t.leads).set({ pipelineStage: rejected, updatedAt: nowIso() } as any).where(eq(t.leads.id, args.leadId));
+      await tx.insert(t.auditLog).values(auditRow as any); // the ONE event, atomic with the flip
+      claimed = true;
+    });
+    return { claimed, priorStage };
+  }
+  // In-memory backend: synchronous check-and-set with NO await between the check and the mutation, so it is
+  // atomic even under Promise.all in a single JS thread (mirrors commitReviewEditorial's in-memory path).
+  const arr = (mem() as any).leads as Lead[];
+  const lead = arr.find((l) => l.id === args.leadId);
+  if (!lead) return { claimed: false, priorStage: null };
+  if ((lead.pipelineStage as string) === rejected) return { claimed: false, priorStage: null };
+  const priorStage = lead.pipelineStage as string;
+  lead.pipelineStage = rejected;
+  lead.updatedAt = nowIso();
+  (mem() as any).audit = [...(((mem() as any).audit) ?? []), auditRow];
+  return { claimed: true, priorStage };
+}
+
 // ── Videos ───────────────────────────────────────────────────────────────────
 export const videosForLead = (leadId: string) => Videos.byLead(leadId);
 export const getVideo = (id: string) => Videos.byId(id);

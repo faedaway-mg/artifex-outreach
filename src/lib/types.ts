@@ -23,6 +23,9 @@ export const PIPELINE_STAGES = [
   "Lost",
   "Nurture",
   "Disqualified",
+  // Deliberate operator "do not pursue" disposition (mandate 21) — terminal; distinct from Disqualified
+  // (which auto-route also assigns for insufficient evidence) and from any recipient suppression/opt-out.
+  "Rejected",
   // Agreement lifecycle coarse gates (see agreements.status for fine-grained state).
   "Proposal Accepted",
   "Agreement Signed",

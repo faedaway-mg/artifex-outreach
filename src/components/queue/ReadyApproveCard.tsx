@@ -2,6 +2,7 @@
 import Link from "next/link";
 import { FileText, Video, Mail, ArrowRight } from "lucide-react";
 import { ApproveScheduleButton } from "./ApproveScheduleButton";
+import { RejectControl } from "./RejectControl";
 
 export interface ReadyApproveProps {
   leadId: string; business: string; recipient: string; state: string; packageVersion: number | null;
@@ -36,7 +37,11 @@ export function ReadyApproveCard(p: ReadyApproveProps) {
       </div>
 
       {/* The ONE canonical action — shared with the Full Package view (same domain operation). */}
-      <ApproveScheduleButton leadId={p.leadId} className="mt-3" />
+      <div className="mt-3 flex flex-wrap items-center gap-3">
+        <ApproveScheduleButton leadId={p.leadId} />
+        {/* The shared Reject control — this package is uncontacted first-touch work, so the label is "Reject". */}
+        <RejectControl leadId={p.leadId} contacted={false} />
+      </div>
     </div>
   );
 }

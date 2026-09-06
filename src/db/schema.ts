@@ -44,6 +44,8 @@ export const pipelineStageEnum = pgEnum("pipeline_stage", [
   "Lost",
   "Nurture",
   "Disqualified",
+  // Deliberate operator "do not pursue" disposition (mandate 21) — terminal; distinct from Disqualified.
+  "Rejected",
   // ── Agreement lifecycle (client-agreement system) ──────────────────────────
   // Coarse operator-facing gates only. Fine-grained agreement sub-status lives on
   // the agreements record (agreement_status), NOT here.

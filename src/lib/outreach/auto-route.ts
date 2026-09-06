@@ -28,7 +28,7 @@ const nowIso = () => new Date().toISOString();
 
 // A lead in a terminal stage (or explicit Do Not Contact) is done — it gets no execution
 // work, and any stale "review" placeholder is retired rather than routed.
-const TERMINAL_STAGES = new Set<string>(["Won", "Lost", "Disqualified"]);
+const TERMINAL_STAGES = new Set<string>(["Won", "Lost", "Disqualified", "Rejected"]);
 
 // The task types that represent an INITIAL outreach touch — the only ones reconciliation may
 // supersede when the route changes. Deliberately EXCLUDES follow_up / prepare_meeting /

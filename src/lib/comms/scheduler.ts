@@ -15,6 +15,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import { getSettings, dueStepsForSending, emailSendsByStepIds, countSentEmailsBetween, getStep, getPlan, getLead, stepsForPlan, isSuppressed } from "../repo";
 import { validEmail } from "../acquisition/compliance";
+import { isRejectedLead } from "../outreach/rejection-core";
 import { isSent } from "./state";
 import { dispatchStep, type DispatchResult } from "./dispatch";
 import { laDayBoundsUtc, GLOBAL_DAILY_CAP } from "../acquisition/daily-cap";
@@ -118,6 +119,7 @@ export async function previewDueSends(opts: { now?: Date; force?: boolean; limit
     if (!plan || plan.status !== "active" || plan.approvalStatus !== "approved") { out.held.push({ stepId, reason: "plan not active/approved" }); continue; }
     const lead = await getLead(plan.leadId);
     if (!lead) { out.held.push({ stepId, reason: "lead not found" }); continue; }
+    if (isRejectedLead(lead)) { out.held.push({ stepId, reason: "lead rejected — removed from pipeline" }); continue; }
     // Same gates dispatchStep enforces, evaluated read-only.
     if (step.stepNumber >= 2) {
       const planSteps = await stepsForPlan(plan.id);

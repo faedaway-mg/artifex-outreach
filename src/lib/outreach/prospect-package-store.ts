@@ -10,6 +10,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import { randomBytes } from "node:crypto";
 import { getLead, getBusinessIntelligence, appendAudit, auditForTarget } from "../repo";
+import { isRejectedLead } from "./rejection-core";
 import { nowIso } from "../store";
 import { currentOperatorId } from "../auth";
 import { buildQuickReview, cachedBrand } from "./quick-review";
@@ -125,6 +126,8 @@ export async function autoAssembleFromRender(leadId: string, deps: AssembleDeps 
   const d = { ...defaults, ...deps };
   const lead = await d.loadLead(leadId);
   if (!lead) return { ok: false, reason: "lead not found" };
+  // A late render must NOT reactivate a rejected company or create a Ready package (mandate 21).
+  if (isRejectedLead(lead)) return { ok: false, reason: "lead rejected — removed from pipeline" };
   const video = await d.loadVideo(leadId);
   if (!video) return { ok: false, reason: "verified video not ready" };
 
@@ -325,6 +328,8 @@ export async function resolvePackageForSendById(leadId: string): Promise<{ ok: b
   // is rejected in PRODUCTION but ALLOWED inside the isolated Breakbot tenant (flag never set in production).
   const { detectPlaceholderContent, testProvenanceReason } = await import("./dispatch-integrity");
   const guardLead = await getLead(leadId);
+  // Terminal rejection (mandate 21): a rejected company never dispatches, even if a stale frozen package exists.
+  if (isRejectedLead(guardLead)) return { ok: false, reason: "lead rejected — removed from pipeline", pkg };
   if (process.env.BREAKBOT_TEST_TENANT !== "1") {
     const { isInternalLead } = await import("../operators/assignment");
     const tp = testProvenanceReason(guardLead as { source?: string | null; businessName?: string | null; test_only?: boolean } | null, { internal: guardLead ? isInternalLead(guardLead) : false });

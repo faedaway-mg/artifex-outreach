@@ -19,6 +19,7 @@ import {
 import { sha256, SEND_RECEIPT_ACTION, type SendReceiptMeta } from "./receipt";
 import { validEmail } from "../acquisition/compliance";
 import { stopPlansForLead } from "../acquisition/stop";
+import { isRejectedLead } from "../outreach/rejection-core";
 import { unsubscribeUrl as hardenedUnsubUrl } from "./commercial-message";
 import { classifyLeadSource, transportRouteFor } from "./transport-policy";
 import { buildColdDispatchFromEmail, submitCompliantDispatch, toFrozenAttachment } from "./outreach-transport";
@@ -92,6 +93,9 @@ export async function dispatchStep(stepId: string, opts: { now?: Date; operatorR
 
   const lead = await getLead(plan.leadId);
   if (!lead) return { stepId, outcome: "skipped", reason: "lead not found" };
+  // Terminal rejection (mandate 21): a rejected company gets no follow-up/step send — including one already
+  // in flight. This is an internal disposition, NOT a suppression: delivered receipts stay intact.
+  if (isRejectedLead(lead)) { await stopPlansForLead(lead.id, "rejected — removed from pipeline"); return { stepId, outcome: "skipped", reason: "lead rejected — removed from pipeline" }; }
 
   // A follow-up (step 2+) can NEVER precede a provider-accepted initial. Defense-in-depth at the send
   // core so no caller (scheduler, retry, canary) can dispatch a follow-up before its introduction has

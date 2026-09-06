@@ -1,0 +1,1 @@
+ALTER TYPE "public"."pipeline_stage" ADD VALUE 'Rejected' BEFORE 'Proposal Accepted';

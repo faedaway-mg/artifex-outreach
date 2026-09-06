@@ -20,6 +20,7 @@ import {
   type ReviewEditorialState, type ScheduledBinding,
 } from "./review-revisions";
 import { emailQueueEligibility } from "./email-queue-eligibility";
+import { isRejectedLead } from "./rejection-core";
 
 // Default stagger window (weekdays 05:00–07:00 LA). The ACTIVE window is resolved from Settings by
 // callers (schedulable-list / scheduleBatch) via resolveSendingWindow and passed to staggeredTimes,
@@ -61,6 +62,8 @@ async function bindOne(leadId: string, batchId: string, scheduledAt: string, by:
   const eff = await effectiveReviewFor(leadId);
   if (!eff) return { ok: false, reason: "no review" };
   const lead = eff.lead;
+  // Terminal rejection (mandate 21): a company removed from the pipeline can never be scheduled.
+  if (isRejectedLead(lead)) return { ok: false, reason: "lead rejected — removed from pipeline" };
   // Only SENDABLE packages can be scheduled — NEEDS_REVIEW / INSUFFICIENT are excluded by directive.
   // (effectiveReviewFor renders with approved:true, so review.ready can't distinguish NEEDS_REVIEW;
   // gate on the raw status, which does not depend on the approval flag.)
@@ -229,6 +232,9 @@ export async function dueScheduled(now: Date): Promise<Array<{ leadId: string; b
 export async function validateScheduled(leadId: string, binding: ScheduledBinding): Promise<{ ok: boolean; reason?: string }> {
   const lead = await getLead(leadId);
   if (!lead) return { ok: false, reason: "lead not found" };
+  // RACE-SAFE terminal-rejection recheck at the dispatch boundary (mandate 21): if the company was rejected
+  // after scheduling, rejection wins — the binding is invalid and the past-due reconciler will clear it.
+  if (isRejectedLead(lead)) return { ok: false, reason: "lead rejected — removed from pipeline" };
   if (lead.publicEmail !== binding.recipient || !validEmail(binding.recipient)) return { ok: false, reason: "recipient changed" };
   // FAIL-CLOSED integrity gate (mandate 16/17/20): placeholder/test CONTENT never dispatches. Test-PROVENANCE
   // is rejected in PRODUCTION but ALLOWED inside the explicitly-isolated Breakbot tenant (so synthetic
