@@ -11,7 +11,9 @@ import { getWorkerHealth } from "@/lib/content-studio/worker-health";
 import { readPosted } from "@/lib/content-studio/store";
 import { buildCompanySnapshot } from "@/lib/outreach/company-snapshot";
 import { resolveScheduledDetail } from "@/lib/outreach/scheduled-detail";
+import { resolveCurrentVideo } from "@/lib/outreach/prospect-package-store";
 import { ScheduledPackageCard } from "@/components/queue/ScheduledPackageCard";
+import { OperatorVideoPreview } from "@/components/content-studio/OperatorVideoPreview";
 import { ApproveScheduleButton } from "@/components/queue/ApproveScheduleButton";
 import { RejectControl } from "@/components/queue/RejectControl";
 
@@ -36,8 +38,8 @@ export default async function CompanyFocusPage({ params, searchParams }: { param
   const proto = h.get("x-forwarded-proto") ?? "https";
   const host = h.get("host") ?? "";
   const baseUrl = host ? `${proto}://${host}` : (process.env.APP_BASE_URL ?? "");
-  const [raw, tasks, posted, workerHealth, lead, snap, scheduledDetail] = await Promise.all([
-    studioSnapshot(), allTasks(), readPosted(), getWorkerHealth(), getLead(leadId), buildCompanySnapshot(), resolveScheduledDetail(leadId, baseUrl),
+  const [raw, tasks, posted, workerHealth, lead, snap, scheduledDetail, currentVideo] = await Promise.all([
+    studioSnapshot(), allTasks(), readPosted(), getWorkerHealth(), getLead(leadId), buildCompanySnapshot(), resolveScheduledDetail(leadId, baseUrl), resolveCurrentVideo(leadId, { baseUrl }),
   ]);
   if (!lead) notFound();
 
@@ -111,6 +113,21 @@ export default async function CompanyFocusPage({ params, searchParams }: { param
       {scheduledDetail && (
         <div className="mb-4">
           <ScheduledPackageCard detail={scheduledDetail} />
+        </div>
+      )}
+
+      {/* Full Package / pre-narration operator preview (mandate 23): preview the CANONICAL current video via
+          the authenticated operator route before sending — and before narration when only a base render
+          exists — never a recipient share. Only when not already shown by the scheduled card above. */}
+      {!scheduledDetail && currentVideo.available && (
+        <div data-fullpackage-video className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/[0.02] px-4 py-3">
+          <div className="text-[12.5px] text-chalk-400">
+            {currentVideo.source === "frozen-package" ? "Approved video" : "Current video"} for {lead.businessName}
+            {currentVideo.stale ? " · a newer render is available" : ""}
+          </div>
+          <OperatorVideoPreview leadId={leadId} available={currentVideo.available} reason={currentVideo.reason}
+            revisionId={currentVideo.revisionId} source={currentVideo.source} triggerLabel="Preview video"
+            note={currentVideo.source === "frozen-package" ? null : "narration/approval pending"} />
         </div>
       )}
 

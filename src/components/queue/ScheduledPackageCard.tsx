@@ -1,6 +1,7 @@
-import { FileText, Video, Mail, ShieldCheck, AlertTriangle, Clock } from "lucide-react";
+import { FileText, Mail, ShieldCheck, AlertTriangle, Clock } from "lucide-react";
 import type { ScheduledDetail } from "@/lib/outreach/scheduled-detail";
 import { ACCOUNTING_TZ } from "@/lib/outreach/sending-window";
+import { OperatorVideoPreview } from "@/components/content-studio/OperatorVideoPreview";
 
 // Package-aware Scheduled detail card (mandate 22). Shows the EXACT frozen content the binding will send,
 // resolved by package type. It NEVER shows a missing-video warning for EMAIL_ONLY / EMAIL_PDF — only when
@@ -72,18 +73,20 @@ export function ScheduledPackageCard({ detail }: { detail: ScheduledDetail }) {
         </div>
       )}
 
-      {/* Video + share — only for video packages. */}
+      {/* Video — only for video packages. The operator previews the CANONICAL current video via the
+          authenticated operator route (never the expiring recipient share); recipient-share status is shown
+          separately below. */}
       {d.video.required && (
-        <div className="mt-2 flex flex-wrap items-center gap-2">
-          {d.video.present ? (
-            d.video.shareUrl ? (
-              <a href={d.video.shareUrl} target="_blank" rel="noreferrer" data-scheduled-video className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 px-2.5 py-1.5 text-[12.5px] text-chalk-200 hover:bg-white/[0.05]"><Video size={13} /> Video</a>
-            ) : (
-              <span data-scheduled-video className="inline-flex items-center gap-1.5 text-[12.5px] text-chalk-300"><Video size={13} /> Video bound</span>
-            )
+        <div className="mt-2 flex flex-wrap items-center gap-2" data-scheduled-video>
+          {d.currentVideo.available ? (
+            <OperatorVideoPreview leadId={d.leadId} available={d.currentVideo.available} reason={d.currentVideo.reason}
+              revisionId={d.currentVideo.revisionId} source={d.currentVideo.source} triggerLabel="Video" />
           ) : (
             <span className="text-[12px] text-coral-300">Video missing</span>
           )}
+          <span className="text-[11.5px] text-chalk-500">
+            recipient link: {d.currentVideo.recipientShare.state === "active" ? "active" : d.currentVideo.recipientShare.state === "revoked" ? "revoked" : "not yet issued"}
+          </span>
         </div>
       )}
 

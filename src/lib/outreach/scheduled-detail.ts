@@ -16,7 +16,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import { getLead, allEmailSends } from "../repo";
 import { listScheduledBindings, validateScheduled } from "./scheduled-batch";
-import { latestProspectPackage, packageShareUrl } from "./prospect-package-store";
+import { latestProspectPackage, packageShareUrl, resolveCurrentVideo, type CurrentVideo } from "./prospect-package-store";
 import { effectiveReviewFor } from "./review-revisions";
 import { getArtifactStore } from "../content-studio/storage-factory";
 import type { ProspectPackageType } from "./dispatch-integrity";
@@ -39,6 +39,8 @@ export interface ScheduledDetail {
   validator: { ok: boolean; reason: string | null };
   quarantined: boolean;
   missing: string[];
+  /** The canonical current video (operator preview + recipient-share status), resolved once for this lead. */
+  currentVideo: CurrentVideo;
 }
 
 /** Resolve the scheduled detail for a lead, or null if the lead has no scheduled binding. Read-only. */
@@ -46,12 +48,13 @@ export async function resolveScheduledDetail(leadId: string, baseUrl = ""): Prom
   const entry = (await listScheduledBindings()).find((b) => b.leadId === leadId);
   if (!entry) return null; // not a scheduled item — caller falls back to the normal view
   const binding = entry.binding;
-  const [lead, pkg, sends, validator, eff] = await Promise.all([
+  const [lead, pkg, sends, validator, eff, currentVideo] = await Promise.all([
     getLead(leadId),
     latestProspectPackage(leadId).catch(() => null),
     allEmailSends(),
     validateScheduled(leadId, binding),
     effectiveReviewFor(leadId).catch(() => null),
+    resolveCurrentVideo(leadId, { baseUrl }),
   ]);
   if (!lead) return null;
 
@@ -106,5 +109,6 @@ export async function resolveScheduledDetail(leadId: string, baseUrl = ""): Prom
     validator: { ok: validator.ok, reason: validator.reason ?? null },
     quarantined,
     missing,
+    currentVideo,
   };
 }
