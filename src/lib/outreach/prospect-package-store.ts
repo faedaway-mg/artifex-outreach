@@ -18,6 +18,8 @@ import { quickReviewApproved } from "./review-approval";
 import { resolveFrozenReviewForSend } from "./quick-review-freeze";
 import { listJobs } from "../content-studio/store";
 import { latestReadyJob, isOutputStale } from "../content-studio/job";
+import type { RenderJob } from "../content-studio/types";
+import { outreachBarReason } from "../content-studio/video-classification";
 import { getArtifactStore } from "../content-studio/storage-factory";
 import type { BusinessProfile } from "../business-intelligence/types";
 import {
@@ -45,16 +47,32 @@ const defaults = {
   loadLead: getLead,
   loadProfile: async (leadId: string) => ((await getBusinessIntelligence(leadId))?.profile?.businessProfile as BusinessProfile | undefined) ?? null,
   resolveReview: (leadId: string) => resolveFrozenReviewForSend(leadId),
-  loadVideo: async (leadId: string): Promise<VideoBinding | null> => {
-    const ready = latestReadyJob(await listJobs(), pieceIdFor(leadId));
-    if (!ready?.outputKey) return null;
-    const meta = await getArtifactStore().getMeta(ready.outputKey).catch(() => null);
-    if (!meta?.sha256) return null;
-    return { jobId: ready.id, inputVersion: ready.inputVersion, videoKey: ready.outputKey, sha256: meta.sha256 };
-  },
+  loadVideo: (leadId: string): Promise<VideoBinding | null> => resolveOutreachVideoBinding(leadId),
   mintPublicId: () => "pub_" + randomBytes(18).toString("hex"),
   now: () => nowIso(),
 };
+
+/**
+ * Resolve the video binding for a lead's outreach package — the SEAM where a render becomes a sendable
+ * video. Enforces the structural outreach boundary (mandate 25 §B8): a video may enter a prospect package
+ * ONLY if its piece classifies as a PROPOSAL video. A CONTENT (Artifex marketing) or unclassified piece is
+ * barred here, so it can never reach Ready-to-Approve, scheduling, the allocator, or dispatch. Injectable
+ * `jobs`/`getMeta` make the boundary directly testable.
+ */
+export async function resolveOutreachVideoBinding(
+  leadId: string,
+  deps: { jobs?: () => Promise<RenderJob[]>; getMeta?: (key: string) => Promise<{ sha256?: string } | null> } = {},
+): Promise<VideoBinding | null> {
+  const listAll = deps.jobs ?? listJobs;
+  const getMeta = deps.getMeta ?? ((key: string) => getArtifactStore().getMeta(key).catch(() => null));
+  const ready = latestReadyJob(await listAll(), pieceIdFor(leadId));
+  if (!ready?.outputKey) return null;
+  // A non-PROPOSAL piece can never become a package video (structural boundary).
+  if (outreachBarReason({ id: ready.pieceId })) return null;
+  const meta = await getMeta(ready.outputKey);
+  if (!meta?.sha256) return null;
+  return { jobId: ready.id, inputVersion: ready.inputVersion, videoKey: ready.outputKey, sha256: meta.sha256 };
+}
 
 /** Build (or refresh) the DRAFT package for a lead. Never freezes. videoRequired=true when the lead's
  *  package includes a video (a video job exists or is expected); email-only leaves video/share null. */
