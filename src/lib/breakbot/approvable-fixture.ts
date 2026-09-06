@@ -7,7 +7,7 @@
 import { assertIsolatedStore, BREAKBOT_PROVENANCE, RESERVED_TEST_DOMAIN, assertFakeRecipient } from "./isolation";
 import { insertLead, upsertBusinessIntelligence, insertEmailSendIfAbsent } from "../repo";
 import { getArtifactStore } from "../content-studio/storage-factory";
-import { writeJob } from "../content-studio/store";
+import { writeJob, listJobs } from "../content-studio/store";
 import { approveAndFreezeQuickReview } from "../outreach/quick-review-freeze";
 import { autoAssembleFromRender, latestProspectPackage } from "../outreach/prospect-package-store";
 import type { Lead } from "../types";
@@ -95,6 +95,65 @@ export async function seedScheduledEmailPdfFixture(businessName = "Circle City B
   const dateKey = nextSendingDateKey(new Date(), window);
   const res = await scheduleBatch([lead.id], { dateKey, by: "breakbot", batchId: "bb_pdf", window: { tz: window.timezone, startHour: window.startHour, endHour: window.endHour } });
   return { leadId: lead.id, scheduledAt: res.scheduled[0]?.scheduledAt ?? null };
+}
+
+// ── Content Studio media fixtures + FAKE render worker (mandate 23; isolated tenant only) ──────────────
+/** A "needs narration" client fixture: SENDABLE review + frozen PDF, but NO voiceover upload and NO render
+ *  yet. resolveCurrentVideo → not available; the operator must upload narration to start a render. */
+export async function seedNeedsNarrationFixture(businessName = "Harbor Point Fitness", slug = "needs-narration"): Promise<{ leadId: string; pieceId: string }> {
+  assertIsolatedStore();
+  const lead: Lead = await insertLead(fixtureLead(businessName, slug));
+  await upsertBusinessIntelligence({ leadId: lead.id, profile: sendableProfile(businessName), enrichmentDelta: null, generatedAt: new Date("2026-01-01T00:00:00Z").toISOString() });
+  const froze = await approveAndFreezeQuickReview({ leadId: lead.id });
+  if (!froze.ok) throw new Error(`freeze failed: ${froze.reason}`);
+  return { leadId: lead.id, pieceId: `client-${lead.id}` };
+}
+
+function bbJob(pieceId: string, over: Partial<RenderJob>): RenderJob {
+  const now = new Date("2026-02-01T00:00:00Z").toISOString();
+  return { id: `bb_job_${pieceId}_${Math.abs(hash(JSON.stringify(over)))}`, pieceId, inputVersion: `bb_iv_${pieceId}`, status: "queued", progress: 0, stage: "queued", mode: "uploaded-vo", audioKind: "uploaded", audioFile: null, audioKey: `bb_audio_${pieceId}`, audioSha: "upsha", audioLabel: "vo", outputFile: null, outputRel: null, outputKey: null, posterKey: null, screenshotKey: null, screenshotSha: null, storyboard: null, thumbRel: null, error: null, attempt: 1, pid: null, createdAt: now, updatedAt: now, startedAt: null, finishedAt: null, ...over } as RenderJob;
+}
+function hash(s: string): number { let h = 0; for (let i = 0; i < s.length; i++) { h = (Math.imul(31, h) + s.charCodeAt(i)) | 0; } return h; }
+
+/** FAKE-WORKER: simulate a voiceover upload → a QUEUED render job for the piece (no real render service). */
+export async function studioUpload(leadId: string): Promise<{ jobId: string }> {
+  assertIsolatedStore();
+  const pieceId = `client-${leadId}`;
+  const job = bbJob(pieceId, { id: `bb_job_up_${leadId}`, status: "queued" });
+  await writeJob(job);
+  return { jobId: job.id };
+}
+
+/** FAKE-WORKER: complete the piece's active render — write a deterministic output artifact, mark READY, and
+ *  assemble the package so resolveCurrentVideo resolves the finished canonical video. No real render service. */
+export async function studioAdvanceRender(leadId: string): Promise<{ ready: boolean; sha256: string | null }> {
+  assertIsolatedStore();
+  const pieceId = `client-${leadId}`;
+  const j = (await listJobs()).find((x) => x.pieceId === pieceId && (x.status === "queued" || x.status === "rendering"));
+  if (!j) return { ready: false, sha256: null };
+  const videoKey = `content-studio/breakbot/${leadId}/render.mp4`;
+  const put = await getArtifactStore().put(videoKey, Buffer.from(`bb-render-${leadId}`), { artifactClass: "render-output", contentType: "video/mp4" });
+  const done = new Date("2026-02-01T00:05:00Z").toISOString();
+  await writeJob({ ...j, status: "ready", progress: 1, stage: "done", outputKey: videoKey, posterKey: `${videoKey}.poster`, finishedAt: done, updatedAt: done });
+  await autoAssembleFromRender(leadId).catch(() => {});
+  return { ready: true, sha256: put.sha256 };
+}
+
+/** FAKE-WORKER: mark the piece's render FAILED (terminal) so the UI shows an honest failure + retry. */
+export async function studioFailRender(leadId: string): Promise<void> {
+  assertIsolatedStore();
+  const pieceId = `client-${leadId}`;
+  await writeJob(bbJob(pieceId, { id: `bb_job_fail_${leadId}`, status: "failed", stage: "error", error: "synthetic render failure (fake worker)", attempt: 1, startedAt: new Date("2026-02-01T00:00:00Z").toISOString(), finishedAt: new Date("2026-02-01T00:01:00Z").toISOString() }));
+}
+
+/** Delete a lead's current video artifact (to prove missing-artifact handling). */
+export async function deleteVideoArtifact(leadId: string): Promise<boolean> {
+  assertIsolatedStore();
+  const { resolveCurrentVideo } = await import("../outreach/prospect-package-store");
+  const cur = await resolveCurrentVideo(leadId);
+  if (!cur.artifactKey) return false;
+  await getArtifactStore().del(cur.artifactKey);
+  return true;
 }
 
 /** Seed a full isolated SCHEDULED queue (mandate 22): EMAIL_VIDEO, EMAIL_PDF (first/middle/last coverage),

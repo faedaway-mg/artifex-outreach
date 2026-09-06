@@ -27,6 +27,8 @@ async function leadState(leadId: string) {
   const { resolvePackageForSendById } = await import("@/lib/outreach/prospect-package-store");
   const { getLead, listAudit, allEmailSends, isSuppressed } = await import("@/lib/repo");
   const { isRejectedLead, REJECTION_ACTION } = await import("@/lib/outreach/rejection-core");
+  const { resolveCurrentVideo } = await import("@/lib/outreach/prospect-package-store");
+  const { listJobs } = await import("@/lib/content-studio/store");
   const snap = await buildCompanySnapshot();
   const bindings = (await listScheduledBindings()).filter((b) => b.leadId === leadId);
   const audit = await listAudit(5000);
@@ -34,6 +36,9 @@ async function leadState(leadId: string) {
   const due = binding ? (await dueScheduled(new Date(binding.scheduledAt))).some((d) => d.leadId === leadId) : false;
   const lead = await getLead(leadId);
   const sends = (await allEmailSends()).filter((e) => e.leadId === leadId);
+  const cur = await resolveCurrentVideo(leadId);
+  const jobs = (await listJobs()).filter((j) => j.pieceId === `client-${leadId}`);
+  const latest = jobs.sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1))[jobs.length - 1] ?? null;
   return NextResponse.json({ ok: true,
     inReady: snap.ready.filter((r) => r.leadId === leadId).length,
     inScheduled: snap.scheduled.filter((s) => s.leadId === leadId).length,
@@ -52,6 +57,10 @@ async function leadState(leadId: string) {
     suppressed: await isSuppressed({ email: lead?.publicEmail, domain: lead?.websiteDomain, phone: lead?.phone }),
     sends: sends.length,
     sentReceipts: sends.filter((e) => !!e.sentAt).length,
+    // Canonical current video (mandate 23) — same resolver every surface uses.
+    video: { available: cur.available, source: cur.source, sha256: cur.sha256, revisionId: cur.revisionId, stale: cur.stale, operatorPreviewUrl: cur.operatorPreviewUrl, recipientShareState: cur.recipientShare.state, reason: cur.reason },
+    renderJobStatus: latest?.status ?? null,
+    renderJobs: jobs.length,
   });
 }
 
@@ -89,5 +98,13 @@ export async function POST(req: NextRequest) {
     const r = await reconcileProspectLifecycle({ apply: true });
     return NextResponse.json({ ok: true, reconcile: { assembled: r.assembled.length, superseded: r.superseded.length }, state: await ns.breakbotStateSummary() });
   }
-  return NextResponse.json({ ok: false, error: "unknown action (seed|seed-approvable|seed-contacted-receipt|reconcile|reset)" }, { status: 400 });
+  // ── Content Studio media fixtures + FAKE render worker (mandate 23) ──
+  const leadId = req.nextUrl.searchParams.get("leadId") ?? "";
+  const fx = await import("@/lib/breakbot/approvable-fixture");
+  if (action === "seed-needs-narration") { const r = await fx.seedNeedsNarrationFixture(); return NextResponse.json({ ok: true, ...r }); }
+  if (action === "studio-upload") { const r = await fx.studioUpload(leadId); return NextResponse.json({ ok: true, ...r }); }
+  if (action === "studio-advance-render") { const r = await fx.studioAdvanceRender(leadId); return NextResponse.json({ ok: true, ...r }); }
+  if (action === "studio-fail-render") { await fx.studioFailRender(leadId); return NextResponse.json({ ok: true }); }
+  if (action === "delete-video-artifact") { const r = await fx.deleteVideoArtifact(leadId); return NextResponse.json({ ok: true, deleted: r }); }
+  return NextResponse.json({ ok: false, error: "unknown action" }, { status: 400 });
 }

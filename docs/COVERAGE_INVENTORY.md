@@ -40,19 +40,22 @@ concurrency, cross-instance, restart-retry, idempotent cancel, zero-provider.
 | Needs Attention (`/queue/attention`, AttentionCard) | Hold, Flag, Reject | P (reject only) | Hold/Flag actions lack deterministic+synthetic postcondition coverage |
 | Needs Evidence / Blocked (`/blocked`) | expand group, Reject per company | P (reject control present) | Group expand + retry semantics untested |
 | Rendering (`/queue/rendering`) | row → company, Reject | P | Render lifecycle transitions not journey-covered |
-| Content Studio / Full Package (`/company/[leadId]`) | upload VO, generate, approve, share/download, nav | P (nav + scheduled card covered) | Upload/generate/share/download controls: unit-tested backend, no goal-driven UI journey |
+| Content Studio / Full Package + media (`/company/[leadId]`, operator-video route) | canonical preview, player Close/Back/Escape/focus, hash-download, upload→render→ready, missing-artifact, cross-surface equality | ✅ 100% (mandate 23) | — deterministic media journey 48/48 + goal-driven 18/18 × 3 widths; studio-manifest CI enforcement; current-video unit tests |
 | Activity | list, filters | — | No operator journey |
 | Replies (`/meetings`, replies rows) | open reply, classify | — | No operator journey |
 | Settings (`/settings`) | sending window, pause, calendar link | P (pause via safe-hold scripts) | Settings form controls untested via UI |
 | Media previews / downloads | PDF view, video share, download | P | Blob/Web-Share paths unit-tested; not synthetic-user-driven |
 
 ## App-wide coverage summary
-- **Scheduled: 100%** deterministic + goal-driven (this mandate).
+- **Scheduled: 100%** deterministic + goal-driven (mandate 22).
+- **Content Studio / media: 100%** deterministic + goal-driven (mandate 23) — canonical preview, player
+  Close/Back/Escape/focus, hash-verified download, upload→render→ready via fake worker, missing-artifact,
+  cross-surface artifact equality; enforced by studio-manifest CI.
 - **Reject/Stop: complete** across surfaces (deterministic + unit, incl. concurrency).
 - **Approve & schedule: strong** deterministic; **no** goal-driven synthetic user yet.
-- **Remaining uncovered operator tasks (explicit):** Today tiles synthetic journey; Needs-Attention Hold/Flag;
-  Blocked group expand/retry; Content Studio upload/generate/share/download goal-driven journey; Activity;
-  Replies; Settings form; media download goal-driven paths.
+- **Remaining uncovered operator tasks (explicit) — next bounded surfaces:** Needs-Attention (Hold/Flag +
+  Morris VIDEO_FOLLOW_UP); Today tiles synthetic journey; Blocked group expand/retry; Activity; Replies;
+  Settings form.
 
 The goal-driven synthetic-user layer (`scripts/breakbot-scheduled-goal.mjs`) is generic — its `chooseControl`
 semantic discovery + per-goal understanding contract can be pointed at any of the above surfaces to close
