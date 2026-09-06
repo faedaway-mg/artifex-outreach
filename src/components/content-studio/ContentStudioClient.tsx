@@ -13,6 +13,18 @@ import { isProspectVideo } from "@/lib/content-studio/workflow";
 import { fetchMediaFile, shareOrDownloadFile, type ShareOutcome } from "@/lib/content-studio/media-share";
 import type { StudioItem, SafeJob } from "./types";
 import type { WorkerHealth } from "@/lib/content-studio/worker-health";
+import {
+  PROPOSAL_GROUP_ORDER, PROPOSAL_GROUP_LABEL, CONTENT_GROUP_ORDER, CONTENT_GROUP_LABEL,
+  type ProposalCard, type ContentCard, type ProposalGroup, type ContentGroup,
+} from "@/lib/content-studio/video-workspace";
+
+// The server-computed two-workspace split handed to the client (mandate 25 §B3–B5). Plain-serializable.
+export interface StudioWorkspacesProp {
+  activeType: "proposal" | "content";
+  counts: { proposal: number; content: number; unclassified: number };
+  proposal: { groups: Record<ProposalGroup, ProposalCard[]> };
+  content: { groups: Record<ContentGroup, ContentCard[]> };
+}
 
 // PREVIEW MODE — a read-only, disabled-by-default visibility build. When on, EVERY mutating control is
 // disabled and EVERY network call is short-circuited (belt: handlers return early; suspenders: buttons
@@ -79,7 +91,7 @@ const fmtDur = (s: number | null) => (s == null ? "—" : `${Math.floor(s / 60)}
 
 type DeepLink = { piece?: string | null; lead?: string | null; section?: string | null; from?: string | null };
 
-export function ContentStudioClient({ initialItems, preview = false, deepLink, videosToCreate = 0, workerHealth, advanceHref }: { initialItems: StudioItem[]; preview?: boolean; deepLink?: DeepLink; videosToCreate?: number; workerHealth?: WorkerHealth; advanceHref?: string }) {
+export function ContentStudioClient({ initialItems, preview = false, deepLink, videosToCreate = 0, workerHealth, advanceHref, workspaces }: { initialItems: StudioItem[]; preview?: boolean; deepLink?: DeepLink; videosToCreate?: number; workerHealth?: WorkerHealth; advanceHref?: string; workspaces?: StudioWorkspacesProp }) {
   // A Today client-video task maps to the STABLE project id client-<leadId> (never name matching).
   const targetPieceId = deepLink?.piece || (deepLink?.lead ? clientVideoPieceId(deepLink.lead) : null);
   const [items, setItems] = useState<StudioItem[]>(initialItems);
@@ -139,6 +151,23 @@ export function ContentStudioClient({ initialItems, preview = false, deepLink, v
 
   const selected = mergedItems.find((it) => it.piece.id === selectedId) ?? mergedItems[0];
   const backToToday = deepLink?.from === "today";
+
+  // With the two tabs active, keep the selection INSIDE the active workspace: if the selected piece isn't in
+  // the active tab, fall back to that tab's first card. Prevents a Content Video's detail from ever showing
+  // under the Proposal tab (and vice-versa) — part of the no-cross-contamination guarantee.
+  const activeCardIds = useMemo(() => {
+    if (!workspaces) return null as string[] | null;
+    const groups = workspaces.activeType === "proposal" ? workspaces.proposal.groups : workspaces.content.groups;
+    const ids: string[] = [];
+    for (const g of Object.values(groups)) for (const c of g as Array<{ id: string }>) ids.push(c.id);
+    return ids;
+  }, [workspaces]);
+  const effectiveSelected = useMemo(() => {
+    if (!workspaces || !activeCardIds) return selected;
+    if (selected && activeCardIds.includes(selected.piece.id)) return selected;
+    const firstId = activeCardIds[0];
+    return mergedItems.find((it) => it.piece.id === firstId) ?? undefined;
+  }, [workspaces, activeCardIds, selected, mergedItems]);
 
   // Focused one-company screen (Today → Start / prev-next): render ONLY the selected company's detail so
   // the active work (finding · PDF · email · narration · upload) is at the top — never a candidate list.
@@ -210,19 +239,25 @@ export function ContentStudioClient({ initialItems, preview = false, deepLink, v
 
       <ClientVideosPanel onPrepared={refetch} onSelect={setSelectedId} defaultOpen={deepLink?.section === "client" || !!needsPrepareLead} repairLead={needsPrepareLead} pendingCount={videosToCreate} />
 
+      {/* ── Two top-level tabs (mandate 25): Proposal Videos vs Content Videos. URL-addressable via
+          ?type=, so refresh persists and browser Back restores the tab. ─────────────────────────── */}
+      {workspaces && <VideoTabs workspaces={workspaces} />}
+
       {/* Bounded two-column workspace: the list is height-capped + independently scrollable so it can NEVER
           grow the document or push the detail below it; the detail top-aligns beside it and scrolls on its own. */}
       <div className="grid gap-5 lg:grid-cols-[340px_1fr] lg:items-start">
         {/* ── Piece list (bounded scroll) ────────────────────────────── */}
         <div data-piece-list className="space-y-2 overflow-y-auto overscroll-contain max-h-[55vh] lg:sticky lg:top-4 lg:max-h-[calc(100dvh-8rem)] lg:min-h-0 [-webkit-overflow-scrolling:touch]">
-          {mergedItems.map((it) => (
-            <PieceRow key={it.piece.id} item={it} active={it.piece.id === selected?.piece.id} onClick={() => setSelectedId(it.piece.id)} />
-          ))}
+          {workspaces
+            ? <WorkspaceList workspaces={workspaces} selectedId={effectiveSelected?.piece.id ?? ""} onSelect={setSelectedId} />
+            : mergedItems.map((it) => (
+                <PieceRow key={it.piece.id} item={it} active={it.piece.id === selected?.piece.id} onClick={() => setSelectedId(it.piece.id)} />
+              ))}
         </div>
 
         {/* ── Detail (top-aligned, its own scroll) ───────────────────── */}
         <div className="min-w-0 lg:min-h-0">
-          {selected && <PieceDetail key={selected.piece.id} item={selected} onChanged={refetch} setJobOverride={setJobOverride} advanceHref={advanceHref} />}
+          {effectiveSelected && <PieceDetail key={effectiveSelected.piece.id} item={effectiveSelected} onChanged={refetch} setJobOverride={setJobOverride} advanceHref={advanceHref} />}
         </div>
       </div>
 
@@ -817,6 +852,7 @@ function PieceDetail({ item, onChanged, setJobOverride, advanceHref }: { item: S
         ) : (
           <p className="text-xs text-chalk-500">This piece was finished in VEED without a captured timing sheet. Enter narration when regenerating, or copy from the captions below.</p>
         )}
+        {isProspect && !needsEvidence && <NarrationExpandPanel leadId={piece.businessId || (piece.id.startsWith("client-") ? piece.id.slice("client-".length) : "")} onChanged={onChanged} />}
         {!isProspect && (piece.captionIG || piece.captionLI) && (
           <div className="mt-3 flex flex-wrap gap-2 border-t border-white/[0.06] pt-3">
             {piece.captionIG && <CopyBtn text={piece.captionIG} label="Copy IG / TikTok caption" />}
@@ -1205,6 +1241,255 @@ function NewPieceModal({ onClose, onCreated }: { onClose: () => void; onCreated:
           <button disabled={busy || !title.trim()} onClick={submit} className="btn-primary flex items-center gap-1.5 text-sm disabled:opacity-50">{busy ? <Loader2 size={15} className="animate-spin" /> : <Plus size={15} />} Create video</button>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TWO TOP-LEVEL TABS + GROUPED WORKSPACE (mandate 25 §B3–B5). Proposal Videos vs Content Videos, each
+// URL-addressable via ?type= (refresh persists, browser Back restores). Independent counts, independent
+// grouped lists, no record in both tabs (the server split guarantees it).
+// ─────────────────────────────────────────────────────────────────────────────
+function VideoTabs({ workspaces }: { workspaces: StudioWorkspacesProp }) {
+  const tab = (type: "proposal" | "content", label: string, count: number) => {
+    const active = workspaces.activeType === type;
+    return (
+      <Link
+        href={`/content-studio?type=${type}`}
+        data-studio-tab={type}
+        aria-current={active ? "page" : undefined}
+        className={`flex items-center gap-2 rounded-lg border px-3.5 py-2 text-sm ring-focus ${active ? "border-azure-400/40 bg-azure-400/10 text-azure-100" : "border-white/10 bg-white/[0.02] text-chalk-400 hover:text-chalk-200"}`}
+      >
+        {type === "proposal" ? <Users size={15} /> : <Film size={15} />}
+        <span className="font-medium">{label}</span>
+        <span data-tab-count={type} className={`rounded-full px-1.5 py-0.5 text-[11px] ${active ? "bg-azure-400/20 text-azure-100" : "bg-white/[0.06] text-chalk-500"}`}>{count}</span>
+      </Link>
+    );
+  };
+  return (
+    <div data-studio-tabs className="flex flex-wrap items-center gap-2">
+      {tab("proposal", "Proposal Videos", workspaces.counts.proposal)}
+      {tab("content", "Content Videos", workspaces.counts.content)}
+      {workspaces.counts.unclassified > 0 && (
+        <span data-tab-unclassified className="ml-1 rounded-md border border-amber-400/30 bg-amber-400/[0.06] px-2 py-1 text-[11px] text-amber-200">
+          {workspaces.counts.unclassified} unclassified — resolve before use
+        </span>
+      )}
+    </div>
+  );
+}
+
+const QUALITY_TONE: Record<string, string> = {
+  GOOD: "border-teal-400/30 bg-teal-400/10 text-teal-200",
+  NEEDS_REVIEW: "border-amber-400/30 bg-amber-400/[0.08] text-amber-200",
+  TOO_SHORT: "border-amber-400/30 bg-amber-400/[0.08] text-amber-200",
+  GENERIC: "border-amber-400/30 bg-amber-400/[0.08] text-amber-200",
+  TOO_SIMILAR: "border-rose-400/30 bg-rose-400/[0.08] text-rose-200",
+  UNSUPPORTED_CLAIMS: "border-rose-400/30 bg-rose-400/[0.08] text-rose-200",
+  INSUFFICIENT_EVIDENCE: "border-chalk-500/30 bg-white/[0.03] text-chalk-400",
+};
+function QualityBadge({ quality }: { quality: string }) {
+  return <span data-proposal-quality={quality} className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${QUALITY_TONE[quality] ?? "bg-white/[0.06] text-chalk-400"}`}>{quality.replace(/_/g, " ").toLowerCase()}</span>;
+}
+
+function WorkspaceList({ workspaces, selectedId, onSelect }: { workspaces: StudioWorkspacesProp; selectedId: string; onSelect: (id: string) => void }) {
+  const isProposal = workspaces.activeType === "proposal";
+  const order = isProposal ? PROPOSAL_GROUP_ORDER : CONTENT_GROUP_ORDER;
+  const labels: Record<string, string> = isProposal ? PROPOSAL_GROUP_LABEL : CONTENT_GROUP_LABEL;
+  const groups: Record<string, Array<ProposalCard | ContentCard>> = isProposal ? workspaces.proposal.groups : workspaces.content.groups;
+  const totalHere = order.reduce((n, g) => n + (groups[g]?.length ?? 0), 0);
+  if (totalHere === 0) {
+    return <div data-workspace-empty className="rounded-lg border border-white/10 bg-white/[0.02] p-4 text-[12.5px] text-chalk-500">No {isProposal ? "proposal" : "content"} videos yet.</div>;
+  }
+  return (
+    <div data-workspace={workspaces.activeType} className="space-y-3">
+      {order.map((g) => {
+        const cards = groups[g] ?? [];
+        if (!cards.length) return null;
+        return (
+          <section key={g} data-workspace-group={g} aria-label={labels[g]}>
+            <h3 className="mb-1.5 px-0.5 text-[11px] font-semibold uppercase tracking-wide text-chalk-500">{labels[g]} <span className="text-chalk-600">· {cards.length}</span></h3>
+            <div className="space-y-2">
+              {cards.map((c) => <WorkspaceCard key={c.id} card={c} active={c.id === selectedId} onClick={() => onSelect(c.id)} />)}
+            </div>
+          </section>
+        );
+      })}
+    </div>
+  );
+}
+
+function WorkspaceCard({ card, active, onClick }: { card: ProposalCard | ContentCard; active: boolean; onClick: () => void }) {
+  const isProposal = card.purpose === "PROPOSAL";
+  const p = card as ProposalCard;
+  return (
+    <button
+      onClick={onClick}
+      data-workspace-card={card.id}
+      data-purpose={card.purpose}
+      data-group={card.group}
+      data-quality={isProposal ? p.quality : undefined}
+      aria-current={active ? "true" : undefined}
+      className={`w-full rounded-lg border p-3 text-left ring-focus ${active ? "border-azure-400/40 bg-azure-400/[0.06]" : "border-white/10 bg-white/[0.02] hover:border-white/20"}`}
+    >
+      <div className="flex items-center justify-between gap-2">
+        <span className="truncate text-[13px] font-medium text-chalk-100">{isProposal ? p.businessName : (card as ContentCard).title}</span>
+        <span className="shrink-0 text-[10px] uppercase tracking-wide text-chalk-500">{card.videoStatus.replace(/-/g, " ")}</span>
+      </div>
+      <p className="mt-1 line-clamp-2 text-[11.5px] leading-snug text-chalk-500">{card.narrationPreview || <span className="italic text-chalk-600">No narration yet.</span>}</p>
+      {isProposal && (
+        <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+          <QualityBadge quality={p.quality} />
+          <span className="text-[10.5px] text-chalk-500">{p.wordCount} words · ~{p.estimatedSeconds}s</span>
+          {p.frozen && <span className="rounded bg-white/[0.06] px-1.5 py-0.5 text-[10px] text-chalk-400">frozen</span>}
+        </div>
+      )}
+      {isProposal && p.nextAction && <p data-next-action className="mt-1 text-[10.5px] text-azure-300/80">→ {p.nextAction}</p>}
+    </button>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// EXPAND-AND-PERSONALIZE (mandate 25 §B6–B9). Analyze the current narration, expand it from ONLY the
+// company's verified evidence, compare original vs proposed, edit/regenerate, and accept — which creates a
+// NEW revision (advancing the render input version so existing audio can no longer satisfy the new script,
+// forcing a new upload + render). Cancel mutates nothing. Never fabricates: an insufficient-evidence expand
+// yields a blocker, not filler. Frozen/approved packages are refused server-side (409).
+// ─────────────────────────────────────────────────────────────────────────────
+type ExpandState = {
+  original: string; candidate: string;
+  quality: any; wordCount: number; estimatedSeconds: number;
+  evidenceMap: Array<{ statement: string; evidenceIds: string[]; requiresReview: boolean }>;
+  statementsRequiringReview: string[];
+};
+function NarrationExpandPanel({ leadId, onChanged }: { leadId: string; onChanged: () => Promise<void> }) {
+  const preview = usePreview();
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState<null | "analyze" | "expand" | "accept">(null);
+  const [analysis, setAnalysis] = useState<any>(null);
+  const [exp, setExp] = useState<ExpandState | null>(null);
+  const [blocker, setBlocker] = useState<string | null>(null);
+  const [msg, setMsg] = useState<{ tone: "ok" | "err"; text: string } | null>(null);
+
+  const post = async (action: string, extra: Record<string, unknown> = {}) => {
+    const r = await fetch("/api/content-studio/narration", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, leadId, ...extra }) });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d?.error || `Request failed (${r.status})`);
+    return d;
+  };
+  const wordCount = (s: string) => (s.trim().match(/[A-Za-z0-9']+/g) ?? []).length;
+
+  async function analyze() {
+    if (preview || !leadId) return;
+    setBusy("analyze"); setMsg(null); setBlocker(null);
+    try { const d = await post("analyze"); setAnalysis(d.quality); }
+    catch (e: any) { setMsg({ tone: "err", text: e.message }); }
+    finally { setBusy(null); }
+  }
+  async function expand() {
+    if (preview || !leadId) return;
+    setBusy("expand"); setMsg(null); setBlocker(null);
+    try {
+      const d = await post("expand");
+      if (!d.available) { setBlocker(d.blocker || "Insufficient evidence to expand."); setExp(null); return; }
+      setExp({ original: d.original ?? "", candidate: d.candidate ?? "", quality: d.quality, wordCount: d.wordCount, estimatedSeconds: d.estimatedSeconds, evidenceMap: d.evidenceMap ?? [], statementsRequiringReview: d.statementsRequiringReview ?? [] });
+    } catch (e: any) { setMsg({ tone: "err", text: e.message }); }
+    finally { setBusy(null); }
+  }
+  async function accept() {
+    if (preview || !exp) return;
+    setBusy("accept"); setMsg(null);
+    try {
+      const d = await post("accept", { narration: exp.candidate });
+      setMsg({ tone: "ok", text: `Accepted as revision ${d.newRevision}. ${d.requiresNewAudioAndRender ? "The previous audio/render is now outdated — upload new narration audio and re-render." : ""}` });
+      setExp(null); setAnalysis(null);
+      await onChanged();
+    } catch (e: any) { setMsg({ tone: "err", text: e.message }); }
+    finally { setBusy(null); }
+  }
+  function cancel() { setExp(null); setBlocker(null); setMsg(null); } // mutates nothing
+
+  if (!leadId) return null;
+  return (
+    <div data-expand-root className="mt-3 border-t border-white/[0.06] pt-3">
+      {!open ? (
+        <button data-expand-open disabled={preview} onClick={() => { setOpen(true); analyze(); }} className="btn-secondary flex items-center gap-1.5 text-xs disabled:opacity-40">
+          <RefreshCw size={13} /> Improve narration (analyze &amp; expand)
+        </button>
+      ) : (
+        <div data-expand-panel className="space-y-3 rounded-xl border border-white/10 bg-white/[0.02] p-3">
+          <div className="flex items-center justify-between">
+            <h5 className="text-[13px] font-semibold text-chalk-100">Expand &amp; personalize</h5>
+            <button data-expand-close onClick={() => { setOpen(false); cancel(); setAnalysis(null); }} className="text-chalk-500 hover:text-chalk-200"><X size={14} /></button>
+          </div>
+
+          {/* Current-quality analysis */}
+          <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-2.5">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-[11px] text-chalk-500">Current narration:</span>
+              {busy === "analyze" ? <Loader2 size={13} className="animate-spin text-chalk-500" /> : analysis ? <QualityBadge quality={analysis.classification} /> : <button data-expand-analyze onClick={analyze} className="text-[11px] text-azure-300">Analyze</button>}
+              {analysis && <span className="text-[10.5px] text-chalk-500">{analysis.wordCount} words · ~{analysis.estimatedSeconds}s</span>}
+            </div>
+            {analysis?.reasons?.length > 0 && <ul className="mt-1 list-disc pl-4 text-[10.5px] text-chalk-500">{analysis.reasons.map((r: string, i: number) => <li key={i} data-quality-reason>{r}</li>)}</ul>}
+            {analysis?.signals?.unsupportedClaims?.length > 0 && <p data-expand-unsupported className="mt-1 text-[10.5px] text-rose-300">Unsupported: {analysis.signals.unsupportedClaims.join(", ")}</p>}
+            {analysis?.signals?.similarTo && analysis.signals.maxSimilarity >= 0.6 && <p data-expand-similar className="mt-1 text-[10.5px] text-rose-300">Too similar to {analysis.signals.similarTo} ({Math.round(analysis.signals.maxSimilarity * 100)}%).</p>}
+          </div>
+
+          {!exp ? (
+            <div className="flex items-center gap-2">
+              <button data-expand-run disabled={preview || busy === "expand"} onClick={expand} className="btn-primary flex items-center gap-1.5 text-xs disabled:opacity-40">
+                {busy === "expand" ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />} Expand &amp; personalize
+              </button>
+              {blocker && <span data-expand-blocker className="text-[11px] text-amber-300">{blocker}</span>}
+            </div>
+          ) : (
+            <div data-expand-compare className="space-y-2.5">
+              {/* Compare original vs proposed */}
+              <div className="grid gap-2 sm:grid-cols-2">
+                <div>
+                  <p className="mb-1 text-[10.5px] uppercase tracking-wide text-chalk-500">Original · {wordCount(exp.original)} words</p>
+                  <p data-expand-original className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-2 text-[12px] leading-snug text-chalk-400">{exp.original || <span className="italic text-chalk-600">No prior narration.</span>}</p>
+                </div>
+                <div>
+                  <div className="mb-1 flex items-center justify-between">
+                    <p className="text-[10.5px] uppercase tracking-wide text-chalk-500">Proposed · {wordCount(exp.candidate)} words · ~{Math.round((wordCount(exp.candidate) * 60) / 150)}s</p>
+                    {exp.quality && <span data-expand-quality={exp.quality.classification}><QualityBadge quality={exp.quality.classification} /></span>}
+                  </div>
+                  <textarea data-expand-edit value={exp.candidate} onChange={(e) => setExp({ ...exp, candidate: e.target.value })} className="input min-h-[120px] w-full text-[12px]" />
+                </div>
+              </div>
+
+              {/* Evidence mapping + statements requiring review */}
+              {exp.evidenceMap.length > 0 && (
+                <details data-expand-evidence className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-2">
+                  <summary className="cursor-pointer text-[11px] text-chalk-400">Evidence mapping ({exp.evidenceMap.filter((m) => m.evidenceIds.length).length} grounded)</summary>
+                  <ul className="mt-1 space-y-1 text-[10.5px]">
+                    {exp.evidenceMap.map((m, i) => (
+                      <li key={i} className={m.requiresReview ? "text-amber-300" : "text-chalk-500"} data-review={m.requiresReview ? "1" : undefined}>
+                        {m.evidenceIds.length ? `[${m.evidenceIds.join(", ")}]` : "[review]"} {m.statement}
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              )}
+              {exp.statementsRequiringReview.length > 0 && (
+                <p data-expand-review className="text-[10.5px] text-amber-300">{exp.statementsRequiringReview.length} statement(s) need your review before use.</p>
+              )}
+              {exp.quality?.signals?.unsupportedClaims?.length > 0 && <p className="text-[10.5px] text-rose-300">Proposed contains unsupported claims — edit before accepting.</p>}
+
+              <div className="flex flex-wrap items-center gap-2">
+                <button data-expand-accept disabled={busy === "accept" || (exp.quality?.signals?.unsupportedClaims?.length ?? 0) > 0} onClick={accept} className="btn-primary flex items-center gap-1.5 text-xs disabled:opacity-40">
+                  {busy === "accept" ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />} Accept revision
+                </button>
+                <button data-expand-regenerate disabled={busy === "expand"} onClick={expand} className="btn-secondary flex items-center gap-1.5 text-xs disabled:opacity-40"><RefreshCw size={13} /> Regenerate</button>
+                <button data-expand-cancel onClick={cancel} className="btn-ghost text-xs">Cancel</button>
+              </div>
+            </div>
+          )}
+
+          {msg && <p data-expand-msg className={`text-[11px] ${msg.tone === "ok" ? "text-teal-300" : "text-rose-300"}`}>{msg.text}</p>}
+        </div>
+      )}
     </div>
   );
 }
