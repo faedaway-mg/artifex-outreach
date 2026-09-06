@@ -321,12 +321,15 @@ export async function buildPackageEmail(leadId: string, opts: { baseUrl: string;
 export async function resolvePackageForSendById(leadId: string): Promise<{ ok: boolean; reason?: string; pkg?: FrozenProspectPackage }> {
   const pkg = await latestProspectPackage(leadId);
   if (!pkg) return { ok: false, reason: "no frozen package (approve to freeze first)" };
-  // FAIL-CLOSED integrity gate (mandate 16/17): placeholder/test CONTENT or test-PROVENANCE can never dispatch.
+  // FAIL-CLOSED integrity gate (mandate 16/17/20): placeholder/test CONTENT never dispatches. Test-PROVENANCE
+  // is rejected in PRODUCTION but ALLOWED inside the isolated Breakbot tenant (flag never set in production).
   const { detectPlaceholderContent, testProvenanceReason } = await import("./dispatch-integrity");
   const guardLead = await getLead(leadId);
-  const { isInternalLead } = await import("../operators/assignment");
-  const tp = testProvenanceReason(guardLead as { source?: string | null; businessName?: string | null; test_only?: boolean } | null, { internal: guardLead ? isInternalLead(guardLead) : false });
-  if (tp) return { ok: false, reason: `TEST_PROVENANCE: ${tp}`, pkg };
+  if (process.env.BREAKBOT_TEST_TENANT !== "1") {
+    const { isInternalLead } = await import("../operators/assignment");
+    const tp = testProvenanceReason(guardLead as { source?: string | null; businessName?: string | null; test_only?: boolean } | null, { internal: guardLead ? isInternalLead(guardLead) : false });
+    if (tp) return { ok: false, reason: `TEST_PROVENANCE: ${tp}`, pkg };
+  }
   const ph = detectPlaceholderContent({ subject: pkg.subject, body: pkg.bodyText || pkg.bodyHtml, businessName: guardLead?.businessName });
   if (ph) return { ok: false, reason: `PLACEHOLDER_OR_TEST_CONTENT: ${ph}`, pkg };
   const review = await resolveFrozenReviewForSend(leadId);

@@ -9,6 +9,7 @@ import { pendingClientVideoCount } from "@/lib/content-studio/client-video-tasks
 import { getWorkerHealth } from "@/lib/content-studio/worker-health";
 import { readPosted } from "@/lib/content-studio/store";
 import { buildCompanySnapshot } from "@/lib/outreach/company-snapshot";
+import { ApproveScheduleButton } from "@/components/queue/ApproveScheduleButton";
 
 export const dynamic = "force-dynamic";
 
@@ -41,6 +42,9 @@ export default async function CompanyFocusPage({ params }: { params: { leadId: s
   const prev = idx > 0 ? queue[idx - 1] : null;
   const next = idx >= 0 && idx < queue.length - 1 ? queue[idx + 1] : null;
   const pos = idx >= 0 ? `${idx + 1} of ${queue.length}` : "";
+  // Full Package "Approve & schedule" (mandate 20): shown when this company's package is READY_TO_APPROVE,
+  // invoking the SAME canonical operation as the Ready-to-Approve card.
+  const isReadyToApprove = snap.ready.some((r) => r.leadId === leadId);
 
   return (
     <div className="mx-auto w-full max-w-3xl">
@@ -56,6 +60,15 @@ export default async function CompanyFocusPage({ params }: { params: { leadId: s
           <Link href={next ? `/company/${next}` : "#"} aria-disabled={!next} className={`rounded-lg border border-white/10 p-2 ${next ? "text-chalk-300 hover:text-chalk-100" : "pointer-events-none text-chalk-700"}`}><ChevronRight size={16} /></Link>
         </div>
       </div>
+
+      {/* READY_TO_APPROVE → the canonical Approve & schedule action, right at the top of the Full Package. */}
+      {isReadyToApprove && (
+        <div data-approve-fullpackage className="mb-4 rounded-2xl border border-teal-400/25 bg-teal-400/[0.05] p-4">
+          <div className="text-[13px] font-medium text-chalk-100">Ready to approve — {lead.businessName}</div>
+          <div className="mt-0.5 text-[12px] text-chalk-400">Approving freezes the exact package revision and schedules it for the next eligible window.</div>
+          <ApproveScheduleButton leadId={leadId} className="mt-3" />
+        </div>
+      )}
 
       {match ? (
         <ContentStudioClient initialItems={items} deepLink={{ piece: pieceId, lead: leadId, section: "client", from: "today" }} videosToCreate={videosToCreate} workerHealth={workerHealth} advanceHref={next ? `/company/${next}` : "/"} />

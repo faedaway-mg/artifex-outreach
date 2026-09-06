@@ -71,6 +71,14 @@ describe("breakbot seed / reset determinism + isolation", () => {
     expect(s.realRecipients).toBe(0); // NEVER a real recipient
   });
 
+  it("the seeded READY_EMAIL_VIDEO fixture appears in Ready-to-Approve via the REAL snapshot readers", async () => {
+    await seedBreakbotFixtures();
+    const s = await breakbotStateSummary();
+    expect(s.ready).toBe(1); // exactly one Ready package (the EMAIL_VIDEO fixture)
+    expect(s.readyBusinesses).toContain("Vertex Roofing");
+    expect(s.realRecipients).toBe(0);
+  });
+
   it("seed refuses if the store is not isolated (fail-closed, no production fallback)", async () => {
     process.env.DATABASE_URL = "postgres://prod/db";
     await expect(seedBreakbotFixtures()).rejects.toThrow(/DATABASE_URL/);

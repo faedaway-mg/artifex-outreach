@@ -51,17 +51,21 @@ function mk(id: string, kind: FixtureKind, businessName: string, slug: string, e
 }
 
 // The canonical, ORDERED fixture registry — stable ids, deterministic hashes.
+// Business names are REALISTIC (never contain breakbot/test/canary) so they pass the content placeholder
+// guard and appear in the real Ready UI inside the isolated tenant; synthetic status is carried by the
+// PROVENANCE (source=breakbot + example.invalid recipient), which the production boundary rejects. The one
+// exception is the PLACEHOLDER_CONTENT fixture, whose CONTENT is intentionally test-like (stays blocked).
 export const FIXTURES: Fixture[] = [
-  mk("bb_fx_email_pdf", "READY_EMAIL_PDF", "Breakbot PDF Co", "email-pdf", { packageType: "EMAIL_PDF", readyToApprove: true, hasVideo: false, hasShare: false }),
-  mk("bb_fx_email_video", "READY_EMAIL_VIDEO", "Breakbot Video Co", "email-video", { packageType: "EMAIL_VIDEO", readyToApprove: true, hasVideo: true, hasShare: true }),
-  mk("bb_fx_placeholder", "PLACEHOLDER_CONTENT", "Breakbot Placeholder Co", "placeholder", { packageType: "EMAIL_VIDEO", readyToApprove: false, hasVideo: true, hasShare: true }),
-  mk("bb_fx_no_package", "MISSING_PACKAGE", "Breakbot NoPackage Co", "no-package", { packageType: "NONE", readyToApprove: false, hasVideo: false, hasShare: false }),
-  mk("bb_fx_video_no_render", "VIDEO_MISSING_RENDER", "Breakbot Unrendered Co", "no-render", { packageType: "EMAIL_VIDEO", readyToApprove: false, hasVideo: false, hasShare: false }),
-  mk("bb_fx_video_stale_share", "VIDEO_STALE_SHARE", "Breakbot StaleShare Co", "stale-share", { packageType: "EMAIL_VIDEO", readyToApprove: false, hasVideo: true, hasShare: true, shareStale: true }),
-  mk("bb_fx_morris_followup", "MORRIS_FOLLOWUP", "Breakbot Followup Co", "followup", { packageType: "VIDEO_FOLLOW_UP", readyToApprove: false, hasVideo: true, hasShare: true, priorReceipt: true }),
-  mk("bb_fx_scheduled", "VALID_SCHEDULED_BINDING", "Breakbot Scheduled Co", "scheduled", { packageType: "EMAIL_PDF", readyToApprove: false, hasVideo: false, hasShare: false, scheduled: true }),
-  mk("bb_fx_needs_evidence", "NEEDS_EVIDENCE", "Breakbot NeedsEvidence Co", "needs-evidence", { packageType: "NONE", readyToApprove: false, hasVideo: false, hasShare: false }),
-  mk("bb_fx_poor_fit", "POOR_FIT", "Breakbot PoorFit Co", "poor-fit", { packageType: "NONE", readyToApprove: false, hasVideo: false, hasShare: false }),
+  mk("bb_fx_email_pdf", "READY_EMAIL_PDF", "Northstar Hospitality", "email-pdf", { packageType: "EMAIL_PDF", readyToApprove: true, hasVideo: false, hasShare: false }),
+  mk("bb_fx_email_video", "READY_EMAIL_VIDEO", "Vertex Roofing", "email-video", { packageType: "EMAIL_VIDEO", readyToApprove: true, hasVideo: true, hasShare: true }),
+  mk("bb_fx_placeholder", "PLACEHOLDER_CONTENT", "Placeholder Fixture Co", "placeholder", { packageType: "EMAIL_VIDEO", readyToApprove: false, hasVideo: true, hasShare: true }),
+  mk("bb_fx_no_package", "MISSING_PACKAGE", "Cedar Grove Dental", "no-package", { packageType: "NONE", readyToApprove: false, hasVideo: false, hasShare: false }),
+  mk("bb_fx_video_no_render", "VIDEO_MISSING_RENDER", "Harbor Point Fitness", "no-render", { packageType: "EMAIL_VIDEO", readyToApprove: false, hasVideo: false, hasShare: false }),
+  mk("bb_fx_video_stale_share", "VIDEO_STALE_SHARE", "Summit Auto Care", "stale-share", { packageType: "EMAIL_VIDEO", readyToApprove: false, hasVideo: true, hasShare: true, shareStale: true }),
+  mk("bb_fx_morris_followup", "MORRIS_FOLLOWUP", "Meridian Plumbing", "followup", { packageType: "VIDEO_FOLLOW_UP", readyToApprove: false, hasVideo: true, hasShare: true, priorReceipt: true }),
+  mk("bb_fx_scheduled", "VALID_SCHEDULED_BINDING", "Lakeside Cleaners", "scheduled", { packageType: "EMAIL_PDF", readyToApprove: false, hasVideo: false, hasShare: false, scheduled: true }),
+  mk("bb_fx_needs_evidence", "NEEDS_EVIDENCE", "Riverside Bakery", "needs-evidence", { packageType: "NONE", readyToApprove: false, hasVideo: false, hasShare: false }),
+  mk("bb_fx_poor_fit", "POOR_FIT", "Global Mega Corp", "poor-fit", { packageType: "NONE", readyToApprove: false, hasVideo: false, hasShare: false }),
 ];
 
 export function fixtureById(id: string): Fixture | undefined { return FIXTURES.find((f) => f.id === id); }

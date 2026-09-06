@@ -1,8 +1,7 @@
 "use client";
-import { useState, useTransition } from "react";
 import Link from "next/link";
-import { Check, FileText, Video, Mail, ArrowRight, Loader2, AlertTriangle } from "lucide-react";
-import { approveAndScheduleSelectedAction } from "@/lib/outreach/batch-actions";
+import { FileText, Video, Mail, ArrowRight } from "lucide-react";
+import { ApproveScheduleButton } from "./ApproveScheduleButton";
 
 export interface ReadyApproveProps {
   leadId: string; business: string; recipient: string; state: string; packageVersion: number | null;
@@ -12,23 +11,6 @@ export interface ReadyApproveProps {
 // A single Ready-to-Approve decision card. Shows ONLY the current canonical package (email + PDF + video +
 // share + revision) and the ONE canonical approve+schedule action. No second send path; no stale artifacts.
 export function ReadyApproveCard(p: ReadyApproveProps) {
-  const [pending, start] = useTransition();
-  const [result, setResult] = useState<null | { ok: boolean; msg: string }>(null);
-
-  function approve() {
-    start(async () => {
-      try {
-        const r = await approveAndScheduleSelectedAction([p.leadId]);
-        const one = r.results?.[0];
-        setResult(one && (one as { ok?: boolean }).ok !== false
-          ? { ok: true, msg: `Approved — scheduled for ${new Date(r.dateKey + "T12:00:00Z").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}` }
-          : { ok: false, msg: (one as { reason?: string })?.reason ?? "Could not approve — see the full package." });
-      } catch (e) {
-        setResult({ ok: false, msg: (e as Error)?.message?.slice(0, 120) ?? "Approval failed." });
-      }
-    });
-  }
-
   return (
     <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-4">
       <div className="flex items-start justify-between gap-3">
@@ -53,14 +35,8 @@ export function ReadyApproveCard(p: ReadyApproveProps) {
         <Link href={`/company/${p.leadId}`} className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-[12.5px] text-chalk-400 transition-colors hover:text-chalk-200">Open full package <ArrowRight size={12} /></Link>
       </div>
 
-      {/* The ONE canonical action */}
-      <div className="mt-3 flex items-center gap-3">
-        <button onClick={approve} disabled={pending || result?.ok} className="btn-primary text-sm disabled:opacity-50">
-          {pending ? <><Loader2 size={14} className="animate-spin" /> Approving…</> : result?.ok ? <><Check size={14} /> Approved</> : "Approve & schedule"}
-        </button>
-        {result && !result.ok && <span className="flex items-center gap-1 text-[12.5px] text-coral-200"><AlertTriangle size={13} /> {result.msg}</span>}
-        {result?.ok && <span className="text-[12.5px] text-teal-200">{result.msg}</span>}
-      </div>
+      {/* The ONE canonical action — shared with the Full Package view (same domain operation). */}
+      <ApproveScheduleButton leadId={p.leadId} className="mt-3" />
     </div>
   );
 }
