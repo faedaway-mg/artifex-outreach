@@ -39,9 +39,11 @@ describe("mandate 25 — narration quality evaluator", () => {
     expect(r.signals.unsupportedClaims.length).toBeGreaterThan(0);
   });
 
-  it("INSUFFICIENT_EVIDENCE: no findings or no screenshot", () => {
+  it("INSUFFICIENT_EVIDENCE: no verified findings (findings ground the narration text)", () => {
     expect(evaluateNarrationQuality({ narration: GOOD, evidence: ev({ findings: [] }) }).classification).toBe("INSUFFICIENT_EVIDENCE");
-    expect(evaluateNarrationQuality({ narration: GOOD, evidence: ev({ hasScreenshot: false }) }).classification).toBe("INSUFFICIENT_EVIDENCE");
+    // A missing screenshot is a RENDER prerequisite, not a text-grounding one: with findings present the
+    // narration is still gradeable (screenshot is enforced separately by the render evidence-gate).
+    expect(evaluateNarrationQuality({ narration: GOOD, evidence: ev({ hasScreenshot: false }) }).classification).not.toBe("INSUFFICIENT_EVIDENCE");
   });
 
   it("TOO_SIMILAR: substantive wording reused across companies (only the name differs)", () => {

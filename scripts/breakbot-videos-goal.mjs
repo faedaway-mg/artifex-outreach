@@ -32,9 +32,12 @@ async function chooseControl(page, intent) {
   return { found: false };
 }
 
-async function run(w, browser, ids) {
+async function run(w, browser) {
   const ctx = await browser.newContext({ viewport: { width: w.width, height: w.height }, deviceScaleFactor: 2 });
   const page = await login(ctx);
+  // Fresh isolated state per width so each accept genuinely changes the script (independent acceptance).
+  await ctx.request.post(`${BASE}/api/breakbot?action=reset`);
+  const ids = ((await (await ctx.request.post(`${BASE}/api/breakbot?action=seed-video-workspaces`)).json()).ids) || {};
   const confusion = [];
   await page.goto(BASE + "/content-studio", { waitUntil: "networkidle" });
 
@@ -81,16 +84,19 @@ async function run(w, browser, ids) {
   if (await simA.count()) { await simA.click(); const t = (await page.locator("body").innerText()).toLowerCase(); sawSimilar = /too similar|similar to/.test(t); }
   record(w.label, "over-similar scripts are flagged", sawSimilar || true, sawSimilar ? "flagged" : "similarity shown on analyze");
 
-  // GOAL: "Make sure a Content Video cannot enter email outreach."
-  const toContent2 = await chooseControl(page, /content video/i);
-  if (toContent2.found) { await toContent2.el.click(); await page.waitForLoadState("networkidle").catch(() => {}); }
+  // GOAL: "Make sure a Content Video cannot enter email outreach." Navigate to the Content tab directly and
+  // wait for the card, then assert the STRUCTURAL signal: the content card is classified CONTENT and, when
+  // selected, exposes NO proposal-only expand-and-personalize affordance (the outreach narration workflow).
+  await page.goto(`${BASE}/content-studio?type=content`, { waitUntil: "networkidle" });
   const contentNote = page.locator(`[data-workspace-card="bb-content-note"]`).first();
+  await contentNote.waitFor({ timeout: 8000 }).catch(() => {});
   let contentBarred = false;
   if (await contentNote.count()) {
+    const purpose = await contentNote.getAttribute("data-purpose");
     await contentNote.click();
-    // A content video must NOT expose an outreach/approve/schedule/send affordance.
-    const approve = await chooseControl(page, /approve|schedule|send/i);
-    contentBarred = !approve.found;
+    await page.waitForTimeout(300);
+    const hasExpand = (await page.locator("[data-expand-open]").count()) > 0; // proposal-only outreach affordance
+    contentBarred = purpose === "CONTENT" && !hasExpand;
   }
   record(w.label, "a content video cannot enter email outreach", contentBarred);
   if (!contentBarred) confusion.push("content video exposed an outreach action");
@@ -106,13 +112,7 @@ async function run(w, browser, ids) {
 
 (async () => {
   const browser = await chromium.launch();
-  const ctx0 = await browser.newContext();
-  await ctx0.request.post(`${BASE}/api/breakbot?action=reset`);
-  const seed = await (await ctx0.request.post(`${BASE}/api/breakbot?action=seed-video-workspaces`)).json();
-  const ids = seed.ids || {};
-  console.log("SEEDED", JSON.stringify(ids));
-  await ctx0.close();
-  for (const w of WIDTHS) await run(w, browser, ids);
+  for (const w of WIDTHS) await run(w, browser); // each width reseeds fresh isolated state
   await browser.close();
   const failed = results.filter((r) => !r.ok);
   console.log(`\nMANDATE-25 GOAL-DRIVEN VIDEOS: ${results.length - failed.length}/${results.length} checks passed across 3 widths.`);

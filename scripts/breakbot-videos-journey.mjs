@@ -114,6 +114,7 @@ async function run(w, browser, ids) {
 (async () => {
   const browser = await chromium.launch();
   const ctx0 = await browser.newContext();
+  await login(ctx0); // the breakbot API is session-gated
   const api = ctx0.request;
   await post(api, "reset");
   const seed = await (await post(api, "seed-video-workspaces")).json();

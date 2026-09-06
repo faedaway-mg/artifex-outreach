@@ -51,10 +51,10 @@ describe("mandate 25 — expand-and-personalize composer", () => {
     expect(r.narration).toBe("");
   });
 
-  it("no screenshot → blocked, produces nothing", () => {
+  it("no screenshot → still expands (findings ground the text; screenshot is a render prerequisite)", () => {
     const r = expandAndPersonalize({ ...full(), hasScreenshot: false });
-    expect(r.available).toBe(false);
-    expect(r.blocker).toMatch(/screenshot/i);
+    expect(r.available).toBe(true);
+    expect(r.usedEvidenceIds).toContain("ev_booking");
   });
 
   it("a finding without a verified impact yields a review-flagged why-it-matters (not an invented claim)", () => {

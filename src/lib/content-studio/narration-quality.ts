@@ -131,7 +131,7 @@ export function evaluateNarrationQuality(input: NarrationQualityInput): Narratio
   // Classification precedence: hard failures first, then length/specificity.
   let classification: NarrationQuality;
   if (unsupportedClaims.length) { classification = "UNSUPPORTED_CLAIMS"; reasons.push(`unsupported claim(s): ${unsupportedClaims.join(", ")}`); }
-  else if (input.evidence.findings.length === 0 || !input.evidence.hasScreenshot) { classification = "INSUFFICIENT_EVIDENCE"; reasons.push("no verified findings/screenshot to ground a specific narration"); }
+  else if (input.evidence.findings.length === 0) { classification = "INSUFFICIENT_EVIDENCE"; reasons.push("no verified findings to ground a specific narration"); }
   else if (maxSimilarity >= cfg.similarityThreshold) { classification = "TOO_SIMILAR"; reasons.push(`substantive wording ${Math.round(maxSimilarity * 100)}% shared with ${similarTo}`); }
   else if (estimatedSeconds < cfg.hardShortSec && !companySpecific) { classification = "TOO_SHORT"; reasons.push(`~${estimatedSeconds}s (${wc} words) and not company-specific`); }
   else if (genericFiller) { classification = "GENERIC"; reasons.push("generic — no company-specific observation + evidence-backed recommendation"); }

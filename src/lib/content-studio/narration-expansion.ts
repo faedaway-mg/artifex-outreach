@@ -71,10 +71,11 @@ export function expandAndPersonalize(evidence: ExpansionEvidence): ExpansionResu
     quality: null, evidenceMap: [], usedEvidenceIds: [], statementsRequiringReview: [],
   });
 
-  // Never fabricate: without a company, a verified observation, and a screenshot, there is nothing to expand.
+  // Never fabricate: without a company and at least one verified finding, there is nothing to ground on.
+  // (A screenshot is a downstream RENDER prerequisite — enforced by the render evidence-gate — not a text-
+  //  grounding requirement: the narration is grounded in the verified FINDINGS.)
   if (!bn) return empty("no company name — cannot personalize");
   if (grounded.length === 0) return empty("no verified findings — cannot ground a specific narration");
-  if (evidence.hasScreenshot === false) return empty("no screenshot evidence — cannot verify the observation");
 
   // Anchor the draft on the single strongest finding (first grounded finding is the canonical primary).
   const primary = grounded[0];
