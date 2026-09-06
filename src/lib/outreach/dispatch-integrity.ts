@@ -85,10 +85,11 @@ export function assertDispatchable(i: PackageIntegrityInput): IntegrityVerdict {
   return { ok: true, reason: null, code: "OK" };
 }
 
-/** Classify a persisted prospect package into its canonical type from its bound artifacts. */
-export function classifyPackageType(pkg: { video?: unknown; review?: unknown; videoRequired?: boolean } | null | undefined): ProspectPackageType {
+/** Classify a persisted prospect package into its canonical type from its bound artifacts. A video package
+ *  carrying prior-send lineage (followUp) is a VIDEO_FOLLOW_UP; a first-touch video package is EMAIL_VIDEO. */
+export function classifyPackageType(pkg: { video?: unknown; review?: unknown; videoRequired?: boolean; followUp?: unknown } | null | undefined): ProspectPackageType {
   if (!pkg) return "EMAIL_ONLY";
-  if (pkg.video) return "EMAIL_VIDEO";
+  if (pkg.video) return pkg.followUp ? "VIDEO_FOLLOW_UP" : "EMAIL_VIDEO";
   if (pkg.review) return "EMAIL_PDF";
   return "EMAIL_ONLY";
 }
