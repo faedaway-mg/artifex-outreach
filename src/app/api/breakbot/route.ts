@@ -13,10 +13,33 @@ async function guardOr403(): Promise<NextResponse | null> {
   return null;
 }
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   const blocked = await guardOr403(); if (blocked) return blocked;
+  if (req.nextUrl.searchParams.get("action") === "lead-state") return leadState(req.nextUrl.searchParams.get("leadId") ?? "");
   const { breakbotStateSummary } = await import("@/lib/breakbot/namespace");
   return NextResponse.json({ ok: true, state: await breakbotStateSummary() });
+}
+
+// Read-only per-lead canonical state for journey assertions.
+async function leadState(leadId: string) {
+  const { buildCompanySnapshot } = await import("@/lib/outreach/company-snapshot");
+  const { listScheduledBindings, dueScheduled, validateScheduled } = await import("@/lib/outreach/scheduled-batch");
+  const { listAudit } = await import("@/lib/repo");
+  const snap = await buildCompanySnapshot();
+  const bindings = (await listScheduledBindings()).filter((b) => b.leadId === leadId);
+  const audit = await listAudit(5000);
+  const binding = bindings[0]?.binding ?? null;
+  const due = binding ? (await dueScheduled(new Date(binding.scheduledAt))).some((d) => d.leadId === leadId) : false;
+  return NextResponse.json({ ok: true,
+    inReady: snap.ready.filter((r) => r.leadId === leadId).length,
+    inScheduled: snap.scheduled.filter((s) => s.leadId === leadId).length,
+    bindings: bindings.length,
+    revisionId: binding?.revisionId ?? null,
+    dryRunSelected: due,
+    validateOk: binding ? (await validateScheduled(leadId, binding)).ok : false,
+    scheduleAudit: audit.some((a) => a.action === "outreach.schedule.batch"),
+    readyCount: snap.counts.readyToSchedule, scheduledCount: snap.counts.scheduled,
+  });
 }
 
 export async function POST(req: NextRequest) {
@@ -27,6 +50,12 @@ export async function POST(req: NextRequest) {
   if (action === "seed") {
     const ids = req.nextUrl.searchParams.get("ids")?.split(",").filter(Boolean);
     const r = await ns.seedBreakbotFixtures(ids);
+    return NextResponse.json({ ok: true, ...r, state: await ns.breakbotStateSummary() });
+  }
+  if (action === "seed-approvable") {
+    // A COMPLETE, approvable READY_EMAIL_VIDEO package (real ops) — the canonical action accepts it.
+    const { seedApprovableVideoFixture } = await import("@/lib/breakbot/approvable-fixture");
+    const r = await seedApprovableVideoFixture();
     return NextResponse.json({ ok: true, ...r, state: await ns.breakbotStateSummary() });
   }
   return NextResponse.json({ ok: false, error: "unknown action (seed|reset)" }, { status: 400 });

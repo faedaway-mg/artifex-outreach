@@ -100,7 +100,14 @@ export function resolveProspectState(s: LifecycleSignals): LifecycleVerdict {
   if (s.draftPackageState === "READY_TO_APPROVE" && s.packageVideoBound && s.emailBody && s.frozenPdf) {
     return { state: "READY_TO_APPROVE", missing: [], reason: "complete package: email + PDF + video" };
   }
-  if (s.draftPackageState === "FROZEN") return { state: "READY_TO_APPROVE", missing: [], reason: "frozen package awaiting schedule" };
+  // A FROZEN package that has been scheduled (approved AND a future binding exists) is SCHEDULED, not still
+  // awaiting approval; a frozen package with no binding yet is READY_TO_APPROVE.
+  if (s.draftPackageState === "FROZEN") return s.scheduledFuture
+    ? { state: "SCHEDULED", missing: [], reason: "approved & scheduled" }
+    : { state: "READY_TO_APPROVE", missing: [], reason: "frozen package awaiting schedule" };
+  if (s.draftPackageState === "SCHEDULED" || s.draftPackageState === "SENT") return s.draftPackageState === "SENT"
+    ? { state: "SENT", missing: [], reason: "sent" }
+    : { state: "SCHEDULED", missing: [], reason: "scheduled" };
 
   // 3) Post-render assembly pending — the exact Motion bug: verified MP4 but the package never bound it.
   if (s.renderReadyVerified && !s.packageVideoBound) {
