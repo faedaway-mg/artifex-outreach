@@ -57,6 +57,19 @@ concurrency, cross-instance, restart-retry, idempotent cancel, zero-provider.
 | Narration quality + similarity + unsupported-claims | evaluator badges/reasons; cross-company similarity; unsupported-claim refusal | ✅ 100% | `narration-quality` + `proposal-audit` unit tests; live similarity + accept-refusal |
 | CONTENT outreach bar | a content/unclassified video can never become a package video | ✅ 100% | `outreach-content-bar` seam test + workspace split guard |
 
+## Content Studio — mobile full-page workspaces + truthful narration actions (mandate 26)
+
+| Route / surface | Controls | Coverage | Evidence |
+|---|---|---|---|
+| Dedicated workspace (`/content-studio/[purpose]/[leadId]?from=`) | tap-through from the tab, Back to originating tab, Prev/Next across the tab, deep-link + refresh | ✅ 100% | deterministic mobile journey (43/43 × 3 widths) + goal-driven (27/27 × 3 widths); focus-mode strips the bottom nav; no horizontal overflow asserted |
+| Genuine regeneration | Regenerate returns a distinct evidence-grounded variant; no-safe-alternative reported honestly | ✅ 100% | `narration-expansion` variants unit tests; `mandate26-narration-acceptance` route test; live "regenerate changed" at 3 widths |
+| Truthful state-specific actions | editable draft → Accept (approved draft re-opens); FROZEN/SCHEDULED/SENT → Create improved version (fork), no failing Accept shown | ✅ 100% | `narration-revision` permissions/fork tests; route test (accept refused 409 on SCHEDULED, fork preserves package digest); live fork at 3 widths |
+| Fork safety | fork never mutates the frozen package/binding; double-tap idempotent | ✅ 100% | route test asserts package version+digest+state unchanged after fork; `sameNarration` idempotency test |
+| Discovery targeting (Discover → next markets) | read-only "why this smaller market" panel | ✅ | `market-policy` tests (10); discovery sample script; goal-driven "review next market" at 3 widths |
+
+## Discovery market policy (mandate 26 §4)
+Canonical versioned policy `src/lib/market-policy.ts` (Census-sourced populations): excludes 22 major metros, targets secondary/tertiary markets (city ~40k–250k / metro ~100k–750k), regional diversity + market/category cooldown ledger. Wired into `prospecting.ts` territory selection. Unit tests `market-policy.test.ts` (10); read-only sample `scripts/mandate26-discovery-sample.ts` (100% secondary/tertiary, 6 regions, 0 provider calls).
+
 ## App-wide coverage summary
 - **Scheduled: 100%** deterministic + goal-driven (mandate 22).
 - **Content Studio / media: 100%** deterministic + goal-driven (mandate 23) — canonical preview, player

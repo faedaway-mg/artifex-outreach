@@ -71,7 +71,10 @@ export function Shell({ children }: { children: React.ReactNode }) {
   // Focus mode (ES-010 chrome discipline): the batch runner is a linear flow with its
   // own ✕ exit and progress rail. Strip the dashboard chrome so nothing competes with
   // the current business. ⌘K still works as the escape hatch.
-  const focus = pathname.startsWith("/work/") || pathname.startsWith("/company/");
+  // /content-studio/<purpose>/<leadId> is a dedicated full-page company workspace (mandate 26 §2) — focus
+  // mode strips the bottom nav so no control hides beneath it. The /content-studio index keeps the nav.
+  const isStudioDeep = /^\/content-studio\/[^/]+\/[^/]+/.test(pathname);
+  const focus = pathname.startsWith("/work/") || pathname.startsWith("/company/") || isStudioDeep;
   if (focus) {
     return (
       <div className="min-h-screen">

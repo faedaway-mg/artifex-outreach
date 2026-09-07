@@ -1,5 +1,5 @@
 "use client";
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, useTransition, type MouseEvent as ReactMouseEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -255,8 +255,11 @@ export function ContentStudioClient({ initialItems, preview = false, deepLink, v
               ))}
         </div>
 
-        {/* ── Detail (top-aligned, its own scroll) ───────────────────── */}
-        <div className="min-w-0 lg:min-h-0">
+        {/* ── Detail ─────────────────────────────────────────────────────
+            With the two tabs active, MOBILE is a list/index only (mandate 26 §2): the detail is hidden and a
+            card tap navigates to the dedicated full-page workspace instead of rendering an editor below the
+            list. On desktop (lg+) the master-detail pane is shown and cards select in place. */}
+        <div className={`min-w-0 lg:min-h-0 ${workspaces ? "hidden lg:block" : ""}`}>
           {effectiveSelected && <PieceDetail key={effectiveSelected.piece.id} item={effectiveSelected} onChanged={refetch} setJobOverride={setJobOverride} advanceHref={advanceHref} />}
         </div>
       </div>
@@ -1298,6 +1301,12 @@ function WorkspaceList({ workspaces, selectedId, onSelect }: { workspaces: Studi
   const labels: Record<string, string> = isProposal ? PROPOSAL_GROUP_LABEL : CONTENT_GROUP_LABEL;
   const groups: Record<string, Array<ProposalCard | ContentCard>> = isProposal ? workspaces.proposal.groups : workspaces.content.groups;
   const totalHere = order.reduce((n, g) => n + (groups[g]?.length ?? 0), 0);
+  // Each card links to its dedicated full-page workspace, carrying THIS tab as the Back origin (mandate 26 §2).
+  const origin = `/content-studio?type=${workspaces.activeType}`;
+  const hrefFor = (c: ProposalCard | ContentCard) => {
+    const key = c.purpose === "PROPOSAL" ? ((c as ProposalCard).leadId ?? c.id) : c.id;
+    return `/content-studio/${workspaces.activeType}/${encodeURIComponent(key)}?from=${encodeURIComponent(origin)}`;
+  };
   if (totalHere === 0) {
     return <div data-workspace-empty className="rounded-lg border border-white/10 bg-white/[0.02] p-4 text-[12.5px] text-chalk-500">No {isProposal ? "proposal" : "content"} videos yet.</div>;
   }
@@ -1310,7 +1319,7 @@ function WorkspaceList({ workspaces, selectedId, onSelect }: { workspaces: Studi
           <section key={g} data-workspace-group={g} aria-label={labels[g]}>
             <h3 className="mb-1.5 px-0.5 text-[11px] font-semibold uppercase tracking-wide text-chalk-500">{labels[g]} <span className="text-chalk-600">· {cards.length}</span></h3>
             <div className="space-y-2">
-              {cards.map((c) => <WorkspaceCard key={c.id} card={c} active={c.id === selectedId} onClick={() => onSelect(c.id)} />)}
+              {cards.map((c) => <WorkspaceCard key={c.id} card={c} active={c.id === selectedId} href={hrefFor(c)} onSelect={() => onSelect(c.id)} />)}
             </div>
           </section>
         );
@@ -1319,18 +1328,30 @@ function WorkspaceList({ workspaces, selectedId, onSelect }: { workspaces: Studi
   );
 }
 
-function WorkspaceCard({ card, active, onClick }: { card: ProposalCard | ContentCard; active: boolean; onClick: () => void }) {
+// A company card is a real navigable Link to its dedicated full-page workspace. On MOBILE, tapping anywhere
+// navigates immediately (mandate 26 §2 — no select-then-scroll). On DESKTOP (≥1024px) the two-column
+// master-detail is allowed, so we intercept the click and select in place instead of navigating. Either way
+// the href is a genuine URL, so refresh + browser Back + deep-link work.
+function WorkspaceCard({ card, active, href, onSelect }: { card: ProposalCard | ContentCard; active: boolean; href: string; onSelect: () => void }) {
   const isProposal = card.purpose === "PROPOSAL";
   const p = card as ProposalCard;
+  const handle = (e: ReactMouseEvent) => {
+    if (typeof window !== "undefined" && window.matchMedia && window.matchMedia("(min-width: 1024px)").matches) {
+      e.preventDefault(); onSelect(); // desktop master-detail: select beside the list
+    }
+    // mobile: fall through — follow the link to the dedicated full-page workspace
+  };
   return (
-    <button
-      onClick={onClick}
+    <Link
+      href={href}
+      onClick={handle}
       data-workspace-card={card.id}
+      data-workspace-href={href}
       data-purpose={card.purpose}
       data-group={card.group}
       data-quality={isProposal ? p.quality : undefined}
       aria-current={active ? "true" : undefined}
-      className={`w-full rounded-lg border p-3 text-left ring-focus ${active ? "border-azure-400/40 bg-azure-400/[0.06]" : "border-white/10 bg-white/[0.02] hover:border-white/20"}`}
+      className={`block w-full rounded-lg border p-3 text-left ring-focus ${active ? "border-azure-400/40 bg-azure-400/[0.06]" : "border-white/10 bg-white/[0.02] hover:border-white/20"}`}
     >
       <div className="flex items-center justify-between gap-2">
         <span className="truncate text-[13px] font-medium text-chalk-100">{isProposal ? p.businessName : (card as ContentCard).title}</span>
@@ -1345,7 +1366,7 @@ function WorkspaceCard({ card, active, onClick }: { card: ProposalCard | Content
         </div>
       )}
       {isProposal && p.nextAction && <p data-next-action className="mt-1 text-[10.5px] text-azure-300/80">→ {p.nextAction}</p>}
-    </button>
+    </Link>
   );
 }
 
@@ -1361,12 +1382,19 @@ type ExpandState = {
   quality: any; wordCount: number; estimatedSeconds: number;
   evidenceMap: Array<{ statement: string; evidenceIds: string[]; requiresReview: boolean }>;
   statementsRequiringReview: string[];
+  variant: number; variantCount: number; noSafeAlternative: boolean; regenerationNote: string | null;
+};
+type NarrationPerms = {
+  mode: "editable" | "committed-fork"; state: string; approved: boolean; frozen: boolean;
+  canAccept: boolean; canRegenerate: boolean; canCreateImprovedVersion: boolean;
+  headline: string; detail: string;
 };
 function NarrationExpandPanel({ leadId, onChanged }: { leadId: string; onChanged: () => Promise<void> }) {
   const preview = usePreview();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState<null | "analyze" | "expand" | "accept">(null);
   const [analysis, setAnalysis] = useState<any>(null);
+  const [perms, setPerms] = useState<NarrationPerms | null>(null);
   const [exp, setExp] = useState<ExpandState | null>(null);
   const [blocker, setBlocker] = useState<string | null>(null);
   const [msg, setMsg] = useState<{ tone: "ok" | "err"; text: string } | null>(null);
@@ -1382,46 +1410,76 @@ function NarrationExpandPanel({ leadId, onChanged }: { leadId: string; onChanged
   async function analyze() {
     if (preview || !leadId) return;
     setBusy("analyze"); setMsg(null); setBlocker(null);
-    try { const d = await post("analyze"); setAnalysis(d.quality); }
+    try { const d = await post("analyze"); setAnalysis(d.quality); if (d.permissions) setPerms(d.permissions); }
     catch (e: any) { setMsg({ tone: "err", text: e.message }); }
     finally { setBusy(null); }
   }
-  async function expand() {
+  // variant=0 for the first expand; Regenerate passes variant+1 so the candidate genuinely changes. When the
+  // evidence supports no further distinct draft, the server flags noSafeAlternative and we say so honestly.
+  async function expand(variant = 0) {
     if (preview || !leadId) return;
     setBusy("expand"); setMsg(null); setBlocker(null);
     try {
-      const d = await post("expand");
+      const d = await post("expand", { variant });
       if (!d.available) { setBlocker(d.blocker || "Insufficient evidence to expand."); setExp(null); return; }
-      setExp({ original: d.original ?? "", candidate: d.candidate ?? "", quality: d.quality, wordCount: d.wordCount, estimatedSeconds: d.estimatedSeconds, evidenceMap: d.evidenceMap ?? [], statementsRequiringReview: d.statementsRequiringReview ?? [] });
+      setExp({
+        original: d.original ?? "", candidate: d.candidate ?? "", quality: d.quality, wordCount: d.wordCount, estimatedSeconds: d.estimatedSeconds,
+        evidenceMap: d.evidenceMap ?? [], statementsRequiringReview: d.statementsRequiringReview ?? [],
+        variant: d.variant ?? variant, variantCount: d.variantCount ?? 1, noSafeAlternative: !!d.noSafeAlternative, regenerationNote: d.regenerationNote ?? null,
+      });
     } catch (e: any) { setMsg({ tone: "err", text: e.message }); }
     finally { setBusy(null); }
   }
-  async function accept() {
+  function regenerate() { expand((exp?.variant ?? 0) + 1); } // genuinely new variant, never a silent repeat
+
+  // Accept in place (editable draft) OR fork a new unapproved draft (committed package). The button shown is
+  // whichever the canonical permissions allow — never a control that predictably errors.
+  async function commit() {
     if (preview || !exp) return;
+    const fork = !!perms && perms.canCreateImprovedVersion;
     setBusy("accept"); setMsg(null);
     try {
-      const d = await post("accept", { narration: exp.candidate });
-      setMsg({ tone: "ok", text: `Accepted as revision ${d.newRevision}. ${d.requiresNewAudioAndRender ? "The previous audio/render is now outdated — upload new narration audio and re-render." : ""}` });
+      if (fork) {
+        const d = await post("fork", { narration: exp.candidate });
+        setMsg({ tone: "ok", text: d.idempotent
+          ? `Already forked as revision ${d.newRevision}. This new draft doesn't change what's ${d.forkedFromState === "SENT" ? "sent" : "scheduled"} — it needs fresh approval, new audio, and a new render.`
+          : `Created improved version — revision ${d.newRevision}. The ${String(d.forkedFromState).toLowerCase()} package and its send are untouched; this new draft needs fresh approval, new audio, and a new render.` });
+      } else {
+        const d = await post("accept", { narration: exp.candidate });
+        setMsg({ tone: "ok", text: d.idempotent
+          ? `No change — this is already revision ${d.newRevision}.`
+          : `Accepted as revision ${d.newRevision}. ${d.requiresNewAudioAndRender ? "The previous audio/render is now outdated — upload new narration audio and re-render." : ""}` });
+      }
       setExp(null); setAnalysis(null);
       await onChanged();
+      await analyze(); // refresh state/permissions after the mutation
     } catch (e: any) { setMsg({ tone: "err", text: e.message }); }
     finally { setBusy(null); }
   }
   function cancel() { setExp(null); setBlocker(null); setMsg(null); } // mutates nothing
 
   if (!leadId) return null;
+  const committed = !!perms && perms.canCreateImprovedVersion;
+  const openLabel = committed ? "Improve narration (create a new version)" : "Improve narration (analyze & expand)";
   return (
     <div data-expand-root className="mt-3 border-t border-white/[0.06] pt-3">
       {!open ? (
         <button data-expand-open disabled={preview} onClick={() => { setOpen(true); analyze(); }} className="btn-secondary flex items-center gap-1.5 text-xs disabled:opacity-40">
-          <RefreshCw size={13} /> Improve narration (analyze &amp; expand)
+          <RefreshCw size={13} /> {openLabel}
         </button>
       ) : (
-        <div data-expand-panel className="space-y-3 rounded-xl border border-white/10 bg-white/[0.02] p-3">
+        <div data-expand-panel data-expand-mode={perms?.mode ?? "editable"} className="space-y-3 rounded-xl border border-white/10 bg-white/[0.02] p-3">
           <div className="flex items-center justify-between">
-            <h5 className="text-[13px] font-semibold text-chalk-100">Expand &amp; personalize</h5>
+            <h5 className="text-[13px] font-semibold text-chalk-100">{committed ? "Create improved version" : "Expand & personalize"}</h5>
             <button data-expand-close onClick={() => { setOpen(false); cancel(); setAnalysis(null); }} className="text-chalk-500 hover:text-chalk-200"><X size={14} /></button>
           </div>
+
+          {/* Truthful, state-specific banner: what's allowed here and why (mandate 26 §1). */}
+          {perms && (
+            <div data-expand-permissions data-frozen={perms.frozen ? "1" : undefined} className={`rounded-lg border p-2.5 text-[11px] leading-relaxed ${perms.frozen ? "border-amber-400/30 bg-amber-400/[0.06] text-amber-100/90" : "border-white/[0.06] bg-white/[0.02] text-chalk-400"}`}>
+              <span className="font-medium text-chalk-200">{perms.headline}</span> {perms.detail}
+            </div>
+          )}
 
           {/* Current-quality analysis */}
           <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-2.5">
@@ -1437,7 +1495,7 @@ function NarrationExpandPanel({ leadId, onChanged }: { leadId: string; onChanged
 
           {!exp ? (
             <div className="flex items-center gap-2">
-              <button data-expand-run disabled={preview || busy === "expand"} onClick={expand} className="btn-primary flex items-center gap-1.5 text-xs disabled:opacity-40">
+              <button data-expand-run disabled={preview || busy === "expand"} onClick={() => expand(0)} className="btn-primary flex items-center gap-1.5 text-xs disabled:opacity-40">
                 {busy === "expand" ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />} Expand &amp; personalize
               </button>
               {blocker && <span data-expand-blocker className="text-[11px] text-amber-300">{blocker}</span>}
@@ -1459,6 +1517,11 @@ function NarrationExpandPanel({ leadId, onChanged }: { leadId: string; onChanged
                 </div>
               </div>
 
+              {/* Regeneration honesty: how many distinct drafts remain, and the no-safe-alternative note. */}
+              {exp.noSafeAlternative && exp.regenerationNote && (
+                <p data-expand-regen-note className="text-[10.5px] text-amber-300">{exp.regenerationNote}</p>
+              )}
+
               {/* Evidence mapping + statements requiring review */}
               {exp.evidenceMap.length > 0 && (
                 <details data-expand-evidence className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-2">
@@ -1475,13 +1538,19 @@ function NarrationExpandPanel({ leadId, onChanged }: { leadId: string; onChanged
               {exp.statementsRequiringReview.length > 0 && (
                 <p data-expand-review className="text-[10.5px] text-amber-300">{exp.statementsRequiringReview.length} statement(s) need your review before use.</p>
               )}
-              {exp.quality?.signals?.unsupportedClaims?.length > 0 && <p className="text-[10.5px] text-rose-300">Proposed contains unsupported claims — edit before accepting.</p>}
+              {exp.quality?.signals?.unsupportedClaims?.length > 0 && <p className="text-[10.5px] text-rose-300">Proposed contains unsupported claims — edit before {committed ? "creating the version" : "accepting"}.</p>}
 
               <div className="flex flex-wrap items-center gap-2">
-                <button data-expand-accept disabled={busy === "accept" || (exp.quality?.signals?.unsupportedClaims?.length ?? 0) > 0} onClick={accept} className="btn-primary flex items-center gap-1.5 text-xs disabled:opacity-40">
-                  {busy === "accept" ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />} Accept revision
-                </button>
-                <button data-expand-regenerate disabled={busy === "expand"} onClick={expand} className="btn-secondary flex items-center gap-1.5 text-xs disabled:opacity-40"><RefreshCw size={13} /> Regenerate</button>
+                {committed ? (
+                  <button data-expand-fork disabled={busy === "accept" || (exp.quality?.signals?.unsupportedClaims?.length ?? 0) > 0} onClick={commit} className="btn-primary flex items-center gap-1.5 text-xs disabled:opacity-40">
+                    {busy === "accept" ? <Loader2 size={13} className="animate-spin" /> : <Plus size={13} />} Create improved version
+                  </button>
+                ) : (
+                  <button data-expand-accept disabled={busy === "accept" || (exp.quality?.signals?.unsupportedClaims?.length ?? 0) > 0} onClick={commit} className="btn-primary flex items-center gap-1.5 text-xs disabled:opacity-40">
+                    {busy === "accept" ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />} Accept revision
+                  </button>
+                )}
+                <button data-expand-regenerate disabled={busy === "expand"} onClick={regenerate} className="btn-secondary flex items-center gap-1.5 text-xs disabled:opacity-40"><RefreshCw size={13} /> Regenerate</button>
                 <button data-expand-cancel onClick={cancel} className="btn-ghost text-xs">Cancel</button>
               </div>
             </div>

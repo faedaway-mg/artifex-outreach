@@ -30,6 +30,7 @@ import { assignNewLead } from "./operators/distribute";
 import { channelReadiness, channelDeficits, emailInventory, DEFAULT_CALL_TARGET, DEFAULT_EMAIL_TARGET, DEFAULT_VIDEO_TARGET, type ChannelReadiness } from "./work-queue";
 import { planDiscovery } from "./acquisition/reservoir";
 import { effectiveTerritories } from "./geo-pools";
+import { discoveryTerritories, cooldownKey, DEFAULT_MARKET_POLICY } from "./market-policy";
 
 export const PLACES_COST_PER_REQUEST = 0.032;
 
@@ -210,12 +211,21 @@ export async function runProspecting(req: ProspectRequest): Promise<ProspectingR
   }
   const skippedForBudget = ranked.length - selected.length;
 
-  // NATIONWIDE (US-only) discovery: the operator's local coverage PLUS a rotating, region-diverse
-  // slice of national markets. Cost is UNCHANGED — territories only cycle across the already
-  // budget-bounded category searches (one territory per search), so a larger universe adds NO
-  // Places calls. Rotation is keyed to the lead count so different metros surface each run.
-  const territories = effectiveTerritories(p.territories, existing.length);
+  // SMALL-MARKET discovery (mandate 26 §4): the operator's local coverage (excluded primaries dropped) PLUS a
+  // rotating, region-diverse slice of in-policy SECONDARY/TERTIARY markets — deliberately away from saturated
+  // major metros (LA/Denver/etc.). Cost is UNCHANGED — territories only cycle across the already budget-bounded
+  // category searches (one territory per search). Rotation is keyed to the lead count so different markets
+  // surface each run; a market/category cooldown ledger prevents repetitive discovery.
+  const marketCfg = p.marketPolicy ?? DEFAULT_MARKET_POLICY;
+  const cooldownMs = Math.max(0, marketCfg.cooldownDays) * 86_400_000;
+  const cutoff = Date.now() - cooldownMs;
+  const priorLedger = (p.recentMarketSearches ?? []).filter((e) => +new Date(e.at) >= cutoff);
+  const recentPairs = new Set(priorLedger.map((e) => e.key));
+  const recentMarkets = new Set(priorLedger.map((e) => e.market));
+  const disco = discoveryTerritories({ configured: p.territories, cursor: existing.length, recent: recentPairs, recentMarkets, cfg: marketCfg });
+  const territories = disco.territories.length ? disco.territories : effectiveTerritories(p.territories, existing.length);
   const terrOffset = existing.length % territories.length;
+  const searchedPairs: Array<{ key: string; market: string; category: string; at: string }> = [];
 
   const candidates: Array<{ place: PlaceResult; score: ReturnType<typeof computeScore>; cat: ProspectCategoryTarget }> = [];
   const seenName = new Set(existing.map((l) => l.normalizedName));
@@ -242,6 +252,8 @@ export async function runProspecting(req: ProspectRequest): Promise<ProspectingR
     const cat = selected[i].c;
     selectionReasons[cat.label] = reasonFor(cat, pipelineByCat[cat.normalizedCategory] ?? 0, totalLeads);
     const territory = territories[(terrOffset + i) % territories.length];
+    // Record the (market, category) pair for the cooldown ledger so future runs rotate away from it.
+    searchedPairs.push({ key: cooldownKey(territory.city, territory.state, cat.normalizedCategory), market: `${territory.city.toLowerCase()}|${territory.state.toUpperCase()}`, category: cat.normalizedCategory, at: nowIso() });
     const query = cat.searchQueries[0] ?? cat.label;
     const parsed = discoverInputSchema.safeParse({
       category: query,
@@ -333,7 +345,12 @@ export async function runProspecting(req: ProspectRequest): Promise<ProspectingR
       leadsQualifiedThisWeek: c.leadsQualifiedThisWeek + added,
     };
   });
-  await updateSettings({ prospecting: { ...p, categories: updatedCats, lastRunAt: now } });
+  // Persist the market/category cooldown ledger (pruned to the cooldown window; capped so it never grows
+  // unbounded). This is the "recently searched market/category ledger" that prevents repetitive discovery.
+  const mergedLedger = [...priorLedger, ...searchedPairs]
+    .filter((e) => +new Date(e.at) >= Date.now() - cooldownMs)
+    .slice(-500);
+  await updateSettings({ prospecting: { ...p, categories: updatedCats, lastRunAt: now, recentMarketSearches: mergedLedger } });
 
   return finalize({
     searchesPerformed: searches,

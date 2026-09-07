@@ -1229,6 +1229,11 @@ export interface ProspectingProfile {
   maxNewLeadsPerRun: number;
   // ── Scheduler duplicate guard ───────────────────────────────────────────────
   lastScheduledRunDate: string | null; // America/LA YYYY-MM-DD
+  // ── Market-selection policy (mandate 26 §4 / mandate 27) — stored in Settings jsonb, no migration ──
+  /** Canonical versioned market policy. When absent, DEFAULT_MARKET_POLICY applies. */
+  marketPolicy?: import("./market-policy").MarketPolicyConfig;
+  /** Recently-searched market/category pairs (cooldown ledger): cooldownKey() → ISO timestamp. */
+  recentMarketSearches?: Array<{ key: string; market: string; category: string; at: string }>;
 }
 
 export interface SendingWindow {

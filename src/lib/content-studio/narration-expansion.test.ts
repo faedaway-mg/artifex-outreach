@@ -70,5 +70,49 @@ describe("mandate 25 — expand-and-personalize composer", () => {
 
   it("is deterministic: identical evidence → identical draft", () => {
     expect(expandAndPersonalize(full()).narration).toBe(expandAndPersonalize(full()).narration);
+    expect(expandAndPersonalize(full(), { variant: 2 }).narration).toBe(expandAndPersonalize(full(), { variant: 2 }).narration);
+  });
+});
+
+describe("mandate 26 §1A — regeneration yields a genuinely different grounded candidate", () => {
+  it("variant 0 preserved; variant 1 differs but stays company-specific + evidence-grounded", () => {
+    const v0 = expandAndPersonalize(full(), { variant: 0 });
+    const v1 = expandAndPersonalize(full(), { variant: 1 });
+    expect(v1.narration).not.toBe(v0.narration);        // materially different text
+    expect(v1.narration).toContain("Vertex Roofing");    // still company-specific
+    expect(v1.usedEvidenceIds).toContain("ev_booking");  // still grounded in the same evidence
+    expect(v1.quality?.signals.unsupportedClaims.length).toBe(0); // no fabrication introduced
+    expect(v1.noSafeAlternative).toBe(false);
+  });
+
+  it("reports several distinct variants and every in-range variant is unique + grounded", () => {
+    const r0 = expandAndPersonalize(full());
+    expect(r0.variantCount).toBeGreaterThanOrEqual(3);
+    const seen = new Set<string>();
+    for (let v = 0; v < r0.variantCount; v++) {
+      const r = expandAndPersonalize(full(), { variant: v });
+      expect(r.available).toBe(true);
+      expect(r.noSafeAlternative).toBe(false);
+      expect(seen.has(r.narration)).toBe(false); // each in-range variant is distinct
+      seen.add(r.narration);
+      expect(r.usedEvidenceIds.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("no-safe-alternative: a variant beyond the distinct set is honestly flagged, not silently repeated", () => {
+    const r0 = expandAndPersonalize(full());
+    const beyond = expandAndPersonalize(full(), { variant: r0.variantCount + 5 });
+    expect(beyond.available).toBe(true);
+    expect(beyond.noSafeAlternative).toBe(true);
+    expect(beyond.regenerationNote).toMatch(/materially different|add evidence|strongest grounded/i);
+  });
+
+  it("a single minimal finding still supports ≥2 distinct regenerations (phrasing rotation)", () => {
+    const ev = { ...full(), findings: [{ id: "ev_x", observation: "your contact page has no phone number listed" }] };
+    const r0 = expandAndPersonalize(ev, { variant: 0 });
+    const r1 = expandAndPersonalize(ev, { variant: 1 });
+    expect(r0.variantCount).toBeGreaterThanOrEqual(2);
+    expect(r1.narration).not.toBe(r0.narration);
+    expect(r1.noSafeAlternative).toBe(false);
   });
 });

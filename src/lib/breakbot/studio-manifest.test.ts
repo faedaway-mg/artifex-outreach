@@ -17,6 +17,9 @@ const REQUIRED_IDS = [
   "studio.select-card", "studio.inspect-quality", "studio.resolve-ambiguous", "studio.expand-open", "studio.expand-run",
   "studio.expand-compare", "studio.expand-edit", "studio.expand-regenerate", "studio.expand-accept", "studio.expand-cancel",
   "studio.upload-replacement-narration", "studio.rerender-after-revision",
+  // mandate 26 — mobile full-page workspaces + truthful state-specific narration actions
+  "studio.card-deeplink", "studio.cs-back", "studio.cs-prev", "studio.cs-next",
+  "studio.expand-permissions", "studio.expand-create-improved-version", "studio.expand-no-safe-alternative",
 ];
 
 describe("mandate 23 — Content Studio action manifest completeness", () => {
@@ -44,6 +47,7 @@ describe("mandate 23 — Content Studio action manifest completeness", () => {
       "src/app/(app)/queue/[state]/page.tsx",
       "src/components/queue/RejectControl.tsx",
       "src/components/content-studio/ContentStudioClient.tsx",
+      "src/app/(app)/content-studio/[purpose]/[leadId]/page.tsx",
     ].map((p) => readFileSync(join(root, p), "utf8")).join("\n");
     for (const a of STUDIO_ACTIONS) {
       if (!a.domMarker) continue;

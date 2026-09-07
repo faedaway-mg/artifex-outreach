@@ -9,7 +9,7 @@ import { insertLead, upsertBusinessIntelligence, insertEmailSendIfAbsent } from 
 import { getArtifactStore } from "../content-studio/storage-factory";
 import { writeJob, listJobs } from "../content-studio/store";
 import { approveAndFreezeQuickReview } from "../outreach/quick-review-freeze";
-import { autoAssembleFromRender, latestProspectPackage } from "../outreach/prospect-package-store";
+import { autoAssembleFromRender, latestProspectPackage, freezeProspectPackage, markPackageState } from "../outreach/prospect-package-store";
 import type { Lead } from "../types";
 import type { RenderJob } from "../content-studio/types";
 
@@ -274,9 +274,25 @@ export async function seedVideoWorkspaceFixtures(): Promise<Record<string, strin
   await studioUpload(withAudio.leadId); await studioAdvanceRender(withAudio.leadId);
   ids.withAudio = withAudio.leadId;
 
-  // Frozen approved proposal (immutable — accept must be refused).
+  // Approvable proposal (READY_TO_APPROVE + quick-review approved — an EDITABLE draft that may be re-opened).
   const frozen = await seedApprovableVideoFixture("Meridian Auto", "bb-frozen");
+  await saveTemplate(narrationTemplate(`client-${frozen.leadId}`, "Meridian Auto", GOOD_SPECIFIC, { workflow: "prospect", businessId: frozen.leadId }));
   ids.frozen = frozen.leadId;
+
+  // Genuinely FROZEN proposal (mandate 26 §1C — accept refused; "Create improved version" forks a new draft).
+  const trulyFrozen = await seedApprovableVideoFixture("Ridgeline Roofing", "bb-truly-frozen");
+  await saveTemplate(narrationTemplate(`client-${trulyFrozen.leadId}`, "Ridgeline Roofing", GOOD_SPECIFIC, { workflow: "prospect", businessId: trulyFrozen.leadId }));
+  await freezeProspectPackage(trulyFrozen.leadId, { subject: `A short review for Ridgeline Roofing`, bodyText: `Hi — a focused review for Ridgeline Roofing.`, bodyHtml: `<p>Hi — a focused review for Ridgeline Roofing.</p>`, videoRequired: true }).catch(async () =>
+    freezeProspectPackage(trulyFrozen.leadId, { subject: `A short review for Ridgeline Roofing`, bodyText: `Hi.`, bodyHtml: `<p>Hi.</p>`, videoRequired: false }));
+  ids.frozenCommitted = trulyFrozen.leadId;
+
+  // SCHEDULED proposal (frozen revision must remain unchanged — fork never touches the binding).
+  const sched = await seedApprovableVideoFixture("Cascade Plumbing", "bb-sched");
+  await saveTemplate(narrationTemplate(`client-${sched.leadId}`, "Cascade Plumbing", GOOD_SPECIFIC, { workflow: "prospect", businessId: sched.leadId }));
+  await freezeProspectPackage(sched.leadId, { subject: `A short review for Cascade Plumbing`, bodyText: `Hi — a focused review for Cascade Plumbing.`, bodyHtml: `<p>Hi — a focused review for Cascade Plumbing.</p>`, videoRequired: true }).catch(async () =>
+    freezeProspectPackage(sched.leadId, { subject: `A short review for Cascade Plumbing`, bodyText: `Hi.`, bodyHtml: `<p>Hi.</p>`, videoRequired: false }));
+  await markPackageState(sched.leadId, "SCHEDULED");
+  ids.scheduled = sched.leadId;
 
   // Genuine CONTENT video (Artifex field note — must live ONLY in the Content tab).
   await saveTemplate(narrationTemplate("bb-content-note", "Artifex Field Note", ["A quick field note about small-business websites.", "A focused review from Artifex Labs."], { workflow: "social" }));
