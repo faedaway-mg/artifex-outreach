@@ -1262,6 +1262,9 @@ export interface Settings {
   // no redeploy (env QR_OUTREACH_PAUSED is a secondary control that needs a restart). True = all
   // automated sends held at the dispatch boundary. Set via setOutreachPaused (audited).
   outreachPaused?: boolean;
+  /** Narration-sprint sessions (mandate 28), keyed by session id. Stored in Settings jsonb so a sprint
+   *  survives refresh/logout/deploy without a migration. Pruned to the most recent few dozen. */
+  sprintSessions?: Record<string, import("./outreach-review/session").SprintSession>;
   // ── Launch readiness sign-off ───────────────────────────────────────────────
   // The explicit human "would I send this to a real business owner today?"
   // confirmation. Stored so the checklist / validation stay green after sign-off.

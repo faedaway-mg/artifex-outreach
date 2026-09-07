@@ -305,6 +305,37 @@ export async function seedVideoWorkspaceFixtures(): Promise<Record<string, strin
   return ids;
 }
 
+// Small-market cities that classify secondary/tertiary (never primary) — for narration-ready sprint fixtures.
+const SMALL_MARKETS: Array<[string, string]> = [["Chattanooga", "TN"], ["Fort Wayne", "IN"], ["Roanoke", "VA"], ["Tyler", "TX"], ["Boise", "ID"], ["Erie", "PA"], ["Green Bay", "WI"], ["Savannah", "GA"], ["Medford", "OR"], ["Waco", "TX"], ["Lancaster", "PA"], ["Asheville", "NC"]];
+
+/** Mandate 28 sprint fixtures: `n` narration-ready businesses (BI + verified owner + evidence-backed narration
+ *  template) in varied small markets, PLUS a national enterprise and a no-recipient business that must be
+ *  EXCLUDED from the sprint. Isolated; fake recipients only; nothing prepared/approved/scheduled/sent. */
+export async function seedSprintFixtures(n = 12): Promise<{ readyIds: string[]; enterpriseId: string; noRecipientId: string }> {
+  assertIsolatedStore();
+  const { insertContact } = await import("../repo");
+  const readyIds: string[] = [];
+  for (let i = 0; i < n; i++) {
+    const [city, state] = SMALL_MARKETS[i % SMALL_MARKETS.length];
+    const name = `Sprint Roofing ${i + 1}`;
+    const lead = await insertLead({ ...fixtureLead(name, `bb-sprint-${i}`), city, state, reviewCount: 60 + ((i * 17) % 180), rating: 4.5 + ((i % 4) * 0.1) });
+    await upsertBusinessIntelligence({ leadId: lead.id, profile: sendableProfile(name), enrichmentDelta: null, generatedAt: new Date("2026-01-01T00:00:00Z").toISOString() });
+    await saveTemplate(narrationTemplate(`client-${lead.id}`, name, GOOD_SPECIFIC, { workflow: "prospect", businessId: lead.id }));
+    await insertContact({ leadId: lead.id, name: `Owner ${i + 1}`, title: "Owner", email: `owner+sprint${i}@${RESERVED_TEST_DOMAIN}`, phone: null, linkedinUrl: null, source: "website", confidence: "Verified" as any, verified: true, optedOut: false });
+    readyIds.push(lead.id);
+  }
+  // Excluded: national enterprise (name pattern) — has narration+contact but must NOT enter the sprint.
+  const ent = await insertLead({ ...fixtureLead("Nationwide Industries Inc", "bb-sprint-ent"), city: "Waco", state: "TX", reviewCount: 900, rating: 4.6, locationsCount: 40 });
+  await upsertBusinessIntelligence({ leadId: ent.id, profile: sendableProfile("Nationwide Industries Inc"), enrichmentDelta: null, generatedAt: new Date("2026-01-01T00:00:00Z").toISOString() });
+  await saveTemplate(narrationTemplate(`client-${ent.id}`, "Nationwide Industries Inc", GOOD_SPECIFIC, { workflow: "prospect", businessId: ent.id }));
+  await insertContact({ leadId: ent.id, name: "Corp", title: "Owner", email: `owner+ent@${RESERVED_TEST_DOMAIN}`, phone: null, linkedinUrl: null, source: "website", confidence: "Verified" as any, verified: true, optedOut: false });
+  // Excluded: no resolvable recipient — narration-ready otherwise but no verified contact.
+  const noRec = await insertLead({ ...fixtureLead("Harbor Point Fitness NR", "bb-sprint-norec"), city: "Erie", state: "PA", reviewCount: 120, rating: 4.6 });
+  await upsertBusinessIntelligence({ leadId: noRec.id, profile: sendableProfile("Harbor Point Fitness NR"), enrichmentDelta: null, generatedAt: new Date("2026-01-01T00:00:00Z").toISOString() });
+  await saveTemplate(narrationTemplate(`client-${noRec.id}`, "Harbor Point Fitness NR", GOOD_SPECIFIC, { workflow: "prospect", businessId: noRec.id }));
+  return { readyIds, enterpriseId: ent.id, noRecipientId: noRec.id };
+}
+
 /** Mandate 27 targeting fixtures: strong persona (PRIORITY A/B + verified owner), a national enterprise
  *  (INELIGIBLE), and a weak-evidence business (DO_NOT_PREPARE). Isolated; fake recipients only. */
 export async function seedTargetingFixtures(): Promise<Record<string, string>> {
