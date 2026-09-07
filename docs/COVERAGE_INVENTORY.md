@@ -70,6 +70,15 @@ concurrency, cross-instance, restart-retry, idempotent cancel, zero-provider.
 ## Discovery market policy (mandate 26 §4)
 Canonical versioned policy `src/lib/market-policy.ts` (Census-sourced populations): excludes 22 major metros, targets secondary/tertiary markets (city ~40k–250k / metro ~100k–750k), regional diversity + market/category cooldown ledger. Wired into `prospecting.ts` territory selection. Unit tests `market-policy.test.ts` (10); read-only sample `scripts/mandate26-discovery-sample.ts` (100% secondary/tertiary, 6 regions, 0 provider calls).
 
+## Narration Sprint — Outreach Reviews (mandate 28 / 28B)
+
+| Route / surface | Controls | Coverage | Evidence |
+|---|---|---|---|
+| Sprint landing (`/content-studio/outreach-reviews/sprint`) | Start (batch 10/25/50/all), ready count, back | ✅ 100% | deterministic 72/72 + goal-driven 24/24 × 3 widths; sprint-manifest CI |
+| Sprint screen (`/…/sprint/[sessionId]/[leadId]`) | one-business, why, recipient, copy(exact+fallback), upload, transcript, skip, needs-attention, reject, progress, auto-advance+Stay-here+Next, exit | ✅ 100% | server-level 9/9 (upload→transcript→one-render→advance, idempotency, wrong/incomplete block, persist/resume, full 100-item sprint); no overflow asserted 3 widths |
+| Sprint API (`/api/content-studio/outreach-reviews/sprint`) | start/session/upload/skip/reject/attention/resume | ✅ 100% | `mandate28-sprint-acceptance` (9); READY_FOR_NARRATION gate + eligibility/session/transcript/upload unit tests (34); canonical writeJob render boundary; provider calls 0 |
+| Terminology | Proposal Videos → **Outreach Reviews** (internal `proposal` enum + URL stable) | ✅ | tab + dedicated route + sprint copy |
+
 ## App-wide coverage summary
 - **Scheduled: 100%** deterministic + goal-driven (mandate 22).
 - **Content Studio / media: 100%** deterministic + goal-driven (mandate 23) — canonical preview, player
