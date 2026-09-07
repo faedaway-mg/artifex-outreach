@@ -1271,7 +1271,7 @@ function VideoTabs({ workspaces }: { workspaces: StudioWorkspacesProp }) {
   };
   return (
     <div data-studio-tabs className="flex flex-wrap items-center gap-2">
-      {tab("proposal", "Proposal Videos", workspaces.counts.proposal)}
+      {tab("proposal", "Outreach Reviews", workspaces.counts.proposal)}
       {tab("content", "Content Videos", workspaces.counts.content)}
       {workspaces.counts.unclassified > 0 && (
         <span data-tab-unclassified className="ml-1 rounded-md border border-amber-400/30 bg-amber-400/[0.06] px-2 py-1 text-[11px] text-amber-200">

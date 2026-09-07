@@ -48,7 +48,7 @@ export default async function ContentStudioCompanyPage({
         <Link href={backHref} aria-label="Back to list" data-cs-back className="rounded-lg border border-white/10 p-2 text-chalk-400 hover:text-chalk-100"><X size={16} /></Link>
         <div className="min-w-0 text-center">
           <div className="truncate text-sm font-semibold text-chalk-50">{title}</div>
-          <div className="text-[11px] text-chalk-500" data-cs-position>{pos ? `${pos} · ` : ""}{purpose === "content" ? "Content videos" : "Proposal videos"}</div>
+          <div className="text-[11px] text-chalk-500" data-cs-position>{pos ? `${pos} · ` : ""}{purpose === "content" ? "Content videos" : "Outreach Reviews"}</div>
         </div>
         <div className="flex items-center gap-1.5">
           {prev ? (
