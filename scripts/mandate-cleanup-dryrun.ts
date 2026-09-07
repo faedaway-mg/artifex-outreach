@@ -47,9 +47,10 @@ async function main() {
     const removable = s.promotionState === "INELIGIBLE" && !contacted && !scheduled && !isRejectedLead(lead);
     if (removable) terminalRemovable++;
     rows.push({
-      lead: lead.businessName, id: lead.id, current: lead.pipelineStage, proposed: s.promotionState, score: s.total,
+      lead: lead.businessName, id: lead.id, domain: (lead as any).websiteDomain ?? (lead as any).website ?? "—",
+      current: lead.pipelineStage, proposed: s.promotionState, score: s.total,
       persona: PERSONA_VERSION, evidence: s.reasons.length, exclusions: s.terminalExclusions.join("|") || "—",
-      recipient: input.recipient.role + (input.recipient.verified ? "✓" : "✗"), contacted, scheduled: pkg?.state ?? "none",
+      recipient: input.recipient.role + (input.recipient.verified ? "✓" : "✗"), contacted, scheduled: pkg?.state ?? "none", removable,
       recommended: removable ? "REMOVE-FROM-ACTIVE-PREP (after operator approval)" : (contacted || scheduled || isRejectedLead(lead)) ? "PRESERVE — operator review only" : mayAutoPrepare(s) ? "eligible for preparation" : `hold: ${s.promotionState}`,
     });
   }
@@ -58,8 +59,12 @@ async function main() {
   console.log(`persona-fit tally: ${Object.entries(tally).map(([k, v]) => `${k}=${v}`).join(" ")}`);
   console.log(`protected (contacted/scheduled/rejected — operator review only): ${contactedOrScheduled}`);
   console.log(`indisputable terminal exclusions on UNSENT prospects (removable AFTER approval): ${terminalRemovable}`);
-  console.log(`\nSAMPLE ROWS (first 25):`);
-  for (const r of rows.slice(0, 25)) console.log(`  ${r.current.padEnd(11)}→${r.proposed.padEnd(15)} s${String(r.score).padStart(3)} rcp=${r.recipient.padEnd(9)} sched=${String(r.scheduled).padEnd(9)} ${r.recommended} · ${r.lead}`);
+  const removableRows = rows.filter((r) => r.removable);
+  console.log(`\n═══ REMOVABLE — indisputable terminal exclusions on UNSENT prospects (${removableRows.length}) ═══`);
+  console.log(`(these + ONLY these would be removed from active preparation, after your approval)`);
+  removableRows.forEach((r, i) => console.log(`  ${String(i + 1).padStart(2)}. ${r.current.padEnd(13)}→ INELIGIBLE · reason=${r.exclusions.padEnd(34)} rcp=${r.recipient.padEnd(9)} · ${r.lead}  [${r.domain}]  id=${r.id}`));
+  console.log(`\n═══ PRESERVED — contacted / scheduled / rejected (operator review only) ═══`);
+  for (const r of rows.filter((x) => !x.removable && (x.contacted || x.scheduled !== "none" || x.current === "Rejected")).slice(0, 40)) console.log(`  · ${r.current.padEnd(13)} sched=${String(r.scheduled).padEnd(9)} ${r.lead}`);
   console.log(`\nNOTHING MUTATED. No lead rejected/cancelled. Borderline/contacted/approved/scheduled preserved for operator review. Terminal removals require explicit operator approval of this dry run.`);
 }
 main().then(() => process.exit(0)).catch((e) => { console.error(e?.stack || e); process.exit(1); });
