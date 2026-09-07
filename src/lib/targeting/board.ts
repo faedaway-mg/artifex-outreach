@@ -18,6 +18,7 @@ export interface TargetingCard {
   city: string;
   state: string;
   band: TargetingScore["band"];
+  promotionState: TargetingScore["promotionState"];
   total: number;
   marketTier: string;
   recommendedAsset: string;
@@ -79,7 +80,7 @@ export async function buildTargetingBoard(opts: { limit?: number } = {}): Promis
     scores.push(score);
     cards.push({
       leadId: lead.id, businessName: lead.businessName, city: input.city, state: input.state,
-      band: score.band, total: score.total, marketTier: input.marketTier,
+      band: score.band, promotionState: score.promotionState, total: score.total, marketTier: input.marketTier,
       recommendedAsset: asset.asset, requiresApproval: asset.requiresApproval,
       recipientRole: input.recipient.role, recipientVerified: input.recipient.verified,
       why, score, asset,

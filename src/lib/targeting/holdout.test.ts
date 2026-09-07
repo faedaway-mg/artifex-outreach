@@ -47,7 +47,7 @@ for (let k = 0; k < 12; k++) CANDIDATES.push({ label: "weak", input: T(n++, {
 const exclusions: Array<Partial<TargetingInput>> = [
   { isEnterpriseOrPublic: true }, { isEnterpriseOrPublic: true }, { isFranchiseCorporateControlled: true }, { isFranchiseCorporateControlled: true },
   { isDuplicate: true }, { isDuplicate: true }, { isRejected: true }, { isRejected: true },
-  { isSuppressed: true }, { isSynthetic: true }, { hasFunctioningWebsite: false }, { recipient: { role: "none", verified: false, confidence: 0, locallyControlled: false } },
+  { isSuppressed: true }, { isSynthetic: true }, { hasFunctioningWebsite: false }, { isEnterpriseOrPublic: true },
 ];
 for (const e of exclusions) CANDIDATES.push({ label: "exclusion", input: T(n++, e) });
 
@@ -111,7 +111,7 @@ describe("mandate 27 — 24 targeting fixtures (component + exclusion correctnes
     ["7 duplicate", { isDuplicate: true }, (s) => expect(s.band).toBe("INELIGIBLE")],
     ["8 rejected", { isRejected: true }, (s) => expect(s.band).toBe("INELIGIBLE")],
     ["9 suppressed recipient", { isSuppressed: true }, (s) => expect(s.band).toBe("INELIGIBLE")],
-    ["10 invalid recipient", { recipient: { role: "none", verified: false, confidence: 0, locallyControlled: false } }, (s) => expect(s.band).toBe("INELIGIBLE")],
+    ["10 invalid/absent recipient → NEEDS_RECIPIENT (recoverable, not terminal)", { recipient: { role: "none", verified: false, confidence: 0, locallyControlled: false } }, (s) => { expect(s.terminalExclusions).toEqual([]); expect(s.promotionState).toBe("NEEDS_RECIPIENT"); expect(mayAutoPrepare(s)).toBe(false); }],
     ["11 owner-accessible", { recipient: owner() }, (s) => expect(s.components.decisionMakerAccess).toBeGreaterThanOrEqual(8)],
     ["12 general-inbox only", { recipient: inbox(), ownerNamedOnSite: false }, (s) => expect(s.components.decisionMakerAccess).toBeLessThan(6)],
     ["13 growth-trigger", { growthSignals: [sig("g1", 0.8), sig("g2", 0.8), sig("g3", 0.8)] }, (s) => expect(s.components.growthTiming).toBeGreaterThanOrEqual(8)],

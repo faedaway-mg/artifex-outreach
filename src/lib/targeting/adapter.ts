@@ -74,17 +74,23 @@ export function buildTargetingInput(args: {
 // ── BACKLOG AGGREGATION ──────────────────────────────────────────────────────────
 import type { TargetingScore } from "./scoring";
 export interface BacklogCounts {
-  total: number; priorityA: number; priorityB: number; review: number; doNotPrepare: number; ineligible: number;
-  autoPrepareEligible: number;
+  total: number; priorityA: number; priorityB: number; review: number; needsRecipient: number; needsEvidence: number;
+  doNotPrepare: number; ineligible: number; autoPrepareEligible: number;
 }
+// Count by the canonical PERSONA-FIT classification (promotionState), so a good fit merely lacking a recipient
+// is surfaced as NEEDS_RECIPIENT — never buried in "ineligible" (persona-gate point 6).
 export function backlogCounts(scores: TargetingScore[]): BacklogCounts {
-  const c: BacklogCounts = { total: scores.length, priorityA: 0, priorityB: 0, review: 0, doNotPrepare: 0, ineligible: 0, autoPrepareEligible: 0 };
+  const c: BacklogCounts = { total: scores.length, priorityA: 0, priorityB: 0, review: 0, needsRecipient: 0, needsEvidence: 0, doNotPrepare: 0, ineligible: 0, autoPrepareEligible: 0 };
   for (const s of scores) {
-    if (s.band === "PRIORITY_A") { c.priorityA++; c.autoPrepareEligible++; }
-    else if (s.band === "PRIORITY_B") { c.priorityB++; c.autoPrepareEligible++; }
-    else if (s.band === "REVIEW") c.review++;
-    else if (s.band === "DO_NOT_PREPARE") c.doNotPrepare++;
-    else c.ineligible++;
+    switch (s.promotionState) {
+      case "PRIORITY_A": c.priorityA++; c.autoPrepareEligible++; break;
+      case "PRIORITY_B": c.priorityB++; c.autoPrepareEligible++; break;
+      case "MANUAL_REVIEW": c.review++; break;
+      case "NEEDS_RECIPIENT": c.needsRecipient++; break;
+      case "NEEDS_EVIDENCE": c.needsEvidence++; break;
+      case "DO_NOT_PREPARE": c.doNotPrepare++; break;
+      default: c.ineligible++;
+    }
   }
   return c;
 }

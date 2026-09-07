@@ -17,7 +17,7 @@ const BAND_TONE: Record<string, string> = {
 export default async function TargetingPage() {
   const board = await buildTargetingBoard({ limit: 80 });
   const c = board.counts;
-  const eligible = board.cards.filter((x) => x.band === "PRIORITY_A" || x.band === "PRIORITY_B");
+  const eligible = board.cards.filter((x) => x.promotionState === "PRIORITY_A" || x.promotionState === "PRIORITY_B");
 
   return (
     <div className="space-y-6" data-targeting-board>
@@ -29,7 +29,7 @@ export default async function TargetingPage() {
 
       {/* Backlog counts — each equals its canonical list. */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-        {([["PRIORITY_A", c.priorityA], ["PRIORITY_B", c.priorityB], ["REVIEW", c.review], ["DO_NOT_PREPARE", c.doNotPrepare], ["INELIGIBLE", c.ineligible], ["auto-prepare", c.autoPrepareEligible]] as const).map(([k, v]) => (
+        {([["PRIORITY_A", c.priorityA], ["PRIORITY_B", c.priorityB], ["NEEDS_RECIPIENT", c.needsRecipient], ["NEEDS_EVIDENCE", c.needsEvidence], ["REVIEW", c.review], ["DO_NOT_PREPARE", c.doNotPrepare], ["INELIGIBLE", c.ineligible], ["auto-prepare", c.autoPrepareEligible]] as const).map(([k, v]) => (
           <div key={k} data-backlog-count={k} className={`min-w-0 rounded-xl border p-3 ${BAND_TONE[k] ?? "border-white/10 text-chalk-300"}`}>
             <div className="text-xl font-semibold">{v}</div>
             <div className="break-words text-[11px] opacity-80">{k.replace(/_/g, " ").toLowerCase()}</div>

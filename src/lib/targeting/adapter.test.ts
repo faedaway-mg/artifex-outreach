@@ -34,9 +34,11 @@ describe("mandate 27 — targeting adapter", () => {
     }
   });
 
-  it("no website → terminal; no recipient → terminal", () => {
-    expect(scoreTarget(buildTargetingInput({ lead: { ...strongLead, website: null }, findings, contact: ownerContact, flags: { isRejected: false, isSuppressed: false, isDuplicate: false, marketTier: "secondary" } })).band).toBe("INELIGIBLE");
-    expect(scoreTarget(buildTargetingInput({ lead: strongLead, findings, contact: null, flags: { isRejected: false, isSuppressed: false, isDuplicate: false, marketTier: "secondary" } })).band).toBe("INELIGIBLE");
+  it("no website → terminal INELIGIBLE; no recipient → NEEDS_RECIPIENT (recoverable, not terminal)", () => {
+    expect(scoreTarget(buildTargetingInput({ lead: { ...strongLead, website: null }, findings, contact: ownerContact, flags: { isRejected: false, isSuppressed: false, isDuplicate: false, marketTier: "secondary" } })).promotionState).toBe("INELIGIBLE");
+    const noRec = scoreTarget(buildTargetingInput({ lead: strongLead, findings, contact: null, flags: { isRejected: false, isSuppressed: false, isDuplicate: false, marketTier: "secondary", ownerRepliesToReviews: true, hasAwardsOrLongHistory: true } }));
+    expect(noRec.terminalExclusions).toEqual([]);
+    expect(noRec.promotionState).toBe("NEEDS_RECIPIENT");
   });
 
   it("backlogCounts + exclusionsByReason aggregate correctly", () => {

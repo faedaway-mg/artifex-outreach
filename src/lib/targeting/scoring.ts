@@ -74,6 +74,12 @@ export interface TargetingInput {
 
 export type PriorityBand = "PRIORITY_A" | "PRIORITY_B" | "REVIEW" | "DO_NOT_PREPARE" | "INELIGIBLE";
 
+// The canonical PERSONA-FIT classification (mandate: persona/targeting validation gate). It separates a
+// GOOD FIT that is merely blocked from promotion (NEEDS_RECIPIENT / NEEDS_EVIDENCE — recoverable) from a
+// TERMINAL exclusion (INELIGIBLE) and from a genuine POOR FIT (DO_NOT_PREPARE). A strong business lacking only
+// a verified recipient is NEEDS_RECIPIENT — never falsely called a poor business fit.
+export type PromotionState = "PRIORITY_A" | "PRIORITY_B" | "MANUAL_REVIEW" | "NEEDS_RECIPIENT" | "NEEDS_EVIDENCE" | "DO_NOT_PREPARE" | "INELIGIBLE";
+
 export interface ComponentScores {
   reputationStrength: number;      // 0..15
   digitalReputationGap: number;    // 0..25
@@ -88,12 +94,15 @@ export interface ComponentScores {
 export interface TargetingScore {
   version: string;
   leadId: string;
-  band: PriorityBand;
+  band: PriorityBand;              // score-tier (auto-prepare tier; requires recipient+evidence for A)
+  promotionState: PromotionState;  // canonical persona-fit classification (see PromotionState)
   total: number;                   // 0..100 (after penalties, clamped)
+  fundamentalsScore: number;       // reputation+market+value (persona fit independent of evidence/recipient)
   components: ComponentScores;
   penalties: Array<{ code: string; points: number; reason: string }>;
-  terminalExclusions: string[];    // reasons the lead is INELIGIBLE (empty → eligible)
+  terminalExclusions: string[];    // reasons the lead is INELIGIBLE (empty → not terminal)
   priorityAReady: boolean;         // meets all PRIORITY_A prerequisites
+  personaFit: boolean;             // fundamentals match the persona (good fit, even if promotion-blocked)
   reasons: string[];               // human-readable component rationale
 }
 
@@ -175,10 +184,10 @@ export function scoreTarget(i: TargetingInput): TargetingScore {
   if (i.isSynthetic) terminal.push("synthetic/internal-test provenance");
   if (i.policyExhausted) terminal.push("policy-exhausted");
   if (!i.hasFunctioningWebsite) terminal.push("no functioning website");
-  if (i.recipient.role === "none" || (!i.recipient.verified && i.recipient.role !== "general-inbox")) {
-    // an unverifiable/absent recipient is a terminal exclusion for AUTOMATED preparation
-    if (i.recipient.role === "none") terminal.push("no resolvable recipient");
-  }
+  // NOTE: a missing/unverified recipient is NOT terminal — it is a recoverable promotion block (NEEDS_RECIPIENT).
+  // Classifying a strong reputation-rich business as INELIGIBLE just because its recipient isn't resolved yet
+  // would falsely call a good fit a poor fit (persona-gate point 6). Terminal = enterprise/franchise/rejected/
+  // suppressed/duplicate/synthetic/policy-exhausted/no-website only.
 
   const components: ComponentScores = {
     reputationStrength: reputationStrength(i),
@@ -221,6 +230,21 @@ export function scoreTarget(i: TargetingInput): TargetingScore {
   else band = "DO_NOT_PREPARE";
   // A score in the A range that misses a PRIORITY_A prerequisite lands in B (never auto-promoted to A).
 
+  // ── PERSONA-FIT CLASSIFICATION (mandate: validation gate) ──
+  // Fundamentals = reputation + market + customer value: does this LOOK like the persona, independent of
+  // whether evidence/recipient are resolved yet?
+  const fundamentalsScore = components.reputationStrength + components.marketFit + components.customerValue; // /35
+  const personaFit = terminal.length === 0 && strongestReputation(i) && components.marketFit >= 8 && components.customerValue >= 6;
+  const hasSpecificEvidence = i.websiteFindings.some((f) => (f.confidence ?? 0) >= 0.5) && !i.strongModernConversionSite;
+  let promotionState: PromotionState;
+  if (terminal.length) promotionState = "INELIGIBLE";
+  else if (!hasSpecificEvidence || !i.hasSupportedConsequence) promotionState = personaFit ? "NEEDS_EVIDENCE" : "DO_NOT_PREPARE";
+  else if (!i.recipient.verified) promotionState = personaFit ? "NEEDS_RECIPIENT" : "DO_NOT_PREPARE";
+  else if (band === "PRIORITY_A") promotionState = "PRIORITY_A";
+  else if (band === "PRIORITY_B") promotionState = "PRIORITY_B";
+  else if (band === "REVIEW") promotionState = "MANUAL_REVIEW";
+  else promotionState = "DO_NOT_PREPARE";
+
   const reasons: string[] = terminal.length
     ? terminal.map((t) => `INELIGIBLE: ${t}`)
     : [
@@ -231,10 +255,11 @@ export function scoreTarget(i: TargetingInput): TargetingScore {
         penalties.length ? `Penalties: ${penalties.map((p) => `${p.code}(${p.points})`).join(", ")}.` : "No penalties.",
       ];
 
-  return { version: TARGETING_MODEL_VERSION, leadId: i.leadId, band, total, components, penalties, terminalExclusions: terminal, priorityAReady, reasons };
+  return { version: TARGETING_MODEL_VERSION, leadId: i.leadId, band, promotionState, total, fundamentalsScore, components, penalties, terminalExclusions: terminal, priorityAReady, personaFit, reasons };
 }
 
-/** Only PRIORITY_A and PRIORITY_B may enter automated preparation. */
+/** Only PRIORITY_A and PRIORITY_B (fully promotion-ready: verified recipient + specific evidence) may enter
+ *  automated preparation. NEEDS_RECIPIENT / NEEDS_EVIDENCE are good fits that are NOT yet preparable. */
 export function mayAutoPrepare(score: TargetingScore): boolean {
-  return score.band === "PRIORITY_A" || score.band === "PRIORITY_B";
+  return score.promotionState === "PRIORITY_A" || score.promotionState === "PRIORITY_B";
 }

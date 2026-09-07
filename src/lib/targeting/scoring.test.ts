@@ -62,12 +62,26 @@ describe("mandate 27 — canonical targeting score", () => {
     ["duplicate", { isDuplicate: true }],
     ["synthetic", { isSynthetic: true }],
     ["no website", { hasFunctioningWebsite: false }],
-    ["no recipient", { recipient: none }],
   ])("terminal exclusion: %s → INELIGIBLE, total 0, never auto-prepare", (_label, over) => {
     const s = scoreTarget(base(over as any));
     expect(s.band).toBe("INELIGIBLE");
+    expect(s.promotionState).toBe("INELIGIBLE");
     expect(s.total).toBe(0);
     expect(s.terminalExclusions.length).toBeGreaterThan(0);
+    expect(mayAutoPrepare(s)).toBe(false);
+  });
+
+  it("persona-gate point 6: a strong business with NO verified recipient is NEEDS_RECIPIENT, not INELIGIBLE/poor-fit", () => {
+    const s = scoreTarget(base({ recipient: none }));
+    expect(s.terminalExclusions).toEqual([]);        // NOT terminal
+    expect(s.promotionState).toBe("NEEDS_RECIPIENT"); // recoverable, still a good persona fit
+    expect(s.personaFit).toBe(true);
+    expect(mayAutoPrepare(s)).toBe(false);           // blocked from preparation until a recipient is verified
+  });
+
+  it("a strong business missing specific evidence is NEEDS_EVIDENCE (not poor-fit)", () => {
+    const s = scoreTarget(base({ websiteFindings: [], hasSupportedConsequence: false }));
+    expect(s.promotionState).toBe("NEEDS_EVIDENCE");
     expect(mayAutoPrepare(s)).toBe(false);
   });
 
