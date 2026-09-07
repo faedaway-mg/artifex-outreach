@@ -17,6 +17,10 @@ RUN corepack enable
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
+# Raise the Node heap for the build: `next build`'s type-check (tsc over the whole project) OOMs on the
+# constrained Alpine builder as the codebase grows, dying silently after "Compiled successfully". 4 GB gives
+# tsc headroom; the runtime image is unaffected.
+ENV NODE_OPTIONS=--max-old-space-size=4096
 # Build does not require real secrets; runtime env is injected by Railway.
 RUN pnpm build
 
