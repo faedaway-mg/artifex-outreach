@@ -47,11 +47,14 @@ function tierOf(city: string | null, state: string | null): MarketTierSize {
 }
 
 export async function buildTargetingBoard(opts: { limit?: number } = {}): Promise<TargetingBoard> {
+  const { dispositionMap } = await import("./disposition");
   const leads = await listLeads();
+  const disposed = await dispositionMap().catch(() => ({} as Record<string, any>));
   const cards: TargetingCard[] = [];
   const scores: TargetingScore[] = [];
 
   for (const lead of leads) {
+    if (disposed[lead.id]) continue; // dispositioned (DO_NOT_PREPARE / INTERNAL_TEST) → out of active targeting + counts
     const bi = await getBusinessIntelligence(lead.id).catch(() => null);
     const profile = (bi?.profile as any)?.businessProfile ?? null;
     if (!profile) continue; // only businesses with real evidence are scored

@@ -15,6 +15,7 @@ import { scoreTarget, mayAutoPrepare } from "../targeting/scoring";
 import { explainTarget, routeAsset } from "../targeting/prepare";
 import { narrationReadiness } from "./eligibility";
 import { orderForSprint, type SprintRankable } from "./session";
+import { dispositionMap } from "../targeting/disposition";
 
 export interface SprintCard {
   leadId: string;
@@ -50,10 +51,12 @@ export interface SprintBacklog {
 export async function buildSprintBacklog(opts: { nowMs?: number } = {}): Promise<SprintBacklog> {
   const now = opts.nowMs ?? 0;
   const leads = await listLeads();
+  const disposed = await dispositionMap().catch(() => ({} as Record<string, any>));
   const cards: Record<string, SprintCard> = {};
   const rankables: SprintRankable[] = [];
 
   for (const lead of leads) {
+    if (disposed[lead.id]) continue; // DO_NOT_PREPARE / INTERNAL_TEST leads never enter the sprint
     const bi = await getBusinessIntelligence(lead.id).catch(() => null);
     const profile = (bi?.profile as any)?.businessProfile ?? null;
     if (!profile) continue;

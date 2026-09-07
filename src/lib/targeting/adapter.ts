@@ -22,8 +22,13 @@ export interface AdapterFlags {
 
 // High-consideration verticals (Tier A/B, mandate 27) where one extra customer is meaningfully valuable.
 const HIGH_CONSIDERATION = /roof|remodel|restoration|hvac|plumb|electric|pool|landscap|hardscap|property|auto|collision|dental|legal|law|account|insurance|financ|med spa|wellness|manufactur/i;
-// Conservative national-enterprise / corporate-franchise detection from observable signals only.
-const ENTERPRISE_NAME = /\b(inc\.?|corporation|corp\.?|holdings|group|national|nationwide|enterprises|industries|systems|solutions llc)\b/i;
+// National-enterprise detection requires OBSERVABLE STRUCTURAL evidence — a legal-suffix token in the NAME
+// ("Inc.", "Group", "Corp", "LLC") can NEVER by itself establish enterprise status (mandate 29 §4): a small
+// local "Air Max HVAC Inc." or "MK&C Dental Group" is exactly our persona. The only name-based flags kept are
+// UNAMBIGUOUS national/public descriptors; the primary signal is >10 (uncontrolled) locations. Ambiguous
+// cases are NOT auto-excluded — they flow to the normal score (→ manual review / needs-recipient), never a
+// terminal exclusion. FRANCHISE_BRAND stays (explicit corporate franchise brands, incl. H&R Block).
+const NATIONAL_PUBLIC_NAME = /\bnationwide\b|\bnational (association|corporation)\b|\bpublicly[- ]traded\b|\b(inc|corp)\.? holdings\b/i;
 const FRANCHISE_BRAND = /\b(mcdonald|subway|starbucks|servpro|jan-?pro|the ups store|great clips|anytime fitness|jiffy lube|midas|meineke|h&r block|re\/max|keller williams)\b/i;
 
 const mapTier = (t: MarketTierSize): TargetingInput["marketTier"] =>
@@ -47,7 +52,9 @@ export function buildTargetingInput(args: {
     : [];
   const recipient = resolveRecipient(contact);
   const locationsCount = lead.locationsCount ?? 1;
-  const enterprise = ENTERPRISE_NAME.test(lead.businessName) || locationsCount > 10;
+  // Enterprise requires STRUCTURAL evidence (>10 uncontrolled locations) or an unambiguous national/public
+  // name descriptor — NEVER a bare legal suffix (Inc/Group/Corp/LLC).
+  const enterprise = locationsCount > 10 || NATIONAL_PUBLIC_NAME.test(lead.businessName);
   const franchise = FRANCHISE_BRAND.test(lead.businessName);
   const hasSupportedConsequence = findings.some((f) => (f.whyItMatters ?? "").trim().length > 0);
   const genericFindingOnly = findings.length > 0 && findings.every((f) => f.generic === true);

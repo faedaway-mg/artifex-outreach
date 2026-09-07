@@ -21,10 +21,29 @@ describe("mandate 27 — targeting adapter", () => {
     expect(["PRIORITY_A", "PRIORITY_B"]).toContain(s.band);
   });
 
-  it("detects a national enterprise from the name → terminal exclusion", () => {
-    const input = buildTargetingInput({ lead: { ...strongLead, businessName: "Nationwide Industries Inc", locationsCount: 40 }, findings, contact: ownerContact, flags: { isRejected: false, isSuppressed: false, isDuplicate: false, marketTier: "secondary" } });
-    expect(input.isEnterpriseOrPublic).toBe(true);
-    expect(scoreTarget(input).band).toBe("INELIGIBLE");
+  const F = (over: any) => buildTargetingInput({ lead: { ...strongLead, ...over }, findings, contact: ownerContact, flags: { isRejected: false, isSuppressed: false, isDuplicate: false, marketTier: "secondary", ownerRepliesToReviews: true, hasAwardsOrLongHistory: true } });
+
+  it("§4 enterprise requires STRUCTURAL evidence — >10 locations or an unambiguous national/public name", () => {
+    expect(F({ businessName: "Big Chain", locationsCount: 40 }).isEnterpriseOrPublic).toBe(true);      // structural
+    expect(F({ businessName: "Nationwide Facilities", locationsCount: 1 }).isEnterpriseOrPublic).toBe(true); // explicit national token
+  });
+
+  it("§4 REGRESSION: a bare legal suffix (Inc / Group / Corp) NEVER flags enterprise — the 4 preserved names", () => {
+    for (const name of ["Air Max HVAC Inc.", "Alpha One Construction Inc", "Green Advisor Inc.", "MK&C Dental Group Middletown"]) {
+      const i = F({ businessName: name, locationsCount: 1 });
+      expect(i.isEnterpriseOrPublic, name).toBe(false);
+      expect(scoreTarget(i).terminalExclusions).toEqual([]); // NOT terminally excluded
+    }
+    // and a plain "Group"/"Inc" local business is not enterprise either
+    expect(F({ businessName: "California Dental Group", locationsCount: 1 }).isEnterpriseOrPublic).toBe(false);
+  });
+
+  it("§4 genuine enterprise + genuine franchise are STILL excluded", () => {
+    expect(scoreTarget(F({ businessName: "Regional Roofing", locationsCount: 25 })).promotionState).toBe("INELIGIBLE"); // 25 locations
+    // H&R Block (corporate franchise, no independent local control) stays excluded — matches prod (no recipient).
+    const hrb = buildTargetingInput({ lead: { ...strongLead, businessName: "H&R Block" }, findings, contact: null, flags: { isRejected: false, isSuppressed: false, isDuplicate: false, marketTier: "secondary" } });
+    expect(hrb.isFranchiseCorporateControlled).toBe(true);
+    expect(scoreTarget(hrb).promotionState).toBe("INELIGIBLE");
   });
 
   it("a rejected / suppressed / duplicate lead is terminal", () => {
