@@ -120,6 +120,7 @@ export async function POST(req: NextRequest) {
   if (action === "seed-morris-like") { const r = await fx.seedMorrisLikeFixture(); return NextResponse.json({ ok: true, ...r }); }
   // ── Two-tab Content Studio + expand-and-personalize fixtures (mandate 25) ──
   if (action === "seed-video-workspaces") { const ids = await fx.seedVideoWorkspaceFixtures(); return NextResponse.json({ ok: true, ids }); }
+  if (action === "seed-targeting") { const ids = await fx.seedTargetingFixtures(); return NextResponse.json({ ok: true, ids }); }
   if (action === "mark-video-delivered") { const { markPackageState } = await import("@/lib/outreach/prospect-package-store"); const ok = await markPackageState(leadId, "SENT"); return NextResponse.json({ ok }); }
   return NextResponse.json({ ok: false, error: "unknown action" }, { status: 400 });
 }

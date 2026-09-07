@@ -304,3 +304,30 @@ export async function seedVideoWorkspaceFixtures(): Promise<Record<string, strin
 
   return ids;
 }
+
+/** Mandate 27 targeting fixtures: strong persona (PRIORITY A/B + verified owner), a national enterprise
+ *  (INELIGIBLE), and a weak-evidence business (DO_NOT_PREPARE). Isolated; fake recipients only. */
+export async function seedTargetingFixtures(): Promise<Record<string, string>> {
+  assertIsolatedStore();
+  const ids: Record<string, string> = {};
+  const { insertContact } = await import("../repo");
+
+  // Strong persona: established local, secondary market, 2 grounded findings, verified owner.
+  const strong = await insertLead({ ...fixtureLead("Ridgeline Roofing", "bb-tgt-strong"), city: "Chattanooga", state: "TN", reviewCount: 160, rating: 4.7 });
+  await upsertBusinessIntelligence({ leadId: strong.id, profile: sendableProfile("Ridgeline Roofing"), enrichmentDelta: null, generatedAt: new Date("2026-01-01T00:00:00Z").toISOString() });
+  await insertContact({ leadId: strong.id, name: "Dana Rivera", title: "Owner", email: `owner+strong@${RESERVED_TEST_DOMAIN}`, phone: null, linkedinUrl: null, source: "website", confidence: "Verified" as any, verified: true, optedOut: false });
+  ids.strong = strong.id;
+
+  // National enterprise → terminal exclusion (name pattern).
+  const ent = await insertLead({ ...fixtureLead("Nationwide Industries Inc", "bb-tgt-enterprise"), city: "Waco", state: "TX", reviewCount: 900, rating: 4.6, locationsCount: 40 });
+  await upsertBusinessIntelligence({ leadId: ent.id, profile: sendableProfile("Nationwide Industries Inc"), enrichmentDelta: null, generatedAt: new Date("2026-01-01T00:00:00Z").toISOString() });
+  await insertContact({ leadId: ent.id, name: "Corp Comms", title: "Marketing", email: `mkt+ent@${RESERVED_TEST_DOMAIN}`, phone: null, linkedinUrl: null, source: "website", confidence: "Likely" as any, verified: true, optedOut: false });
+  ids.enterprise = ent.id;
+
+  // Weak evidence: low reputation, no findings → not narration-ready.
+  const weak = await insertLead({ ...fixtureLead("Corner Shop", "bb-tgt-weak"), city: "Erie", state: "PA", reviewCount: 6, rating: 3.6 });
+  await upsertBusinessIntelligence({ leadId: weak.id, profile: evidencelessProfile("Corner Shop"), enrichmentDelta: null, generatedAt: new Date("2026-01-01T00:00:00Z").toISOString() });
+  ids.weak = weak.id;
+
+  return ids;
+}

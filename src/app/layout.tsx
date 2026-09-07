@@ -28,8 +28,8 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${inter.variable} ${mono.variable}`}>
-      <body className="min-h-screen font-sans">{children}</body>
+    <html lang="en" className={`${inter.variable} ${mono.variable} overflow-x-hidden`}>
+      <body className="min-h-screen overflow-x-hidden font-sans">{children}</body>
     </html>
   );
 }

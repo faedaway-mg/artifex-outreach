@@ -74,7 +74,8 @@ export function Shell({ children }: { children: React.ReactNode }) {
   // /content-studio/<purpose>/<leadId> is a dedicated full-page company workspace (mandate 26 §2) — focus
   // mode strips the bottom nav so no control hides beneath it. The /content-studio index keeps the nav.
   const isStudioDeep = /^\/content-studio\/[^/]+\/[^/]+/.test(pathname);
-  const focus = pathname.startsWith("/work/") || pathname.startsWith("/company/") || isStudioDeep;
+  const isTargetingDeep = /^\/targeting\/[^/]+/.test(pathname); // /targeting/[leadId] detail (mandate 27)
+  const focus = pathname.startsWith("/work/") || pathname.startsWith("/company/") || isStudioDeep || isTargetingDeep;
   if (focus) {
     return (
       <div className="min-h-screen">

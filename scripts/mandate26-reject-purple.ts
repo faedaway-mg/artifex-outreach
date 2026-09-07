@@ -20,7 +20,6 @@ async function main() {
   const repo = await import("../src/lib/repo");
   const { listLeads } = repo;
   const { latestProspectPackage } = await import("../src/lib/outreach/prospect-package-store");
-  const { latestScheduledBinding } = await import("../src/lib/outreach/scheduled-batch").catch(() => ({ latestScheduledBinding: null as any }));
   const { latestRejection } = await import("../src/lib/outreach/rejection");
 
   const leads = await listLeads();
@@ -29,11 +28,9 @@ async function main() {
   for (const l of purple) {
     const pkg = await latestProspectPackage(l.id).catch(() => null);
     const rej = await latestRejection(l.id).catch(() => null);
-    let binding: any = null;
-    try { binding = latestScheduledBinding ? await latestScheduledBinding(l.id) : null; } catch { /* optional */ }
     console.log(
       `  • ${l.businessName} · id=${l.id} · stage=${l.pipelineStage} · city=${(l as any).city ?? "—"}, ${(l as any).state ?? "—"} ` +
-      `· pkg=${pkg?.state ?? "none"}${pkg ? `(v${pkg.packageVersion})` : ""} · binding=${binding ? "PRESENT" : "none"} ` +
+      `· pkg=${pkg?.state ?? "none"}${pkg ? `(v${pkg.packageVersion})` : ""} ` +
       `· lastContact=${(l as any).lastContactAt ? "yes" : "no"} · alreadyRejected=${rej ? "YES" : "no"}`,
     );
   }
