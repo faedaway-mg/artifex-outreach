@@ -20,9 +20,11 @@ export interface PricingTier {
 }
 
 // Customer-facing fixed anchors. ORDER MATTERS: ascending by price.
+// Psychology: $249 (not $247 — that reads course-y) keeps a professional feel.
+// The ladder: $99 Fix Scan (diagnostic, see fix-scan.ts) → $249 → $495 → $995.
 export const TIERS: PricingTier[] = [
-  { band: "ENTRY", priceCents: 25000, minHours: 0, maxHours: 2, maxChanges: 1, label: "Quick Fix" },
-  { band: "GROWTH", priceCents: 49500, minHours: 2, maxHours: 5, maxChanges: 4, label: "Growth Fix" },
+  { band: "ENTRY", priceCents: 24900, minHours: 0, maxHours: 2, maxChanges: 1, label: "Quick Fix" },
+  { band: "GROWTH", priceCents: 49500, minHours: 2, maxHours: 5, maxChanges: 4, label: "Core Fix" },
   { band: "MINI", priceCents: 99500, minHours: 5, maxHours: 10, maxChanges: 8, label: "Mini Project" },
 ];
 

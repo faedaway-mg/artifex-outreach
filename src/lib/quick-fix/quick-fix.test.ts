@@ -29,6 +29,7 @@ import { jobProfit, northStar, classifySku } from "./profitability";
 import { baselinePriceVersions, isApprovedPrice, assignPriceVersion } from "./pricing-experiments";
 import { nextBestFix } from "./next-best-fix";
 import { FUNNEL_EVENTS } from "./lifecycle";
+import { FIX_SCAN_SKU, routeLead, createCredit, applyCredit, buildFixScanReport, fixScanDownsellEligible } from "./fix-scan";
 
 // ── Fixtures ─────────────────────────────────────────────────────────────────
 const F = (over: Partial<OfferFinding>): OfferFinding => ({
@@ -47,11 +48,11 @@ const gen = (findings: OfferFinding[], over: Partial<Parameters<typeof generateO
 
 // ── Pricing (deterministic; LLM cannot price) ──────────────────────────────────
 describe("deterministic pricing", () => {
-  it("$250 ENTRY: one small fix", () => {
+  it("$249 ENTRY: one small fix", () => {
     const o = gen([CTA]);
     expect(o.quickFixEligible).toBe(true);
     expect(o.band).toBe("ENTRY");
-    expect(o.priceCents).toBe(25000);
+    expect(o.priceCents).toBe(24900);
   });
   it("$495 GROWTH: several related changes", () => {
     const o = gen([CTA, FORM, META]);
@@ -158,7 +159,7 @@ describe("validateOfferForPurchase", () => {
     const o = { ...gen([CTA]), priceCents: 30000 };
     const r = ok(o);
     expect(r.ok).toBe(false);
-    expect(r.reasons.join(" ")).toMatch(/canonical tier price/);
+    expect(r.reasons.join(" ")).toMatch(/not an approved version/);
   });
   it("rejects when not approved / superseded / blocked / no stripe", () => {
     const o = gen([CTA]);
@@ -189,7 +190,7 @@ describe("stripe commerce", () => {
   it("form encodes line items + metadata for Stripe", () => {
     const o = { ...gen([CTA]), offerId: "offer_1" };
     const form = toStripeForm(buildCheckoutParams(o, { withMaintenance: false, baseUrl: "https://app.test" }));
-    expect(form["line_items[0][price_data][unit_amount]"]).toBe("25000");
+    expect(form["line_items[0][price_data][unit_amount]"]).toBe("24900");
     expect(form["metadata[offerId]"]).toBe("offer_1");
   });
   it("reconcile reuses the same version and supersedes older ones (no catalog explosion)", async () => {
@@ -346,7 +347,7 @@ describe("offer page", () => {
   it("renders personalized finding, price, scope, requirements, and the evergreen video", () => {
     const p = page({ ...gen([CTA]), offerId: "offer_1" });
     expect(p.whatWeFound).toMatch(/we noticed/i);
-    expect(p.priceLabel).toBe("$250 flat");
+    expect(p.priceLabel).toBe("$249 flat");
     expect(p.whatWeFix.length).toBeGreaterThan(0);
     expect(p.requirements.items.length).toBeGreaterThan(0);
     expect(p.trustVideo.present).toBe(true);
@@ -388,7 +389,7 @@ describe("quick-cash queue", () => {
     expect(t.entry.count).toBe(1);
     expect(t.mini.count).toBe(1);
     expect(t.ineligibleCount).toBe(1);
-    expect(t.eligibleTotalCents).toBe(25000 + 99500);
+    expect(t.eligibleTotalCents).toBe(24900 + 99500);
   });
 });
 
@@ -420,7 +421,7 @@ describe("broken-thing hunter", () => {
     expect(assessFixability(gen([CTA], { hasWebsite: false })).state).toBe("CONVERSATION_REQUIRED");
     expect(assessFixability(gen([CAPTURE, HOMEPAGE])).state).toBe("CONVERSATION_REQUIRED");
   });
-  it("a ready-to-sell $250 fix outranks a vague/too-big project", () => {
+  it("a ready-to-sell $249 fix outranks a vague/too-big project", () => {
     const rows = rankQuickCash([gen([CAPTURE, HOMEPAGE]), gen([VAGUE]), gen([CTA])]);
     expect(rows[0].readyToSell).toBe(true);
     expect(rows[0].band).toBe("ENTRY");
@@ -435,7 +436,7 @@ describe("broken-thing hunter", () => {
 
 // ── Reinspection cooldown ──────────────────────────────────────────────────────
 describe("reinspection", () => {
-  const cust = (lastDeliveredAt: string | null): CustomerRecord => ({ leadId: "l", email: "e", firstPurchaseAt: "t", lifetimeRevenueCents: 25000, offersPurchased: ["o"], maintenancePlanKey: null, lastDeliveredAt, nextOpportunity: null, referralSource: null });
+  const cust = (lastDeliveredAt: string | null): CustomerRecord => ({ leadId: "l", email: "e", firstPurchaseAt: "t", firstPurchaseType: "REPAIR", lifetimeRevenueCents: 25000, offersPurchased: ["o"], maintenancePlanKey: null, lastDeliveredAt, nextOpportunity: null, referralSource: null });
   it("respects the cooldown before re-inspecting", () => {
     const day = 86_400_000;
     const delivered = new Date(1_000_000 * day).toISOString();
@@ -553,6 +554,78 @@ describe("SKU-specific follow-up", () => {
     expect(fu.bodyText).toMatch(/\$\d+ flat/);
     expect(fu.safe).toBe(true);
     expect(fu.bodyText).not.toMatch(/just following up/i);
+  });
+});
+
+// ── Fix Scan ($99 diagnostic) + pricing psychology + credit + routing ──────────
+describe("fix scan + pricing psychology", () => {
+  it("new baseline is $249/$495/$995; historical $250 preserved as a retired version", () => {
+    const v = baselinePriceVersions("t");
+    expect(isApprovedPrice("ENTRY", 24900, v)).toBe(true); // active $249
+    expect(isApprovedPrice("ENTRY", 25000, v)).toBe(true); // retired legacy $250 still approved
+    expect(isApprovedPrice("GROWTH", 49500, v)).toBe(true);
+    expect(isApprovedPrice("MINI", 99500, v)).toBe(true);
+    // A historical $250 offer still validates for purchase (not mutated to $249).
+    const legacy = { ...gen([CTA]), priceCents: 25000, offerId: "legacy" };
+    expect(validateOfferForPurchase({ offer: legacy, approved: true, stripeConfigured: true, superseded: false, leadBlocked: false }).ok).toBe(true);
+  });
+  it("Fix Scan is a fixed $99 SKU the LLM cannot change", () => {
+    expect(FIX_SCAN_SKU.priceCents).toBe(9900);
+    expect(FIX_SCAN_SKU.key).toBe("artifex-fix-scan");
+    expect(FIX_SCAN_SKU.creditWindowDays).toBe(14);
+    expect(FIX_SCAN_SKU.scope.excludes.join(" ")).toMatch(/redesign|strategy/i);
+  });
+  it("DIRECT FIX wins when evidence is sufficient (no cannibalization)", () => {
+    const r = routeLead(gen([CTA]));
+    expect(r.route).toBe("DIRECT_FIX");
+  });
+  it("Fix Scan when evidence is promising but insufficient", () => {
+    const soft = gen([F({ id: "s", observation: "the contact form submission appears broken", confidenceLabel: "Inferred", confidenceScore: 0.45 })]);
+    expect(soft.quickFixEligible).toBe(false);
+    expect(routeLead(soft).route).toBe("FIX_SCAN");
+  });
+  it("large/custom → conversation, not Fix Scan; nothing concrete → no fix", () => {
+    expect(routeLead(gen([CAPTURE, HOMEPAGE])).route).toBe("CONVERSATION_REQUIRED");
+    expect(routeLead(gen([CTA], { hasWebsite: false })).route).toBe("CONVERSATION_REQUIRED");
+    expect(routeLead(gen([F({ id: "v", observation: "their website could be better", category: "Brand Experience" })])).route).toBe("NO_FIX_FOUND");
+  });
+  it("cannibalization flag fires if a direct-eligible lead is pushed to a scan", () => {
+    const r = routeLead(gen([CTA]), { prospectRequestedScan: true });
+    expect(r.route).toBe("DIRECT_FIX"); // still sells the repair
+    expect(r.cannibalizationFlag).toBe(true); // but flags the misroute
+  });
+  it("$99 credit is single-use, expiring, and never exceeds the repair price", () => {
+    const delivered = new Date(1000 * 86_400_000).toISOString();
+    const credit = createCredit("scan_1", delivered);
+    const within = 1000 * 86_400_000 + 5 * 86_400_000;
+    const applied = applyCredit(credit, 24900, "repair_1", within);
+    expect(applied.applies).toBe(true);
+    expect(applied.creditAppliedCents).toBe(9900);
+    expect(applied.finalPriceCents).toBe(15000); // $249 - $99
+    // Never exceeds a cheaper repair.
+    expect(applyCredit(credit, 5000, "r", within).creditAppliedCents).toBe(5000);
+    // Expired.
+    expect(applyCredit(credit, 24900, "r", 1000 * 86_400_000 + 20 * 86_400_000).applies).toBe(false);
+    // Already used.
+    expect(applyCredit({ ...credit, used: true }, 24900, "r", within).applies).toBe(false);
+  });
+  it("Fix Scan report uses approved SKUs, requires evidence, rejects vague", () => {
+    const report = buildFixScanReport([FORM, F({ id: "vague", observation: "could be better", basis: ["x"] })], "2026-10-01");
+    expect(report.valid).toBe(true);
+    expect(report.items.length).toBe(1); // vague rejected
+    expect(report.items[0].matchedSku).toBe("contact-form-repair");
+    expect(report.creditNote).toMatch(/\$99 Fix Scan credit/);
+  });
+  it("downsell is lifecycle-gated (engaged, not purchased, cooldown passed)", () => {
+    expect(fixScanDownsellEligible({ offerViewed: true, purchased: false, optedOut: false, daysSinceOffer: 5 })).toBe(true);
+    expect(fixScanDownsellEligible({ offerViewed: true, purchased: false, optedOut: false, daysSinceOffer: 1 })).toBe(false);
+    expect(fixScanDownsellEligible({ offerViewed: true, purchased: true, optedOut: false, daysSinceOffer: 9 })).toBe(false);
+    expect(fixScanDownsellEligible({ offerViewed: false, purchased: false, optedOut: false, daysSinceOffer: 9 })).toBe(false);
+  });
+  it("a Fix Scan purchase records the customer as first-purchase FIX_SCAN", () => {
+    const r = onVerifiedPurchase(null, { leadId: "l", email: "e", offerId: "scan_1", amountCents: 9900, at: "t", maintenancePlanKey: null, purchaseType: "FIX_SCAN" });
+    expect(r.record.firstPurchaseType).toBe("FIX_SCAN");
+    expect(r.transition.becomesCustomer).toBe(true);
   });
 });
 

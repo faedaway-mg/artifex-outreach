@@ -8,10 +8,13 @@
 // actually observe (e.g. email-open only if the provider reports it).
 // ─────────────────────────────────────────────────────────────────────────────
 
+export type FirstPurchaseType = "REPAIR" | "FIX_SCAN";
+
 export interface CustomerRecord {
   leadId: string;
   email: string;
   firstPurchaseAt: string;
+  firstPurchaseType: FirstPurchaseType;
   lifetimeRevenueCents: number;
   offersPurchased: string[]; // offerIds
   maintenancePlanKey: string | null;
@@ -27,13 +30,14 @@ export interface LifecycleTransition {
 }
 
 /** Decide the lifecycle transition for a verified purchase. */
-export function onVerifiedPurchase(existing: CustomerRecord | null, args: { leadId: string; email: string; offerId: string; amountCents: number; at: string; maintenancePlanKey: string | null }): { record: CustomerRecord; transition: LifecycleTransition } {
+export function onVerifiedPurchase(existing: CustomerRecord | null, args: { leadId: string; email: string; offerId: string; amountCents: number; at: string; maintenancePlanKey: string | null; purchaseType?: FirstPurchaseType }): { record: CustomerRecord; transition: LifecycleTransition } {
   if (!existing) {
     return {
       record: {
         leadId: args.leadId,
         email: args.email,
         firstPurchaseAt: args.at,
+        firstPurchaseType: args.purchaseType ?? "REPAIR",
         lifetimeRevenueCents: args.amountCents,
         offersPurchased: [args.offerId],
         maintenancePlanKey: args.maintenancePlanKey,
@@ -76,6 +80,16 @@ export const FUNNEL_EVENTS = {
   maintenanceAccepted: "quickfix.maintenance_accepted",
   callBooked: "quickfix.call_booked",
   referralCreated: "quickfix.referral_created",
+  // Fix Scan ($99 diagnostic) funnel
+  fixScanOffered: "quickfix.fix_scan_offered",
+  fixScanViewed: "quickfix.fix_scan_viewed",
+  fixScanCheckoutStarted: "quickfix.fix_scan_checkout_started",
+  fixScanPurchased: "quickfix.fix_scan_purchased",
+  fixScanDelivered: "quickfix.fix_scan_delivered",
+  creditEligible: "quickfix.credit_eligible",
+  creditUsed: "quickfix.credit_used",
+  creditExpired: "quickfix.credit_expired",
+  repairAfterScan: "quickfix.repair_after_scan",
 } as const;
 
 export type FunnelEvent = (typeof FUNNEL_EVENTS)[keyof typeof FUNNEL_EVENTS];

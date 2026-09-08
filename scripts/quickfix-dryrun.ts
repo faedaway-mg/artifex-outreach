@@ -34,18 +34,31 @@ async function main() {
     offers.push(offer);
   }
 
+  const { routeLead } = await import("../src/lib/quick-fix/fix-scan");
   const ranked = rankQuickCash(offers);
   const eligible = ranked.filter((r) => r.eligible);
   const totals = addressableTotals(offers);
   const d = (c: number) => `$${Math.round(c / 100)}`;
 
+  // Route each lead: DIRECT_FIX first, FIX_SCAN only when promising-but-insufficient.
+  const routes = offers.map((o) => ({ o, r: routeLead(o) }));
+  const tally = routes.reduce((m: any, x) => ((m[x.r.route] = (m[x.r.route] ?? 0) + 1), m), {});
+  const cannibal = routes.filter((x) => x.r.cannibalizationFlag).length;
+  const directValue = offers.filter((o) => o.quickFixEligible).reduce((s, o) => s + o.priceCents, 0);
+  const scanValue = (tally.FIX_SCAN ?? 0) * 9900;
+
   console.log(`\n════════ QUICK-FIX ENGINE — DRY RUN (NO SEND / NO CHARGE) ════════`);
   console.log(`leads=${leads.length} · analyzed(with BI)=${analyzed} · offers=${offers.length} · quick-fix eligible=${eligible.length}`);
   console.log(`\nADDRESSABLE (engine-eligible only):`);
-  console.log(`  $250 ENTRY : ${totals.entry.count}  (${d(totals.entry.revenueCents)})`);
+  console.log(`  $249 ENTRY : ${totals.entry.count}  (${d(totals.entry.revenueCents)})`);
   console.log(`  $495 GROWTH: ${totals.growth.count}  (${d(totals.growth.revenueCents)})`);
   console.log(`  $995 MINI  : ${totals.mini.count}  (${d(totals.mini.revenueCents)})`);
   console.log(`  TOTAL eligible one-time: ${d(totals.eligibleTotalCents)} across ${totals.eligibleCount} leads · ineligible=${totals.ineligibleCount}`);
+
+  console.log(`\n──────── ROUTING (direct-fix-first; Fix Scan only when needed) ────────`);
+  console.log(`  DIRECT_FIX=${tally.DIRECT_FIX ?? 0} · FIX_SCAN=${tally.FIX_SCAN ?? 0} · CONVERSATION_REQUIRED=${tally.CONVERSATION_REQUIRED ?? 0} · NO_FIX_FOUND=${tally.NO_FIX_FOUND ?? 0}`);
+  console.log(`  addressable: direct repairs ${d(directValue)} vs Fix Scan ${d(scanValue)} · cannibalization flags=${cannibal}`);
+  console.log(`  (Fix Scan value ≪ direct value + 0 cannibalization ⇒ $99 does NOT displace obvious repairs.)`);
 
   console.log(`\n──────── TOP QUICK-CASH OPPORTUNITIES ────────`);
   console.log(`SCORE  BAND    PRICE  ~HRS  ~$/HR   CONF  COMPANY / OFFER / PROBLEM`);

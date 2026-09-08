@@ -5,6 +5,7 @@
 import type { QuickFixOffer, OfferState } from "./types";
 import { capabilityByKey, isSellable } from "./capabilities";
 import { TIER_BY_BAND } from "./pricing";
+import { baselinePriceVersions, isApprovedPrice, type PriceVersion } from "./pricing-experiments";
 import { buildStripeDescription } from "./stripe-copy";
 
 export interface PurchaseSafetyInput {
@@ -17,6 +18,8 @@ export interface PurchaseSafetyInput {
   superseded: boolean;
   /** The lead is on terminal rejection / suppression (never sell). */
   leadBlocked: boolean;
+  /** Approved price versions (active + retired). Defaults to the baseline set. */
+  approvedPriceVersions?: PriceVersion[];
 }
 
 export interface PurchaseSafetyResult {
@@ -46,10 +49,11 @@ export function validateOfferForPurchase(input: PurchaseSafetyInput): PurchaseSa
     else if (!isSellable(cap)) reasons.push(`capability ${k} is not sellable (${cap.state})`);
   }
 
-  // Price validity — must equal the canonical tier price (LLM can't move it).
-  const tier = TIER_BY_BAND.get(offer.band);
-  if (!tier) reasons.push(`unknown pricing band ${offer.band}`);
-  else if (offer.priceCents !== tier.priceCents) reasons.push(`price ${offer.priceCents} != canonical tier price ${tier.priceCents}`);
+  // Price validity — must match an APPROVED price version for the band (active or
+  // retired-historical). The LLM can never move it to an unapproved amount.
+  const versions = input.approvedPriceVersions ?? baselinePriceVersions("");
+  if (!TIER_BY_BAND.get(offer.band)) reasons.push(`unknown pricing band ${offer.band}`);
+  else if (!isApprovedPrice(offer.band, offer.priceCents, versions)) reasons.push(`price ${offer.priceCents} is not an approved version for band ${offer.band}`);
 
   // Scope completeness.
   if (!offer.scope.offerName) reasons.push("missing offer name");

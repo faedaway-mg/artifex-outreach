@@ -15,9 +15,18 @@ export interface PriceVersion {
   createdAt: string;
 }
 
-/** The canonical baseline versions — exactly the approved anchor tiers. */
+// Retired price versions preserved for historical correctness — a purchase made at
+// $250 stays approved even though the active ENTRY price is now $249. Never active,
+// never assigned to new offers; kept so re-validating a historical offer succeeds.
+export const RETIRED_PRICE_VERSIONS: Array<Omit<PriceVersion, "createdAt">> = [
+  { id: "pv-entry-legacy-250", band: "ENTRY", priceCents: 25000, active: false },
+];
+
+/** The approved price versions — active anchors + retired historical prices. */
 export function baselinePriceVersions(createdAt: string): PriceVersion[] {
-  return TIERS.map((t) => ({ id: `pv-${t.band.toLowerCase()}-baseline`, band: t.band, priceCents: t.priceCents, active: true, createdAt }));
+  const active: PriceVersion[] = TIERS.map((t) => ({ id: `pv-${t.band.toLowerCase()}-baseline`, band: t.band, priceCents: t.priceCents, active: true, createdAt }));
+  const retired: PriceVersion[] = RETIRED_PRICE_VERSIONS.map((v) => ({ ...v, createdAt }));
+  return [...active, ...retired];
 }
 
 /** The active price version for a band. Defaults to the baseline (no experiment). */
