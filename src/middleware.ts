@@ -46,6 +46,13 @@ export async function middleware(req: NextRequest) {
     // prospect with NO session. Capability is the HMAC signature in the URL (verified in-handler); every
     // request also checks DB revocation + package state. Nothing else about the package is exposed.
     pathname.startsWith("/pv/") ||
+    // Quick-Fix customer offer pages + their checkout/intake/status APIs: reached by a
+    // prospect with NO session. Capability = the unguessable share token / offerId in the
+    // URL (resolved in-handler). The server resolves all commerce data from the frozen
+    // approved offer — price/SKU/scope are never trusted from the browser. Nothing
+    // operator-only (economics, scoring, notes) is exposed.
+    pathname.startsWith("/offer/") ||
+    pathname.startsWith("/api/offer/") ||
     pathname.startsWith("/icon") ||
     pathname.startsWith("/manifest") ||
     pathname.startsWith("/api/placeholder");

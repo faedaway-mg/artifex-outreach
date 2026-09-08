@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   LayoutGrid, Search, KanbanSquare, CalendarClock, BarChart3, Settings as SettingsIcon,
-  Plus, Mail, FileText, Clapperboard, CornerDownLeft,
+  Plus, Mail, FileText, Clapperboard, CornerDownLeft, DollarSign, Zap,
 } from "lucide-react";
 
 interface Cmd {
@@ -24,6 +24,10 @@ const COMMANDS: Cmd[] = [
   { id: "performance", label: "Open Performance", hint: "Results", icon: BarChart3, run: (r) => r.push("/performance") },
   { id: "brief", label: "Prepare a brief", hint: "Open a lead → Brief", icon: FileText, run: (r) => r.push("/pipeline") },
   { id: "video", label: "Prepare a video", hint: "Open a lead → Video", icon: Clapperboard, run: (r) => r.push("/") },
+  { id: "revenue", label: "Quick-Fix Revenue", hint: "Low-ticket transaction engine", icon: DollarSign, run: (r) => r.push("/revenue") },
+  { id: "quickcash", label: "Quick-Cash Opportunities", hint: "What can we sell right now?", icon: Zap, run: (r) => r.push("/revenue/quick-cash") },
+  { id: "fulfillment", label: "Ready for Fulfillment", hint: "Paid work inbox", icon: DollarSign, run: (r) => r.push("/revenue/fulfillment") },
+  { id: "trustvideo", label: "Evergreen Trust Video", hint: "Manage the Quick-Fix explainer", icon: Clapperboard, run: (r) => r.push("/revenue/trust-asset") },
   { id: "settings", label: "Open Settings", hint: "Configuration", icon: SettingsIcon, run: (r) => r.push("/settings") },
 ];
 

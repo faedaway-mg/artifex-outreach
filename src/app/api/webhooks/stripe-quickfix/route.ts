@@ -1,12 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import {
-  verifyStripeSignature,
-  handleVerifiedEvent,
-  type WebhookOutcome,
-} from "@/lib/quick-fix/webhook";
+import { verifyStripeSignature, handleVerifiedEvent } from "@/lib/quick-fix/webhook";
 import * as store from "@/lib/quick-fix/store";
-import { initialJobStateAfterPayment, needsIntake } from "@/lib/quick-fix/fulfillment";
-import { onVerifiedPurchase } from "@/lib/quick-fix/lifecycle";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -28,35 +22,9 @@ export async function POST(req: NextRequest) {
   try { event = JSON.parse(rawBody); } catch { return NextResponse.json({ ok: false, error: "bad json" }, { status: 400 }); }
 
   const nowIso = new Date().toISOString();
-  const deps = await store.webhookDeps({
-    async applyPaid(o: Extract<WebhookOutcome, { kind: "payment_succeeded" }>) {
-      const offer = await store.getOffer(o.offerId);
-      if (!offer) return; // unknown offer → ignore safely
-      const intake = needsIntake(offer);
-      await store.upsertJob({
-        offerId: o.offerId,
-        leadId: o.leadId || offer.leadId,
-        state: initialJobStateAfterPayment(intake),
-        purchasedAt: nowIso,
-        requirementsReceivedAt: null,
-        fulfillmentClockStartedAt: null,
-        targetDeliveryAt: null,
-        subscriptionId: o.subscriptionId,
-        updatedAt: nowIso,
-      });
-      const existing = await store.getCustomer(offer.leadId);
-      const { record } = onVerifiedPurchase(existing, {
-        leadId: offer.leadId, email: offer.recipientEmail ?? "", offerId: o.offerId,
-        amountCents: offer.priceCents, at: nowIso, maintenancePlanKey: offer.maintenance?.planKey ?? null,
-      });
-      await store.upsertCustomer(record);
-    },
-    async applySubscription(o: Extract<WebhookOutcome, { kind: "subscription_changed" }>) {
-      const job = await store.getJob(o.offerId);
-      if (job) await store.upsertJob({ ...job, subscriptionId: o.subscriptionId });
-    },
-  });
-
+  // The fulfillment logic is centralized in the store so the route, the rehearsal,
+  // and the tests all exercise exactly the same "paid → fulfil" path.
+  const deps = await store.webhookDeps(store.fulfillmentHandlers(nowIso));
   const result = await handleVerifiedEvent(event, deps);
   return NextResponse.json({ ok: result.ok, duplicate: result.duplicate, kind: result.outcome.kind });
 }

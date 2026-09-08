@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { ContentStudioClient } from "@/components/content-studio/ContentStudioClient";
 import { loadStudioPageData } from "@/lib/content-studio/studio-page-data";
 
@@ -17,5 +18,15 @@ export default async function ContentStudioPage({ searchParams }: { searchParams
     from: searchParams?.from ?? null,
   };
   const activeType: "proposal" | "content" = searchParams?.type === "content" ? "content" : "proposal";
-  return <ContentStudioClient initialItems={items} deepLink={deepLink} videosToCreate={videosToCreate} workerHealth={workerHealth} workspaces={workspaces(activeType)} />;
+  return (
+    <>
+      {/* Offer / trust assets are a SEPARATE asset class from prospect diagnostics and
+          content marketing. The evergreen Quick-Fix explainer is managed on its own surface. */}
+      <div className="mx-auto mb-3 flex max-w-container items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/[0.02] px-4 py-2.5">
+        <span className="text-[12.5px] text-chalk-400">Offer / trust assets (evergreen Quick-Fix explainer) are managed separately.</span>
+        <Link href="/revenue/trust-asset" className="shrink-0 rounded-lg border border-white/10 px-3 py-1.5 text-[12px] text-chalk-200 hover:bg-white/5">Trust asset →</Link>
+      </div>
+      <ContentStudioClient initialItems={items} deepLink={deepLink} videosToCreate={videosToCreate} workerHealth={workerHealth} workspaces={workspaces(activeType)} />
+    </>
+  );
 }

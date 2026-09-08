@@ -39,8 +39,25 @@ export function verifyStripeSignature(args: {
   return { ok: true };
 }
 
+export type PurchaseType = "REPAIR" | "FIX_SCAN";
+
 export type WebhookOutcome =
-  | { kind: "payment_succeeded"; offerId: string; leadId: string; offerVersion: string; sessionId: string; subscriptionId: string | null }
+  | {
+      kind: "payment_succeeded";
+      offerId: string;
+      leadId: string;
+      offerVersion: string;
+      sessionId: string;
+      subscriptionId: string | null;
+      /** REPAIR (default) or FIX_SCAN — resolved from session metadata. */
+      purchaseType: PurchaseType;
+      sku: string | null;
+      companyName: string | null;
+      /** Fix Scan credit consumed by this repair (single-use), if any. */
+      creditScanOfferId: string | null;
+      creditAppliedCents: number;
+      amountTotalCents: number | null;
+    }
   | { kind: "subscription_changed"; offerId: string; leadId: string; subscriptionId: string; state: SubscriptionState }
   | { kind: "ignored"; reason: string };
 
@@ -75,6 +92,8 @@ export function interpretEvent(event: StripeEvent): WebhookOutcome {
       }
       const m = metaOf(obj);
       if (!m.offerId) return { kind: "ignored", reason: "no offerId in session metadata" };
+      const purchaseType: PurchaseType = m.purchaseType === "FIX_SCAN" ? "FIX_SCAN" : "REPAIR";
+      const creditAppliedCents = Number(m.creditAppliedCents ?? 0) || 0;
       return {
         kind: "payment_succeeded",
         offerId: m.offerId,
@@ -82,6 +101,12 @@ export function interpretEvent(event: StripeEvent): WebhookOutcome {
         offerVersion: m.offerVersion ?? "",
         sessionId: String(obj.id ?? ""),
         subscriptionId: obj.subscription ? String(obj.subscription) : null,
+        purchaseType,
+        sku: m.sku ? String(m.sku) : null,
+        companyName: m.companyName ? String(m.companyName) : null,
+        creditScanOfferId: m.scanOfferId ? String(m.scanOfferId) : null,
+        creditAppliedCents,
+        amountTotalCents: typeof obj.amount_total === "number" ? obj.amount_total : null,
       };
     }
     case "customer.subscription.created":

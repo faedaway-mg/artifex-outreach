@@ -83,6 +83,10 @@ export function offerMetadata(offer: QuickFixOffer, kind: CheckoutKind): Record<
     offerVersion: offer.offerVersion,
     pricingBand: offer.band,
     priceCents: String(offer.priceCents),
+    // Full traceability (mandate: leadId/offerId/offerVersion/SKU/price version/purchase type).
+    sku: offer.capabilityKeys[0] ?? "",
+    priceVersion: `pv-${offer.band.toLowerCase()}-baseline`,
+    purchaseType: "REPAIR",
     kind,
     source: "acquisition-os-quick-fix",
   };
