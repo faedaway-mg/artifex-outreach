@@ -17,9 +17,13 @@ export type TrustVideoScope =
   | "contact-form-lead-capture" | "cta-conversion" | "mobile-responsive" | "accessibility"
   | "analytics-tracking" | "cms-technical" | "seo-metadata" | "homepage-sprint" | "fix-scan" | "general";
 
-// ── Shared narrative + per-scope module (spoken text; also the caption source) ──
+// ── Shared narrative + per-scope module (spoken text) ───────────────────────────
+// COMPANY VOICE: the rendered narration is an Artifex brand narrator, NOT Jordan's
+// actual recorded voice, so the script speaks as "we"/Artifex and never impersonates
+// Jordan. The FINAL RENDERED AUDIO is the source of truth; this text is kept aligned
+// to it. (It is NOT automatically the caption source — see caption verification below.)
 const OPEN =
-  "Hey, I'm Jordan with Artifex Labs. We built Quick-Fix for businesses that don't need a giant redesign, a long consulting engagement, or weeks of back-and-forth just to solve one specific problem.";
+  "We're Artifex Labs. We built Quick-Fix for businesses that don't need a giant redesign, a long consulting engagement, or weeks of back-and-forth just to solve one specific problem.";
 const CLOSE =
   "The process is straightforward. Once you move forward, we confirm exactly what needs to be fixed, collect only the access or information required to do the work, make the change, test it, and give you clear confirmation of what was completed. We keep the scope intentionally tight. You'll know what you're paying for before the work starts, and if we discover something outside that scope, we don't quietly turn it into a bigger project. We explain it and let you decide what happens next. The goal of Quick-Fix is simple: identify a real problem, fix it properly, and get you back to business without making the process more complicated than it needs to be. That's Artifex Quick-Fix.";
 
@@ -43,13 +47,35 @@ export function trustVideoScript(scope: TrustVideoScope): string {
 
 export const TRUST_VIDEO_SCRIPT_VERSION = "qf-trust-v1-2026-09";
 
+// ── Caption truth model ─────────────────────────────────────────────────────────
+// Captions must be VERIFIED against the FINAL rendered narration, not the draft
+// script. The narration was re-recorded in a company voice AFTER the original
+// script — the on-disk .vtt files were generated from that original script and are
+// therefore STALE. Until each caption is regenerated from the final audio and
+// reconciled, captionsVerified stays FALSE, captions default OFF, and the stale
+// track is not attached at all (incorrect captions are worse than none).
+export const TRUST_VIDEO_NARRATION_VERSION = "qf-narration-v2-company-voice-2026-09";
+export const TRUST_VIDEO_CAPTION_VERSION = "qf-caption-v1-from-original-script"; // provenance of the on-disk .vtt
+
+// Verified = the .vtt has been reconciled against the FINAL narration audio. All
+// false today: changing the narration reset verification (a version relationship,
+// not "both files exist"). Flip a scope to true only after regenerating its .vtt.
+const CAPTIONS_VERIFIED: Record<Exclude<TrustVideoScope, "general">, boolean> = {
+  "contact-form-lead-capture": false, "cta-conversion": false, "mobile-responsive": false,
+  "accessibility": false, "analytics-tracking": false, "cms-technical": false,
+  "seo-metadata": false, "homepage-sprint": false, "fix-scan": false,
+};
+
 // ── Rendered assets (source of truth for the app). Active = QA-passed + served. ──
 export interface TrustVideoAsset {
   scope: TrustVideoScope;
   title: string;
   assetUrl: string | null;   // null → no video; offer page shows the script text
   posterUrl: string | null;
-  captionsUrl: string | null; // WebVTT (v2+); null for v1 (no captions rendered)
+  captionsUrl: string | null; // WebVTT — non-null ONLY when captionsVerified
+  captionsVerified: boolean;  // reconciled against the final narration audio?
+  narrationVersion: string;   // version of the final rendered audio
+  captionVersion: string;     // provenance/version of the .vtt cues
   version: number;
   scriptVersion: string;
   durationSeconds: number | null;
@@ -76,11 +102,16 @@ const ACTIVE_VERSION: Record<Exclude<TrustVideoScope, "general">, number> = {
 
 function asset(scope: Exclude<TrustVideoScope, "general">, title: string, durationSeconds: number): TrustVideoAsset {
   const v = ACTIVE_VERSION[scope] ?? 1;
+  const captionsVerified = CAPTIONS_VERIFIED[scope] ?? false;
   return {
     scope, title,
     assetUrl: `/trust-videos/${scope}-v${v}.mp4`,
     posterUrl: `/trust-videos/${scope}-v${v}-poster.jpg`,
-    captionsUrl: v >= 2 ? `/trust-videos/${scope}-v${v}.vtt` : null,
+    // Only expose a caption track once it's verified against the final narration.
+    captionsUrl: captionsVerified ? `/trust-videos/${scope}-v${v}.vtt` : null,
+    captionsVerified,
+    narrationVersion: TRUST_VIDEO_NARRATION_VERSION,
+    captionVersion: TRUST_VIDEO_CAPTION_VERSION,
     version: v, scriptVersion: TRUST_VIDEO_SCRIPT_VERSION, durationSeconds, active: true,
   };
 }
@@ -96,7 +127,7 @@ export const TRUST_VIDEO_ASSETS: Record<TrustVideoScope, TrustVideoAsset> = {
   "homepage-sprint": asset("homepage-sprint", "Homepage Conversion Sprint", 67.8),
   "fix-scan": asset("fix-scan", "Fix Scan", 82.5),
   // General is the safe fallback — script-only (no rendered asset), never preferred.
-  general: { scope: "general", title: "Artifex Quick-Fix", assetUrl: null, posterUrl: null, captionsUrl: null, version: 1, scriptVersion: TRUST_VIDEO_SCRIPT_VERSION, durationSeconds: null, active: true },
+  general: { scope: "general", title: "Artifex Quick-Fix", assetUrl: null, posterUrl: null, captionsUrl: null, captionsVerified: false, narrationVersion: TRUST_VIDEO_NARRATION_VERSION, captionVersion: TRUST_VIDEO_CAPTION_VERSION, version: 1, scriptVersion: TRUST_VIDEO_SCRIPT_VERSION, durationSeconds: null, active: true },
 };
 
 // ── SKU (capability key) → scope. The server owns this map. ─────────────────────
@@ -144,14 +175,14 @@ export function trustVideoForOffer(offer: Pick<QuickFixOffer, "capabilityKeys">)
  *  the existing OfferPageView renders it unchanged (video when present, else script). */
 export function trustVideoAsEvergreen(offer: Pick<QuickFixOffer, "capabilityKeys">): {
   role: "ARTIFEX_QUICK_FIX_EXPLAINER"; variant: "GENERAL_QUICK_FIX"; version: number;
-  assetUrl: string | null; posterUrl: string | null; captionsUrl: string | null; title: string;
+  assetUrl: string | null; posterUrl: string | null; captionsUrl: string | null; captionsVerified: boolean; title: string;
   durationSeconds: number | null; script: string; status: "active";
   createdAt: string; updatedAt: string;
 } {
   const r = trustVideoForOffer(offer);
   return {
     role: "ARTIFEX_QUICK_FIX_EXPLAINER", variant: "GENERAL_QUICK_FIX", version: r.asset.version,
-    assetUrl: r.asset.assetUrl, posterUrl: r.asset.posterUrl, captionsUrl: r.asset.captionsUrl, title: r.asset.title,
+    assetUrl: r.asset.assetUrl, posterUrl: r.asset.posterUrl, captionsUrl: r.asset.captionsUrl, captionsVerified: r.asset.captionsVerified, title: r.asset.title,
     durationSeconds: r.asset.durationSeconds, script: r.script,
     status: "active", createdAt: "", updatedAt: "",
   };

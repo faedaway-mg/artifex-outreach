@@ -66,7 +66,8 @@ describe("offer page model — premium hero + skimmable fields", () => {
     expect(m.scope).toBe("cta-conversion");
     expect(m.trustVideo.assetUrl).toBe("/trust-videos/cta-conversion-v2.mp4");
     expect(m.trustVideo.posterUrl).toBe("/trust-videos/cta-conversion-v2-poster.jpg");
-    expect(m.trustVideo.captionsUrl).toBe("/trust-videos/cta-conversion-v2.vtt");
+    // Caption truth (Part D): captions are unverified against the final narration → not exposed.
+    expect(m.trustVideo.captionsUrl).toBeNull();
     expect(m.trustVideo.title).toContain("CTA");
   });
   it("hero badges carry no fabricated metric", () => {

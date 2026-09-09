@@ -25,12 +25,13 @@ export type RejectReason =
   | "duplicate"              // a national duplicate already owns this business
   | "prior_contact"          // this lead was already contacted (no re-cold)
   | "no_timezone"            // recipient-local timezone can't be resolved
+  | "jurisdiction_blocked"   // cold email not cleared for this jurisdiction (fail-closed)
   | "dispatch_gate";         // a residual dispatch gate is not passing
 
 export const ALL_REJECT_REASONS: RejectReason[] = [
   "missing_website", "invalid_website", "service_fit", "no_recipient", "no_observed_finding",
   "review_not_approved", "review_insufficient", "attachment_missing", "footer_missing",
-  "suppressed", "unsubscribed", "bounced", "duplicate", "prior_contact", "no_timezone", "dispatch_gate",
+  "suppressed", "unsubscribed", "bounced", "duplicate", "prior_contact", "no_timezone", "jurisdiction_blocked", "dispatch_gate",
 ];
 
 // The pre-gathered facts about one candidate. The refill cron resolves these from the DB (BI, frozen-review
@@ -57,6 +58,9 @@ export interface DeliveryContext {
   score: number;                  // strength for "strongest-first" selection
   city: string | null;
   state: string | null;
+  /** Optional country/jurisdiction key (e.g. "US"). When set, an uncleared
+   *  jurisdiction fails closed. Unset ⇒ no jurisdiction gate (back-compatible). */
+  country?: string | null;
 }
 
 export interface ReadinessVerdict {
@@ -66,6 +70,11 @@ export interface ReadinessVerdict {
 }
 
 const isHttpUrl = (u: string): boolean => { try { const p = new URL(u); return p.protocol === "http:" || p.protocol === "https:"; } catch { return false; } };
+
+// Jurisdiction fail-closed check — a cold send is cleared only when the send-eligibility
+// registry affirmatively allows it (US today; everything else disabled). See quick-fix/jurisdiction.ts.
+import { sendEligibility } from "../quick-fix/jurisdiction";
+function jurisdictionCleared(country: string): boolean { return sendEligibility(country).coldSendAllowed; }
 
 // Judge one candidate against every DELIVERY_READY precondition. Fail-closed: any missing gate → not ready.
 // Reasons accrue in a fixed priority order so `firstReason` is a stable bucket for the rejection report.
@@ -96,12 +105,14 @@ export function assessDeliveryReadiness(ctx: DeliveryContext): ReadinessVerdict 
   if (ctx.priorContact) add("prior_contact");
   // Recipient-local timezone.
   if (!ctx.recipientTimezone) add("no_timezone");
+  // Jurisdiction — hard input when provided; an uncleared/unknown jurisdiction fails closed.
+  if (ctx.country != null && !jurisdictionCleared(ctx.country)) add("jurisdiction_blocked");
 
   // Priority order for the single bucket (evidence/recipient first — the expensive, common blockers).
   const priority: RejectReason[] = [
     "missing_website", "invalid_website", "service_fit", "no_observed_finding", "no_recipient",
     "review_not_approved", "review_insufficient", "attachment_missing", "footer_missing",
-    "suppressed", "unsubscribed", "bounced", "duplicate", "prior_contact", "no_timezone", "dispatch_gate",
+    "suppressed", "unsubscribed", "bounced", "duplicate", "prior_contact", "no_timezone", "jurisdiction_blocked", "dispatch_gate",
   ];
   const firstReason = priority.find((p) => reasons.includes(p)) ?? null;
   return { ready: reasons.length === 0, reasons, firstReason };

@@ -37,6 +37,45 @@ export interface StoredOffer extends QuickFixOffer {
   shareRevoked?: boolean;
 }
 
+// ── Persisted fulfillment sub-state (Part A) ─────────────────────────────────────
+// These make the technician workspace DURABLE: a checked runbook step, a received
+// access grant, a passed QA item, and an uploaded evidence artifact all survive a
+// reload / a day later. Nothing here ever stores a password/credential/secret.
+export type AccessItemStatus =
+  | "NOT_REQUESTED" | "REQUESTED" | "RECEIVED" | "VERIFIED" | "BLOCKED" | "NOT_REQUIRED" | "REVOKED";
+
+export interface RunbookStepState { done: boolean; completedBy?: string; completedAt?: string; notes?: string }
+export interface RunbookState {
+  /** Frozen when work starts — the historical playbook version of an in-progress job. */
+  playbookId: string;
+  frozenAt?: string;
+  steps: Record<string, RunbookStepState>;
+}
+export interface AccessItemState {
+  status: AccessItemStatus;
+  method?: string;
+  requestedAt?: string;
+  receivedAt?: string;
+  verifiedAt?: string;
+  revokedAt?: string;
+  notes?: string;
+}
+export interface QaItemState { done: boolean; at?: string }
+export type EvidenceKind = "before" | "after" | "test" | "artifact" | "url";
+export interface EvidenceItem {
+  id: string;
+  kind: EvidenceKind;
+  storageKey?: string | null;
+  url?: string | null;
+  label: string;
+  /** What this artifact demonstrates — the operator MUST state it (no bare uploads). */
+  demonstrates: string;
+  filename?: string;
+  contentType?: string;
+  sizeBytes?: number;
+  at: string;
+}
+
 export interface JobRecord {
   offerId: string;
   leadId: string;
@@ -47,6 +86,11 @@ export interface JobRecord {
   targetDeliveryAt: string | null;
   subscriptionId: string | null;
   updatedAt: string;
+  // ── Persisted fulfillment sub-state (all optional; absent on legacy jobs) ──
+  runbookState?: RunbookState;
+  accessState?: Record<string, AccessItemState>;
+  qaState?: Record<string, QaItemState>;
+  evidence?: EvidenceItem[];
 }
 
 export interface QuickFixState {
@@ -192,6 +236,161 @@ export async function getJob(offerId: string): Promise<JobRecord | null> {
 }
 export async function listJobs(): Promise<JobRecord[]> {
   return Object.values((await getState()).jobs);
+}
+
+// ── Persisted fulfillment sub-state mutations (Part A) ──────────────────────────
+// Every mutation is idempotent and appends an audit event. Marking the SAME terminal
+// transition twice does not append a duplicate audit (we compare against the prior
+// persisted value and no-op when nothing changed). A password/credential is NEVER
+// accepted anywhere in this surface — the access model has no secret field at all.
+
+/** Freeze the playbook version onto the job when work starts. Idempotent: a second
+ *  call NEVER overwrites the already-frozen playbookId (the historical version of an
+ *  in-progress job is immutable). Refreshing the runbook must NOT reset step state. */
+export async function startRunbook(offerId: string, playbookId: string, now = new Date().toISOString()): Promise<JobRecord | null> {
+  let out: JobRecord | null = null;
+  let froze = false;
+  await mutate((s) => {
+    const job = s.jobs[offerId];
+    if (!job) return;
+    if (!job.runbookState) {
+      job.runbookState = { playbookId, frozenAt: now, steps: {} };
+      froze = true;
+    }
+    // If already frozen, keep the ORIGINAL playbookId + steps untouched.
+    job.updatedAt = now;
+    out = job;
+  });
+  if (froze) await appendAudit({ action: "quickfix.runbook_started", actor: "operator", targetType: "quickfix_job", targetId: offerId, meta: { playbookId }, ip: null });
+  return out;
+}
+
+/** Mark/unmark a runbook step. Idempotent: setting the same done value twice does not
+ *  append a duplicate audit. Freezes the playbook on first write if not yet frozen. */
+export async function setRunbookStep(
+  offerId: string,
+  stepId: string,
+  patch: { done: boolean; by?: string; notes?: string; playbookId?: string },
+  now = new Date().toISOString(),
+): Promise<JobRecord | null> {
+  let out: JobRecord | null = null;
+  let changed = false;
+  await mutate((s) => {
+    const job = s.jobs[offerId];
+    if (!job) return;
+    if (!job.runbookState) job.runbookState = { playbookId: patch.playbookId ?? "unknown", frozenAt: now, steps: {} };
+    const prev = job.runbookState.steps[stepId];
+    if (prev && prev.done === patch.done && (patch.notes ?? prev.notes) === prev.notes) { out = job; return; }
+    changed = true;
+    job.runbookState.steps[stepId] = {
+      done: patch.done,
+      completedBy: patch.done ? (patch.by ?? "operator") : undefined,
+      completedAt: patch.done ? now : undefined,
+      notes: patch.notes ?? prev?.notes,
+    };
+    job.updatedAt = now;
+    out = job;
+  });
+  if (changed) await appendAudit({ action: "quickfix.runbook_step", actor: "operator", targetType: "quickfix_job", targetId: offerId, meta: { stepId, done: patch.done }, ip: null });
+  return out;
+}
+
+const ACCESS_STATUSES: AccessItemState["status"][] = ["NOT_REQUESTED", "REQUESTED", "RECEIVED", "VERIFIED", "BLOCKED", "NOT_REQUIRED", "REVOKED"];
+
+/** Patch one access requirement's lifecycle. Fail-closed: a scoped-token/secret method
+ *  with no secure vault is forced to BLOCKED (never RECEIVED/VERIFIED), and no secret is
+ *  ever stored. Idempotent: a no-op patch appends no audit. */
+export async function setAccessItem(
+  offerId: string,
+  key: string,
+  patch: Partial<AccessItemState>,
+  now = new Date().toISOString(),
+): Promise<JobRecord | null> {
+  let out: JobRecord | null = null;
+  let changed = false;
+  let nextStatus: AccessItemState["status"] | null = null;
+  await mutate((s) => {
+    const job = s.jobs[offerId];
+    if (!job) return;
+    if (!job.accessState) job.accessState = {};
+    const prev = job.accessState[key] ?? { status: "NOT_REQUESTED" as const };
+    let next: AccessItemState = { ...prev, ...patch };
+    if (patch.status && !ACCESS_STATUSES.includes(patch.status)) next.status = prev.status;
+    // FAIL CLOSED: a method that needs a plaintext secret has no secure vault → BLOCKED.
+    const needsSecret = (next.method ?? "").toLowerCase() === "scoped-token" || (next.method ?? "").toLowerCase() === "blocked-no-vault";
+    if (needsSecret && (next.status === "RECEIVED" || next.status === "VERIFIED")) {
+      next.status = "BLOCKED";
+      next.notes = "No secure credential vault — scoped-secret path is blocked; use native invite or Access Assist.";
+    }
+    // stamp lifecycle timestamps
+    if (next.status === "REQUESTED" && !next.requestedAt) next.requestedAt = now;
+    if (next.status === "RECEIVED" && !next.receivedAt) next.receivedAt = now;
+    if (next.status === "VERIFIED" && !next.verifiedAt) next.verifiedAt = now;
+    if (next.status === "REVOKED" && !next.revokedAt) next.revokedAt = now;
+    if (JSON.stringify(prev) === JSON.stringify(next)) { out = job; return; }
+    changed = true;
+    job.accessState[key] = next;
+    nextStatus = next.status;
+    job.updatedAt = now;
+    out = job;
+  });
+  if (changed) await appendAudit({ action: "quickfix.access_item", actor: "operator", targetType: "quickfix_job", targetId: offerId, meta: { key, status: nextStatus }, ip: null });
+  return out;
+}
+
+/** Mark/unmark a QA checklist item. Idempotent. */
+export async function setQaItem(offerId: string, itemId: string, done: boolean, now = new Date().toISOString()): Promise<JobRecord | null> {
+  let out: JobRecord | null = null;
+  let changed = false;
+  await mutate((s) => {
+    const job = s.jobs[offerId];
+    if (!job) return;
+    if (!job.qaState) job.qaState = {};
+    const prev = job.qaState[itemId];
+    if (prev && prev.done === done) { out = job; return; }
+    changed = true;
+    job.qaState[itemId] = { done, at: done ? now : undefined };
+    job.updatedAt = now;
+    out = job;
+  });
+  if (changed) await appendAudit({ action: "quickfix.qa_item", actor: "operator", targetType: "quickfix_job", targetId: offerId, meta: { itemId, done }, ip: null });
+  return out;
+}
+
+/** Associate an evidence artifact with the job (immutable/audited). De-dupes by
+ *  (kind + storageKey|url) so a double-submit does not create unbounded duplicates.
+ *  NEVER stores a secret — the caller validates filename/type/size before upload. */
+export async function addEvidence(offerId: string, item: Omit<EvidenceItem, "id" | "at"> & { id?: string; at?: string }, now = new Date().toISOString()): Promise<{ job: JobRecord | null; item: EvidenceItem | null; deduped: boolean }> {
+  let out: JobRecord | null = null;
+  let stored: EvidenceItem | null = null;
+  let deduped = false;
+  await mutate((s) => {
+    const job = s.jobs[offerId];
+    if (!job) return;
+    if (!job.evidence) job.evidence = [];
+    const dupeKeyOf = (e: { kind: string; storageKey?: string | null; url?: string | null }) => `${e.kind}|${e.storageKey ?? ""}|${e.url ?? ""}`;
+    const wantKey = dupeKeyOf(item);
+    const existing = job.evidence.find((e) => dupeKeyOf(e) === wantKey && (item.storageKey || item.url));
+    if (existing) { deduped = true; stored = existing; out = job; return; }
+    stored = {
+      id: item.id ?? `ev_${randomBytes(8).toString("hex")}`,
+      kind: item.kind,
+      storageKey: item.storageKey ?? null,
+      url: item.url ?? null,
+      label: item.label,
+      demonstrates: item.demonstrates,
+      filename: item.filename,
+      contentType: item.contentType,
+      sizeBytes: item.sizeBytes,
+      at: item.at ?? now,
+    };
+    job.evidence.push(stored);
+    job.updatedAt = now;
+    out = job;
+  });
+  const storedItem = stored as EvidenceItem | null;
+  if (storedItem && !deduped) await appendAudit({ action: "quickfix.evidence_added", actor: "operator", targetType: "quickfix_job", targetId: offerId, meta: { id: storedItem.id, kind: storedItem.kind, demonstrates: storedItem.demonstrates, storageKey: storedItem.storageKey ?? null }, ip: null });
+  return { job: out, item: stored, deduped };
 }
 
 // ── Customers ──────────────────────────────────────────────────────────────────

@@ -19,18 +19,29 @@ import { DEFAULT_AUTOMATION_LEVEL, AUTO_ELIGIBLE_CAPABILITY_ALLOWLIST } from "./
 import * as store from "./store";
 import type { QuickFixOffer } from "./types";
 
-// ── Build fresh offers from the current lead inventory (same path as the dry-run) ─
-export async function buildLeadOffers(limit = 500): Promise<QuickFixOffer[]> {
+// ── Build fresh lead contexts (lead + offer + BI) from current inventory ──────────
+// One pass over the inventory so qualification, routing, and ranking can all read
+// the same {lead, offer, bi} without re-fetching. Only leads with a BI profile get
+// an offer; the rest are still returned (offer null) so nothing is silently dropped.
+export interface LeadContext { lead: any; offer: QuickFixOffer | null; bi: any }
+
+export async function buildLeadContexts(limit = 500): Promise<LeadContext[]> {
   const leads = await listLeads();
-  const offers: QuickFixOffer[] = [];
+  const out: LeadContext[] = [];
   for (const lead of leads.slice(0, limit)) {
     const bi = await getBusinessIntelligence(lead.id).catch(() => null);
     const profile = (bi?.profile as any)?.businessProfile ?? null;
-    if (!profile) continue;
+    if (!profile) { out.push({ lead, offer: null, bi }); continue; }
     const opps = Array.isArray(profile.opportunities) ? profile.opportunities : [];
-    offers.push(buildOfferForLead({ leadId: lead.id, companyName: (lead as any).businessName ?? lead.id, opportunities: opps, website: (lead as any).website, generatedAt: null }));
+    const offer = buildOfferForLead({ leadId: lead.id, companyName: (lead as any).businessName ?? lead.id, opportunities: opps, website: (lead as any).website, generatedAt: null });
+    out.push({ lead, offer, bi });
   }
-  return offers;
+  return out;
+}
+
+// ── Build fresh offers from the current lead inventory (same path as the dry-run) ─
+export async function buildLeadOffers(limit = 500): Promise<QuickFixOffer[]> {
+  return (await buildLeadContexts(limit)).map((c) => c.offer).filter((o): o is QuickFixOffer => !!o);
 }
 
 export interface QuickCashView {
@@ -63,44 +74,87 @@ export interface QuickCashInventory {
   suppressed: number;
   legacyFrozenScheduled: number;
   routes: { DIRECT_FIX: number; FIX_SCAN: number; CONVERSATION_REQUIRED: number; NO_FIX_FOUND: number };
+  /** Honest usable-inventory funnel — raw discovery count is NOT sellable inventory. */
+  funnel: {
+    totalDiscovered: number;
+    hasWebsite: number;
+    emailable: number; // auto-sendable address
+    emailableWithApproval: number;
+    commerciallyQualified: number;
+    evidenceQualified: number;
+    readyToSell: number; // passed the FULL strict funnel
+    highConfidenceSendable: number; // ready-to-sell with an auto-sendable address
+  };
+  /** Preserved-but-not-sold buckets (never deleted, never counted as sendable). */
+  disqualified: {
+    noEmail: number;
+    noWebsite: number;
+    suppressed: number;
+    competitiveOverlap: number;
+    inactive: number;
+    weakEvidence: number;
+    weakCommercialFit: number;
+    jurisdictionBlocked: number;
+    jurisdictionUnknown: number;
+  };
+  /** Gated ready-to-sell (full funnel) — NOT the old fixability-only count. */
   readyToSell: number;
+  /** Gated sendable revenue — excludes no-email / no-website / suppressed / disqualified. */
   addressableRevenueCents: number;
   coldOutreachFrozen: boolean;
   /** Every non-customer lead is counted under exactly one route (invariant check). */
   exactlyOneRoutePerLead: boolean;
 }
 
-export async function quickCashInventory(opts: { limit?: number; offers?: QuickFixOffer[] } = {}): Promise<QuickCashInventory> {
+export async function quickCashInventory(opts: { limit?: number; contexts?: LeadContext[] } = {}): Promise<QuickCashInventory> {
   const { legacyColdOutreachFrozen } = await import("../outreach/legacy-freeze");
-  const leads = await listLeads();
+  const { qualifyLeadRecord } = await import("./qualification-adapter");
   const state = await store.getState();
   const customerLeadIds = new Set(Object.keys(state.customers));
 
-  // Offers are built only for non-customer leads that have a BI profile; the rest
-  // (no evidence) fall through to NO_FIX_FOUND so every lead is accounted for once.
-  const built = opts.offers ?? (await buildLeadOffers(opts.limit ?? 1000));
-  const offers = built.filter((o) => !customerLeadIds.has(o.leadId));
-  const routedLeadIds = new Set(offers.map((o) => o.leadId));
+  const contexts = opts.contexts ?? (await buildLeadContexts(opts.limit ?? 1000));
+  const nonCustomer = contexts.filter((c) => !customerLeadIds.has(c.lead.id));
+
+  // Route classification (preserved): every non-customer lead resolves to exactly one route.
   const routes = { DIRECT_FIX: 0, FIX_SCAN: 0, CONVERSATION_REQUIRED: 0, NO_FIX_FOUND: 0 };
-  for (const o of offers) routes[routeLead(o).route] += 1;
+  for (const c of nonCustomer) {
+    if (c.offer) routes[routeLead(c.offer).route] += 1;
+    else routes.NO_FIX_FOUND += 1; // no BI profile / no fix
+  }
 
-  // Non-customer leads with no offer (no evidence / no profile) → NO_FIX_FOUND.
-  const nonCustomerLeads = leads.filter((l) => !customerLeadIds.has(l.id));
-  const unrouted = nonCustomerLeads.filter((l) => !routedLeadIds.has(l.id)).length;
-  routes.NO_FIX_FOUND += unrouted;
-
-  const rows = rankQuickCash(offers);
-  const readyToSell = rows.filter((r) => r.readyToSell).length;
-  const addressableRevenueCents = addressableTotals(offers).eligibleTotalCents;
-
-  // Suppressed (best-effort by lead domain — a lead can be suppressed independent of route).
+  // Suppression checker (by lead domain).
   const check = await buildSuppressionChecker();
-  let suppressed = 0;
-  for (const l of leads) {
-    const site = (l as any).website as string | undefined;
+  const isSuppressed = (site: string | undefined): boolean => {
     let domain: string | null = null;
     if (site) { try { domain = new URL(site.startsWith("http") ? site : `https://${site}`).hostname.replace(/^www\./, ""); } catch { domain = null; } }
-    if (domain && check({ domain })) suppressed += 1;
+    return !!domain && check({ domain });
+  };
+
+  const funnel = { totalDiscovered: nonCustomer.length, hasWebsite: 0, emailable: 0, emailableWithApproval: 0, commerciallyQualified: 0, evidenceQualified: 0, readyToSell: 0, highConfidenceSendable: 0 };
+  const disqualified = { noEmail: 0, noWebsite: 0, suppressed: 0, competitiveOverlap: 0, inactive: 0, weakEvidence: 0, weakCommercialFit: 0, jurisdictionBlocked: 0, jurisdictionUnknown: 0 };
+  let addressableRevenueCents = 0;
+  let suppressed = 0;
+
+  for (const c of nonCustomer) {
+    const supp = isSuppressed(c.lead.website);
+    if (supp) suppressed += 1;
+    const q = qualifyLeadRecord({ lead: c.lead, offer: c.offer, bi: c.bi, suppressed: supp });
+    if (c.lead.website) funnel.hasWebsite += 1;
+    if (q.contactability.emailableAuto) funnel.emailable += 1;
+    if (q.contactability.emailableWithApproval) funnel.emailableWithApproval += 1;
+    if (q.commercialFit.makesCommercialSense) funnel.commerciallyQualified += 1;
+    if (c.offer && (c.offer.evidenceGrade === "OBSERVED" || c.offer.confidence >= 0.6)) funnel.evidenceQualified += 1;
+    if (q.qualification.readyToSell) { funnel.readyToSell += 1; funnel.highConfidenceSendable += 1; addressableRevenueCents += q.sendablePriceCents; }
+    const dq = new Set(q.qualification.disqualifiers);
+    if (dq.has("NO_EMAIL")) disqualified.noEmail += 1;
+    if (dq.has("NO_WEBSITE")) disqualified.noWebsite += 1;
+    if (dq.has("SUPPRESSED")) disqualified.suppressed += 1;
+    if (dq.has("COMPETITIVE_OVERLAP")) disqualified.competitiveOverlap += 1;
+    if (dq.has("INACTIVE_BUSINESS")) disqualified.inactive += 1;
+    if (dq.has("WEAK_EVIDENCE")) disqualified.weakEvidence += 1;
+    if (dq.has("WEAK_COMMERCIAL_FIT")) disqualified.weakCommercialFit += 1;
+    if (dq.has("JURISDICTION_BLOCKED")) disqualified.jurisdictionBlocked += 1;
+    if (dq.has("JURISDICTION_UNKNOWN")) disqualified.jurisdictionUnknown += 1;
   }
 
   const { listScheduledBindings } = await import("../outreach/scheduled-batch");
@@ -108,15 +162,17 @@ export async function quickCashInventory(opts: { limit?: number; offers?: QuickF
 
   const routedTotal = routes.DIRECT_FIX + routes.FIX_SCAN + routes.CONVERSATION_REQUIRED + routes.NO_FIX_FOUND;
   return {
-    totalLeads: leads.length,
+    totalLeads: contexts.length,
     customers: customerLeadIds.size,
     suppressed,
     legacyFrozenScheduled,
     routes,
-    readyToSell,
+    funnel,
+    disqualified,
+    readyToSell: funnel.readyToSell,
     addressableRevenueCents,
     coldOutreachFrozen: legacyColdOutreachFrozen(),
-    exactlyOneRoutePerLead: routedTotal === nonCustomerLeads.length,
+    exactlyOneRoutePerLead: routedTotal === nonCustomer.length,
   };
 }
 
@@ -143,12 +199,13 @@ export interface QuickCashHome {
 }
 
 export async function quickCashHomeView(limit = 500): Promise<QuickCashHome> {
-  const offers = await buildLeadOffers(limit);
+  const contexts = await buildLeadContexts(limit);
+  const offers = contexts.map((c) => c.offer).filter((o): o is QuickFixOffer => !!o);
   const rows = rankQuickCash(offers);
   const routing = { DIRECT_FIX: 0, FIX_SCAN: 0, CONVERSATION_REQUIRED: 0, NO_FIX_FOUND: 0, cannibalization: 0 };
   for (const o of offers) { const r = routeLead(o); routing[r.route] += 1; if (r.cannibalizationFlag) routing.cannibalization += 1; }
 
-  const inventory = await quickCashInventory({ offers });
+  const inventory = await quickCashInventory({ contexts });
   const fulfil = await fulfillmentView();
   const inFulfillment = ACTIVE_FULFILLMENT_STATES.reduce((n, s) => n + (fulfil.byState[s] ?? 0), 0);
   const customers = await customersView();
@@ -442,3 +499,47 @@ export async function revenueSummary(): Promise<{ jobsByState: Record<string, nu
 
 // re-export for the catalog page
 export { skuFor, jobProfit };
+
+// ── Fulfillment workspace state (Part A) — packet + PERSISTED sub-state ───────────
+// The packet is stateless; this pairs it with the durable job sub-state (runbook /
+// access / QA / evidence) so the technician workspace resumes exactly on reload and
+// the server-side delivery gate can be reflected. NEVER returns a secret.
+export async function fulfillmentWorkspaceView(offerId: string): Promise<{
+  packet: import("./fulfillment-center").FulfillmentPacket;
+  platform: string;
+  runbookState: import("./store").RunbookState | null;
+  accessState: Record<string, import("./store").AccessItemState>;
+  qaState: Record<string, import("./store").QaItemState>;
+  evidence: import("./store").EvidenceItem[];
+  gate: import("./fulfillment-gates").DeliveryGate;
+} | null> {
+  const { buildFulfillmentPacket, normalizePlatform } = await import("./fulfillment-center");
+  const { deliveryGate } = await import("./fulfillment-gates");
+  const offer = await store.getOffer(offerId);
+  if (!offer) return null;
+  const job = await store.getJob(offerId);
+  if (!job) return null;
+  const state = await store.getState();
+  const customer = state.customers[offer.leadId] ?? null;
+  const bi = await getBusinessIntelligence(offer.leadId).catch(() => null);
+  const acc = await store.getTermsAcceptance(offerId).catch(() => null);
+  const detectedPlatform = extractPlatform(bi);
+  const packet = buildFulfillmentPacket({
+    offer: offer as unknown as QuickFixOffer,
+    job,
+    customer,
+    detectedPlatform,
+    termsVersion: acc?.termsVersion ?? null,
+  });
+  const platform = normalizePlatform(detectedPlatform);
+  const gate = deliveryGate(offer as unknown as QuickFixOffer, job, platform);
+  return {
+    packet,
+    platform,
+    runbookState: job.runbookState ?? null,
+    accessState: job.accessState ?? {},
+    qaState: job.qaState ?? {},
+    evidence: job.evidence ?? [],
+    gate,
+  };
+}

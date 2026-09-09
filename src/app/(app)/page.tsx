@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Zap, Wrench, Users, MessageSquare, ShieldCheck, ArrowRight, DollarSign } from "lucide-react";
 import { quickCashHomeView } from "@/lib/quick-fix/operator-views";
+import { sprintScoreboardView } from "@/lib/quick-fix/sprint-view";
 import { PrepareOfferButton } from "@/components/quick-fix/PrepareOfferButton";
 
 export const dynamic = "force-dynamic";
@@ -12,6 +13,7 @@ const usd = (c: number) => `$${Math.round(c / 100).toLocaleString()}`;
 // to-sell opportunity feed. Legacy cold outreach is frozen; nothing here sends.
 export default async function HomePage() {
   const { rows, routing, inventory, metrics } = await quickCashHomeView();
+  const { scoreboard } = await sprintScoreboardView();
   const eligible = rows.filter((r) => r.eligible);
   const top = eligible.slice(0, 12);
 
@@ -54,9 +56,32 @@ export default async function HomePage() {
         </Link>
       </div>
 
-      <p className="text-[12px] text-chalk-500">
-        Inventory — {inventory.totalLeads} leads · DIRECT_FIX {routing.DIRECT_FIX} · FIX_SCAN {routing.FIX_SCAN} · CONVERSATION {routing.CONVERSATION_REQUIRED} · NO_FIX {routing.NO_FIX_FOUND} · customers {inventory.customers} · suppressed {inventory.suppressed} · legacy-frozen {inventory.legacyFrozenScheduled}.
-      </p>
+      {/* Quick-Cash sprint / graduation — 20 checkpoint · 50 graduation (finite bridge, not the destination). */}
+      <div className="rounded-xl border border-white/10 bg-white/[0.02] px-3.5 py-2.5">
+        <div className="flex items-center justify-between text-[12px]">
+          <span className="font-medium text-chalk-300">Quick-Cash sprint</span>
+          <span className="tabular-nums text-chalk-400">{scoreboard.completedJobs} / {scoreboard.graduation} jobs {scoreboard.reachedCheckpoint ? "· checkpoint reached" : `· ${scoreboard.checkpoint} = checkpoint`}</span>
+        </div>
+        <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-white/10">
+          <div className="h-full rounded-full bg-teal-400/70" style={{ width: `${Math.round(scoreboard.progressToGraduation * 100)}%` }} />
+        </div>
+        <p className="mt-1.5 text-[11.5px] text-chalk-500">
+          revenue {usd(scoreboard.grossRevenueCents)} · repeat {scoreboard.repeatCustomers} · recurring {scoreboard.recurringCustomers} · references ready {scoreboard.referenceReady} (approved {scoreboard.referencesApproved}) · capability proofs {scoreboard.capabilityProofs}.
+        </p>
+      </div>
+
+      {/* Honest usable-inventory funnel — raw discovery is NOT sellable inventory. */}
+      <div className="rounded-xl border border-white/10 bg-white/[0.02] px-3.5 py-2.5 text-[12px] text-chalk-500">
+        <p>
+          Funnel — {inventory.funnel.totalDiscovered} discovered · {inventory.funnel.hasWebsite} w/ website · {inventory.funnel.emailable} emailable · {inventory.funnel.commerciallyQualified} commercially-qualified · {inventory.funnel.evidenceQualified} evidence-qualified · <span className="text-teal-300">{inventory.funnel.readyToSell} ready to sell</span>.
+        </p>
+        <p className="mt-1">
+          Not sellable (preserved) — no-email {inventory.disqualified.noEmail} · no-website {inventory.disqualified.noWebsite} · suppressed {inventory.disqualified.suppressed} · overlap {inventory.disqualified.competitiveOverlap} · weak-fit {inventory.disqualified.weakCommercialFit} · weak-evidence {inventory.disqualified.weakEvidence} · jurisdiction {inventory.disqualified.jurisdictionBlocked + inventory.disqualified.jurisdictionUnknown}.
+        </p>
+        <p className="mt-1 text-chalk-600">
+          Routes — DIRECT_FIX {routing.DIRECT_FIX} · FIX_SCAN {routing.FIX_SCAN} · CONVERSATION {routing.CONVERSATION_REQUIRED} · NO_FIX {routing.NO_FIX_FOUND} · customers {inventory.customers} · legacy-frozen {inventory.legacyFrozenScheduled}.
+        </p>
+      </div>
 
       {/* Ranked opportunity feed */}
       {top.length === 0 ? (

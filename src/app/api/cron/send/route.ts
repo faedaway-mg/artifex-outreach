@@ -41,6 +41,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, dispatched: false, sent: 0, frozen: true, reason: LEGACY_FROZEN_REASON });
   }
 
+  // CAPACITY gate: PAUSED stops NEW cold follow-up; customer/transactional unaffected.
+  const { coldOutreachAllowedByCapacity } = await import("@/lib/outreach/capacity-modes");
+  const capSend = coldOutreachAllowedByCapacity();
+  if (!capSend.allowed) {
+    return NextResponse.json({ ok: true, dispatched: false, sent: 0, capacityMode: capSend.mode, reason: capSend.reason });
+  }
+
   if (process.env.COMMS_AUTOSEND_ENABLED !== "1") {
     return NextResponse.json({
       ok: true,

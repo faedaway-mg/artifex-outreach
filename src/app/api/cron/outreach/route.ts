@@ -51,6 +51,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, dispatched: false, due: due.length, sent: 0, frozen: true, reason: LEGACY_FROZEN_REASON });
   }
 
+  // CAPACITY gate: PAUSED (or a future throttle) stops NEW cold outbound while leaving
+  // customer/transactional/reply/fulfillment untouched. Default GROWTH permits it.
+  const { coldOutreachAllowedByCapacity } = await import("@/lib/outreach/capacity-modes");
+  const capOut = coldOutreachAllowedByCapacity();
+  if (!capOut.allowed) {
+    return NextResponse.json({ ok: true, dispatched: false, due: due.length, sent: 0, capacityMode: capOut.mode, reason: capOut.reason });
+  }
+
   // ENTRY gate: with automated sending off, report the real due count but dispatch nothing.
   if (process.env.QR_AUTOSEND_ENABLED !== "1") {
     return NextResponse.json({ ok: true, dispatched: false, due: due.length, sent: 0, reason: "Scheduled outreach is DISABLED (QR_AUTOSEND_ENABLED != \"1\"). Persisted batch read; nothing dispatched." });

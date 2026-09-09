@@ -155,7 +155,9 @@ export function OfferPageView({ model, token, preview = false }: { model: OfferP
                     className="aspect-video w-full bg-ink-975"
                   >
                     <source src={video.assetUrl} type="video/mp4" />
-                    {video.captionsUrl && <track kind="captions" srcLang="en" label="English" src={video.captionsUrl} default />}
+                    {/* Captions default OFF and are attached ONLY when verified against the final
+                        narration (captionsUrl is null until then) — never auto-display stale cues. */}
+                    {video.captionsUrl && <track kind="captions" srcLang="en" label="English" src={video.captionsUrl} />}
                   </video>
                 </div>
               ) : (

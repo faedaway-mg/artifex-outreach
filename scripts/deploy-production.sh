@@ -36,9 +36,13 @@ BRANCH="$(git rev-parse --abbrev-ref HEAD)"
 SHA="$(git rev-parse HEAD)"
 SHORT="$(git rev-parse --short HEAD)"
 if [ -n "$(git status --porcelain)" ]; then
-  echo "  ⚠ Working tree has uncommitted changes:"
+  echo "  Working tree has uncommitted changes:"
   git status --short | sed 's/^/    /'
-  echo "  The image is built from the working tree (railway up), so these WILL ship."
+  if [ "${ALLOW_DIRTY:-0}" = "1" ]; then
+    echo "  ⚠ ALLOW_DIRTY=1 — proceeding, but runtime provenance will NOT match $SHORT."
+  else
+    fail "Refusing to deploy an uncommitted working tree — commit + push first so the deployed image maps to an exact commit (set ALLOW_DIRTY=1 only for a deliberate throwaway deploy)."
+  fi
 else
   echo "  ✓ Working tree clean."
 fi
@@ -86,6 +90,15 @@ fi
 step "Read-only Railway preflight"
 PREFLIGHT_MIGRATIONS_RESULT="$PENDING" bash "$ROOT/scripts/deploy-preflight.sh" || fail "Preflight blocked the deployment."
 
+# 4.6 ── Pin runtime provenance to THIS commit ───────────────────────────────
+# The health route reports process.env.APP_VERSION as the deployed commit. Set it to
+# the exact SHA being deployed so /api/health proves "production == this commit". Uses
+# ONLY `--set` (never bare `railway variables`, which would print secrets).
+step "Pinning APP_VERSION to $SHORT"
+railway variables --service outreach-web --set "APP_VERSION=$SHA" --skip-deploys >/dev/null 2>&1 \
+  && echo "  ✓ APP_VERSION set to $SHA" \
+  || echo "  ⚠ could not set APP_VERSION (continuing) — verify /api/health SHA after deploy"
+
 # 5 ── Deploy ─────────────────────────────────────────────────────────────────
 step "Deploying to outreach-web (railway up)"
 railway up --service outreach-web --ci
@@ -105,6 +118,8 @@ PASS=1
 HEALTH="$(curl -s -m 25 "$BASE/api/health" || true)"
 echo "$HEALTH" | grep -q '"status":"ok"'        && echo "  ✓ /api/health status ok"       || { echo "  ✗ /api/health not ok"; PASS=0; }
 echo "$HEALTH" | grep -q '"connected":true'     && echo "  ✓ database connected"           || { echo "  ✗ database not connected"; PASS=0; }
+# Provenance: runtime commit MUST equal the deployed SHA (deterministic source proof).
+echo "$HEALTH" | grep -q "\"commit\":\"$SHA\""   && echo "  ✓ /api/health SHA == $SHORT"     || { echo "  ✗ /api/health SHA != $SHORT (runtime provenance mismatch)"; PASS=0; }
 
 LOGIN_CODE="$(curl -s -m 20 -o /dev/null -w '%{http_code}' "$BASE/login" || true)"
 [ "$LOGIN_CODE" = "200" ] && echo "  ✓ /login reachable (200)" || { echo "  ✗ /login returned $LOGIN_CODE"; PASS=0; }
