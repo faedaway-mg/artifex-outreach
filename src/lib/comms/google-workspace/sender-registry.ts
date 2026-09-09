@@ -33,7 +33,9 @@ const SLOTS: Array<{ id: string; addrKey: keyof NodeJS.ProcessEnv; tokKey: keyof
 ];
 
 function fromHeaderFor(address: string): string {
-  return `${ARTIFEX_IDENTITY.companyName} <${address}>`;
+  // Render naturally as the human sender (server-controlled in MIME) — not the
+  // company name and not a mailbox-UI setting.
+  return `${ARTIFEX_IDENTITY.mailSenderName} <${address}>`;
 }
 
 /** Configured sender ids (both address AND refresh token present). */

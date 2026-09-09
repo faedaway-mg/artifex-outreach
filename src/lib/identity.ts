@@ -10,6 +10,9 @@ export const ARTIFEX_IDENTITY = {
   companyName: "Artifex Labs",
   publicWebsite: "https://artifexlabs.tech",
   publicEmail: "hello@artifexlabs.tech",
+  // The human display name on outbound mail (From header + signature). Controlled
+  // in the MIME message itself, never relying on a Gmail mailbox UI signature.
+  mailSenderName: "Jordan Jackson",
   // NEW Microsoft 365-connected Artifex Labs Cal.com account (organizer =
   // hello@artifexlabs.tech, name "Artifex Labs"). Verified live 2026-07-20
   // (HTTP 200): 30 min, Cal Video. Do NOT use artifex-labs-discovery-call

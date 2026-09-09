@@ -11,8 +11,38 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import { validEmail } from "../acquisition/compliance";
 import { mintUnsubToken } from "./unsubscribe-token";
+import { ARTIFEX_IDENTITY } from "../identity";
 
 export const LEGAL_IDENTITY = "Artifex Labs Systems LLC";
+
+// ── Server-controlled sender signature ───────────────────────────────────────
+// Acquisition OS sends raw MIME (Gmail API / Resend), so a mailbox-UI signature is
+// NOT appended automatically. This canonical renderer adds a simple signature to
+// EVERY outbound cold message, exactly once, for every sender. It sits above the
+// compliant CAN-SPAM footer. Idempotent: a body that already carries the marker
+// (e.g. a quoted follow-up) does not get a second signature.
+const SIG_MARKER = "artifex-signature";
+const SIG_NAME = ARTIFEX_IDENTITY.mailSenderName; // "Jordan Jackson"
+const SIG_COMPANY = ARTIFEX_IDENTITY.companyName; // "Artifex Labs"
+const SIG_SITE_URL = ARTIFEX_IDENTITY.publicWebsite; // https://artifexlabs.tech
+const SIG_SITE_LABEL = SIG_SITE_URL.replace(/^https?:\/\//, "");
+
+/** The plain-text + HTML signature block. Plain text stays clean (no links/markup). */
+export function signatureBlock(): { text: string; html: string } {
+  const text = `\n\n${SIG_NAME}\n${SIG_COMPANY}\n${SIG_SITE_LABEL}`;
+  const html =
+    `<div data-artifex-signature="1" style="margin-top:16px;color:#3a3a3a;font-size:13px;line-height:1.5;">` +
+    `${esc(SIG_NAME)}<br>${esc(SIG_COMPANY)}<br>` +
+    `<a href="${esc(SIG_SITE_URL)}" style="color:#3a3a3a;text-decoration:underline;">${esc(SIG_SITE_LABEL)}</a>` +
+    `<!-- ${SIG_MARKER} --></div>`;
+  return { text, html };
+}
+
+/** True when a body already contains our signature (avoid duplicates on follow-ups). */
+function hasSignature(html: string, text: string): boolean {
+  return html.includes(SIG_MARKER) || html.includes('data-artifex-signature') ||
+    new RegExp(`${SIG_NAME}\\s*\\n${SIG_COMPANY}`).test(text);
+}
 
 /** The postal address for the CAN-SPAM footer. The deployment-level COMMS_POSTAL_ADDRESS wins; when it
  *  is unset, the operator-configured Settings "Business mailing address" (`fallback`) is used, so the
@@ -73,5 +103,10 @@ export function assembleCommercialMessage(input: { leadId: string; recipient: st
   if (!input.subject || !input.subject.trim()) return { ok: false, reason: "no-subject" };
   const f = buildCommercialFooter({ leadId: input.leadId, recipient: input.recipient, postal: input.postal });
   if (!f.ok) return f;
-  return { ok: true, html: `${input.bodyHtml}${f.footer.html}`, text: `${input.bodyText}${f.footer.text}`, unsubscribeUrl: f.footer.unsubscribeUrl };
+  // Insert the server-controlled signature once, ABOVE the compliant footer.
+  const sig = signatureBlock();
+  const already = hasSignature(input.bodyHtml, input.bodyText);
+  const html = `${input.bodyHtml}${already ? "" : sig.html}${f.footer.html}`;
+  const text = `${input.bodyText}${already ? "" : sig.text}${f.footer.text}`;
+  return { ok: true, html, text, unsubscribeUrl: f.footer.unsubscribeUrl };
 }
