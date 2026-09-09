@@ -224,11 +224,14 @@ export function toStripeForm(params: CheckoutParams): Record<string, string> {
   return out;
 }
 
-export function liveStripeCheckoutClient(): StripeCheckoutClient {
+/** The live checkout client. Pass the mode-resolved Quick-Fix key (test or live);
+ *  defaults to STRIPE_SECRET_KEY for back-compat. The key is used only for the
+ *  Authorization header and is never logged. */
+export function liveStripeCheckoutClient(secretKey?: string): StripeCheckoutClient {
   return {
     async create(params: CheckoutParams): Promise<CheckoutResult> {
-      const keyEnv = process.env.STRIPE_SECRET_KEY;
-      if (!keyEnv) return { ok: false, id: null, url: null, error: "STRIPE_SECRET_KEY not set" };
+      const keyEnv = secretKey ?? process.env.STRIPE_SECRET_KEY;
+      if (!keyEnv) return { ok: false, id: null, url: null, error: "Stripe key not set" };
       const ctrl = new AbortController();
       const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
       try {

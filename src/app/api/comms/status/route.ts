@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { commsMetrics } from "@/lib/comms/monitoring";
 import { googleConfigPresence } from "@/lib/comms/google-workspace/config";
 import { senderHealthSnapshot } from "@/lib/comms/google-workspace/sender-health";
+import { stripeModeDiagnostics } from "@/lib/quick-fix/stripe-mode";
+import { webhookSecretPresence } from "@/lib/quick-fix/webhook-secrets";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -19,5 +21,7 @@ export async function GET(req: NextRequest) {
   const includeProviderHealth = req.nextUrl.searchParams.get("health") === "1";
   const [metrics, senders] = await Promise.all([commsMetrics({ includeProviderHealth }), senderHealthSnapshot()]);
   const google = { ...googleConfigPresence(), senderHealth: senders };
-  return NextResponse.json({ ok: true, metrics, google });
+  // Quick-Fix Stripe diagnostics — booleans + resolved mode ONLY (no key/secret values).
+  const quickFixStripe = { ...stripeModeDiagnostics(), ...webhookSecretPresence() };
+  return NextResponse.json({ ok: true, metrics, google, quickFixStripe });
 }

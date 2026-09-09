@@ -11,9 +11,11 @@ import { selectActiveEvergreen } from "./evergreen-asset";
 import { termsAcceptanceMatchesOffer } from "./terms";
 import { buildRequirements, type RequirementsChecklist } from "./requirements";
 import { ARTIFEX_IDENTITY } from "../identity";
+import { quickFixStripeConfigured } from "./stripe-mode";
 
 export function stripeConfigured(): boolean {
-  return !!process.env.STRIPE_SECRET_KEY;
+  // Mode-aware: reflects whether the ACTIVE Quick-Fix mode (test/live) has its key.
+  return quickFixStripeConfigured();
 }
 
 /** The public link path for an offer (share token — unguessable, revocable). */
