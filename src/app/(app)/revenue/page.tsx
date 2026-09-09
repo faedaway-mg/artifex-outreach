@@ -15,7 +15,9 @@ const LINKS = [
   { href: "/revenue/profitability", title: "SKU Profitability", desc: "Gross profit per operator hour" },
   { href: "/revenue/customers", title: "Customers / CLV", desc: "Converted customers & lifetime value" },
   { href: "/revenue/trust-asset", title: "Evergreen Trust Video", desc: "Manage the shared Quick-Fix explainer" },
+  { href: "/revenue/breakbot", title: "Breakbot QA", desc: "Adversarial pre-flight — READY to approve / NOT ready" },
   { href: "/revenue/preview", title: "Preview as Customer", desc: "Walk the full funnel — no send, no charge" },
+  { href: "/revenue/activity", title: "Activity", desc: "Money-loop history — legacy cold outreach frozen" },
 ];
 
 export default async function RevenueHub() {

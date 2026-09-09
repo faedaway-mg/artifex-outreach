@@ -8,12 +8,14 @@
 // the model triggers no charges and no sends.
 // ─────────────────────────────────────────────────────────────────────────────
 import type { QuickFixOffer } from "./types";
+import type { EvidencePackage } from "./evidence-package";
 import type { EvergreenAssetVersion } from "./evergreen-asset";
 import { buildRequirements, type RequirementsChecklist } from "./requirements";
 import { buildStripeDescription } from "./stripe-copy";
 import { TERMS_VERSION, TERMS_CLAUSES } from "./terms";
 import { scopeForOffer, type TrustVideoScope } from "./trust-videos";
 import { impactForScope } from "./impact";
+import { experienceFrameForOffer, type ExperienceFrame } from "./experience-frame";
 
 // Operationally-true integrity principles (only claims that hold in the process).
 export const INTEGRITY_PRINCIPLES = [
@@ -39,6 +41,10 @@ export interface OfferPageModel {
   company: string;
   headline: string;
   whatWeFound: string;
+  /** Plain-language proposed change (the offer's proposedSolution) — the "repair" beat. */
+  proposedSolution: string;
+  /** The offer's revision window/policy, surfaced in the process-protection copy. */
+  revisionPolicy: string;
   evidence: string[];
   whatWeFix: string[];
   whatsExcluded: string[];
@@ -52,6 +58,9 @@ export interface OfferPageModel {
   /** Conceptual interface before/after (an EXAMPLE — never a measured customer result). */
   beforeAfter: { before: string; after: string };
   scope: TrustVideoScope;
+  /** The single source of the attempted-use / observed-friction hero (email + PDF + page
+   *  all derive their opener from HERE). Drives the EXPERIENCE hero that leads the page. */
+  experience: ExperienceFrame;
   trustVideo: { present: boolean; assetUrl: string | null; posterUrl: string | null; captionsUrl: string | null; title: string; durationSeconds: number | null; script: string; version: number | null };
   requirements: RequirementsChecklist;
   howItWorks: string[];
@@ -64,6 +73,9 @@ export interface OfferPageModel {
   /** Not quick-fix eligible → the page is a conversation page, not a sales page. */
   conversationOnly: boolean;
   conversationReason: string | null;
+  /** The canonical evidence bindings (screenshots/findings/asset refs) for this offer,
+   *  when the caller has already built the package. Purely additive; null when omitted. */
+  evidenceAssets?: EvidencePackage | null;
 }
 
 const HOW_IT_WORKS = [
@@ -85,6 +97,8 @@ export interface BuildOfferPageInput {
   /** Recurring-maintenance upsell is only surfaced when the operator has enabled it
    *  (a working online cancellation path is configured). Default off. */
   maintenanceUpsellEnabled?: boolean;
+  /** Pre-built evidence package to surface on the page. Purely additive; omit → null. */
+  evidence?: EvidencePackage | null;
 }
 
 export function buildOfferPageModel(input: BuildOfferPageInput): OfferPageModel {
@@ -108,6 +122,10 @@ export function buildOfferPageModel(input: BuildOfferPageInput): OfferPageModel 
 
   const scope = scopeForOffer(offer);
   const impact = impactForScope(scope);
+  // The one attempted-use / observed-friction frame that leads the page hero. Derived
+  // from the offer's canonical problem statement — never fabricated, honest when the
+  // defect doesn't imply an attempt (attemptSupported === false).
+  const experience = experienceFrameForOffer(offer);
   // Short turnaround phrase for the hero badge (the full sentence stays in §price).
   const durMatch = offer.scope.deliveryWindow.match(/within\s+([^.,]+?)\s+of/i);
   const shortTurn = durMatch ? `${durMatch[1].trim()} after access` : "Fast turnaround";
@@ -122,6 +140,8 @@ export function buildOfferPageModel(input: BuildOfferPageInput): OfferPageModel 
     company: offer.companyName,
     headline: conversationOnly ? `Let's talk about ${offer.companyName}` : `${offer.scope.offerName} for ${offer.companyName}`,
     whatWeFound: offer.scope.problemBeingSolved,
+    proposedSolution: offer.scope.proposedSolution,
+    revisionPolicy: offer.scope.revisionPolicy,
     evidence: offer.findingIds.length ? [`Based on ${offer.findingIds.length} evidence-backed finding(s) from our review.`] : [],
     whatWeFix: offer.scope.includedItems,
     whatsExcluded: offer.scope.excludedItems,
@@ -132,6 +152,7 @@ export function buildOfferPageModel(input: BuildOfferPageInput): OfferPageModel 
     impactPoints: impact.impactPoints,
     beforeAfter: { before: impact.before, after: impact.after },
     scope,
+    experience,
     trustVideo: {
       present: !!input.evergreen,
       assetUrl: input.evergreen?.assetUrl ?? null,
@@ -152,5 +173,6 @@ export function buildOfferPageModel(input: BuildOfferPageInput): OfferPageModel 
     checkout: { purchasable, buyEnabled, reasons: buyEnabled ? ["ready to check out"] : buyReasons },
     conversationOnly,
     conversationReason: conversationOnly ? offer.notEligibleReason : null,
+    evidenceAssets: input.evidence ?? null,
   };
 }

@@ -20,6 +20,8 @@ export interface SprintJob {
   deliveredAt?: string | null;
   /** Real completion evidence (before/after/test) is persisted for this job. */
   hasCompletionEvidence?: boolean;
+  /** True → a demo/seed job. HARD-excluded from every scoreboard number. */
+  isDemo?: boolean;
 }
 
 export interface SprintCustomer {
@@ -31,6 +33,8 @@ export interface SprintCustomer {
   hasCompletedJob?: boolean;
   /** Customer explicitly approved serving as a reference (permission, not eligibility). */
   referenceApproved?: boolean;
+  /** True → this customer's only jobs are demo jobs. Excluded from real customer counts. */
+  isDemo?: boolean;
 }
 
 export interface SprintScoreboard {
@@ -54,12 +58,16 @@ export interface SprintScoreboard {
 const COMPLETED = new Set(["COMPLETE"]);
 const DELIVERED_OR_DONE = new Set(["DELIVERED", "COMPLETE"]);
 
-/** Build the scoreboard from real jobs + customers. Never fabricates progress. */
+/** Build the scoreboard from real jobs + customers. Never fabricates progress.
+ *  DEMO jobs (isDemo === true) and demo-only customers are HARD-excluded from every
+ *  number here — a demonstration must never inflate the real money loop. */
 export function buildSprintScoreboard(jobs: SprintJob[], customers: SprintCustomer[], refundsCents = 0): SprintScoreboard {
-  const completed = jobs.filter((j) => COMPLETED.has(j.state));
+  const realJobs = jobs.filter((j) => j.isDemo !== true);
+  const realCustomers = customers.filter((c) => c.isDemo !== true);
+  const completed = realJobs.filter((j) => COMPLETED.has(j.state));
   const completedJobs = completed.length;
   const grossRevenueCents = completed.reduce((n, j) => n + (j.priceCents || 0), 0);
-  const proofs = jobs.filter((j) => DELIVERED_OR_DONE.has(j.state) && j.hasCompletionEvidence);
+  const proofs = realJobs.filter((j) => DELIVERED_OR_DONE.has(j.state) && j.hasCompletionEvidence);
   const playbooks = new Set(proofs.map((j) => j.skuFamily).filter(Boolean));
 
   return {
@@ -72,10 +80,10 @@ export function buildSprintScoreboard(jobs: SprintJob[], customers: SprintCustom
     grossRevenueCents,
     refundsCents,
     avgTicketCents: completedJobs > 0 ? Math.round(grossRevenueCents / completedJobs) : null,
-    repeatCustomers: customers.filter((c) => (c.purchases ?? 0) >= 2).length,
-    recurringCustomers: customers.filter((c) => !!c.maintenancePlanKey).length,
-    referenceReady: customers.filter((c) => !!c.hasCompletedJob).length,
-    referencesApproved: customers.filter((c) => !!c.referenceApproved).length,
+    repeatCustomers: realCustomers.filter((c) => (c.purchases ?? 0) >= 2).length,
+    recurringCustomers: realCustomers.filter((c) => !!c.maintenancePlanKey).length,
+    referenceReady: realCustomers.filter((c) => !!c.hasCompletedJob).length,
+    referencesApproved: realCustomers.filter((c) => !!c.referenceApproved).length,
     capabilityProofs: proofs.length,
     playbooksProven: playbooks.size,
   };

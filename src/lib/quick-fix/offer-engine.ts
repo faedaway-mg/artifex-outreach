@@ -96,12 +96,16 @@ function uniq<T>(xs: T[]): T[] {
   return Array.from(new Set(xs));
 }
 
+// The CUSTOMER-FACING offer noun. Single-capability offers use the capability's
+// plain-language `customerTitle` (never `.name`, which may contain acronyms like
+// "CTA"). Bundles keep the umbrella-by-dominant-category logic but the umbrella
+// names are plain-language too — no acronym or jargon ever leaks to a prospect.
 function offerNounFor(caps: Capability[]): string {
-  if (caps.length === 1) return caps[0].name;
-  // Multi-capability bundle → a cohesive umbrella name by dominant category.
+  if (caps.length === 1) return caps[0].customerTitle;
+  // Multi-capability bundle → a cohesive plain-language umbrella by dominant category.
   const cats = caps.flatMap((c) => c.addressesCategories);
-  if (cats.includes("Customer Acquisition")) return "Lead Capture Fix";
-  if (cats.includes("Brand Experience")) return "Conversion Fix";
+  if (cats.includes("Customer Acquisition")) return "Get More Website Contacts";
+  if (cats.includes("Brand Experience")) return "Website Improvements";
   return "Website Fix";
 }
 
@@ -187,7 +191,7 @@ export function generateOffer(input: GenerateOfferInput): QuickFixOffer {
   const deterministicName = `${delivery.label} ${offerNounFor(caps)}`;
   const offerName = input.copy?.offerName && !containsFabricatedClaim(input.copy.offerName) ? input.copy.offerName : deterministicName;
   const deterministicSolution =
-    caps.length === 1 ? primary.solutionSummary : `${primary.solutionSummary} We also address ${caps.slice(1).map((c) => c.name.toLowerCase()).join(", ")}.`;
+    caps.length === 1 ? primary.solutionSummary : `${primary.solutionSummary} We also address ${caps.slice(1).map((c) => c.customerTitle.toLowerCase()).join(", ")}.`;
   const proposedSolution = input.copy?.proposedSolution && !containsFabricatedClaim(input.copy.proposedSolution) ? input.copy.proposedSolution : deterministicSolution;
 
   const includedItems = uniq(caps.flatMap((c) => c.includedItems)).slice(0, 8);
@@ -210,7 +214,7 @@ export function generateOffer(input: GenerateOfferInput): QuickFixOffer {
   // 6) MAINTENANCE recommendation (optional, from the primary capability).
   const plan = maintenancePlanByKey(primary.maintenancePlanKey);
   const maintenance: MaintenanceRecommendation | null = plan
-    ? { planKey: plan.key, planName: plan.name, monthlyCents: plan.monthlyCents, rationale: `Keeps the ${primary.name.toLowerCase()} healthy after delivery.` }
+    ? { planKey: plan.key, planName: plan.name, monthlyCents: plan.monthlyCents, rationale: `Keeps the ${primary.customerTitle.toLowerCase()} healthy after delivery.` }
     : null;
 
   // 7) VERSION — stable hash of everything that affects price or what's delivered.

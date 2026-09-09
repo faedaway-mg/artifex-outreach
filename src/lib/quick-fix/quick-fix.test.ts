@@ -629,12 +629,19 @@ describe("fix scan + pricing psychology", () => {
   });
 });
 
-// ── Dual-CTA outreach (pure; does not send) ────────────────────────────────────
+// ── First-touch outreach (pure; does not send) ─────────────────────────────────
+// Reworked: evidence-first / value-before-price. No price + no "Get this fixed"
+// price-CTA in the default body; friendly link LABELS only; the primary CTA stays
+// PURCHASE. (Deep first-touch coverage lives in offer-outreach-first-touch.test.ts.)
 describe("offer outreach", () => {
-  it("eligible offer → teaser with buy + book CTAs and no fabricated claims", () => {
+  it("eligible offer → evidence-first teaser, PURCHASE CTA, no price, no fabricated claims", () => {
     const c = composeOfferOutreach({ ...gen([CTA]), offerId: "offer_1" }, { buyUrl: "https://app/offer/offer_1", bookingUrl: "https://cal" });
     expect(c.primaryCta).toBe("PURCHASE");
-    expect(c.bodyText).toMatch(/Get this fixed/);
+    // No price / no old price-CTA copy in the default first-touch body.
+    expect(c.bodyText).not.toMatch(/Get this fixed/);
+    expect(c.bodyText).not.toMatch(/\$\s?\d/);
+    // Friendly click label + book-a-conversation option present.
+    expect(c.bodyText).toMatch(/See what I found →|Watch the website review →/);
     expect(c.bodyText).toMatch(/book a conversation/i);
     expect(c.safe).toBe(true);
   });

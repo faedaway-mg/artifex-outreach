@@ -58,6 +58,15 @@ else
   echo "  (--skip-build) skipping typecheck/lint/test/build"
 fi
 
+# 3.5 ── Breakbot release-regression gate (Part U) ────────────────────────────
+# Runs the Quick-Cash pre-flight over the 5 golden + 20 failure fixtures and fails
+# closed if any golden stops being READY or any failure stops being caught on its
+# surface. Pure/offline (no DB, no sends). Runs even under --skip-build — it is a
+# release-safety check, not a build step, and it is cheap.
+step "Breakbot release-regression (golden + failure fixtures)"
+pnpm -s tsx "$ROOT/scripts/breakbot-regression.ts" \
+  || fail "Breakbot regression failed — a Quick-Cash experience check regressed. Holding the deploy."
+
 # 4 ── Pending DB migrations ──────────────────────────────────────────────────
 step "Checking pending database migrations"
 PENDING="$(node "$ROOT/scripts/migration-status.mjs" --count 2>/dev/null || echo "ERR")"

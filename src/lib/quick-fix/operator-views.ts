@@ -18,6 +18,22 @@ import { playbookFor } from "./playbooks";
 import { DEFAULT_AUTOMATION_LEVEL, AUTO_ELIGIBLE_CAPABILITY_ALLOWLIST } from "./automation-policy";
 import * as store from "./store";
 import type { QuickFixOffer } from "./types";
+import { buildEvidencePackage, customerReceivesManifest, type EvidencePackage, type ManifestRow } from "./evidence-package";
+import { composeOfferOutreach, type OfferOutreachCopy } from "./offer-outreach";
+import { offerIdFor } from "./store";
+import { ARTIFEX_IDENTITY } from "../identity";
+import { experienceFrameForOffer, type ExperienceFrame } from "./experience-frame";
+import { buildOutreachAttachments } from "./email-attachment-policy";
+import { assembleDiagnosticDoc } from "./diagnostic-pdf";
+import { assessOfferReadiness, PERSUASION_POLICY_VERSION, type ReadinessResult, type OfferArtifact } from "./offer-readiness";
+import { evidenceVersion, type DependentAsset } from "./evidence-truth";
+import {
+  runBreakbotPreflight,
+  type BreakbotVerdict,
+  type BreakbotPreflightInput,
+} from "../breakbot/quickcash-preflight";
+import { trustVideoForOffer } from "./trust-videos";
+import { qualifyLeadRecord } from "./qualification-adapter";
 
 // ── Build fresh lead contexts (lead + offer + BI) from current inventory ──────────
 // One pass over the inventory so qualification, routing, and ranking can all read
@@ -293,8 +309,12 @@ export interface FulfillmentRow {
   qaItems: number;
 }
 
+// DEMO jobs are HARD-excluded from every real fulfillment/revenue/customer/sprint
+// number. A demonstration job must never appear in the money loop.
+function isRealJob(j: import("./store").JobRecord): boolean { return j.isDemo !== true; }
+
 export async function fulfillmentView(): Promise<{ rows: FulfillmentRow[]; byState: Record<string, number> }> {
-  const jobs = await store.listJobs();
+  const jobs = (await store.listJobs()).filter(isRealJob);
   const rows: FulfillmentRow[] = [];
   const byState: Record<string, number> = {};
   for (const j of jobs) {
@@ -427,7 +447,7 @@ export interface ProfitRow {
 }
 
 export async function profitabilityView(): Promise<{ rows: ProfitRow[]; northStar: ReturnType<typeof northStar> }> {
-  const jobs = await store.listJobs();
+  const jobs = (await store.listJobs()).filter(isRealJob);
   // Group paid jobs by SKU. Operator time is NOT tracked yet → actualHours null.
   const bySku = new Map<string, { sales: number; revenueCents: number }>();
   const econ: JobEconomicsActuals[] = [];
@@ -464,8 +484,18 @@ export interface CustomerView {
 
 export async function customersView(): Promise<CustomerView[]> {
   const state = await store.getState();
+  // A customer whose ONLY jobs are demo jobs is a demo-only customer — excluded from
+  // real revenue/customer numbers. Customers with a real job (or no job record) stay.
+  const allJobs = await store.listJobs();
+  const demoOnlyLeadIds = new Set<string>();
+  const jobsByLead = new Map<string, import("./store").JobRecord[]>();
+  for (const j of allJobs) { const arr = jobsByLead.get(j.leadId) ?? []; arr.push(j); jobsByLead.set(j.leadId, arr); }
+  for (const [leadId, js] of jobsByLead) {
+    if (js.length > 0 && js.every((j) => j.isDemo === true)) demoOnlyLeadIds.add(leadId);
+  }
   const rows: CustomerView[] = [];
   for (const c of Object.values(state.customers)) {
+    if (demoOnlyLeadIds.has(c.leadId)) continue; // never count a demo-only customer
     const anyOffer = c.offersPurchased[0] ? await store.getOffer(c.offersPurchased[0]) : null;
     rows.push({
       leadId: c.leadId,
@@ -495,6 +525,29 @@ export async function revenueSummary(): Promise<{ jobsByState: Record<string, nu
     autoAllowlistEmpty: AUTO_ELIGIBLE_CAPABILITY_ALLOWLIST.length === 0,
     stripeConfigured: !!process.env.STRIPE_SECRET_KEY,
   };
+}
+
+// ── Evidence package + "customer receives" (Part H) — read-only accessors ────────
+// The operator evidence surface and the customer-facing "what you receive" manifest
+// both read from the ONE evidence truth. Read-only: no sends, no charges, no writes.
+
+/** Load the offer and build its canonical evidence package. Null when offer missing. */
+export async function evidencePackageView(offerId: string): Promise<EvidencePackage | null> {
+  const offer = await store.getOffer(offerId);
+  if (!offer) return null;
+  return buildEvidencePackage(offer as unknown as QuickFixOffer);
+}
+
+/** The customer-receives manifest for an offer. `emailReady` is derived from whether
+ *  a fabrication-safe outreach draft actually composes (composeOfferOutreach().safe).
+ *  Null when the offer is missing. Read-only. */
+export async function customerReceivesView(offerId: string): Promise<ManifestRow[] | null> {
+  const offer = await store.getOffer(offerId);
+  if (!offer) return null;
+  const pkg = await buildEvidencePackage(offer as unknown as QuickFixOffer);
+  // A fabrication-safe draft must compose for the offer email to be "receivable".
+  const draft = composeOfferOutreach(offer as unknown as QuickFixOffer, { buyUrl: `/offer/${offerId}`, bookingUrl: "" });
+  return customerReceivesManifest(pkg, offer as unknown as QuickFixOffer, draft.safe);
 }
 
 // re-export for the catalog page
@@ -541,5 +594,758 @@ export async function fulfillmentWorkspaceView(offerId: string): Promise<{
     qaState: job.qaState ?? {},
     evidence: job.evidence ?? [],
     gate,
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// OPPORTUNITY WORKSPACE (Parts A/B/C/H/J/K/O) — the mobile-first operator command
+// center for ONE opportunity. Assembles everything the operator needs to answer,
+// on one iPhone screen: WHO · Open Website ↗ · STATUS · what we found · what we're
+// selling + price · evidence presence · the PRIMARY NEXT ACTION — plus the tab data
+// (Evidence / Video / PDF / Email / Offer / Activity). Read-only. NEVER sends, never
+// charges, never schedules — it only reads state + the fixed contracts.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** The FIXED outreach-lifecycle contract, mirrored here so the workspace type-checks
+ *  before/independently of the sibling agent's outreach-lifecycle-view.ts landing.
+ *  Do NOT diverge from the contract in the mandate — this is the same shape. */
+export type OutreachState = "NEEDS_REVIEW" | "APPROVED_NOT_SENT" | "SCHEDULED" | "SENT" | "PURCHASED";
+export interface OutreachLifecycle {
+  offerId: string;
+  outreachState: OutreachState;
+  subject: { selected: string | null; alternatives: string[]; family: string | null; frozen: boolean };
+  scheduledAt: string | null;
+  scheduledTz: string | null;
+  sentAt: string | null;
+  sentMailbox: string | null;
+  sentRecipient: string | null;
+  canApprove: boolean;
+  canSend: boolean;
+  canSchedule: boolean;
+}
+
+/** Load the outreach lifecycle for an offer from the sibling agent's view when it
+ *  exists; otherwise fall back to an honest lifecycle derived from stored approval
+ *  state so the operator surface never crashes or fabricates a "sent". Read-only. */
+async function loadOutreachLifecycle(offerId: string, offer: import("./store").StoredOffer, draftSubject: string): Promise<OutreachLifecycle> {
+  try {
+    const mod: any = await import("./outreach-lifecycle-view" as any).catch(() => null);
+    if (mod && typeof mod.outreachLifecycleView === "function") {
+      const lc = await mod.outreachLifecycleView(offerId);
+      if (lc) return lc as OutreachLifecycle;
+    }
+  } catch { /* fall through to the honest local derivation */ }
+  // Honest fallback: never claims SENT/SCHEDULED — we only know approval state here.
+  const job = await store.getJob(offerId).catch(() => null);
+  const purchased = !!job && ["PAID", "WAITING_FOR_CUSTOMER_INPUT", "READY_FOR_FULFILLMENT", "IN_PROGRESS", "QA", "DELIVERED", "COMPLETE"].includes(job.state);
+  const approved = offer.approvalStatus === "approved";
+  const state: OutreachState = purchased ? "PURCHASED" : approved ? "APPROVED_NOT_SENT" : "NEEDS_REVIEW";
+  return {
+    offerId,
+    outreachState: state,
+    subject: { selected: draftSubject, alternatives: [], family: null, frozen: approved },
+    scheduledAt: null, scheduledTz: null, sentAt: null, sentMailbox: null, sentRecipient: null,
+    canApprove: state === "NEEDS_REVIEW",
+    canSend: state === "APPROVED_NOT_SENT",
+    canSchedule: state === "APPROVED_NOT_SENT",
+  };
+}
+
+/** From / To / Subject header the operator sees for the composed email (Part C). */
+export interface EmailHeader { fromName: string; fromEmail: string; to: string | null; subject: string }
+
+/** A friendly-labelled link extracted from the composed email body (Part C). The raw
+ *  href stays correct; the label is what the operator/customer reads. */
+export interface EmailLink { label: string; href: string; kind: "buy" | "book" | "other" }
+
+export interface OpportunityWorkspace {
+  offerId: string;
+  leadId: string;
+  company: string;
+  /** Canonical STORED website URL — the operator taps this, never hunts for it. */
+  websiteUrl: string | null;
+  priceCents: number | null;
+  band: string | null;
+  quickFixEligible: boolean;
+  offerName: string;
+  /** WHAT WE FOUND — the evidence-graded problem statement (plain, non-fabricated). */
+  whatWeFound: string;
+  /** WHAT WE'RE SELLING — customer-facing solution line. */
+  whatWeSell: string;
+  confidence: number;
+  evidenceGrade: string;
+  /** The canonical status the UI renders as ONE unmistakable badge. */
+  lifecycle: OutreachLifecycle;
+  /** Evidence presence roll-up for the first screen (screenshots/video/PDF). */
+  evidence: EvidencePackage;
+  /** CUSTOMER RECEIVES manifest — real bindings only (Part H). */
+  customerReceives: ManifestRow[];
+  /** The composed email, rendered as an email (Part C). */
+  email: {
+    header: EmailHeader;
+    bodyHtml: string;
+    bodyText: string;
+    primaryCta: OfferOutreachCopy["primaryCta"];
+    safe: boolean;
+    /** Friendly-labelled links; raw hrefs preserved for the technical panel. */
+    links: EmailLink[];
+    /** EMAIL ATTACHMENTS are ALWAYS none — nothing is auto-attached (Part C). */
+    attachments: "none";
+    /** The customer share/offer path (buy CTA target). */
+    offerPath: string;
+    bookingUrl: string;
+  };
+  /** The customer offer-page model for the "Offer" preview tab (Part J). */
+  offerPage: import("./offer-page").OfferPageModel;
+  /** ONE recommended primary next action, derived from the lifecycle (Part A/O). */
+  primaryAction: { label: string; helper: string | null; endpoint: string | null };
+}
+
+/** Friendly labels for the two known CTAs; every other raw URL falls to the tech panel. */
+function friendlyLinksFromCopy(copy: OfferOutreachCopy, offerPath: string, bookingUrl: string): EmailLink[] {
+  const links: EmailLink[] = [];
+  if (copy.primaryCta === "PURCHASE") {
+    links.push({ label: "See what we found →", href: offerPath, kind: "buy" });
+    links.push({ label: "Prefer to talk first? Book a conversation →", href: bookingUrl, kind: "book" });
+  } else {
+    links.push({ label: "Prefer to talk first? Book a conversation →", href: bookingUrl, kind: "book" });
+  }
+  return links;
+}
+
+/** The one primary action the first screen must surface, from the canonical state. */
+function primaryActionFor(lc: OutreachLifecycle): OpportunityWorkspace["primaryAction"] {
+  switch (lc.outreachState) {
+    case "NEEDS_REVIEW":
+      return { label: "APPROVE OFFER", helper: "Approval does not send anything.", endpoint: "/api/revenue/approve" };
+    case "APPROVED_NOT_SENT":
+      return { label: "SEND EMAIL", helper: "Sending is a separate, deliberate action.", endpoint: "/api/revenue/send" };
+    case "SCHEDULED":
+      return { label: "Reschedule / Cancel", helper: lc.scheduledAt ? `Scheduled for ${lc.scheduledAt}${lc.scheduledTz ? ` (${lc.scheduledTz})` : ""}.` : null, endpoint: "/api/revenue/schedule" };
+    case "SENT":
+      return { label: "Awaiting customer", helper: lc.sentAt ? `Sent ${lc.sentAt}${lc.sentRecipient ? ` → ${lc.sentRecipient}` : ""}.` : "Email has been sent.", endpoint: null };
+    case "PURCHASED":
+      return { label: "OPEN FULFILLMENT", helper: "This opportunity converted — deliver the paid work.", endpoint: null };
+  }
+}
+
+/**
+ * Assemble the full opportunity workspace for an offerId. Prefers a STORED offer;
+ * if none is stored yet it rebuilds the offer from the lead's BI (same path as the
+ * dry-run) so a not-yet-prepared opportunity can still be inspected. Returns null
+ * only when neither a stored offer nor a rebuildable lead offer exists.
+ */
+export async function opportunityWorkspaceView(offerId: string): Promise<OpportunityWorkspace | null> {
+  const stored = await store.getOffer(offerId);
+  if (!stored) return null;
+  const offer = stored as unknown as QuickFixOffer;
+
+  // ONE evidence truth → package + customer-receives manifest.
+  const evidence = await buildEvidencePackage(offer);
+  const offerPath = `/offer/${stored.shareToken}`;
+  const bookingUrl = ARTIFEX_IDENTITY.bookingUrl;
+  const copy = composeOfferOutreach(offer, { buyUrl: offerPath, bookingUrl });
+  const customerReceives = customerReceivesManifest(evidence, offer, copy.safe);
+
+  // Canonical status (fixed contract; honest fallback until sibling view lands).
+  const lifecycle = await loadOutreachLifecycle(offerId, stored, copy.subject);
+
+  // Offer-page model for the "Offer" tab (same source the customer page renders).
+  const view = await (await import("./page-service")).buildPublicOfferView(offerId, { preview: true });
+  const offerPage = view!.model;
+
+  return {
+    offerId,
+    leadId: stored.leadId,
+    company: stored.companyName,
+    websiteUrl: evidence.websiteUrl,
+    priceCents: offer.quickFixEligible ? offer.priceCents : null,
+    band: offer.quickFixEligible ? offer.band : null,
+    quickFixEligible: offer.quickFixEligible,
+    offerName: offer.scope.offerName,
+    whatWeFound: offer.scope.problemBeingSolved || offer.notEligibleReason || "",
+    whatWeSell: offer.scope.proposedSolution || offer.scope.offerName,
+    confidence: offer.confidence,
+    evidenceGrade: offer.evidenceGrade,
+    lifecycle,
+    evidence,
+    customerReceives,
+    email: {
+      header: { fromName: ARTIFEX_IDENTITY.mailSenderName, fromEmail: ARTIFEX_IDENTITY.publicEmail, to: stored.recipientEmail, subject: lifecycle.subject.selected ?? copy.subject },
+      bodyHtml: copy.bodyHtml,
+      bodyText: copy.bodyText,
+      primaryCta: copy.primaryCta,
+      safe: copy.safe,
+      links: friendlyLinksFromCopy(copy, offerPath, bookingUrl),
+      attachments: "none",
+      offerPath,
+      bookingUrl,
+    },
+    offerPage,
+    primaryAction: primaryActionFor(lifecycle),
+  };
+}
+
+// ── Quick-Cash opportunities list (Part A entry point) — ranked rows enriched with
+// the STORED offerId when the offer is prepared, so the operator taps straight into
+// the opportunity workspace instead of a raw lead hunt. Read-only.
+export interface QuickCashOpportunityRow extends QuickCashRow {
+  /** The STORED offerId when this lead's offer is already prepared, else null. */
+  offerId: string | null;
+  websiteUrl: string | null;
+}
+
+export async function quickCashOpportunitiesView(limit = 500): Promise<{ rows: QuickCashOpportunityRow[]; totals: ReturnType<typeof addressableTotals>; routing: QuickCashView["routing"] }> {
+  const contexts = await buildLeadContexts(limit);
+  const offers = contexts.map((c) => c.offer).filter((o): o is QuickFixOffer => !!o);
+  const ranked = rankQuickCash(offers);
+  const totals = addressableTotals(offers);
+  const routing = { DIRECT_FIX: 0, FIX_SCAN: 0, CONVERSATION_REQUIRED: 0, NO_FIX_FOUND: 0, cannibalization: 0 };
+  for (const o of offers) { const r = routeLead(o); routing[r.route] += 1; if (r.cannibalizationFlag) routing.cannibalization += 1; }
+
+  const state = await store.getState();
+  const byLead = new Map<string, string>(); // leadId → stored offerId (prefer the newest)
+  for (const o of Object.values(state.offers)) byLead.set(o.leadId, o.offerId);
+  const websiteByLead = new Map<string, string | null>();
+  for (const c of contexts) websiteByLead.set(c.lead.id, (c.lead as any).website ?? null);
+
+  const rows: QuickCashOpportunityRow[] = ranked.map((r) => ({
+    ...r,
+    offerId: byLead.get(r.leadId) ?? null,
+    websiteUrl: websiteByLead.get(r.leadId) ?? null,
+  }));
+  return { rows, totals, routing };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ACTIVITY (Part L) — one honest, classified activity feed. The DEFAULT filter is
+// Quick-Cash. Legacy scheduled/outreach records are classified "LEGACY — FROZEN"
+// and are NEVER shown as active Quick-Cash scheduled sends (the cold path is frozen).
+// History is never deleted; every record is preserved and labelled. Read-only.
+// ─────────────────────────────────────────────────────────────────────────────
+export type ActivityCategory = "QUICK_CASH" | "FULFILLMENT" | "CUSTOMER" | "LEGACY_FROZEN";
+export type ActivityFilter = "ALL" | "QUICK_CASH" | "FULFILLMENT" | "CUSTOMER" | "LEGACY_FROZEN";
+
+export interface ActivityItem {
+  id: string;
+  category: ActivityCategory;
+  /** True for a legacy frozen record — the UI must never render it as active. */
+  frozen: boolean;
+  action: string;
+  label: string;          // plain-language summary
+  actor: string;
+  at: string;             // ISO
+  offerId: string | null;
+  leadId: string | null;
+}
+
+// Action → category classification. Quick-Cash owns the quickfix.* money loop up to
+// purchase; fulfillment owns the paid-work + delivery actions; customer owns post-sale
+// lifecycle. The legacy cold-outreach actions (outreach.schedule.*, outreach.send.*)
+// are ALWAYS legacy-frozen — never active Quick-Cash scheduled.
+const FULFILLMENT_ACTIONS = /^quickfix\.(job_|fulfillment|delivered|qa_|access_|runbook|evidence_)/;
+const CUSTOMER_ACTIONS = /^quickfix\.(customer_|maintenance_|refund|subscription_)/;
+const QUICKCASH_ACTIONS = /^quickfix\./;
+const LEGACY_ACTIONS = /^outreach\.(schedule|send|batch)/;
+
+function classifyAudit(a: import("../types").AuditEntry): ActivityCategory {
+  if (LEGACY_ACTIONS.test(a.action)) return "LEGACY_FROZEN";
+  if (FULFILLMENT_ACTIONS.test(a.action)) return "FULFILLMENT";
+  if (CUSTOMER_ACTIONS.test(a.action)) return "CUSTOMER";
+  if (QUICKCASH_ACTIONS.test(a.action)) return "QUICK_CASH";
+  // Anything else outreach-shaped is legacy; otherwise leave it out of the money loop.
+  return "LEGACY_FROZEN";
+}
+
+export interface ActivityView {
+  filter: ActivityFilter;
+  items: ActivityItem[];
+  counts: Record<ActivityCategory, number>;
+  legacyFrozen: number;
+}
+
+export async function activityView(filter: ActivityFilter = "QUICK_CASH", limit = 500): Promise<ActivityView> {
+  const audit = await listAudit(4000);
+  const items: ActivityItem[] = [];
+
+  for (const a of audit) {
+    // Only classify the money-loop + legacy-outreach namespaces; other app audit noise
+    // is not part of this operator surface.
+    if (!QUICKCASH_ACTIONS.test(a.action) && !LEGACY_ACTIONS.test(a.action)) continue;
+    const category = classifyAudit(a);
+    const offerId = a.targetType === "quickfix_offer" ? a.targetId : null;
+    const leadId = a.targetType === "lead" ? a.targetId : null;
+    items.push({
+      id: a.id,
+      category,
+      frozen: category === "LEGACY_FROZEN",
+      action: a.action,
+      label: a.action.replace(/^quickfix\.|^outreach\./, "").replace(/[._]/g, " "),
+      actor: a.actor,
+      at: a.createdAt,
+      offerId,
+      leadId,
+    });
+  }
+
+  // Legacy scheduled bindings (the frozen cold-outreach schedule) — classified LEGACY
+  // FROZEN, NEVER active Quick-Cash scheduled. Preserved, never sent, never deleted.
+  try {
+    const { listScheduledBindings } = await import("../outreach/scheduled-batch");
+    const bindings = await listScheduledBindings();
+    for (const { leadId, binding } of bindings) {
+      items.push({
+        id: `legacy-sched:${leadId}:${binding.scheduledAt}`,
+        category: "LEGACY_FROZEN",
+        frozen: true,
+        action: "outreach.schedule.legacy",
+        label: `Legacy scheduled outreach (${binding.status}) — frozen, will not send`,
+        actor: binding.by,
+        at: binding.scheduledAt,
+        offerId: null,
+        leadId,
+      });
+    }
+  } catch { /* scheduled store unavailable — omit rather than fabricate */ }
+
+  items.sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0)); // newest first
+
+  const counts: Record<ActivityCategory, number> = { QUICK_CASH: 0, FULFILLMENT: 0, CUSTOMER: 0, LEGACY_FROZEN: 0 };
+  for (const it of items) counts[it.category] += 1;
+
+  const filtered = filter === "ALL" ? items : items.filter((it) => it.category === filter);
+  return { filter, items: filtered.slice(0, limit), counts, legacyFrozen: counts.LEGACY_FROZEN };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PERSUASION FLOW PREVIEW (PART T) — the ONE operator-facing view that lays out the
+// evidence-first persuasion SEQUENCE for a single opportunity so the operator can
+// answer, before approving: "does the prospect understand the PROBLEM before the
+// PRICE?" It assembles the four surfaces the prospect will move through —
+//   EMAIL  → OFFER PAGE → PDF → VIDEO
+// — entirely from the FIXED contracts (experience-frame / offer-outreach / offer-page
+// / email-attachment-policy / diagnostic-pdf / evidence-package / offer-readiness).
+// It REUSES the existing view builders; it re-implements none of them, and it is
+// strictly READ-ONLY: no sends, no charges, no writes.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface PersuasionEmailFlow {
+  subject: string;
+  /** The first line the prospect reads — MUST equal experienceFrame.emailOpener. */
+  firstLine: string;
+  /** True when firstLine is exactly the evidence-backed opener (one evidence truth). */
+  firstLineMatchesOpener: boolean;
+  /** The disposition of the PDF proof-of-effort on the email: ATTACHED / LINKED / MISSING. */
+  pdfAttachment: "ATTACHED" | "LINKED" | "MISSING";
+  /** Operator-facing reason the PDF was not attached (null when ATTACHED). */
+  pdfReason: string | null;
+  /** The link where the video plays, if any (personalized is MISSING → evergreen link). */
+  videoLink: string | null;
+  /** The customer offer/share path the "See what I found / Watch the review" link targets. */
+  offerLink: string;
+  /** The email primary CTA. */
+  primaryCta: OfferOutreachCopy["primaryCta"];
+  /** True when a fabrication-safe draft composed. */
+  safe: boolean;
+  /** No raw offer/video/booking URL leaks into the customer-visible body. */
+  noRawUrlInBody: boolean;
+  /** No price/dollar amount appears in the default first-touch body. */
+  noPriceInBody: boolean;
+}
+
+/** The persuasion BEAT order the offer page walks, each with a presence flag. */
+export interface PersuasionOfferBeat { key: string; label: string; present: boolean }
+
+export interface PersuasionOfferFlow {
+  /** The hero title the page leads with — the experience frame, never the price/SKU. */
+  heroTitle: string;
+  heroSubline: string;
+  /** True when the hero uses experience.offerHeroTitle (not a price/SKU headline). */
+  heroLeadsWithExperience: boolean;
+  /** The ordered beats: hero → evidence → video → solution → package → protections → price → CTA. */
+  beats: PersuasionOfferBeat[];
+  /** True when the exact price is visible on the page BEFORE the purchase step. */
+  priceBeforeCheckout: boolean;
+  priceLabel: string;
+  /** Offer-readiness check #6 (opens with evidence, not price) passes. */
+  opensWithEvidence: boolean;
+  /** Offer-readiness check #10 (price visible before purchase) passes. */
+  priceVisibleBeforePurchase: boolean;
+}
+
+export interface PersuasionPdfFlow {
+  /** True when the PDF is renderable (≥1 evidence-backed finding). */
+  renderable: boolean;
+  /** True when §1 (evidence/experience) precedes §FINAL (price) in document order. */
+  evidenceFirstPriceLast: boolean;
+  /** The §1 opener the PDF leads with (== experienceFrame.emailOpener). */
+  opener: string;
+  /** The §FINAL price label — the ONLY place price appears in the document. */
+  priceLabel: string;
+  filename: string;
+}
+
+export interface PersuasionVideoFlow {
+  /** Personalized walkthrough — ALWAYS honest MISSING (no generator; Part P is a SPEC). */
+  personalizedStatus: string;
+  personalizedDetail: string;
+  /** The attempted-use framing the video WOULD carry, from the experience frame. */
+  framing: string;
+  attemptSupported: boolean;
+  /** The separate evergreen explainer (never presented as the personalized video). */
+  evergreenStatus: string;
+}
+
+export interface PersuasionFlowView {
+  offerId: string;
+  company: string;
+  quickFixEligible: boolean;
+  /** The single experience frame every surface derives its opener from. */
+  experience: ExperienceFrame;
+  email: PersuasionEmailFlow;
+  offer: PersuasionOfferFlow;
+  pdf: PersuasionPdfFlow;
+  video: PersuasionVideoFlow;
+  /** The readiness verdict — answers "is the prospect shown the problem before the price?". */
+  readiness: ReadinessResult;
+  /** The persuasion-policy version the readiness verdict + framing were computed under. */
+  persuasionPolicyVersion: string;
+  /** The canonical evidence version (stable across rebuilds of the same evidence). */
+  evidenceVersion: string;
+  /** True when NO blocker issue exists — the operator may approve with confidence. */
+  understandsProblemBeforePrice: boolean;
+}
+
+const RAW_URL_RE = /\bhttps?:\/\/[^\s)]+|\bwww\.[^\s)]+/i;
+const PRICE_RE = /\$\s?\d|\bdollars?\b|\b\d+\s?usd\b|\bflat\b/i;
+
+/**
+ * Assemble the read-only persuasion-flow preview for one prepared offer. Prefers the
+ * STORED offer; returns null when no offer is stored. Every surface is derived from the
+ * SAME fixed contracts the customer/operator surfaces already use — this view NEVER
+ * fabricates an asset, a claim, or a price, and it performs NO send and NO charge.
+ */
+export async function persuasionFlowView(offerId: string): Promise<PersuasionFlowView | null> {
+  const stored = await store.getOffer(offerId);
+  if (!stored) return null;
+  const offer = stored as unknown as QuickFixOffer;
+
+  // ONE evidence truth → package (drives every surface below).
+  const evidence = await buildEvidencePackage(offer);
+  const frame = experienceFrameForOffer(offer);
+  const offerPath = `/offer/${stored.shareToken}`;
+  const bookingUrl = ARTIFEX_IDENTITY.bookingUrl;
+
+  // ── EMAIL: real composer + real attachment policy (no send). ──
+  const attachments = await buildOutreachAttachments(offer, { recipientEmail: stored.recipientEmail, pkg: evidence });
+  const videoLink = attachments.manifest.videoLinkUrl;
+  const copy = composeOfferOutreach(offer, {
+    buyUrl: offerPath,
+    bookingUrl,
+    videoUrl: videoLink ?? undefined,
+  }, {
+    assets: {
+      pdf: attachments.manifest.pdf,
+      video: attachments.manifest.video,
+    },
+  });
+  const firstLine = copy.bodyText.split("\n\n")[0] ?? "";
+  const email: PersuasionEmailFlow = {
+    subject: copy.subject,
+    firstLine,
+    firstLineMatchesOpener: firstLine.trim() === frame.emailOpener.trim(),
+    pdfAttachment: attachments.manifest.pdf,
+    pdfReason: attachments.manifest.pdfReason,
+    videoLink,
+    offerLink: offerPath,
+    primaryCta: copy.primaryCta,
+    safe: copy.safe,
+    noRawUrlInBody: !RAW_URL_RE.test(copy.bodyText),
+    noPriceInBody: offer.quickFixEligible ? !PRICE_RE.test(copy.bodyText) : true,
+  };
+
+  // ── OFFER PAGE: the SAME model the customer page renders (via page-service). ──
+  const view = await (await import("./page-service")).buildPublicOfferView(offerId, { preview: true });
+  const model = view!.model;
+  const beats: PersuasionOfferBeat[] = [
+    { key: "hero", label: "Experience hero (what we tried / found)", present: !!model.experience?.offerHeroTitle },
+    { key: "evidence", label: "Observed evidence (findings / screenshots)", present: (model.evidence?.length ?? 0) > 0 || (model.evidenceAssets?.findings?.length ?? 0) > 0 },
+    { key: "video", label: "Explainer video (evergreen, labelled)", present: model.trustVideo?.present === true || (model.trustVideo?.script?.length ?? 0) > 0 },
+    { key: "solution", label: "Proposed solution (the repair)", present: !!model.proposedSolution },
+    { key: "package", label: "What's included (value stack)", present: (model.whatWeFix?.length ?? 0) > 0 },
+    { key: "protections", label: "Process protections (integrity principles)", present: (model.integrityPrinciples?.length ?? 0) > 0 },
+    { key: "price", label: "Fixed price (revealed after value)", present: !model.conversationOnly && !!model.priceLabel },
+    { key: "cta", label: "Purchase CTA", present: model.checkout?.purchasable === true || !model.conversationOnly },
+  ];
+  // Reuse the offer-readiness checks (#6 opens-with-evidence, #10 price-before-purchase)
+  // over the offer page copy in READING ORDER so the operator sees the same verdict the
+  // send-gate uses — never a divergent hand-rolled judgment.
+  const offerPageBlocks = [
+    model.experience.offerHeroTitle,
+    model.experience.offerHeroSubline,
+    model.whatWeFound,
+    model.proposedSolution,
+    ...model.whatWeFix,
+    ...(model.conversationOnly ? [] : [model.priceLabel]),
+  ].filter(Boolean);
+  const artifact: OfferArtifact = {
+    offer,
+    evidence,
+    subject: copy.subject,
+    emailBody: copy.bodyText,
+    emailFirstSentence: firstLine,
+    offerPageBlocks,
+    checkoutCopy: model.conversationOnly ? null : `${model.priceLabel}. ${model.turnaround}`,
+    checkoutPriceText: model.conversationOnly ? null : model.priceLabel,
+    priceVisibleBeforePurchase: !model.conversationOnly,
+    packageItems: model.whatWeFix,
+    scopeItems: offer.scope.includedItems,
+    protectionsCopy: model.integrityPrinciples.join(" "),
+    protectionsFacts: { revisionPolicy: offer.scope.revisionPolicy, deliveryWindow: offer.scope.deliveryWindow },
+    dependentAssets: [
+      { kind: "diagnosticPdf", present: evidence.diagnosticPdf.status === "READY", generatedEvidenceVersion: stored.evidenceVersion ?? evidenceVersion(evidence) },
+    ],
+    screenshotsRequired: false,
+  };
+  const readiness = assessOfferReadiness(artifact);
+  const offerFlow: PersuasionOfferFlow = {
+    heroTitle: model.experience.offerHeroTitle,
+    heroSubline: model.experience.offerHeroSubline,
+    heroLeadsWithExperience: model.headline !== model.priceLabel && !PRICE_RE.test(model.experience.offerHeroTitle),
+    beats,
+    priceBeforeCheckout: !model.conversationOnly,
+    priceLabel: model.priceLabel,
+    opensWithEvidence: !readiness.issues.some((i) => i.surface === "openingFrame" && i.severity === "BLOCKER"),
+    priceVisibleBeforePurchase: !readiness.issues.some((i) => i.surface === "priceVisibility" && i.severity === "BLOCKER"),
+  };
+
+  // ── PDF: the pure diagnostic doc model (evidence-first → price-last). ──
+  const doc = assembleDiagnosticDoc(offer, evidence, stored.shareToken);
+  const pdf: PersuasionPdfFlow = {
+    renderable: doc.renderable,
+    // §1 opener precedes §FINAL price by construction of the document model; confirm the
+    // opener carries no price and the price lives only in the isolated pricing block.
+    evidenceFirstPriceLast: !PRICE_RE.test(doc.opener.opener) && !!doc.pricing.priceLabel,
+    opener: doc.opener.opener,
+    priceLabel: doc.pricing.priceLabel,
+    filename: attachments.manifest.filename,
+  };
+
+  // ── VIDEO: personalized is honest MISSING (Part P narration SPEC only). ──
+  const video: PersuasionVideoFlow = {
+    personalizedStatus: evidence.personalizedVideo.status,
+    personalizedDetail: evidence.personalizedVideo.detail,
+    framing: frame.emailOpener,
+    attemptSupported: frame.attemptSupported,
+    evergreenStatus: evidence.evergreenVideo.status,
+  };
+
+  return {
+    offerId,
+    company: stored.companyName,
+    quickFixEligible: offer.quickFixEligible,
+    experience: frame,
+    email,
+    offer: offerFlow,
+    pdf,
+    video,
+    readiness,
+    persuasionPolicyVersion: stored.persuasionPolicyVersion ?? PERSUASION_POLICY_VERSION,
+    evidenceVersion: evidenceVersion(evidence),
+    understandsProblemBeforePrice: readiness.ready,
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// BREAKBOT — OPERATOR-FACING QA GATE (read-only). Runs the finished adversarial
+// pre-flight engine over a REAL stored offer (single) or the top-N high-confidence
+// READY_TO_SELL offers (batch), and returns the structured verdict(s) the operator
+// UI renders. Breakbot NEVER approves, sends, charges, schedules, or mutates — it is
+// purely a QA verdict computed from read-only stored state + the fixed contracts.
+//
+// CRITICAL DISTINCTION (asset vs. sales readiness): a Breakbot verdict is about the
+// ASSET / EXPERIENCE integrity of the assembled customer journey (assets generated,
+// current, correctly bound, honest, safe). It is NOT the SALES qualification of the
+// lead. An offer can be fully SALES-QUALIFIED (commercial fit, contactable, evidence)
+// while an ASSET is still ungenerated. We surface both dimensions independently and
+// NEVER downgrade sales qualification because an asset is not yet built.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Assemble the read-only BreakbotPreflightInput for a STORED offer, the SAME way the
+ * customer/operator surfaces assemble the journey: ONE evidence package, the offer's
+ * bound evergreen video, and honest safe observations for the assisted checks. This
+ * performs NO send, NO charge, NO write — it only reads stored state + fixed contracts.
+ *
+ * The assisted observations (approval/checkout/fulfillment) are set to the SAFE baseline
+ * the production system is designed to honor (approval causes 0 sends/0 schedules; the
+ * checkout is a preview config bound to the server price; a demo is not counted). These
+ * describe the intended safe behavior; Breakbot proves the assembled artifacts uphold it.
+ */
+async function breakbotInputForStoredOffer(stored: store.StoredOffer): Promise<BreakbotPreflightInput> {
+  const offer = stored as unknown as QuickFixOffer;
+  const evidence = await buildEvidencePackage(offer);
+  const ev = evidenceVersion(evidence);
+  const videoAsset = trustVideoForOffer(offer).asset;
+  const dependentAssets: DependentAsset[] = [
+    { kind: "diagnosticPdf", present: evidence.diagnosticPdf.status === "READY", generatedEvidenceVersion: stored.evidenceVersion ?? ev },
+  ];
+  return {
+    offer,
+    evidence,
+    dependentAssets,
+    evergreen: null,
+    approvedSubject: stored.approvedSubjectFrozen ?? stored.subjectSelected ?? null,
+    videoAsset,
+    screenshotsRequired: false,
+    // Safe assisted observations — the intended production behavior Breakbot verifies.
+    approval: {
+      sendsCausedByApprove: 0,
+      schedulesCausedByApprove: 0,
+      sendIsExplicit: true,
+      scheduleIsExplicit: true,
+      approvedEvidenceVersion: stored.evidenceVersion ?? ev,
+    },
+    checkout: {
+      checkoutSku: offer.capabilityKeys[0] ?? null,
+      checkoutPriceCents: offer.priceCents,
+      managedPayments: false,
+      webhookAuthoritative: true,
+      liveCharge: false,
+    },
+    demo: { isDemo: false, countedTowardRevenue: false },
+    fulfillment: { jobState: "PAID", accessReceived: true, preChangeCaptured: true, customer: null, customerPortalPresent: true },
+    operatorView: { websiteUrl: evidence.websiteUrl, legacyFrozenShownActive: false },
+    sellable: offer.quickFixEligible,
+  };
+}
+
+/**
+ * breakbotVerdictView — run the adversarial pre-flight over ONE real stored offer and
+ * return its verdict. Null when no offer is stored for the id. Read-only; no sends.
+ */
+export async function breakbotVerdictView(offerId: string): Promise<BreakbotVerdict | null> {
+  const stored = await store.getOffer(offerId);
+  if (!stored) return null;
+  const input = await breakbotInputForStoredOffer(stored);
+  return runBreakbotPreflight(input);
+}
+
+// ── Batch verdict shapes (Part V surface) ────────────────────────────────────────
+export interface BreakbotBatchRow {
+  offerId: string;
+  company: string;
+  priceCents: number | null;
+  confidence: number;
+  /** ASSET/EXPERIENCE readiness — the Breakbot verdict (READY only when 0 blockers). */
+  assetReady: boolean;
+  blockers: number;
+  warnings: number;
+  passed: number;
+  /** The distinct blocker surfaces on this offer (empty when READY). */
+  blockerSurfaces: string[];
+  /**
+   * SALES qualification — independent of asset readiness. True when the lead is
+   * commercially sellable (fit / contactable / evidence). NEVER downgraded because an
+   * asset is ungenerated. Null when the lead context could not be qualified.
+   */
+  salesQualified: boolean | null;
+}
+
+export interface BreakbotBatchView {
+  /** How many high-confidence READY_TO_SELL offers were scanned. */
+  scanned: number;
+  /** Offers whose ASSET journey passed Breakbot (0 blockers). */
+  assetReadyCount: number;
+  /** Offers whose ASSET journey has ≥1 blocker. */
+  assetBlockedCount: number;
+  /** SALES-QUALIFIED count — the sellable population (independent of asset readiness). */
+  salesQualifiedCount: number;
+  /**
+   * The honest split the operator must not conflate: an offer can be SALES-QUALIFIED
+   * yet ASSET-BLOCKED (sell-ready lead, unbuilt/ stale asset) — that is a build task,
+   * NOT a disqualification. We count that intersection explicitly.
+   */
+  salesQualifiedButAssetBlocked: number;
+  /** Aggregated most-common blocker surfaces across the batch (descending). */
+  commonBlockers: Array<{ surface: string; count: number }>;
+  rows: BreakbotBatchRow[];
+}
+
+/**
+ * breakbotBatchView — run Breakbot over the top-N high-confidence READY_TO_SELL offers
+ * from the live inventory and return the per-offer READY/BLOCKED verdicts + the
+ * aggregated common blockers + the SALES-QUALIFIED vs ASSET-READY split. Read-only:
+ * no sends, no charges, no writes. Sales qualification is computed separately (via the
+ * qualification adapter) and is NEVER downgraded by an ungenerated/ stale asset.
+ */
+export async function breakbotBatchView(limit = 10): Promise<BreakbotBatchView> {
+  // The population Breakbot QAs = the READY_TO_SELL, high-confidence STORED offers. We
+  // qualify each lead independently so sales qualification is orthogonal to asset QA.
+  const contexts = await buildLeadContexts(1000);
+  const byLead = new Map<string, LeadContext>();
+  for (const c of contexts) byLead.set(c.lead.id, c);
+
+  const check = await buildSuppressionChecker();
+  const isSuppressed = (site: string | undefined): boolean => {
+    let domain: string | null = null;
+    if (site) { try { domain = new URL(site.startsWith("http") ? site : `https://${site}`).hostname.replace(/^www\./, ""); } catch { domain = null; } }
+    return !!domain && check({ domain });
+  };
+
+  const stored = await store.listOffers();
+  // High-confidence, quick-fix-eligible, ranked by confidence desc → take top-N.
+  const candidates = stored
+    .filter((o) => o.quickFixEligible)
+    .sort((a, b) => b.confidence - a.confidence)
+    .slice(0, Math.max(0, limit));
+
+  const rows: BreakbotBatchRow[] = [];
+  const blockerCounts = new Map<string, number>();
+
+  for (const s of candidates) {
+    const input = await breakbotInputForStoredOffer(s);
+    const verdict = runBreakbotPreflight(input);
+    const blockerSurfaces = Array.from(new Set(verdict.issues.filter((i) => i.severity === "BLOCKER").map((i) => i.surface)));
+    for (const surface of blockerSurfaces) blockerCounts.set(surface, (blockerCounts.get(surface) ?? 0) + 1);
+
+    // SALES qualification — orthogonal to Breakbot. Computed from the lead context so an
+    // ungenerated asset can NEVER downgrade a sales-qualified lead. Null if no context.
+    let salesQualified: boolean | null = null;
+    const ctx = byLead.get(s.leadId);
+    if (ctx) {
+      const q = qualifyLeadRecord({ lead: ctx.lead, offer: ctx.offer, bi: ctx.bi, suppressed: isSuppressed(ctx.lead.website) });
+      salesQualified = q.qualification.readyToSell; // NOT readyToSend — asset readiness excluded on purpose.
+    }
+
+    rows.push({
+      offerId: s.offerId,
+      company: s.companyName,
+      priceCents: s.quickFixEligible ? s.priceCents : null,
+      confidence: s.confidence,
+      assetReady: verdict.overall === "READY",
+      blockers: verdict.counts.blockers,
+      warnings: verdict.counts.warnings,
+      passed: verdict.counts.passed,
+      blockerSurfaces,
+      salesQualified,
+    });
+  }
+
+  const assetReadyCount = rows.filter((r) => r.assetReady).length;
+  const salesQualifiedCount = rows.filter((r) => r.salesQualified === true).length;
+  const salesQualifiedButAssetBlocked = rows.filter((r) => r.salesQualified === true && !r.assetReady).length;
+  const commonBlockers = Array.from(blockerCounts.entries())
+    .map(([surface, count]) => ({ surface, count }))
+    .sort((a, b) => b.count - a.count);
+
+  return {
+    scanned: rows.length,
+    assetReadyCount,
+    assetBlockedCount: rows.length - assetReadyCount,
+    salesQualifiedCount,
+    salesQualifiedButAssetBlocked,
+    commonBlockers,
+    rows,
   };
 }

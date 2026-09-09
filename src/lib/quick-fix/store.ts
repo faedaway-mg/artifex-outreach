@@ -22,8 +22,20 @@ import { canTransitionJob, initialJobStateAfterPayment, needsIntake } from "./fu
 import { onVerifiedPurchase } from "./lifecycle";
 import { FIX_SCAN_SKU } from "./fix-scan";
 import { CANONICAL_EXPLAINER_SCRIPT } from "./evergreen-asset";
+import { PERSUASION_POLICY_VERSION } from "./offer-readiness";
 
 export type ApprovalStatus = "draft" | "approved" | "rejected";
+
+/** Outreach-artifact lifecycle. Distinct from OfferState — it tracks the SEND
+ *  workflow the operator drives (review → approve → schedule/send), never the
+ *  offer's commercial state. Outbound is gated; SENT is set ONLY by an explicit,
+ *  authorized send call — never as a side effect of approval. */
+export type OutreachState =
+  | "NEEDS_REVIEW"
+  | "APPROVED_NOT_SENT"
+  | "SCHEDULED"
+  | "SENT"
+  | "PURCHASED";
 
 export interface StoredOffer extends QuickFixOffer {
   approvalStatus: ApprovalStatus;
@@ -35,6 +47,37 @@ export interface StoredOffer extends QuickFixOffer {
   shareToken: string;
   /** True → the public link is revoked (404s) even if the token is known. */
   shareRevoked?: boolean;
+
+  /** The persuasion-policy version this offer artifact was prepared under (Part U).
+   *  Stamped at generation/preparation so downstream conversion + readiness attribute
+   *  to the exact policy that produced it. Absent on legacy offers. */
+  persuasionPolicyVersion?: string;
+  /** Canonical evidence-version stamp for staleness (Part S). Records which snapshot of
+   *  the offer's EvidencePackage the currently-bound dependent assets (PDF / personalized
+   *  video / screenshot derivatives) were generated against. When the live evidence hash
+   *  diverges from this, those assets are STALE and any approval taken against it is
+   *  invalidated. Absent on legacy offers / offers with no bound derived assets. */
+  evidenceVersion?: string;
+
+  // ── Outreach-artifact subject + send lifecycle (all optional on legacy offers) ──
+  /** The subject the operator has selected for first-touch (candidate or valid edit). */
+  subjectSelected?: string | null;
+  /** The mapped defect family of the selected subject (tracking + display). */
+  subjectFamily?: string | null;
+  /** The engine's alternate candidates offered for this subject. */
+  subjectAlternatives?: string[];
+  /** The subject-engine policy version that produced/validated the selection. */
+  subjectPolicyVersion?: string;
+  /** FROZEN at approval — the subject that was approved. Non-null ⇒ locked; changing
+   *  the selected subject clears this and re-opens review. */
+  approvedSubjectFrozen?: string | null;
+  /** The send-workflow state. Absent ⇒ treat as NEEDS_REVIEW. */
+  outreachState?: OutreachState;
+  scheduledAt?: string | null;
+  scheduledTz?: string | null;
+  sentAt?: string | null;
+  sentMailbox?: string | null;
+  sentRecipient?: string | null;
 }
 
 // ── Persisted fulfillment sub-state (Part A) ─────────────────────────────────────
@@ -86,6 +129,9 @@ export interface JobRecord {
   targetDeliveryAt: string | null;
   subscriptionId: string | null;
   updatedAt: string;
+  /** True → a demo/seed job. HARD-excluded from every real revenue/customer/sprint
+   *  metric so a demonstration never inflates the money loop. Absent on real jobs. */
+  isDemo?: boolean;
   // ── Persisted fulfillment sub-state (all optional; absent on legacy jobs) ──
   runbookState?: RunbookState;
   accessState?: Record<string, AccessItemState>;
@@ -161,12 +207,17 @@ export async function upsertOffer(offer: QuickFixOffer, opts: { recipientEmail?:
       recipientEmail: opts.recipientEmail ?? prev?.recipientEmail ?? null,
       shareToken: prev?.shareToken ?? newShareToken(),
       shareRevoked: prev?.shareRevoked ?? false,
+      // Stamp the persuasion-policy version at generation/preparation (Part U).
+      persuasionPolicyVersion: PERSUASION_POLICY_VERSION,
+      // Preserve any prior evidence-version stamp (bound assets keep their snapshot ref
+      // until they are regenerated; the caller updates this when it re-binds derived assets).
+      evidenceVersion: prev?.evidenceVersion,
       createdAt: prev?.createdAt ?? opts.now,
       updatedAt: opts.now,
     };
     s.offers[id] = stored;
   });
-  await appendAudit({ action: "quickfix.offer_generated", actor: "engine", targetType: "quickfix_offer", targetId: id, meta: { band: offer.band, priceCents: offer.priceCents, eligible: offer.quickFixEligible }, ip: null });
+  await appendAudit({ action: "quickfix.offer_generated", actor: "engine", targetType: "quickfix_offer", targetId: id, meta: { band: offer.band, priceCents: offer.priceCents, eligible: offer.quickFixEligible, persuasionPolicyVersion: PERSUASION_POLICY_VERSION }, ip: null });
   return stored;
 }
 
@@ -191,6 +242,139 @@ export async function setApproval(offerId: string, status: ApprovalStatus, actor
   });
   if (out) await appendAudit({ action: `quickfix.offer_${status}`, actor, targetType: "quickfix_offer", targetId: offerId, meta: null, ip: null });
   return out;
+}
+
+// ── Outreach-artifact subject + send lifecycle ───────────────────────────────────
+// A tiny, auditable state machine layered onto the offer record. The design rule is
+// SAFETY-FIRST: approval only FREEZES a subject (it never sends); sending is a
+// separate explicit call that is additionally gated by the legacy-freeze / pause
+// guards at the ROUTE boundary; and any subject edit after approval INVALIDATES the
+// approval so a changed message can never inherit a prior sign-off. None of these
+// helpers touch evidence / scope / price / SKU / share token — only the fields above.
+
+export function effectiveOutreachState(o: StoredOffer): OutreachState {
+  return o.outreachState ?? "NEEDS_REVIEW";
+}
+
+export interface SubjectLifecycleResult {
+  ok: boolean;
+  /** Set when ok=false — a stable machine reason. */
+  reason?: "not_found" | "frozen" | "invalid_subject" | "not_approved" | "no_subject" | "not_sendable" | "bad_state";
+  offer: StoredOffer | null;
+}
+
+/**
+ * Select the first-touch subject. Allowed ONLY while the subject is NOT frozen
+ * (i.e. not currently approved) — a frozen subject returns {ok:false,reason:"frozen"}
+ * so the caller can 409. Setting a subject NEVER approves and NEVER sends. If an
+ * approval was in place (shouldn't be, given the freeze), changing the subject
+ * invalidates it and re-opens review.
+ */
+export async function selectOutreachSubject(
+  offerId: string,
+  subject: string,
+  opts: { family?: string | null; alternatives?: string[]; policyVersion?: string; actor: string; now: string },
+): Promise<SubjectLifecycleResult> {
+  let result: SubjectLifecycleResult = { ok: false, reason: "not_found", offer: null };
+  await mutate((s) => {
+    const o = s.offers[offerId];
+    if (!o) return;
+    if (o.approvedSubjectFrozen) { result = { ok: false, reason: "frozen", offer: o }; return; }
+    o.subjectSelected = subject;
+    if (opts.family !== undefined) o.subjectFamily = opts.family;
+    if (opts.alternatives !== undefined) o.subjectAlternatives = opts.alternatives;
+    if (opts.policyVersion !== undefined) o.subjectPolicyVersion = opts.policyVersion;
+    // Selecting a subject re-opens review; approval (if any) is invalidated.
+    o.approvedSubjectFrozen = null;
+    o.approvalStatus = o.approvalStatus === "approved" ? "draft" : o.approvalStatus;
+    o.outreachState = "NEEDS_REVIEW";
+    o.updatedAt = opts.now;
+    result = { ok: true, offer: o };
+  });
+  if (result.ok) await appendAudit({ action: "quickfix.subject_selected", actor: opts.actor, targetType: "quickfix_offer", targetId: offerId, meta: { subject, family: opts.family ?? null, policyVersion: opts.policyVersion ?? null }, ip: null });
+  return result;
+}
+
+/**
+ * Approve the outreach artifact: requires a selected subject, FREEZES it, and moves
+ * to APPROVED_NOT_SENT. This NEVER sends and NEVER schedules — it is purely a sign-off.
+ */
+export async function approveOutreach(offerId: string, opts: { actor: string; now: string }): Promise<SubjectLifecycleResult> {
+  let result: SubjectLifecycleResult = { ok: false, reason: "not_found", offer: null };
+  await mutate((s) => {
+    const o = s.offers[offerId];
+    if (!o) return;
+    if (!o.subjectSelected) { result = { ok: false, reason: "no_subject", offer: o }; return; }
+    o.approvedSubjectFrozen = o.subjectSelected;
+    o.approvalStatus = "approved";
+    o.approvedBy = opts.actor;
+    o.state = "APPROVED";
+    o.outreachState = "APPROVED_NOT_SENT";
+    o.updatedAt = opts.now;
+    result = { ok: true, offer: o };
+  });
+  if (result.ok) await appendAudit({ action: "quickfix.outreach_approved", actor: opts.actor, targetType: "quickfix_offer", targetId: offerId, meta: { subject: result.offer?.approvedSubjectFrozen ?? null }, ip: null });
+  return result;
+}
+
+/**
+ * Mark the artifact SENT. This is called ONLY by the send route AFTER the outbound
+ * gates have cleared — this helper does not itself dispatch email. It transitions
+ * APPROVED_NOT_SENT → SENT and records the dispatch facts. Any other source state
+ * is a bad_state (never re-send).
+ */
+export async function markOutreachSent(
+  offerId: string,
+  opts: { actor: string; now: string; mailbox: string | null; recipient: string | null },
+): Promise<SubjectLifecycleResult> {
+  let result: SubjectLifecycleResult = { ok: false, reason: "not_found", offer: null };
+  await mutate((s) => {
+    const o = s.offers[offerId];
+    if (!o) return;
+    const st = o.outreachState ?? "NEEDS_REVIEW";
+    if (st !== "APPROVED_NOT_SENT" && st !== "SCHEDULED") { result = { ok: false, reason: "not_sendable", offer: o }; return; }
+    o.outreachState = "SENT";
+    o.sentAt = opts.now;
+    o.sentMailbox = opts.mailbox;
+    o.sentRecipient = opts.recipient;
+    o.state = "SENT";
+    o.updatedAt = opts.now;
+    result = { ok: true, offer: o };
+  });
+  if (result.ok) await appendAudit({ action: "quickfix.outreach_sent", actor: opts.actor, targetType: "quickfix_offer", targetId: offerId, meta: { mailbox: opts.mailbox, recipient: opts.recipient }, ip: null });
+  return result;
+}
+
+/**
+ * Schedule (or reschedule) a send for an explicit date/time+tz. Requires the artifact
+ * to be approved (APPROVED_NOT_SENT or already SCHEDULED). Passing scheduledAt=null
+ * CANCELS the schedule and returns to APPROVED_NOT_SENT. Scheduling never dispatches.
+ */
+export async function scheduleOutreach(
+  offerId: string,
+  opts: { scheduledAt: string | null; tz: string | null; actor: string; now: string },
+): Promise<SubjectLifecycleResult> {
+  let result: SubjectLifecycleResult = { ok: false, reason: "not_found", offer: null };
+  await mutate((s) => {
+    const o = s.offers[offerId];
+    if (!o) return;
+    const st = o.outreachState ?? "NEEDS_REVIEW";
+    if (st !== "APPROVED_NOT_SENT" && st !== "SCHEDULED") { result = { ok: false, reason: "not_approved", offer: o }; return; }
+    if (opts.scheduledAt === null) {
+      // Cancel → back to approved-not-sent.
+      o.scheduledAt = null;
+      o.scheduledTz = null;
+      o.outreachState = "APPROVED_NOT_SENT";
+    } else {
+      o.scheduledAt = opts.scheduledAt;
+      o.scheduledTz = opts.tz;
+      o.outreachState = "SCHEDULED";
+    }
+    o.updatedAt = opts.now;
+    result = { ok: true, offer: o };
+  });
+  if (result.ok) await appendAudit({ action: opts.scheduledAt === null ? "quickfix.outreach_schedule_canceled" : "quickfix.outreach_scheduled", actor: opts.actor, targetType: "quickfix_offer", targetId: offerId, meta: { scheduledAt: opts.scheduledAt, tz: opts.tz }, ip: null });
+  return result;
 }
 
 // ── Evergreen ────────────────────────────────────────────────────────────────

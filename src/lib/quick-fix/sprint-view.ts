@@ -25,10 +25,14 @@ export async function sprintScoreboardView(): Promise<SprintView> {
       skuFamily: skuKey ? familyOf(skuKey) : null,
       deliveredAt: (j as any).jobDeliveredAt ?? null,
       hasCompletionEvidence: Array.isArray(evidence) && evidence.length > 0,
+      isDemo: j.isDemo === true,
     });
   }
 
-  const completedLeadIds = new Set(jobs.filter((j) => j.state === "DELIVERED" || j.state === "COMPLETE").map((j) => j.leadId));
+  // A lead with at least one REAL (non-demo) job is a real customer; a lead whose
+  // only jobs are demo jobs is a demo-only customer and is excluded from real counts.
+  const realJobLeadIds = new Set(jobs.filter((j) => j.isDemo !== true).map((j) => j.leadId));
+  const completedLeadIds = new Set(jobs.filter((j) => j.isDemo !== true && (j.state === "DELIVERED" || j.state === "COMPLETE")).map((j) => j.leadId));
   const sCustomers: SprintCustomer[] = Object.values(state.customers).map((c: any) => ({
     leadId: c.leadId,
     purchases: c.offersPurchased?.length ?? 0,
@@ -36,6 +40,7 @@ export async function sprintScoreboardView(): Promise<SprintView> {
     maintenancePlanKey: c.maintenancePlanKey ?? null,
     hasCompletedJob: completedLeadIds.has(c.leadId),
     referenceApproved: c.referenceApproved ?? false,
+    isDemo: !realJobLeadIds.has(c.leadId),
   }));
 
   return { scoreboard: buildSprintScoreboard(sJobs, sCustomers), capabilityEvidence: capabilityEvidenceExport(sJobs) };

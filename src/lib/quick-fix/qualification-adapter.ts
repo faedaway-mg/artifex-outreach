@@ -13,6 +13,7 @@ import { sendEligibility, inferCountry, type JurisdictionVerdict } from "./juris
 import { assessFixability } from "./fixability";
 import { familyOf } from "./catalog";
 import { qualifyLead, type Qualification } from "./qualification";
+import { assessOfferCustomerLanguage } from "./customer-language";
 
 /** Minimal structural view of a Lead — decoupled from the full repo type. */
 export interface LeadLike {
@@ -64,8 +65,23 @@ function overlapSignalsFor(lead: LeadLike, bi: any) {
  * Qualify one lead. offer may be null (no BI profile / no productizable fix) — the
  * funnel still runs and simply won't reach READY_TO_SELL. Pure given its inputs.
  */
-export function qualifyLeadRecord(args: { lead: LeadLike; offer: QuickFixOffer | null; bi?: any; suppressed?: boolean; bounced?: boolean }): LeadQualification {
-  const { lead, offer, bi, suppressed = false, bounced = false } = args;
+export function qualifyLeadRecord(args: {
+  lead: LeadLike;
+  offer: QuickFixOffer | null;
+  bi?: any;
+  suppressed?: boolean;
+  bounced?: boolean;
+  /**
+   * Optional OFFER-READINESS verdict (Part U). When the caller has assembled the offer
+   * artifact and run assessOfferReadiness, pass {ready, blockers} here so the funnel can
+   * expose READY_TO_SEND separately from sales qualification. Omitted ⇒ readiness not
+   * evaluated (does not block). Readiness is evaluated by offer-readiness.ts, which needs
+   * the full customer-facing artifact — deliberately supplied by the caller, not re-
+   * derived here, to keep this adapter free of route/generator internals.
+   */
+  readiness?: { ready: boolean; blockers?: string[] };
+}): LeadQualification {
+  const { lead, offer, bi, suppressed = false, bounced = false, readiness } = args;
 
   const contactability = assessContactability({
     email: lead.publicEmail ?? null,
@@ -95,6 +111,11 @@ export function qualifyLeadRecord(args: { lead: LeadLike; offer: QuickFixOffer |
   const overlap = assessCompetitiveOverlap(overlapSignalsFor(lead, bi));
   const jurisdiction = sendEligibility(inferCountry({ state: lead.state ?? null, country: lead.country ?? null }));
 
+  // Plain-language gate over the offer's customer-facing copy. Only applicable when
+  // an offer exists to inspect; otherwise leave undefined (not blocking) so leads
+  // without a generated offer fail elsewhere in the funnel, not here.
+  const customerLanguage = offer ? assessOfferCustomerLanguage(offer) : null;
+
   const qualification = qualifyLead({
     hasWebsite: !!lead.website,
     contactability,
@@ -108,6 +129,10 @@ export function qualifyLeadRecord(args: { lead: LeadLike; offer: QuickFixOffer |
     hasObservedDefect: !!offer && (offer.evidenceGrade === "OBSERVED" || offer.confidence >= 0.6),
     clearsMarginGate: offer?.economics.clearsMarginGate ?? false,
     jurisdiction,
+    customerLanguageClean: customerLanguage ? customerLanguage.passes : undefined,
+    customerLanguageProblems: customerLanguage?.problems,
+    offerReady: readiness ? readiness.ready : undefined,
+    offerReadinessBlockers: readiness?.blockers,
   });
 
   return {

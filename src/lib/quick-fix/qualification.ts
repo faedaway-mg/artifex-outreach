@@ -28,7 +28,8 @@ export type Disqualifier =
   | "THIN_MARGIN"
   | "JURISDICTION_BLOCKED"
   | "JURISDICTION_UNKNOWN"
-  | "EMAIL_UNVERIFIED";
+  | "EMAIL_UNVERIFIED"
+  | "CUSTOMER_LANGUAGE";
 
 export type FunnelStage =
   | "DISCOVERED"
@@ -69,11 +70,36 @@ export interface QualificationInput {
   /** economics.clearsMarginGate. */
   clearsMarginGate: boolean;
   jurisdiction: JurisdictionVerdict;
+  /**
+   * True when EVERY customer-facing surface of the offer passes the plain-language
+   * (no-jargon) gate — no unexplained acronym, internal SKU key, developer/marketing
+   * jargon, or vague non-action in copy the owner reads. Absent (undefined) means the
+   * check was not applicable (no offer to inspect) and does NOT block; false means the
+   * copy actively failed the gate and the lead CANNOT be ready to sell. See
+   * customer-language.ts. This never changes factual scope — it only gates on clarity.
+   */
+  customerLanguageClean?: boolean;
+  /** Optional: the specific customer-language problems (for the dashboard reason). */
+  customerLanguageProblems?: string[];
+
+  /**
+   * OFFER-READINESS signal (Part U) — DISTINCT from sales qualification. `true` when the
+   * assembled offer artifact passed the deterministic readiness gate (no BLOCKER issues);
+   * `false` when a material blocker exists (stale PDF, raw URL, opener mismatch, price
+   * disagreement, dark pattern, …). Absent (undefined) means readiness was not evaluated
+   * (no artifact assembled) and is NOT treated as a failure. This never changes SALES
+   * qualification (readyToSell): a sales-qualified lead whose artifact is unready is still
+   * sales-qualified — it is simply not READY_TO_SEND until the blockers clear.
+   */
+  offerReady?: boolean;
+  /** Optional: short readiness blocker reasons (for the dashboard), when unready. */
+  offerReadinessBlockers?: string[];
 }
 
 export interface Qualification {
   stageReached: FunnelStage;
-  /** High-confidence sendable: passed every gate AND has an auto-sendable address. */
+  /** High-confidence sendable: passed every gate AND has an auto-sendable address.
+   *  NOTE: this is SALES qualification only — it is NOT gated by offer readiness. */
   readyToSell: boolean;
   /** Has a usable email at all (auto or with approval). */
   emailable: boolean;
@@ -81,6 +107,19 @@ export interface Qualification {
   emailableAuto: boolean;
   disqualifiers: Disqualifier[];
   reasons: string[];
+
+  /**
+   * READY_TO_SEND — the composite send gate (Part U). True only when the lead is
+   * SALES-qualified (readyToSell) AND the assembled offer artifact is materially ready
+   * (offerReady !== false). A materially-unready offer is NEVER READY_TO_SEND, but this
+   * NEVER downgrades readyToSell — readiness is surfaced separately so the operator sees
+   * "sales-qualified, but the artifact has blockers" as a distinct state.
+   */
+  readyToSend: boolean;
+  /** The offer-readiness verdict as fed in (undefined ⇒ not evaluated). */
+  offerReady?: boolean;
+  /** Short readiness blocker reasons (only when offerReady === false). */
+  offerReadinessBlockers?: string[];
 }
 
 /**
@@ -146,6 +185,16 @@ export function qualifyLead(input: QualificationInput): Qualification {
   // Email quality gate for AUTO send (catch-all/unverified requires operator approval).
   if (c.hasEmail && !c.emailableAuto && c.emailableWithApproval) { disqualifiers.push("EMAIL_UNVERIFIED"); reasons.push("email unverified/catch-all — needs operator approval before spending mailbox reputation"); }
 
+  // CUSTOMER-LANGUAGE (no-jargon) — copy the owner reads must be plain. A hard failure
+  // here is terminal for READY_TO_SELL: we never cold-send an offer whose customer copy
+  // still exposes unexplained acronyms / internal SKU keys / jargon. `undefined` means
+  // not applicable (no offer inspected) and never blocks; `false` blocks.
+  if (input.customerLanguageClean === false) {
+    disqualifiers.push("CUSTOMER_LANGUAGE");
+    const detail = (input.customerLanguageProblems ?? []).slice(0, 3).join("; ");
+    reasons.push(`customer-facing copy fails the plain-language gate${detail ? `: ${detail}` : ""}`);
+  }
+
   const hardBlocked = disqualifiers.some((d) => d !== "EMAIL_UNVERIFIED");
   const reachedJurisdictionStage = STAGE_ORDER.indexOf(stage) >= STAGE_ORDER.indexOf("JURISDICTION_SENDABLE");
   const readyToSell =
@@ -157,6 +206,16 @@ export function qualifyLead(input: QualificationInput): Qualification {
 
   if (readyToSell) { advance("HIGH_CONFIDENCE_READY_TO_SELL"); reasons.push("passed the full funnel — high-confidence ready to sell"); }
 
+  // OFFER READINESS (Part U) — surfaced SEPARATELY. A materially-unready offer is not
+  // READY_TO_SEND, but sales qualification (readyToSell) is untouched. `undefined` ⇒ not
+  // evaluated ⇒ does not block send-readiness beyond the sales gate.
+  const offerUnready = input.offerReady === false;
+  if (offerUnready) {
+    const detail = (input.offerReadinessBlockers ?? []).slice(0, 3).join("; ");
+    reasons.push(`offer artifact not ready to send${detail ? `: ${detail}` : ""} (sales qualification unaffected)`);
+  }
+  const readyToSend = readyToSell && !offerUnready;
+
   return {
     stageReached: stage,
     readyToSell,
@@ -164,5 +223,8 @@ export function qualifyLead(input: QualificationInput): Qualification {
     emailableAuto: c.emailableAuto,
     disqualifiers: [...new Set(disqualifiers)],
     reasons,
+    readyToSend,
+    offerReady: input.offerReady,
+    offerReadinessBlockers: offerUnready ? input.offerReadinessBlockers : undefined,
   };
 }
