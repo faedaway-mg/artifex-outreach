@@ -143,12 +143,14 @@ describe("breakbotBatchView — asset QA + sales/asset distinction", () => {
 });
 
 describe("release-regression gate (pure) — smoke", () => {
-  it("all 5 golden READY and all 20 failures blocked on their expected surface", () => {
+  it("all golden READY and every failure blocked on its expected surface", () => {
     const r = runRegression();
+    // 5 golden presentation-ready fixtures; the failure set grew to 22 when the
+    // mandatory-personalized-video policy added the missing/stale-video regressions.
     expect(r.goldenTotal).toBe(5);
-    expect(r.failureTotal).toBe(20);
-    expect(r.goldenPassed).toBe(5);
-    expect(r.failurePassed).toBe(20);
+    expect(r.failureTotal).toBeGreaterThanOrEqual(22);
+    expect(r.goldenPassed).toBe(r.goldenTotal);
+    expect(r.failurePassed).toBe(r.failureTotal);
     expect(r.allPass).toBe(true);
     expect(r.regressions).toEqual([]);
   });

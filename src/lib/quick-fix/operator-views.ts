@@ -18,7 +18,7 @@ import { playbookFor } from "./playbooks";
 import { DEFAULT_AUTOMATION_LEVEL, AUTO_ELIGIBLE_CAPABILITY_ALLOWLIST } from "./automation-policy";
 import * as store from "./store";
 import type { QuickFixOffer } from "./types";
-import { buildEvidencePackage, customerReceivesManifest, type EvidencePackage, type ManifestRow } from "./evidence-package";
+import { buildEvidencePackage, customerReceivesManifest, type EvidencePackage, type ManifestRow, type EvidenceAssetRef, type AssetStatus } from "./evidence-package";
 import { composeOfferOutreach, type OfferOutreachCopy } from "./offer-outreach";
 import { offerIdFor } from "./store";
 import { ARTIFEX_IDENTITY } from "../identity";
@@ -535,7 +535,9 @@ export async function revenueSummary(): Promise<{ jobsByState: Record<string, nu
 export async function evidencePackageView(offerId: string): Promise<EvidencePackage | null> {
   const offer = await store.getOffer(offerId);
   if (!offer) return null;
-  return buildEvidencePackage(offer as unknown as QuickFixOffer);
+  // Pass the persisted personalized-video record so evidence.personalizedVideo resolves
+  // its true READY/STALE/MISSING status (never silently MISSING when a record exists).
+  return buildEvidencePackage(offer as unknown as QuickFixOffer, { personalizedVideo: offer.personalizedVideo ?? null });
 }
 
 /** The customer-receives manifest for an offer. `emailReady` is derived from whether
@@ -544,7 +546,7 @@ export async function evidencePackageView(offerId: string): Promise<EvidencePack
 export async function customerReceivesView(offerId: string): Promise<ManifestRow[] | null> {
   const offer = await store.getOffer(offerId);
   if (!offer) return null;
-  const pkg = await buildEvidencePackage(offer as unknown as QuickFixOffer);
+  const pkg = await buildEvidencePackage(offer as unknown as QuickFixOffer, { personalizedVideo: offer.personalizedVideo ?? null });
   // A fabrication-safe draft must compose for the offer email to be "receivable".
   const draft = composeOfferOutreach(offer as unknown as QuickFixOffer, { buyUrl: `/offer/${offerId}`, bookingUrl: "" });
   return customerReceivesManifest(pkg, offer as unknown as QuickFixOffer, draft.safe);
@@ -740,8 +742,10 @@ export async function opportunityWorkspaceView(offerId: string): Promise<Opportu
   if (!stored) return null;
   const offer = stored as unknown as QuickFixOffer;
 
-  // ONE evidence truth → package + customer-receives manifest.
-  const evidence = await buildEvidencePackage(offer);
+  // ONE evidence truth → package + customer-receives manifest. Pass the persisted
+  // personalized-video record so its readiness is TRUE across the evidence view and the
+  // customer-receives manifest (never silently MISSING when a record exists).
+  const evidence = await buildEvidencePackage(offer, { personalizedVideo: stored.personalizedVideo ?? null });
   const offerPath = `/offer/${stored.shareToken}`;
   const bookingUrl = ARTIFEX_IDENTITY.bookingUrl;
   const copy = composeOfferOutreach(offer, { buyUrl: offerPath, bookingUrl });
@@ -1030,8 +1034,9 @@ export async function persuasionFlowView(offerId: string): Promise<PersuasionFlo
   if (!stored) return null;
   const offer = stored as unknown as QuickFixOffer;
 
-  // ONE evidence truth → package (drives every surface below).
-  const evidence = await buildEvidencePackage(offer);
+  // ONE evidence truth → package (drives every surface below). Pass the persisted
+  // personalized-video record so the video flow reports its true readiness.
+  const evidence = await buildEvidencePackage(offer, { personalizedVideo: stored.personalizedVideo ?? null });
   const frame = experienceFrameForOffer(offer);
   const offerPath = `/offer/${stored.shareToken}`;
   const bookingUrl = ARTIFEX_IDENTITY.bookingUrl;
@@ -1157,6 +1162,206 @@ export async function persuasionFlowView(offerId: string): Promise<PersuasionFlo
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// FULL CUSTOMER JOURNEY PREVIEW (Part P) — a read-only, NO-SEND assembly that stitches
+// the EXACT frozen artifacts the customer/operator surfaces already render, in the real
+// order the prospect moves through them:
+//   INBOX → EMAIL → PDF → OFFER HERO → WEBSITE EVIDENCE → PERSONALIZED VIDEO → REPAIR
+//   → PACKAGE → PROTECTIONS → PRICE → CHECKOUT PREVIEW.
+// It re-uses the SAME artifacts opportunityWorkspaceView assembles (one evidence truth,
+// one composed email, one offer-page model) — it fabricates NO preview copy, and it
+// performs NO send, NO charge, NO schedule, NO write.
+//
+// PERSONALIZED-VIDEO INVARIANT (Part AE 41-44, 56): the personalized diagnostic video
+// step is placed BEFORE the evergreen "how it works" step, and the evergreen video is
+// NEVER substituted into the personalized slot — a non-READY personalized video exposes
+// its honest MISSING/STALE status instead of borrowing the evergreen asset.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type JourneyStepKind =
+  | "INBOX" | "EMAIL" | "PDF" | "OFFER_HERO" | "WEBSITE_EVIDENCE"
+  | "PERSONALIZED_VIDEO" | "REPAIR" | "PACKAGE" | "PROTECTIONS" | "PRICE"
+  | "EVERGREEN_VIDEO" | "CHECKOUT";
+
+export interface JourneyStep {
+  kind: JourneyStepKind;
+  /** Short nav label (Inbox · Email · PDF · Offer · Video · Price · Checkout groupings). */
+  navLabel: string;
+  /** The section heading rendered in the stitched journey. */
+  title: string;
+  /** Honest presence/readiness for this artifact (READY/MISSING/STALE/NOT_APPLICABLE). */
+  status: AssetStatus;
+  /** Plain operator-facing detail — never fabricated. */
+  detail: string;
+}
+
+export interface JourneyView {
+  offerId: string;
+  company: string;
+  quickFixEligible: boolean;
+  /** The composed email exactly as the customer would receive it (rendered, not sent). */
+  inbox: { fromName: string; fromEmail: string; to: string | null; subject: string };
+  email: { bodyHtml: string; bodyText: string; safe: boolean; primaryCta: OfferOutreachCopy["primaryCta"]; offerPath: string; attachments: "none" };
+  /** The on-demand diagnostic PDF route + readiness (READY only with ≥1 finding). */
+  pdf: { status: AssetStatus; route: string | null; detail: string };
+  /** The offer-page model the customer route renders (hero → evidence → video → …). */
+  offerPage: import("./offer-page").OfferPageModel;
+  /** The ONE evidence truth (screenshots + personalized video ref) shared by every step. */
+  evidence: EvidencePackage;
+  /** The PERSONALIZED diagnostic video ref — READY url only; never the evergreen. */
+  personalizedVideo: EvidenceAssetRef;
+  /** The SECONDARY evergreen explainer — supporting, never the personalized slot. */
+  evergreenVideo: EvidenceAssetRef;
+  /** The checkout PREVIEW — price + purchasability, but no charge is ever initiated. */
+  checkout: { priceLabel: string; purchasable: boolean; conversationOnly: boolean; reasons: string[] };
+  /** The ordered steps stitched together — the exact customer sequence. */
+  steps: JourneyStep[];
+  /** Index of the personalized-video step and the evergreen step, for the invariant check. */
+  personalizedVideoStepIndex: number;
+  evergreenVideoStepIndex: number;
+  /** True when the personalized step precedes the evergreen step AND the evergreen asset is
+   *  never the one bound into the personalized slot (Part AE 41-44, 56). */
+  personalizedBeforeEvergreen: boolean;
+}
+
+/**
+ * Assemble the full read-only customer-journey preview for a stored offer. Reuses the
+ * SAME frozen artifacts opportunityWorkspaceView assembles (one evidence package with the
+ * offer's true personalized-video readiness, one composed email, one offer-page model) so
+ * nothing here is fake preview copy. Returns null when no offer is stored. NO send, NO
+ * charge, NO write.
+ */
+export async function journeyView(offerId: string): Promise<JourneyView | null> {
+  const w = await opportunityWorkspaceView(offerId);
+  if (!w) return null;
+
+  const evidence = w.evidence;
+  const model = w.offerPage;
+  const personalizedVideo = evidence.personalizedVideo;
+  const evergreenVideo = evidence.evergreenVideo;
+
+  // The personalized slot NEVER borrows the evergreen asset: its url is used only when the
+  // personalized ref itself is READY. This is the guard Part AE 41-44/56 assert.
+  const pvReady = personalizedVideo.status === "READY" && !!personalizedVideo.url;
+  const personalizedUrlBorrowsEvergreen =
+    !!personalizedVideo.url && personalizedVideo.url === evergreenVideo.url;
+
+  const steps: JourneyStep[] = [
+    {
+      kind: "INBOX", navLabel: "Inbox", title: "Inbox — the email lands",
+      status: w.email.safe ? "READY" : "MISSING",
+      detail: `From ${w.email.header.fromName} <${w.email.header.fromEmail}> · Subject: ${w.email.header.subject}`,
+    },
+    {
+      kind: "EMAIL", navLabel: "Email", title: "Email — opened",
+      status: w.email.safe ? "READY" : "MISSING",
+      detail: w.email.safe ? "A fabrication-safe offer email composes. No attachments — nothing is auto-attached." : "No fabrication-safe offer email composes for this offer yet.",
+    },
+    {
+      kind: "PDF", navLabel: "PDF", title: "Diagnostic PDF — the written review",
+      status: evidence.diagnosticPdf.status,
+      detail: evidence.diagnosticPdf.detail,
+    },
+    {
+      kind: "OFFER_HERO", navLabel: "Offer", title: "Offer page — experience hero",
+      status: "READY",
+      detail: model.experience.offerHeroTitle,
+    },
+    {
+      kind: "WEBSITE_EVIDENCE", navLabel: "Offer", title: "Website evidence — your live pages",
+      status: evidence.screenshotStatus,
+      detail: evidence.screenshotStatus === "READY"
+        ? `${evidence.screenshots.filter((s) => s.status === "READY").length} captured page image(s) of the real site.`
+        : "No captured screenshot is ready — the page shows the text evidence card instead (never a fabricated image).",
+    },
+    {
+      kind: "PERSONALIZED_VIDEO", navLabel: "Video", title: "Personalized diagnostic video — about your site",
+      status: personalizedVideo.status,
+      detail: pvReady
+        ? personalizedVideo.detail
+        : `${personalizedVideo.detail} The evergreen explainer is NOT substituted here.`,
+    },
+    {
+      kind: "REPAIR", navLabel: "Offer", title: "The repair — the proposed change",
+      status: model.proposedSolution ? "READY" : "MISSING",
+      detail: model.proposedSolution || "No proposed solution on this offer.",
+    },
+    {
+      kind: "PACKAGE", navLabel: "Offer", title: "What's included — the value stack",
+      status: model.whatWeFix.length ? "READY" : "MISSING",
+      detail: model.whatWeFix.length ? `${model.whatWeFix.length} included item(s) — scope only, no invented bonuses.` : "No included items on this offer.",
+    },
+    {
+      kind: "PROTECTIONS", navLabel: "Offer", title: "How the process is protected",
+      status: model.integrityPrinciples.length ? "READY" : "MISSING",
+      detail: `${model.integrityPrinciples.length} operational protection(s). Revisions: ${model.revisionPolicy}.`,
+    },
+    {
+      kind: "PRICE", navLabel: "Price", title: "Price — one fixed price, before checkout",
+      status: model.conversationOnly ? "NOT_APPLICABLE" : (model.priceLabel ? "READY" : "MISSING"),
+      detail: model.conversationOnly ? "This offer is a conversation, not a fixed-price quick fix." : `${model.priceLabel} · ${model.turnaround}`,
+    },
+    {
+      kind: "EVERGREEN_VIDEO", navLabel: "Video", title: "How the Artifex quick fix works (evergreen)",
+      status: evergreenVideo.status,
+      detail: `Secondary, shared explainer — the same for every customer, never about this site. ${evergreenVideo.detail}`,
+    },
+    {
+      kind: "CHECKOUT", navLabel: "Checkout", title: "Checkout — preview only (no charge)",
+      status: model.checkout.purchasable ? "READY" : "MISSING",
+      detail: model.conversationOnly
+        ? "Conversation offer — no checkout. Book a conversation instead."
+        : `${model.priceLabel} · ${model.checkout.purchasable ? "purchasable" : "not purchasable"}: ${model.checkout.reasons.join("; ")}. This preview initiates NO charge.`,
+    },
+  ];
+
+  const personalizedVideoStepIndex = steps.findIndex((s) => s.kind === "PERSONALIZED_VIDEO");
+  const evergreenVideoStepIndex = steps.findIndex((s) => s.kind === "EVERGREEN_VIDEO");
+  const personalizedBeforeEvergreen =
+    personalizedVideoStepIndex >= 0 &&
+    evergreenVideoStepIndex > personalizedVideoStepIndex &&
+    !personalizedUrlBorrowsEvergreen;
+
+  return {
+    offerId,
+    company: w.company,
+    quickFixEligible: w.quickFixEligible,
+    inbox: {
+      fromName: w.email.header.fromName,
+      fromEmail: w.email.header.fromEmail,
+      to: w.email.header.to,
+      subject: w.email.header.subject,
+    },
+    email: {
+      bodyHtml: w.email.bodyHtml,
+      bodyText: w.email.bodyText,
+      safe: w.email.safe,
+      primaryCta: w.email.primaryCta,
+      offerPath: w.email.offerPath,
+      attachments: "none",
+    },
+    pdf: {
+      status: evidence.diagnosticPdf.status,
+      route: evidence.diagnosticPdf.status === "READY" ? evidence.diagnosticPdf.url : null,
+      detail: evidence.diagnosticPdf.detail,
+    },
+    offerPage: model,
+    evidence,
+    personalizedVideo,
+    evergreenVideo,
+    checkout: {
+      priceLabel: model.priceLabel,
+      purchasable: model.checkout.purchasable,
+      conversationOnly: model.conversationOnly,
+      reasons: model.checkout.reasons,
+    },
+    steps,
+    personalizedVideoStepIndex,
+    evergreenVideoStepIndex,
+    personalizedBeforeEvergreen,
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // BREAKBOT — OPERATOR-FACING QA GATE (read-only). Runs the finished adversarial
 // pre-flight engine over a REAL stored offer (single) or the top-N high-confidence
 // READY_TO_SELL offers (batch), and returns the structured verdict(s) the operator
@@ -1184,11 +1389,16 @@ export async function persuasionFlowView(offerId: string): Promise<PersuasionFlo
  */
 async function breakbotInputForStoredOffer(stored: store.StoredOffer): Promise<BreakbotPreflightInput> {
   const offer = stored as unknown as QuickFixOffer;
-  const evidence = await buildEvidencePackage(offer);
+  // Pass the offer's persisted personalized-video record so the evidence package resolves
+  // its TRUE readiness (READY/STALE/MISSING) — without it Breakbot always sees MISSING.
+  const evidence = await buildEvidencePackage(offer, { personalizedVideo: stored.personalizedVideo ?? null });
   const ev = evidenceVersion(evidence);
   const videoAsset = trustVideoForOffer(offer).asset;
   const dependentAssets: DependentAsset[] = [
     { kind: "diagnosticPdf", present: evidence.diagnosticPdf.status === "READY", generatedEvidenceVersion: stored.evidenceVersion ?? ev },
+    // The personalized diagnostic video is a dependent asset: present ONLY when the
+    // record resolved READY; its generated-against evidence version is the record's own.
+    { kind: "personalizedVideo", present: evidence.personalizedVideo.status === "READY", generatedEvidenceVersion: stored.personalizedVideo?.evidenceVersion ?? null },
   ];
   return {
     offer,

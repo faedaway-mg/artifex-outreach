@@ -21,7 +21,13 @@
     "railway:verify": "bash scripts/railway-guard.sh",
     "deploy:production": "bash scripts/deploy-production.sh",
     "launch:validate": "tsx scripts/launch-validate.ts",
-    "launch:review": "tsx scripts/daily-review.ts"
+    "launch:review": "tsx scripts/daily-review.ts",
+    "breakbot:regression": "tsx scripts/breakbot-regression.ts",
+    "breakbot:visual": "tsx scripts/breakbot-visual.ts",
+    "breakbot:batch": "tsx scripts/breakbot-batch.ts",
+    "breakbot:recheck": "tsx scripts/breakbot-recheck.ts",
+    "personalized-video:render": "tsx scripts/personalized-video-render.ts",
+    "offers:regenerate-stale": "tsx scripts/regenerate-stale-offers.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.693.0",

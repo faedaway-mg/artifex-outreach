@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Offer — Sticky Bar Overlaps Purchase (broken)</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+    body { font-family: system-ui, sans-serif; overflow-x: hidden; }
+    .wrap { padding: 16px; }
+    #heroTitle { font-size: 28px; line-height: 1.2; margin: 8px 0 16px; }
+    #evidenceScreenshot { width: 100%; max-width: 480px; aspect-ratio: 16 / 10; background: #ddd; }
+    #personalizedVideoFrame { width: 100%; max-width: 480px; aspect-ratio: 16 / 9; background: #222; margin-top: 16px; }
+    /* The purchase controls live near the top of the fold so a bottom-pinned bar
+       still overlaps them within the initial viewport. */
+    #purchaseControls { margin-top: 24px; padding: 16px; background: #f4f4f4; position: relative; z-index: 1; }
+    #primaryCta { display: block; width: 100%; padding: 16px; font-size: 18px; background: #0a7; color: #fff; border: none; }
+    /* BROKEN: an absolutely-positioned sticky bar is placed at a fixed document y so
+       that it deterministically OVERLAPS #purchaseControls and, with z-index 999,
+       paints ON TOP of them. This is a real "sticky bar covers the buy controls" bug. */
+    #stickyBar { position: absolute; top: 200px; left: 0; right: 0; height: 520px; background: rgba(17,17,17,0.92); color: #fff; z-index: 999; display: flex; align-items: center; justify-content: center; }
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <h1 id="heroTitle">Sticky bar covers the buy controls</h1>
+    <div id="evidenceScreenshot" role="img" aria-label="Evidence screenshot"></div>
+    <div id="personalizedVideoFrame" role="img" aria-label="Personalized video"></div>
+    <section id="purchaseControls">
+      <p>Terms: one-time engagement.</p>
+      <button id="primaryCta" type="button">Approve &amp; start</button>
+    </section>
+    <div id="stickyBar">Limited spots — reply today</div>
+  </main>
+</body>
+</html>

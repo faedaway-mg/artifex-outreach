@@ -69,6 +69,12 @@ import {
   type FulfillmentPacket,
 } from "../quick-fix/fulfillment-center";
 import { canTransitionJob } from "../quick-fix/fulfillment";
+import {
+  buildVideoStoryboard,
+  assessNarrationTruth,
+  PV_NARRATION_VERSION,
+  PV_RENDER_VERSION,
+} from "../quick-fix/personalized-video";
 import { playbookFor } from "../quick-fix/playbooks";
 import type { JobRecord } from "../quick-fix/store";
 import type { CustomerRecord } from "../quick-fix/lifecycle";
@@ -216,6 +222,8 @@ export interface BreakbotPassSnapshot {
   subjectPolicyVersion: string;
   approvedSubjectFrozen: string | null;
   narrationVersion: string;
+  personalizedVideoNarrationVersion: string;
+  personalizedVideoRenderVersion: string;
 }
 
 // ── Small helpers ──────────────────────────────────────────────────────────────
@@ -562,6 +570,8 @@ export function breakbotPassSnapshot(input: BreakbotPreflightInput, verdict: Bre
     subjectPolicyVersion: SUBJECT_POLICY_VERSION,
     approvedSubjectFrozen: subject ?? null,
     narrationVersion: TRUST_VIDEO_NARRATION_VERSION,
+    personalizedVideoNarrationVersion: PV_NARRATION_VERSION,
+    personalizedVideoRenderVersion: PV_RENDER_VERSION,
   };
 }
 
@@ -580,7 +590,9 @@ export function breakbotResultIsStale(prev: BreakbotPassSnapshot, current: Break
     now.persuasionPolicyVersion !== prev.persuasionPolicyVersion ||
     now.subjectPolicyVersion !== prev.subjectPolicyVersion ||
     now.approvedSubjectFrozen !== prev.approvedSubjectFrozen ||
-    now.narrationVersion !== prev.narrationVersion
+    now.narrationVersion !== prev.narrationVersion ||
+    now.personalizedVideoNarrationVersion !== prev.personalizedVideoNarrationVersion ||
+    now.personalizedVideoRenderVersion !== prev.personalizedVideoRenderVersion
   );
 }
 
@@ -595,16 +607,42 @@ function runVideoChecks(
   issues: Issue[],
   pass: () => void,
 ): void {
-  // (1) The personalized video is ALWAYS MISSING today; it must be reported honestly and
-  //     NEVER substituted by the evergreen explainer.
-  if (evidence.personalizedVideo.status !== "MISSING") {
+  // (1) PERSONALIZED VIDEO IS MANDATORY (new persuasion policy). The offer is presentation-
+  //     ready ONLY when a current, evidence-bound personalized diagnostic video exists
+  //     (evidence.personalizedVideo.status === "READY"). Any non-READY state — MISSING (i.e.
+  //     NOT_GENERATED/QUEUED/RENDERING/FAILED/BLOCKED all surface as MISSING) or STALE — is a
+  //     BLOCKER. This check depends ONLY on evidence.personalizedVideo; the evergreen explainer
+  //     is a SEPARATE asset (checked below) and can NEVER satisfy the personalized requirement.
+  if (evidence.personalizedVideo.status === "READY") {
+    pass();
+  } else {
     issues.push(issue({
-      surface: "video.personalizedHonesty",
+      surface: "video.personalized",
       severity: "BLOCKER",
-      expected: "the personalized video is honestly MISSING (no generation pipeline exists)",
+      expected: "a current, evidence-bound personalized diagnostic video (status READY)",
       observed: `personalizedVideo.status=${evidence.personalizedVideo.status}`,
-      fix: "Report the personalized video as MISSING; never substitute the evergreen explainer.",
+      fix: "Generate/regenerate the personalized diagnostic video from this offer's current evidence before it can be presentation-ready.",
     }));
+  }
+
+  // (1b) NARRATION TRUTH (Part E). Build the storyboard the personalized video WOULD render
+  //     and verify it is honest. A buildable storyboard whose narration either attempts an
+  //     unsupported use-claim (attemptedUseHonest=false) or fails the attempted-use truth
+  //     check is a BLOCKER. A NOT-buildable storyboard means there is no honest personalized
+  //     video to render — that is already the MISSING/personalized BLOCKER above, so we do
+  //     NOT double-block here.
+  const sb = buildVideoStoryboard(evidence, experienceFrameForOffer(offer), offer);
+  if (sb.buildable) {
+    const truth = assessNarrationTruth(sb.narrationScript, offer);
+    if (!sb.attemptedUseHonest || !truth.ok) {
+      issues.push(issue({
+        surface: "video.narrationTruth",
+        severity: "BLOCKER",
+        expected: "the personalized video's narration only claims an attempted action the evidence supports",
+        observed: truth.reason ?? "the storyboard narration makes an unsupported attempted-use claim",
+        fix: "Regenerate the storyboard from the honest observational frame; never claim an attempted action the evidence does not support.",
+      }));
+    } else { pass(); }
   } else { pass(); }
 
   // (2) The evergreen video is bound to the OFFER's own scope (right business/scope).

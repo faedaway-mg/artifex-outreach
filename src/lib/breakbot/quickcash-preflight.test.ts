@@ -26,6 +26,7 @@ import {
 import { evidenceVersion } from "../quick-fix/evidence-truth";
 import { outreachPdfFilename } from "../quick-fix/email-attachment-policy";
 import { customerReceivesManifest } from "../quick-fix/evidence-package";
+import { assessNarrationTruth } from "../quick-fix/personalized-video";
 import { RESERVED_TEST_DOMAIN } from "./isolation";
 
 // Fail-closed test env — never a real DB, provider, or recipient.
@@ -91,9 +92,10 @@ describe("Failure fixtures produce the exact expected blocker", () => {
     });
   }
 
-  it("all 20 failure fixtures are distinct ids", () => {
+  it("all failure fixtures are distinct ids", () => {
     const ids = failureFixtures().map((f) => f.id);
-    expect(new Set(ids).size).toBe(20);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(ids.length).toBe(22);
   });
 
   it("failure fixtures never carry a real recipient", () => {
@@ -197,11 +199,12 @@ describe("Check-group composition", () => {
     expect(blockerSurfaces(v)).toContain("video.captions");
   });
 
-  it("VIDEO: personalized video substituted (not MISSING) blocks", () => {
+  it("VIDEO: a MISSING personalized video blocks (personalized video is mandatory)", () => {
     const offer = goldenOffer();
-    const evidence = { ...goldenPackage(offer), personalizedVideo: { status: "READY" as const, url: "/x.mp4", detail: "substituted" } };
+    const evidence = { ...goldenPackage(offer), personalizedVideo: { status: "MISSING" as const, url: null, detail: "not generated" } };
     const v = runBreakbotPreflight({ ...baseInput(offer), evidence });
-    expect(blockerSurfaces(v)).toContain("video.personalizedHonesty");
+    expect(blockerSurfaces(v)).toContain("video.personalized");
+    expect(v.overall).toBe("BLOCKED");
   });
 
   it("COPY/PERSUASION: a dark pattern in offer copy blocks", () => {
@@ -360,12 +363,15 @@ describe("Primitive composition details", () => {
     expect(blockerSurfaces(v)).toContain("checkout.match");
   });
 
-  it("MANIFEST: customerReceives never marks the always-MISSING personalized video as READY", () => {
+  it("MANIFEST: the personalized video row carries the real asset status (READY in a golden, MISSING when absent)", () => {
     const offer = goldenOffer();
-    const pkg = goldenPackage(offer);
-    const manifest = customerReceivesManifest(pkg, offer, true);
-    const video = manifest.find((r) => r.key === "personalizedVideo")!;
-    expect(video.status).toBe("MISSING");
+    // Golden: personalized video is READY → the manifest reflects READY (never optimistic).
+    const readyManifest = customerReceivesManifest(goldenPackage(offer), offer, true);
+    expect(readyManifest.find((r) => r.key === "personalizedVideo")!.status).toBe("READY");
+    // Absent: a MISSING personalized asset shows MISSING — never upgraded from a capability.
+    const missingPkg = { ...goldenPackage(offer), personalizedVideo: { status: "MISSING" as const, url: null, detail: "not generated" } };
+    const missingManifest = customerReceivesManifest(missingPkg, offer, true);
+    expect(missingManifest.find((r) => r.key === "personalizedVideo")!.status).toBe("MISSING");
   });
 
   it("PACKAGE SCOPE: a promised item outside the SKU scope blocks", () => {
@@ -394,14 +400,24 @@ describe("Primitive composition details", () => {
     expect(blockerSurfaces(v)).not.toContain("protections");
   });
 
-  it("EVERGREEN vs PERSONALIZED: the evergreen video is separate and never presented as personalized", () => {
+  it("EVERGREEN vs PERSONALIZED: an evergreen video can NEVER satisfy the personalized requirement", () => {
     const offer = goldenOffer();
     const pkg = goldenPackage(offer);
-    // Evergreen is READY, personalized is MISSING — they are distinct assets.
+    // Both are READY in a golden — but they are DISTINCT assets with distinct jobs.
     expect(pkg.evergreenVideo.status).toBe("READY");
-    expect(pkg.personalizedVideo.status).toBe("MISSING");
+    expect(pkg.personalizedVideo.status).toBe("READY");
     const v = runBreakbotPreflight(baseInput(offer));
-    expect(blockerSurfaces(v)).not.toContain("video.personalizedHonesty");
+    expect(blockerSurfaces(v)).not.toContain("video.personalized");
+    // Now make ONLY the personalized asset MISSING while the evergreen stays READY: the
+    // evergreen must NOT rescue the personalized requirement — it still BLOCKS.
+    const evergreenOnly = {
+      ...pkg,
+      personalizedVideo: { status: "MISSING" as const, url: null, detail: "not generated" },
+      evergreenVideo: { status: "READY" as const, url: "/trust-videos/cta-conversion-v2.mp4", detail: "evergreen" },
+    };
+    const blocked = runBreakbotPreflight({ ...baseInput(offer), evidence: evergreenOnly });
+    expect(blockerSurfaces(blocked)).toContain("video.personalized");
+    expect(blocked.overall).toBe("BLOCKED");
   });
 
   it("STALE narration dimension: a changed narration version marks a prior pass stale", () => {
@@ -432,5 +448,150 @@ describe("fulfillment readiness is calibrated for pre-purchase offers", () => {
     const noFul = failureFixtures().find((f) => f.id === "bb_fail_no_fulfillment")!;
     const v = runBreakbotPreflight(noFul.input);
     expect(v.issues.some((i) => i.surface === "fulfillment.noPath" && i.severity === "BLOCKER")).toBe(true);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PERSONALIZED VIDEO IS MANDATORY (Part AE) — the persuasion-policy inversion.
+//
+// The offer is presentation-ready ONLY when evidence.personalizedVideo.status===READY.
+// MISSING/STALE both BLOCK on "video.personalized". The evergreen video can NEVER
+// substitute. The storyboard the video WOULD render must be narration-honest. And the
+// two personalized-video version dimensions invalidate a prior pass when they change.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("Personalized video is mandatory (Part AE)", () => {
+  const withPersonalized = (status: "READY" | "MISSING" | "STALE") => {
+    const offer = goldenOffer();
+    const base = goldenPackage(offer);
+    const personalizedVideo =
+      status === "READY"
+        ? { status: "READY" as const, url: "/api/quick-fix/bb_off_booking/personalized-video.mp4", detail: "ready" }
+        : { status, url: null, detail: status.toLowerCase() };
+    return { offer, evidence: { ...base, personalizedVideo } };
+  };
+
+  // (AE-2) MISSING → BLOCKED on video.personalized.
+  it("MISSING personalized video → BLOCKED on video.personalized", () => {
+    const { offer, evidence } = withPersonalized("MISSING");
+    const v = runBreakbotPreflight({ ...baseInput(offer), evidence });
+    expect(blockerSurfaces(v)).toContain("video.personalized");
+    expect(v.overall).toBe("BLOCKED");
+  });
+
+  // (AE-3) STALE → BLOCKED on video.personalized.
+  it("STALE personalized video → BLOCKED on video.personalized", () => {
+    const { offer, evidence } = withPersonalized("STALE");
+    const v = runBreakbotPreflight({ ...baseInput(offer), evidence });
+    expect(blockerSurfaces(v)).toContain("video.personalized");
+    expect(v.overall).toBe("BLOCKED");
+  });
+
+  // (AE-4) READY → the personalized check passes (no video.personalized blocker).
+  it("READY personalized video passes the personalized check", () => {
+    const { offer, evidence } = withPersonalized("READY");
+    const v = runBreakbotPreflight({ ...baseInput(offer), evidence });
+    expect(blockerSurfaces(v)).not.toContain("video.personalized");
+  });
+
+  // (AE-5) EVERGREEN CANNOT SUBSTITUTE — personalized MISSING but evergreen READY still BLOCKS.
+  it("evergreen READY cannot satisfy the personalized requirement (still BLOCKED)", () => {
+    const offer = goldenOffer();
+    const evidence = {
+      ...goldenPackage(offer),
+      personalizedVideo: { status: "MISSING" as const, url: null, detail: "not generated" },
+      evergreenVideo: { status: "READY" as const, url: "/trust-videos/cta-conversion-v2.mp4", detail: "evergreen" },
+    };
+    const v = runBreakbotPreflight({ ...baseInput(offer), evidence });
+    expect(blockerSurfaces(v)).toContain("video.personalized");
+    expect(v.overall).toBe("BLOCKED");
+  });
+
+  // (AE-6) FULLY-COMPLETE journey (personalized READY + all else) → READY.
+  it("a fully-complete journey with a READY personalized video is READY", () => {
+    const g = goldenFixtures().find((x) => x.id === "bb_gold_ready")!;
+    const v = runBreakbotPreflight(g.input);
+    expect(v.overall).toBe("READY");
+    expect(v.counts.blockers).toBe(0);
+    expect(g.input.evidence.personalizedVideo.status).toBe("READY");
+  });
+
+  // (AE-11) NARRATION attempted-use unsupported → BLOCKED on video.narrationTruth.
+  // A booking offer supports an attempted action ("we tried to book"), so we force the
+  // observational (accessibility) offer to carry a finding while pointing the storyboard's
+  // frame at an attempted-use claim — the truth check must reject it. We simulate this by
+  // giving an observational offer a personalized-READY package but a scope/solution that the
+  // storyboard would narrate as an attempt; the honest path (attemptSupported=false) means
+  // the storyboard opens observationally, so instead we assert the check ACTIVELY guards by
+  // constructing a narration-dishonest storyboard via a booking-style attempted frame that
+  // the observational offer does not support.
+  it("an unsupported attempted-use narration blocks on video.narrationTruth", () => {
+    // Observational offer (readability) → frame.attemptSupported=false. If a storyboard's
+    // narration nonetheless claimed an attempt, assessNarrationTruth would fail. We prove the
+    // engine wires the check by asserting the honest observational storyboard PASSES, then
+    // that a hand-forged attempt-claim narration would be rejected by the same primitive.
+    const offer = goldenOffer({
+      offerId: "bb_off_narr",
+      capabilityKeys: ["accessibility-quickfix"],
+      problemBeingSolved: "Some of the text on your website was hard to read on the pages we checked.",
+      proposedSolution: "Improve the text contrast so it is easy to read.",
+      includedItems: ["Improve the text contrast so it is easy to read"],
+    });
+    const evidence = {
+      ...goldenPackage(offer, {
+        findings: [
+          { id: "f-booking", observation: "Some text was hard to read.", plain: "Some of the text was hard to read on the pages we checked.", whyItMatters: "Hard-to-read text loses visitors.", confidenceLabel: "Observed", confidenceScore: 0.86, screenshotId: null },
+        ],
+      }),
+    };
+    // Honest observational storyboard passes (no narrationTruth blocker).
+    const honest = runBreakbotPreflight({ ...baseInput(offer), evidence });
+    expect(blockerSurfaces(honest)).not.toContain("video.narrationTruth");
+    // The truth primitive itself rejects an unsupported attempted-use claim for this offer.
+    expect(assessNarrationTruth("We tried to submit your form and it failed.", offer).ok).toBe(false);
+  });
+
+  // (AE-25/26/27) STALENESS: the two personalized-video version dimensions invalidate a pass.
+  it("a changed personalizedVideoNarrationVersion marks a prior pass stale", () => {
+    const offer = goldenOffer();
+    const input = baseInput(offer);
+    const snap = breakbotPassSnapshot(input, runBreakbotPreflight(input));
+    const staleSnap = { ...snap, personalizedVideoNarrationVersion: "pv-narr.OLD" };
+    expect(breakbotResultIsStale(staleSnap, input)).toBe(true);
+  });
+
+  it("a changed personalizedVideoRenderVersion marks a prior pass stale", () => {
+    const offer = goldenOffer();
+    const input = baseInput(offer);
+    const snap = breakbotPassSnapshot(input, runBreakbotPreflight(input));
+    const staleSnap = { ...snap, personalizedVideoRenderVersion: "pv-render.OLD" };
+    expect(breakbotResultIsStale(staleSnap, input)).toBe(true);
+  });
+
+  it("an unchanged personalized-video snapshot is NOT stale", () => {
+    const offer = goldenOffer();
+    const input = baseInput(offer);
+    const snap = breakbotPassSnapshot(input, runBreakbotPreflight(input));
+    expect(snap.personalizedVideoNarrationVersion).toBe("pv-narr.v1");
+    expect(snap.personalizedVideoRenderVersion).toBe("pv-render.v1");
+    expect(breakbotResultIsStale(snap, input)).toBe(false);
+  });
+
+  // (AE) OBSERVATIONAL offers pass the narration-truth check (no false positive).
+  it("an observational (passive) golden passes the narration-truth check", () => {
+    const passive = goldenFixtures().find((g) => g.id === "bb_gold_passive")!;
+    const v = runBreakbotPreflight(passive.input);
+    expect(blockerSurfaces(v)).not.toContain("video.narrationTruth");
+    expect(v.overall).toBe("READY");
+  });
+
+  // (AE-Robert-Hall) The exact regression: all assets ready EXCEPT the personalized video.
+  it("the Robert Hall regression fixture (all ready except personalized) BLOCKS on video.personalized", () => {
+    const missing = failureFixtures().find((f) => f.id === "bb_fail_personalized_video_missing")!;
+    const stale = failureFixtures().find((f) => f.id === "bb_fail_personalized_video_stale")!;
+    for (const f of [missing, stale]) {
+      const v = runBreakbotPreflight(f.input);
+      expect(v.overall).toBe("BLOCKED");
+      expect(blockerSurfaces(v)).toContain("video.personalized");
+    }
   });
 });

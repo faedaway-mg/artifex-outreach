@@ -7,7 +7,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { getSettings, updateSettings, appendAudit } from "../repo";
-import type { QuickFixOffer, JobState, AutomationLevel } from "./types";
+import type { QuickFixOffer, JobState, AutomationLevel, OfferScope } from "./types";
 import type { EvergreenAssetVersion } from "./evergreen-asset";
 import { seedEvergreenExplainer } from "./evergreen-asset";
 import type { CommerceRecord, CommerceStore } from "./stripe-commerce";
@@ -23,6 +23,7 @@ import { onVerifiedPurchase } from "./lifecycle";
 import { FIX_SCAN_SKU } from "./fix-scan";
 import { CANONICAL_EXPLAINER_SCRIPT } from "./evergreen-asset";
 import { PERSUASION_POLICY_VERSION } from "./offer-readiness";
+import type { PersonalizedDiagnosticVideoRecord } from "./personalized-video";
 
 export type ApprovalStatus = "draft" | "approved" | "rejected";
 
@@ -78,6 +79,13 @@ export interface StoredOffer extends QuickFixOffer {
   sentAt?: string | null;
   sentMailbox?: string | null;
   sentRecipient?: string | null;
+
+  /** The per-offer personalized diagnostic video record (Part B). Absent ⇒ never
+   *  generated. Its readiness is judged against the offer's CURRENT evidence +
+   *  narration + render versions by personalizedVideoReadiness — a drifted/unplayable
+   *  record is STALE, never silently READY. The evergreen video is separate + never
+   *  substituted for this. */
+  personalizedVideo?: PersonalizedDiagnosticVideoRecord;
 }
 
 // ── Persisted fulfillment sub-state (Part A) ─────────────────────────────────────
@@ -241,6 +249,106 @@ export async function setApproval(offerId: string, status: ApprovalStatus, actor
     out = o;
   });
   if (out) await appendAudit({ action: `quickfix.offer_${status}`, actor, targetType: "quickfix_offer", targetId: offerId, meta: null, ip: null });
+  return out;
+}
+
+// ── Personalized diagnostic video record (Part B/J) ─────────────────────────────
+// The render worker persists a PersonalizedDiagnosticVideoRecord here as it moves
+// through QUEUED → RENDERING → READY/FAILED. Idempotent by construction: the caller
+// keys on the record's idempotencyKey, so re-running a render for identical inputs
+// simply overwrites with the same asset. This never sends, charges, or mutates scope.
+export async function setPersonalizedVideo(
+  offerId: string,
+  record: PersonalizedDiagnosticVideoRecord,
+  opts: { actor: string; now: string },
+): Promise<StoredOffer | null> {
+  let out: StoredOffer | null = null;
+  await mutate((s) => {
+    const o = s.offers[offerId];
+    if (!o) return;
+    o.personalizedVideo = record;
+    o.updatedAt = opts.now;
+    out = o;
+  });
+  if (out) {
+    await appendAudit({
+      action: "quickfix.personalized_video_set",
+      actor: opts.actor,
+      targetType: "quickfix_offer",
+      targetId: offerId,
+      meta: { status: record.status, evidenceVersion: record.evidenceVersion, renderVersion: record.renderVersion },
+      ip: null,
+    });
+  }
+  return out;
+}
+
+export async function getPersonalizedVideo(offerId: string): Promise<PersonalizedDiagnosticVideoRecord | null> {
+  const o = (await getState()).offers[offerId];
+  return o?.personalizedVideo ?? null;
+}
+
+/**
+ * Regenerate an offer's customer-facing SCOPE COPY in place from freshly-derived
+ * plain-language scope (rebuilt by the caller from the CURRENT capabilities), keeping
+ * a HISTORY of the prior version. This is the mechanical fix for offers whose stored
+ * scope text was frozen before the plain-language policy shipped. It:
+ *   • replaces offer.scope with the new plain-language scope,
+ *   • re-stamps persuasionPolicyVersion (forces a Breakbot re-validation),
+ *   • clears the frozen subject + re-opens review (a changed message can't inherit a
+ *     prior sign-off),
+ *   • preserves the prior scope + policy version in scopeHistory for audit/rollback.
+ * It NEVER changes price, SKU, capabilityKeys, findings, evidence, or share token, and
+ * NEVER sends. Returns the updated offer (or null if not found / scope unchanged).
+ */
+export async function replaceOfferScope(
+  offerId: string,
+  nextScope: OfferScope,
+  opts: { actor: string; now: string; reason?: string },
+): Promise<StoredOffer | null> {
+  let out: StoredOffer | null = null;
+  let changed = false;
+  await mutate((s) => {
+    const o = s.offers[offerId];
+    if (!o) return;
+    const prevScopeJson = JSON.stringify(o.scope);
+    if (prevScopeJson === JSON.stringify(nextScope)) {
+      // No copy change — restamp policy only so currency is provable, but don't churn history.
+      o.persuasionPolicyVersion = PERSUASION_POLICY_VERSION;
+      o.updatedAt = opts.now;
+      out = o;
+      return;
+    }
+    const history = ((o as any).scopeHistory ?? []) as Array<Record<string, unknown>>;
+    history.push({
+      at: opts.now,
+      persuasionPolicyVersion: o.persuasionPolicyVersion ?? null,
+      scope: o.scope,
+      reason: opts.reason ?? "customer-language regeneration",
+    });
+    (o as any).scopeHistory = history;
+    o.scope = nextScope;
+    o.persuasionPolicyVersion = PERSUASION_POLICY_VERSION;
+    // A changed customer message must be re-reviewed: clear the freeze + re-open review.
+    o.approvedSubjectFrozen = null;
+    o.approvalStatus = "draft";
+    o.approvedBy = null;
+    o.outreachState = "NEEDS_REVIEW";
+    if (o.state === "APPROVED") o.state = "DRAFT";
+    o.updatedAt = opts.now;
+    out = o;
+    changed = true;
+  });
+  if (out && changed) {
+    await appendAudit({
+      action: "quickfix.offer_scope_regenerated",
+      actor: opts.actor,
+      targetType: "quickfix_offer",
+      targetId: offerId,
+      meta: { persuasionPolicyVersion: PERSUASION_POLICY_VERSION, reason: opts.reason ?? "customer-language regeneration" },
+      ip: null,
+    });
+  }
   return out;
 }
 

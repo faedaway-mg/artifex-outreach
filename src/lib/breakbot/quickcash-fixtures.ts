@@ -9,8 +9,9 @@
 // affect real customers, revenue, the sprint, reference inventory, or the send queue.
 //
 // The 5 GOLDEN fixtures are fully-formed, evidence-backed, delayed-price journeys that
-// SHOULD pass (overall READY). The 20 FAILURE fixtures each introduce exactly ONE real
-// strategy violation and are annotated with the EXACT blocker surface Breakbot must emit.
+// SHOULD pass (overall READY) — under the new persuasion policy each golden now REQUIRES a
+// READY personalized diagnostic video. The 22 FAILURE fixtures each introduce exactly ONE
+// real strategy violation and are annotated with the EXACT blocker surface Breakbot emits.
 // ─────────────────────────────────────────────────────────────────────────────
 import { createHash } from "node:crypto";
 import type { QuickFixOffer, OfferEconomics } from "../quick-fix/types";
@@ -159,7 +160,11 @@ export function goldenPackage(offer: QuickFixOffer, o: PackageOverrides = {}): E
     ],
     screenshotStatus: o.screenshotStatus ?? "READY",
     findings,
-    personalizedVideo: o.personalizedVideo ?? { status: "MISSING", url: null, detail: "No personalized-video pipeline exists." },
+    personalizedVideo: o.personalizedVideo ?? {
+      status: "READY",
+      url: `/api/quick-fix/${offer.offerId}/personalized-video.mp4`,
+      detail: "A personalized walkthrough of your real website, built from the same review this offer is based on.",
+    },
     diagnosticPdf: o.diagnosticPdf ?? { status: "READY", url: `/api/quick-fix/${offer.offerId}/diagnostic-pdf`, detail: "On-demand diagnostic PDF." },
     evergreenVideo: o.evergreenVideo ?? { status: "READY", url: "/trust-videos/cta-conversion-v2.mp4", detail: "Shared evergreen explainer." },
     confidence: offer.confidence,
@@ -471,6 +476,28 @@ export function failureFixtures(): FailureFixture[] {
       });
       const base = baseInput(offer);
       return { ...base, sellable: true, fulfillment: { ...safeFulfillment(), detectedPlatform: "unknown" } };
+    }),
+
+    // 21) PERSONALIZED VIDEO MISSING — everything else is READY (screenshots, PDF, evergreen,
+    //     subject, price, checkout) but the mandatory personalized diagnostic video was never
+    //     generated. This is the EXACT Robert Hall contradiction: all assets ready EXCEPT the
+    //     personalized video. Under the new persuasion policy it MUST BLOCK on video.personalized.
+    fail("bb_fail_personalized_video_missing", "personalized-video-missing", "Personalized video missing (all else ready)", "video.personalized", (i) => {
+      const evidence = {
+        ...i.evidence,
+        personalizedVideo: { status: "MISSING" as const, url: null, detail: "No personalized video has been generated for this offer yet." },
+      };
+      return { ...i, evidence };
+    }),
+
+    // 22) PERSONALIZED VIDEO STALE — a personalized video exists but the review changed under
+    //     it. A STALE personalized video is not presentation-ready → BLOCK on video.personalized.
+    fail("bb_fail_personalized_video_stale", "personalized-video-stale", "Personalized video stale (review changed underneath)", "video.personalized", (i) => {
+      const evidence = {
+        ...i.evidence,
+        personalizedVideo: { status: "STALE" as const, url: null, detail: "A personalized video exists but the review changed underneath it — it needs to be re-rendered." },
+      };
+      return { ...i, evidence };
     }),
   ];
 }

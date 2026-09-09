@@ -23,6 +23,13 @@ import { toOfferFindings } from "./adapter";
 import { trustVideoForOffer } from "./trust-videos";
 import { getLead, getBusinessIntelligence } from "../repo";
 import { latestReadyShot, type Viewport } from "../content-studio/screenshot-jobs";
+import { evidenceVersion } from "./evidence-truth";
+import {
+  personalizedVideoAssetRef,
+  PV_NARRATION_VERSION,
+  PV_RENDER_VERSION,
+  type PersonalizedDiagnosticVideoRecord,
+} from "./personalized-video";
 
 export type AssetStatus = "READY" | "MISSING" | "STALE" | "UNVERIFIED" | "NOT_APPLICABLE";
 
@@ -119,7 +126,10 @@ function screenshotIdForFinding(f: Pick<OfferFinding, "observation" | "whyItMatt
  * engine derives them (lead BI opportunities → OfferFindings), then narrowed to the
  * findings this offer actually anchored on (offer.findingIds).
  */
-export async function buildEvidencePackage(offer: QuickFixOffer): Promise<EvidencePackage> {
+export async function buildEvidencePackage(
+  offer: QuickFixOffer,
+  opts: { personalizedVideo?: PersonalizedDiagnosticVideoRecord | null } = {},
+): Promise<EvidencePackage> {
   const leadId = offer.leadId;
 
   // Website URL (best-effort, read-only).
@@ -167,13 +177,34 @@ export async function buildEvidencePackage(offer: QuickFixOffer): Promise<Eviden
     screenshotId: screenshotIdForFinding(f, readyByViewport),
   }));
 
-  // 3) PERSONALIZED VIDEO — ALWAYS MISSING. No generation pipeline exists yet, and
-  //    we NEVER substitute the evergreen trust video for a real personalized one.
-  const personalizedVideo: EvidenceAssetRef = {
-    status: "MISSING",
-    url: null,
-    detail: "A per-business personalized video is not generated yet — no personalized-video pipeline exists. The shared evergreen explainer is a separate asset and is never presented as a personalized video.",
-  };
+  // 3) PERSONALIZED VIDEO — READY only when a real rendered asset is bound to THIS
+  //    offer's CURRENT evidence + narration + render versions AND is playable. A
+  //    missing/queued/rendering/failed record → MISSING; a version-drifted or
+  //    unplayable one → STALE. The evergreen video is a SEPARATE asset and is NEVER
+  //    substituted here. Currency is judged against the live evidence hash, computed
+  //    over the material evidence just assembled (findings + screenshots).
+  const currentEvidenceVersion = evidenceVersion({
+    offerId: offer.offerId,
+    leadId,
+    company: offer.companyName,
+    websiteUrl,
+    screenshots,
+    screenshotStatus,
+    findings,
+    // placeholder refs — canonicalEvidence ignores asset refs, so these don't affect the hash
+    personalizedVideo: { status: "NOT_APPLICABLE", url: null, detail: "" },
+    diagnosticPdf: { status: "NOT_APPLICABLE", url: null, detail: "" },
+    evergreenVideo: { status: "NOT_APPLICABLE", url: null, detail: "" },
+    confidence: offer.confidence,
+    evidenceGrade: offer.evidenceGrade,
+    generatedAt: offer.generatedAt,
+  });
+  const personalizedVideo: EvidenceAssetRef = personalizedVideoAssetRef(opts.personalizedVideo ?? null, {
+    offerVersion: offer.offerVersion,
+    evidenceVersion: currentEvidenceVersion,
+    narrationVersion: PV_NARRATION_VERSION,
+    renderVersion: PV_RENDER_VERSION,
+  });
 
   // 4) DIAGNOSTIC PDF — the PDF renders ON DEMAND, deterministically, from THIS same
   //    canonical evidence (findings + real screenshots) via the offer's diagnostic-pdf

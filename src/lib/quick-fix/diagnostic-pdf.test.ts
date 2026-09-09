@@ -203,7 +203,7 @@ describe("customer-facing filename + email-attachment render API (Part Q)", () =
     expect(Buffer.isBuffer(buf)).toBe(true);
     expect(buf.byteLength).toBeGreaterThan(1000);
     expect(buf.subarray(0, 5).toString("latin1")).toBe("%PDF-");
-  });
+  }, 90_000); // real @react-pdf render is CPU-heavy (~13s solo); allow headroom under full-suite parallel load
 });
 
 describe("no assembled customer text contains a fabricated claim", () => {

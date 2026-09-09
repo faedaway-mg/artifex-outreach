@@ -67,6 +67,16 @@ step "Breakbot release-regression (golden + failure fixtures)"
 pnpm -s tsx "$ROOT/scripts/breakbot-regression.ts" \
   || fail "Breakbot regression failed — a Quick-Cash experience check regressed. Holding the deploy."
 
+# 3.6 ── Breakbot rendered-browser visual regression (Part Q/T/AD) ──────────────
+# Launches headless Chromium over the deterministic layout fixtures at mobile
+# (390×844) + desktop (1440×900) and fails closed if a fixture that must render
+# cleanly is BLOCKED or a deliberately-broken fixture stops being caught (overflow,
+# price-in-hero, sticky-overlap). Requires a local Chromium (Playwright); if the
+# browser genuinely cannot launch, this fails closed rather than silently passing.
+step "Breakbot rendered visual regression (mobile + desktop fixtures)"
+pnpm -s tsx "$ROOT/scripts/breakbot-visual.ts" \
+  || fail "Breakbot visual regression failed — a rendered layout check regressed (or Chromium could not launch). Holding the deploy."
+
 # 4 ── Pending DB migrations ──────────────────────────────────────────────────
 step "Checking pending database migrations"
 PENDING="$(node "$ROOT/scripts/migration-status.mjs" --count 2>/dev/null || echo "ERR")"

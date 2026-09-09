@@ -8,7 +8,7 @@
 // the model triggers no charges and no sends.
 // ─────────────────────────────────────────────────────────────────────────────
 import type { QuickFixOffer } from "./types";
-import type { EvidencePackage } from "./evidence-package";
+import type { EvidencePackage, AssetStatus } from "./evidence-package";
 import type { EvergreenAssetVersion } from "./evergreen-asset";
 import { buildRequirements, type RequirementsChecklist } from "./requirements";
 import { buildStripeDescription } from "./stripe-copy";
@@ -61,6 +61,15 @@ export interface OfferPageModel {
   /** The single source of the attempted-use / observed-friction hero (email + PDF + page
    *  all derive their opener from HERE). Drives the EXPERIENCE hero that leads the page. */
   experience: ExperienceFrame;
+  /** The PERSONALIZED diagnostic video slot — placed near the real evidence (after the
+   *  screenshots, before "what this means"). `url` is non-null ONLY when status==="READY";
+   *  a non-READY status (MISSING/STALE/…) exposes the honest state so the page can show the
+   *  status instead of rendering a broken empty frame — and it NEVER falls back to the
+   *  evergreen process video (that is a SEPARATE, secondary asset). */
+  personalizedVideo: { status: AssetStatus; url: string | null; detail: string };
+  /** The SECONDARY, evergreen "how the Artifex quick fix works" explainer — supporting
+   *  trust content that lives further down the page. It must NEVER occupy the personalized
+   *  slot above and is never presented as being about the customer's own site. */
   trustVideo: { present: boolean; assetUrl: string | null; posterUrl: string | null; captionsUrl: string | null; title: string; durationSeconds: number | null; script: string; version: number | null };
   requirements: RequirementsChecklist;
   howItWorks: string[];
@@ -122,6 +131,19 @@ export function buildOfferPageModel(input: BuildOfferPageInput): OfferPageModel 
 
   const scope = scopeForOffer(offer);
   const impact = impactForScope(scope);
+  // PERSONALIZED diagnostic video slot — read straight from the ONE evidence truth. The
+  // url survives ONLY when the ref is genuinely READY; any other status (MISSING/STALE)
+  // exposes the honest state so the page shows status, not a broken empty frame. We NEVER
+  // substitute the evergreen process video here. Absent an evidence package → honest MISSING.
+  const pvRef = input.evidence?.personalizedVideo ?? null;
+  const personalizedVideo: OfferPageModel["personalizedVideo"] =
+    pvRef && pvRef.status === "READY" && pvRef.url
+      ? { status: "READY", url: pvRef.url, detail: pvRef.detail }
+      : {
+          status: pvRef?.status ?? "MISSING",
+          url: null,
+          detail: pvRef?.detail ?? "No personalized diagnostic video has been generated for this offer yet.",
+        };
   // The one attempted-use / observed-friction frame that leads the page hero. Derived
   // from the offer's canonical problem statement — never fabricated, honest when the
   // defect doesn't imply an attempt (attemptSupported === false).
@@ -153,6 +175,7 @@ export function buildOfferPageModel(input: BuildOfferPageInput): OfferPageModel 
     beforeAfter: { before: impact.before, after: impact.after },
     scope,
     experience,
+    personalizedVideo,
     trustVideo: {
       present: !!input.evergreen,
       assetUrl: input.evergreen?.assetUrl ?? null,
