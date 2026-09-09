@@ -13,6 +13,7 @@ import { seedEvergreenExplainer } from "./evergreen-asset";
 import type { CommerceRecord, CommerceStore } from "./stripe-commerce";
 import type { WebhookDeps, WebhookOutcome } from "./webhook";
 import type { TermsAcceptance } from "./terms";
+import type { MaintenanceConsent } from "./maintenance";
 import type { CustomerRecord } from "./lifecycle";
 import type { CreditRecord } from "./fix-scan";
 import { DEFAULT_AUTOMATION_LEVEL } from "./automation-policy";
@@ -59,6 +60,8 @@ export interface QuickFixState {
   terms: Record<string, TermsAcceptance>;
   /** Fix Scan repair credits, keyed by scanOfferId. */
   credits: Record<string, CreditRecord>;
+  /** Separate recurring-maintenance consents, keyed by offerId. */
+  maintenanceConsents: Record<string, MaintenanceConsent>;
 }
 
 const EMPTY: QuickFixState = {
@@ -71,6 +74,7 @@ const EMPTY: QuickFixState = {
   processedEvents: [],
   terms: {},
   credits: {},
+  maintenanceConsents: {},
 };
 
 export function offerIdFor(offer: QuickFixOffer): string {
@@ -164,10 +168,19 @@ export async function saveEvergreen(versions: EvergreenAssetVersion[]): Promise<
 // ── Terms ──────────────────────────────────────────────────────────────────────
 export async function saveTermsAcceptance(acc: TermsAcceptance): Promise<void> {
   await mutate((s) => { s.terms[acc.offerId] = acc; });
-  await appendAudit({ action: "quickfix.terms_accepted", actor: acc.customerEmail, targetType: "quickfix_offer", targetId: acc.offerId, meta: { termsVersion: acc.termsVersion, digest: acc.digest }, ip: null });
+  await appendAudit({ action: "quickfix.terms_accepted", actor: acc.customerEmail, targetType: "quickfix_offer", targetId: acc.offerId, meta: { termsVersion: acc.termsVersion, digest: acc.digest, termsDocumentSha: acc.termsDocumentSha, service: acc.service }, ip: null });
 }
 export async function getTermsAcceptance(offerId: string): Promise<TermsAcceptance | null> {
   return (await getState()).terms[offerId] ?? null;
+}
+
+// ── Recurring-maintenance consent (separate affirmative opt-in) ─────────────────
+export async function saveMaintenanceConsent(consent: MaintenanceConsent): Promise<void> {
+  await mutate((s) => { s.maintenanceConsents[consent.offerId] = consent; });
+  await appendAudit({ action: "quickfix.maintenance_consent", actor: consent.customerEmail, targetType: "quickfix_offer", targetId: consent.offerId, meta: { planKey: consent.planKey, monthlyCents: consent.monthlyCents, consentVersion: consent.consentVersion, digest: consent.digest }, ip: null });
+}
+export async function getMaintenanceConsent(offerId: string): Promise<MaintenanceConsent | null> {
+  return (await getState()).maintenanceConsents[offerId] ?? null;
 }
 
 // ── Jobs ─────────────────────────────────────────────────────────────────────

@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { revenueSummary } from "@/lib/quick-fix/operator-views";
 import { legalGateBlocked } from "@/lib/quick-fix/purchase-safety";
-import { LEGAL_REVIEW_REQUIRED } from "@/lib/quick-fix/terms";
+import { TERMS_OPERATOR_APPROVED, TERMS_VERSION } from "@/lib/quick-fix/terms";
 
 export const dynamic = "force-dynamic";
 
@@ -21,6 +21,7 @@ const LINKS = [
 export default async function RevenueHub() {
   const s = await revenueSummary();
   const legal = legalGateBlocked({ ...process.env, NODE_ENV: "production" } as NodeJS.ProcessEnv); // show the prod-gate status honestly
+  const liveMode = process.env.STRIPE_QUICKFIX_MODE === "live";
   const jobsTotal = Object.values(s.jobsByState).reduce((a, b) => a + b, 0);
 
   return (
@@ -42,8 +43,9 @@ export default async function RevenueHub() {
       {/* Activation posture — honest gates */}
       <div className="card space-y-1.5 p-4 text-[12.5px]">
         <div className="flex items-center justify-between"><span className="text-chalk-400">Stripe secret key</span><span className={s.stripeConfigured ? "text-teal-300" : "text-amber-300"}>{s.stripeConfigured ? "configured" : "NOT configured (checkout inert)"}</span></div>
-        <div className="flex items-center justify-between"><span className="text-chalk-400">Legal review of terms</span><span className="text-amber-300">{LEGAL_REVIEW_REQUIRED ? "REQUIRED (pending)" : "complete"}</span></div>
-        <div className="flex items-center justify-between"><span className="text-chalk-400">Production live-purchase gate</span><span className={legal ? "text-amber-300" : "text-teal-300"}>{legal ? "BLOCKED until legal sign-off" : "open"}</span></div>
+        <div className="flex items-center justify-between"><span className="text-chalk-400">Service terms</span><span className={TERMS_OPERATOR_APPROVED ? "text-teal-300" : "text-amber-300"}>{TERMS_OPERATOR_APPROVED ? `Operator-approved · ${TERMS_VERSION}` : "draft"}</span></div>
+        <div className="flex items-center justify-between"><span className="text-chalk-400">Stripe mode</span><span className={liveMode ? "text-teal-300" : "text-chalk-300"}>{liveMode ? "LIVE" : "test"}</span></div>
+        <div className="flex items-center justify-between"><span className="text-chalk-400">Production live-purchase gate</span><span className={legal ? "text-amber-300" : "text-teal-300"}>{legal ? "BLOCKED until QUICKFIX_LEGAL_APPROVED=true" : "open"}</span></div>
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2">

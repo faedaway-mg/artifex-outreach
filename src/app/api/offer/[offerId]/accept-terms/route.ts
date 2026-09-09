@@ -5,10 +5,10 @@ import { buildTermsAcceptance } from "@/lib/quick-fix/terms";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// Records the versioned click-accept of the service terms + a frozen scope snapshot
-// bound to the CURRENT offer version. No charge, no send. The customer supplies the
-// email used for checkout/receipt. LEGAL_REVIEW_REQUIRED remains true — this only
-// captures acceptance of the draft operational terms; it does not assert approval.
+// Records the versioned click-accept of the operator-approved service terms + a
+// frozen snapshot of the EXACT terms text and scope, bound to the CURRENT offer
+// version. No charge, no send. The customer supplies the email used for checkout/
+// receipt. A later terms version can never retroactively replace the frozen artifact.
 export async function POST(req: NextRequest, { params }: { params: { offerId: string } }) {
   const offer = await store.resolveOffer(params.offerId);
   if (!offer) return NextResponse.json({ ok: false, error: "offer not found" }, { status: 404 });

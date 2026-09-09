@@ -56,6 +56,9 @@ export async function middleware(req: NextRequest) {
     // Evergreen Quick-Fix trust videos (+ posters): public static assets embedded in
     // the customer offer page, fetched by a prospect with NO session. Non-secret.
     pathname.startsWith("/trust-videos/") ||
+    // Public legal notices (privacy/access notice + Quick-Fix service terms) linked
+    // from the customer offer page and outreach. Static, non-secret, read-only.
+    pathname.startsWith("/legal/") ||
     pathname.startsWith("/icon") ||
     pathname.startsWith("/manifest") ||
     pathname.startsWith("/api/placeholder");

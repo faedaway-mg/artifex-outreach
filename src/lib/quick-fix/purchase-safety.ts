@@ -7,19 +7,19 @@ import { capabilityByKey, isSellable } from "./capabilities";
 import { TIER_BY_BAND } from "./pricing";
 import { baselinePriceVersions, isApprovedPrice, type PriceVersion } from "./pricing-experiments";
 import { buildStripeDescription } from "./stripe-copy";
-import { LEGAL_REVIEW_REQUIRED } from "./terms";
-
 /**
- * Production live-purchase eligibility gate. LEGAL_REVIEW_REQUIRED is true, so real
- * charges in production stay BLOCKED until counsel signs off (set QUICKFIX_LEGAL_APPROVED
- * =true after review). Non-production (dev/test) is not blocked so test-mode rehearsals
- * and the operator preview can run. Returns the blocking reason, or null if allowed.
+ * Production live-purchase eligibility gate — an INDEPENDENT deployment switch.
+ * Real charges in production stay BLOCKED until QUICKFIX_LEGAL_APPROVED=true (the
+ * operator's explicit production approval of the Quick-Fix service terms). This is
+ * defense in depth: even with approved terms in code, live charging requires the
+ * env switch to be set on the production service. Non-production (dev/test) is not
+ * blocked so test-mode rehearsals and the operator preview can run. Returns the
+ * blocking reason, or null if allowed.
  */
 export function legalGateBlocked(env: NodeJS.ProcessEnv = process.env): string | null {
-  if (!LEGAL_REVIEW_REQUIRED) return null;
   if (env.QUICKFIX_LEGAL_APPROVED === "true") return null;
   return env.NODE_ENV === "production"
-    ? "Live purchases are blocked until the Quick-Fix service terms complete legal review (LEGAL_REVIEW_REQUIRED)."
+    ? "Live purchases are blocked until the Quick-Fix service terms are approved for production (operator legal review → QUICKFIX_LEGAL_APPROVED=true)."
     : null;
 }
 
