@@ -23,9 +23,10 @@ describe("SKU → scope mapping", () => {
       expect(r.asset.assetUrl, `${sku.key} → ${r.scope}`).toMatch(/^\/trust-videos\/.+\.mp4$/);
     }
   });
-  it("Fix Scan maps to the Fix Scan video", () => {
+  it("Fix Scan maps to the Fix Scan video (motion v2 is the active version)", () => {
     expect(scopeForSku(FIX_SCAN_SKU.key)).toBe("fix-scan");
-    expect(selectTrustVideo("fix-scan").assetUrl).toBe("/trust-videos/fix-scan-v1.mp4");
+    expect(selectTrustVideo("fix-scan").assetUrl).toBe("/trust-videos/fix-scan-v2.mp4");
+    expect(selectTrustVideo("fix-scan").version).toBe(2);
   });
   it("an unknown SKU safely falls back to general (script-only, no wrong scope)", () => {
     expect(scopeForSku("no-such-sku")).toBe("general");
@@ -44,7 +45,7 @@ describe("selection is deterministic + server-owned", () => {
   it("resolution reads ONLY the offer's capabilities — no client asset id can override", () => {
     // trustVideoForOffer takes only the offer; extra/hostile fields are ignored.
     const r = trustVideoForOffer({ capabilityKeys: ["accessibility-quickfix"], assetUrl: "/evil.mp4" } as any);
-    expect(r.asset.assetUrl).toBe("/trust-videos/accessibility-v1.mp4");
+    expect(r.asset.assetUrl).toBe("/trust-videos/accessibility-v2.mp4");
   });
   it("only active assets are returned (inactive → general fallback)", () => {
     // General is the canonical fallback; a scope with no active asset yields it.
@@ -54,14 +55,30 @@ describe("selection is deterministic + server-owned", () => {
 });
 
 describe("offer-page integration shape", () => {
-  it("trustVideoAsEvergreen carries the scope video (or script when general)", () => {
+  it("trustVideoAsEvergreen carries the scope video + poster + captions (or script when general)", () => {
     const withVideo = trustVideoAsEvergreen({ capabilityKeys: ["mobile-layout-fix"] });
-    expect(withVideo.assetUrl).toBe("/trust-videos/mobile-responsive-v1.mp4");
+    expect(withVideo.assetUrl).toBe("/trust-videos/mobile-responsive-v2.mp4");
+    expect(withVideo.posterUrl).toBe("/trust-videos/mobile-responsive-v2-poster.jpg");
+    expect(withVideo.captionsUrl).toBe("/trust-videos/mobile-responsive-v2.vtt");
+    expect(withVideo.title).toContain("Mobile");
     expect(withVideo.status).toBe("active");
     expect(withVideo.script).toContain("Artifex");
     const general = trustVideoAsEvergreen({ capabilityKeys: [] });
     expect(general.assetUrl).toBeNull(); // missing video does not break — page shows the script
+    expect(general.captionsUrl).toBeNull();
     expect(general.script.length).toBeGreaterThan(50);
+  });
+});
+
+describe("motion v2 is active with captions, and v1 is retained for rollback", () => {
+  it("every non-general scope serves the v2 motion asset with a matching .vtt", () => {
+    for (const scope of SCOPES) {
+      const a = TRUST_VIDEO_ASSETS[scope];
+      if (!a.assetUrl) continue; // general
+      expect(a.version, `${scope} version`).toBe(2);
+      expect(a.assetUrl).toMatch(/-v2\.mp4$/);
+      expect(a.captionsUrl, `${scope} captions`).toMatch(/-v2\.vtt$/);
+    }
   });
 });
 
@@ -81,6 +98,7 @@ describe("every referenced asset exists on disk", () => {
       if (!a.assetUrl) continue; // general (script-only)
       expect(existsSync(path.join(process.cwd(), "public", a.assetUrl)), `${scope} mp4`).toBe(true);
       expect(existsSync(path.join(process.cwd(), "public", a.posterUrl!)), `${scope} poster`).toBe(true);
+      if (a.captionsUrl) expect(existsSync(path.join(process.cwd(), "public", a.captionsUrl)), `${scope} captions`).toBe(true);
     }
   });
 });

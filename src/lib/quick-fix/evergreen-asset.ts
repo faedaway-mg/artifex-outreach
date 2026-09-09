@@ -18,6 +18,10 @@ export interface EvergreenAssetVersion {
   variant: EvergreenVariant;
   version: number;
   assetUrl: string | null; // null until a render is uploaded/attached
+  /** Optional presentation assets for the customer player (scope-aware trust video). */
+  posterUrl?: string | null;
+  captionsUrl?: string | null;
+  title?: string;
   durationSeconds: number | null;
   /** The approved narration script (illustrative until an operator finalizes). */
   script: string;

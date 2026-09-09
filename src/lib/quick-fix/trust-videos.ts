@@ -49,29 +49,54 @@ export interface TrustVideoAsset {
   title: string;
   assetUrl: string | null;   // null → no video; offer page shows the script text
   posterUrl: string | null;
+  captionsUrl: string | null; // WebVTT (v2+); null for v1 (no captions rendered)
   version: number;
   scriptVersion: string;
   durationSeconds: number | null;
   active: boolean;
 }
 
-const V = 1;
+// Per-scope ACTIVE version. v2 = motion explainer (kinetic typography + animated
+// device mocks + process pipeline + trust chips + conceptual before/after), which
+// replaced the static v1 card once each v2 passed QA (real motion, audio, captions,
+// 1080p — see scripts/quickfix-trust-video-render-v2.mjs + manifest-v2.json). If a
+// scope's v2 ever fails QA, set it back to 1 here and v1 keeps serving (rollback).
+// v1 assets are retained on disk for that rollback and for evidence history.
+const ACTIVE_VERSION: Record<Exclude<TrustVideoScope, "general">, number> = {
+  "contact-form-lead-capture": 2,
+  "cta-conversion": 2,
+  "mobile-responsive": 2,
+  "accessibility": 2,
+  "analytics-tracking": 2,
+  "cms-technical": 2,
+  "seo-metadata": 2,
+  "homepage-sprint": 2,
+  "fix-scan": 2,
+};
+
 function asset(scope: Exclude<TrustVideoScope, "general">, title: string, durationSeconds: number): TrustVideoAsset {
-  return { scope, title, assetUrl: `/trust-videos/${scope}-v${V}.mp4`, posterUrl: `/trust-videos/${scope}-v${V}-poster.jpg`, version: V, scriptVersion: TRUST_VIDEO_SCRIPT_VERSION, durationSeconds, active: true };
+  const v = ACTIVE_VERSION[scope] ?? 1;
+  return {
+    scope, title,
+    assetUrl: `/trust-videos/${scope}-v${v}.mp4`,
+    posterUrl: `/trust-videos/${scope}-v${v}-poster.jpg`,
+    captionsUrl: v >= 2 ? `/trust-videos/${scope}-v${v}.vtt` : null,
+    version: v, scriptVersion: TRUST_VIDEO_SCRIPT_VERSION, durationSeconds, active: true,
+  };
 }
 
 export const TRUST_VIDEO_ASSETS: Record<TrustVideoScope, TrustVideoAsset> = {
   "contact-form-lead-capture": asset("contact-form-lead-capture", "Contact Form & Lead Capture", 70.5),
   "cta-conversion": asset("cta-conversion", "CTA & Conversion", 70.9),
-  "mobile-responsive": asset("mobile-responsive", "Mobile & Responsive Layout", 72.4),
+  "mobile-responsive": asset("mobile-responsive", "Mobile & Responsive Layout", 72.3),
   "accessibility": asset("accessibility", "Accessibility", 66.9),
   "analytics-tracking": asset("analytics-tracking", "Analytics & Tracking", 67.3),
   "cms-technical": asset("cms-technical", "CMS & Technical", 70.0),
   "seo-metadata": asset("seo-metadata", "SEO & Metadata", 71.4),
   "homepage-sprint": asset("homepage-sprint", "Homepage Conversion Sprint", 67.8),
-  "fix-scan": asset("fix-scan", "Fix Scan", 84.7),
+  "fix-scan": asset("fix-scan", "Fix Scan", 82.5),
   // General is the safe fallback — script-only (no rendered asset), never preferred.
-  general: { scope: "general", title: "Artifex Quick-Fix", assetUrl: null, posterUrl: null, version: V, scriptVersion: TRUST_VIDEO_SCRIPT_VERSION, durationSeconds: null, active: true },
+  general: { scope: "general", title: "Artifex Quick-Fix", assetUrl: null, posterUrl: null, captionsUrl: null, version: 1, scriptVersion: TRUST_VIDEO_SCRIPT_VERSION, durationSeconds: null, active: true },
 };
 
 // ── SKU (capability key) → scope. The server owns this map. ─────────────────────
@@ -119,13 +144,15 @@ export function trustVideoForOffer(offer: Pick<QuickFixOffer, "capabilityKeys">)
  *  the existing OfferPageView renders it unchanged (video when present, else script). */
 export function trustVideoAsEvergreen(offer: Pick<QuickFixOffer, "capabilityKeys">): {
   role: "ARTIFEX_QUICK_FIX_EXPLAINER"; variant: "GENERAL_QUICK_FIX"; version: number;
-  assetUrl: string | null; durationSeconds: number | null; script: string; status: "active";
+  assetUrl: string | null; posterUrl: string | null; captionsUrl: string | null; title: string;
+  durationSeconds: number | null; script: string; status: "active";
   createdAt: string; updatedAt: string;
 } {
   const r = trustVideoForOffer(offer);
   return {
     role: "ARTIFEX_QUICK_FIX_EXPLAINER", variant: "GENERAL_QUICK_FIX", version: r.asset.version,
-    assetUrl: r.asset.assetUrl, durationSeconds: r.asset.durationSeconds, script: r.script,
+    assetUrl: r.asset.assetUrl, posterUrl: r.asset.posterUrl, captionsUrl: r.asset.captionsUrl, title: r.asset.title,
+    durationSeconds: r.asset.durationSeconds, script: r.script,
     status: "active", createdAt: "", updatedAt: "",
   };
 }
