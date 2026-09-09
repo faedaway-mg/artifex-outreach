@@ -44,6 +44,13 @@ export async function POST(req: NextRequest) {
 
   const due = await dueScheduled(now);
 
+  // FREEZE gate (Quick-Cash Consolidation): the legacy cold-outreach path is frozen by default.
+  // Report the real due count but dispatch nothing. Scheduled bindings are preserved (inert).
+  const { legacyColdOutreachFrozen, LEGACY_FROZEN_REASON } = await import("@/lib/outreach/legacy-freeze");
+  if (legacyColdOutreachFrozen()) {
+    return NextResponse.json({ ok: true, dispatched: false, due: due.length, sent: 0, frozen: true, reason: LEGACY_FROZEN_REASON });
+  }
+
   // ENTRY gate: with automated sending off, report the real due count but dispatch nothing.
   if (process.env.QR_AUTOSEND_ENABLED !== "1") {
     return NextResponse.json({ ok: true, dispatched: false, due: due.length, sent: 0, reason: "Scheduled outreach is DISABLED (QR_AUTOSEND_ENABLED != \"1\"). Persisted batch read; nothing dispatched." });

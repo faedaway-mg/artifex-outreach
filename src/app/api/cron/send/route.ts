@@ -35,6 +35,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, dispatched: false, dryRun: true, allocation, ...preview });
   }
 
+  // FREEZE gate (Quick-Cash Consolidation): the legacy cold follow-up path is frozen by default.
+  const { legacyColdOutreachFrozen, LEGACY_FROZEN_REASON } = await import("@/lib/outreach/legacy-freeze");
+  if (legacyColdOutreachFrozen()) {
+    return NextResponse.json({ ok: true, dispatched: false, sent: 0, frozen: true, reason: LEGACY_FROZEN_REASON });
+  }
+
   if (process.env.COMMS_AUTOSEND_ENABLED !== "1") {
     return NextResponse.json({
       ok: true,

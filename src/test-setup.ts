@@ -12,10 +12,18 @@ import "./lib/pdf/design/textdecoder-fix";
 import { afterEach } from "vitest";
 import { resetEmailProvider } from "./lib/comms/provider";
 
+// The Quick-Cash Consolidation freezes the legacy cold-outreach path by DEFAULT in
+// production (frozen unless LEGACY_COLD_OUTREACH_ENABLED=1). The existing suite must
+// still exercise the real send MECHANICS (idempotency, receipts, suppression, gates),
+// so the test environment runs with the legacy path explicitly enabled. Tests that
+// assert the freeze itself delete this flag within their own body.
+process.env.LEGACY_COLD_OUTREACH_ENABLED = "1";
+
 afterEach(() => {
   delete process.env.RESEND_API_KEY;
   delete process.env.RESEND_FROM;
   delete process.env.RESEND_WEBHOOK_SECRET;
   delete process.env.AUTH_SECRET;
+  process.env.LEGACY_COLD_OUTREACH_ENABLED = "1"; // re-arm for the next test (freeze tests toggle it off locally)
   resetEmailProvider();
 });

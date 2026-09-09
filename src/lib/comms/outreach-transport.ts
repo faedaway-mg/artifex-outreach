@@ -30,6 +30,7 @@ import { isEmailSuppressed } from "./suppression";
 import { sha256 } from "./receipt";
 import { validEmail } from "../acquisition/compliance";
 import { type MessageClass, classifyLeadSource, isColdOutreach } from "./transport-policy";
+import { legacyColdOutreachFrozen, LEGACY_FROZEN_REASON } from "../outreach/legacy-freeze";
 import type { SendAuthorization } from "../outreach/review-send-policy";
 import type { Lead } from "../types";
 import type { QuickReview } from "../outreach/quick-review";
@@ -104,6 +105,12 @@ export async function submitCompliantDispatch(
 ): Promise<ColdSubmitResult> {
   if (!isColdOutreach(req.classification)) {
     return { sent: false, providerMessageId: null, retryable: false, errorCode: "route-refused", reason: `classification ${req.classification} is not a compliant cold route` };
+  }
+  // FREEZE (Quick-Cash Consolidation): real cold prospect email is frozen by default at the boundary
+  // itself, so no caller (cron or otherwise) can send it while the legacy path is frozen. INTERNAL_TEST
+  // (pinned to COMMS_TEST_RECIPIENT) is deliberately still allowed for controlled, no-prospect proofs.
+  if (req.classification === "COLD_OUTREACH" && legacyColdOutreachFrozen()) {
+    return { sent: false, providerMessageId: null, retryable: false, errorCode: "legacy-frozen", reason: LEGACY_FROZEN_REASON };
   }
 
   // ── TRANSPORT SELECTION (behind this boundary only) ────────────────────────
