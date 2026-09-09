@@ -412,3 +412,25 @@ describe("Primitive composition details", () => {
     expect(breakbotResultIsStale(staleSnap, input)).toBe(true);
   });
 });
+
+// ── Fulfillment-readiness calibration (real-inventory false-positive fix) ──────
+// A valid SKU whose site platform is not yet confirmed IS the technical-review /
+// Access-Assist route, not "no path" — it must NOT block a send. Only a SKU with no
+// approved playbook is genuinely unfulfillable and blocks. Password copy that merely
+// reassures ("we never need your password") is not a password REQUEST.
+describe("fulfillment readiness is calibrated for pre-purchase offers", () => {
+  it("a valid SKU with an unknown platform does not produce a noPath/password BLOCKER", () => {
+    const ready = goldenFixtures().find((g) => g.id === "bb_gold_ready")!;
+    const input = { ...ready.input, fulfillment: { ...(ready.input.fulfillment ?? {}), detectedPlatform: "unknown" } };
+    const v = runBreakbotPreflight(input);
+    const blockers = v.issues.filter((i) => i.severity === "BLOCKER").map((i) => i.surface);
+    expect(blockers).not.toContain("fulfillment.noPath");
+    expect(blockers).not.toContain("fulfillment.password");
+    expect(v.issues.some((i) => i.surface === "fulfillment.platformUnconfirmed" && i.severity === "WARNING")).toBe(true);
+  });
+  it("a SKU with NO approved playbook still BLOCKS on fulfillment.noPath", () => {
+    const noFul = failureFixtures().find((f) => f.id === "bb_fail_no_fulfillment")!;
+    const v = runBreakbotPreflight(noFul.input);
+    expect(v.issues.some((i) => i.surface === "fulfillment.noPath" && i.severity === "BLOCKER")).toBe(true);
+  });
+});

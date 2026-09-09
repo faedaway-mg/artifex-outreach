@@ -69,6 +69,7 @@ import {
   type FulfillmentPacket,
 } from "../quick-fix/fulfillment-center";
 import { canTransitionJob } from "../quick-fix/fulfillment";
+import { playbookFor } from "../quick-fix/playbooks";
 import type { JobRecord } from "../quick-fix/store";
 import type { CustomerRecord } from "../quick-fix/lifecycle";
 
@@ -798,16 +799,32 @@ function runFulfillmentChecks(
   const platform: Platform = normalizePlatform(f.detectedPlatform);
   const runbook = buildRunbook(offer, platform);
 
-  // If the offer is SELLABLE but there is no supported fulfillment path → BLOCK.
+  // Fulfillment path (Part P): a valid path is EITHER a confirmed platform playbook OR
+  // a technical-review / Access-Assist route. Pre-purchase, the site platform is usually
+  // not yet confirmed — that is NOT "no path", it is the technical-review route, which is
+  // explicitly acceptable. So we BLOCK only when the SKU has NO approved playbook at all
+  // (genuinely unfulfillable). "Valid playbook, platform not yet confirmed" is a WARNING.
   const sellable = input.sellable ?? offer.quickFixEligible;
-  if (sellable && !runbook.supported) {
+  const hasPlaybook = !!playbookFor(offer.capabilityKeys[0] ?? "");
+  if (sellable && !hasPlaybook) {
     issues.push(issue({
       surface: "fulfillment.noPath",
       severity: "BLOCKER",
-      expected: "a sellable offer has a supported playbook + platform path (or a technical-review route)",
-      observed: `runbook.supported=false: ${runbook.reviewReason ?? "no path"}`,
-      fix: "Provide a supported playbook/platform, or route to NEEDS_TECHNICAL_REVIEW before selling.",
+      expected: "a sellable offer has an approved playbook (or a technical-review route)",
+      observed: `no approved playbook for SKU "${offer.capabilityKeys[0] ?? "(none)"}"`,
+      fix: "Only sell SKUs with an approved fulfillment playbook, or route to NEEDS_TECHNICAL_REVIEW before selling.",
     }));
+  } else if (sellable && !runbook.supported) {
+    // Playbook exists; the platform just isn't confirmed yet → the Access-Assist /
+    // technical-review path handles it at fulfillment. Surface it, but do not block a send.
+    issues.push(issue({
+      surface: "fulfillment.platformUnconfirmed",
+      severity: "WARNING",
+      expected: "the site platform is confirmed at fulfillment, or handled via the technical-review route",
+      observed: runbook.reviewReason ?? "platform not yet confirmed",
+      fix: "Confirm the platform after purchase, or use the Access-Assist / technical-review path — no action needed before sending.",
+    }));
+    pass();
   } else { pass(); }
 
   // Access instructions exist and NEVER ask for a password.
@@ -818,9 +835,16 @@ function runFulfillmentChecks(
     detectedPlatform: f.detectedPlatform ?? null,
     termsVersion: f.termsVersion ?? null,
   });
-  const passwordLeak = packet.accessCenter.instructions.some((ins) =>
-    ins.steps.some((s) => /password/i.test(s) && !/never (ask|share)|no password/i.test(s)),
-  );
+  // Flag ONLY an actual REQUEST for a password: an imperative verb within a few words
+  // of "password" AND not negated. Reassurances like "we never need your password",
+  // "without your password", or "we'll email you the steps — we never ask for your
+  // password" are the correct, expected copy and must NOT be flagged.
+  const requestsPassword = (s: string): boolean => {
+    const asks = /\b(send|share|provide|enter|give|type|paste|tell|email)\b(?:\s+\S+){0,4}\s+password\b/i.test(s);
+    const reassures = /\bnever\b|\bdon'?t\b|\bdo not\b|\bwithout\b|\bno need\b|\bnot (ask|need|share|require|store|collect)\b/i.test(s);
+    return asks && !reassures;
+  };
+  const passwordLeak = packet.accessCenter.instructions.some((ins) => ins.steps.some(requestsPassword));
   if (passwordLeak) {
     issues.push(issue({
       surface: "fulfillment.password",
