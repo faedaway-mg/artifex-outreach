@@ -12,6 +12,7 @@ import { termsAcceptanceMatchesOffer } from "./terms";
 import { buildRequirements, type RequirementsChecklist } from "./requirements";
 import { ARTIFEX_IDENTITY } from "../identity";
 import { quickFixStripeConfigured } from "./stripe-mode";
+import { maintenanceUpsellEnabled } from "./maintenance";
 
 export function stripeConfigured(): boolean {
   // Mode-aware: reflects whether the ACTIVE Quick-Fix mode (test/live) has its key.
@@ -51,6 +52,7 @@ export async function buildPublicOfferView(seg: string, opts?: { preview?: boole
     termsAccepted,
     superseded,
     bookingUrl: ARTIFEX_IDENTITY.bookingUrl,
+    maintenanceUpsellEnabled: maintenanceUpsellEnabled(),
   });
   return { offer, model, approved, superseded, termsAccepted };
 }

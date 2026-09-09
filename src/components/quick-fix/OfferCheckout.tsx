@@ -21,6 +21,7 @@ export function OfferCheckout(props: {
   const [email, setEmail] = useState("");
   const [agreed, setAgreed] = useState(false);
   const [withMaintenance, setWithMaintenance] = useState(false);
+  const [maintenanceConsent, setMaintenanceConsent] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -31,12 +32,13 @@ export function OfferCheckout(props: {
     if (props.preview) { setError("Preview mode — checkout is disabled."); return; }
     if (!validEmail) { setError("Enter a valid email for your receipt and updates."); return; }
     if (!agreed) { setError("Please accept the service terms to continue."); return; }
+    if (withMaintenance && !maintenanceConsent) { setError("Please separately authorize the recurring maintenance charge to add it."); return; }
     setLoading(true);
     try {
       const t = await fetch(`/api/offer/${props.token}/accept-terms`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email: email.trim(), accepted: true }) });
       const tj = await t.json();
       if (!tj.ok) { setError(tj.error || "Could not record terms acceptance."); setLoading(false); return; }
-      const c = await fetch(`/api/offer/${props.token}/checkout`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ intent: "repair", withMaintenance, email: email.trim() }) });
+      const c = await fetch(`/api/offer/${props.token}/checkout`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ intent: "repair", withMaintenance, maintenanceConsent: withMaintenance ? maintenanceConsent : false, email: email.trim() }) });
       const cj = await c.json();
       if (cj.ok && cj.url) { window.location.href = cj.url; return; }
       setError(cj.error || (cj.reasons ? cj.reasons.join("; ") : "Checkout is not available right now."));
@@ -68,15 +70,23 @@ export function OfferCheckout(props: {
       </label>
 
       {props.hasMaintenance && props.maintenanceLabel && (
-        <label className="flex items-start gap-2.5 rounded-xl border border-white/10 bg-white/[0.02] p-3 text-[13px] text-chalk-300">
-          <input type="checkbox" checked={withMaintenance} onChange={(e) => setWithMaintenance(e.target.checked)} className="mt-0.5 h-4 w-4" />
-          <span>Add optional maintenance — {props.maintenanceLabel} (cancel anytime).</span>
-        </label>
+        <div className="space-y-2">
+          <label className="flex items-start gap-2.5 rounded-xl border border-white/10 bg-white/[0.02] p-3 text-[13px] text-chalk-300">
+            <input type="checkbox" checked={withMaintenance} onChange={(e) => { setWithMaintenance(e.target.checked); if (!e.target.checked) setMaintenanceConsent(false); }} className="mt-0.5 h-4 w-4" />
+            <span>Add optional maintenance — {props.maintenanceLabel}.</span>
+          </label>
+          {withMaintenance && (
+            <label className="flex items-start gap-2.5 rounded-xl border border-azure-400/30 bg-azure-500/10 p-3 text-[12.5px] text-chalk-200">
+              <input type="checkbox" checked={maintenanceConsent} onChange={(e) => setMaintenanceConsent(e.target.checked)} className="mt-0.5 h-4 w-4" />
+              <span>I authorize Artifex Labs to charge {props.maintenanceLabel} until I cancel. I understand the subscription automatically renews and that I can cancel online before my next billing date.</span>
+            </label>
+          )}
+        </div>
       )}
 
       <label className="flex items-start gap-2.5 text-[13px] text-chalk-300">
         <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} className="mt-0.5 h-4 w-4" />
-        <span>I agree to the Service Terms and the scope shown above. <span className="text-chalk-500">({props.termsVersion})</span></span>
+        <span>I agree to the <a href="/legal/terms" target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 hover:text-chalk-100">Service Terms</a> and the scope shown above. <span className="text-chalk-500">({props.termsVersion})</span></span>
       </label>
 
       {error && <p className="rounded-lg bg-coral-500/10 px-3 py-2 text-[12.5px] text-coral-300">{error}</p>}

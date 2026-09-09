@@ -133,6 +133,9 @@ export function OfferPageView({ model, token, preview = false }: { model: OfferP
               ))}
               <p className="pt-1 text-chalk-600">Terms version {model.termsVersion}. You accept these at checkout.</p>
             </div>
+            <p className="mt-2 text-[12px] text-chalk-500">
+              Full <a href="/legal/terms" target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 hover:text-chalk-300">service terms</a> · <a href="/legal/privacy" target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 hover:text-chalk-300">privacy &amp; access notice</a>
+            </p>
           </Section>
 
           {/* Repeat the transaction at the bottom so the CTA is never buried. */}

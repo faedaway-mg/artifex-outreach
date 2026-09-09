@@ -5,6 +5,7 @@ import { termsAcceptanceMatchesOffer } from "@/lib/quick-fix/terms";
 import { reconcileOfferCheckout, liveStripeCheckoutClient } from "@/lib/quick-fix/stripe-commerce";
 import { buildFixScanCheckoutParams, buildRepairAfterScanCheckout, fixScanOfferId } from "@/lib/quick-fix/fix-scan-commerce";
 import { quickFixStripeMode, resolveQuickFixStripeKey } from "@/lib/quick-fix/stripe-mode";
+import { maintenanceUpsellEnabled, maintenancePlanByKey, buildMaintenanceConsent } from "@/lib/quick-fix/maintenance";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -21,7 +22,7 @@ export async function POST(req: NextRequest, { params }: { params: { offerId: st
   const offer = await store.resolveOffer(params.offerId);
   if (!offer) return NextResponse.json({ ok: false, error: "offer not found" }, { status: 404 });
 
-  const body = (await req.json().catch(() => ({}))) as { intent?: string; withMaintenance?: boolean; creditScanOfferId?: string; email?: string };
+  const body = (await req.json().catch(() => ({}))) as { intent?: string; withMaintenance?: boolean; maintenanceConsent?: boolean; creditScanOfferId?: string; email?: string };
   const intent = body.intent === "fix_scan" ? "fix_scan" : "repair";
   const baseUrl = baseUrlOf(req);
 
@@ -78,7 +79,19 @@ export async function POST(req: NextRequest, { params }: { params: { offerId: st
     return NextResponse.json({ ok: true, url: res.url, creditAppliedCents: application.creditAppliedCents, applies: application.applies });
   }
 
-  const kind = body.withMaintenance && offer.maintenance ? "with_maintenance" : "one_time";
+  // Optional recurring maintenance requires (1) the upsell to be enabled (a working
+  // online cancellation path is configured) AND (2) a SEPARATE affirmative recurring
+  // consent — it is never bundled into the one-time terms checkbox. Missing either →
+  // fall back to a one-time purchase (never silently start a subscription).
+  let kind: "one_time" | "with_maintenance" = "one_time";
+  if (body.withMaintenance && offer.maintenance) {
+    const plan = maintenancePlanByKey(offer.maintenance.planKey);
+    if (!maintenanceUpsellEnabled()) return NextResponse.json({ ok: false, error: "recurring maintenance is not currently available" }, { status: 409 });
+    if (!body.maintenanceConsent) return NextResponse.json({ ok: false, error: "separate recurring-payment consent is required to add maintenance" }, { status: 400 });
+    if (!plan) return NextResponse.json({ ok: false, error: "maintenance plan not found" }, { status: 400 });
+    await store.saveMaintenanceConsent(buildMaintenanceConsent({ offerId: offer.offerId, leadId: offer.leadId, customerEmail: body.email ?? "", plan, acceptedAt: now }));
+    kind = "with_maintenance";
+  }
   const rec = await reconcileOfferCheckout({ offer, kind, client, store: store.commerceStore, baseUrl, customerEmail: body.email, now });
   if (!rec.ok) return NextResponse.json({ ok: false, error: rec.error }, { status: 502 });
   return NextResponse.json({ ok: true, url: rec.record?.url ?? null, reused: rec.reused });

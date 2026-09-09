@@ -73,6 +73,9 @@ export interface BuildOfferPageInput {
   termsAccepted: boolean;
   superseded: boolean;
   bookingUrl: string;
+  /** Recurring-maintenance upsell is only surfaced when the operator has enabled it
+   *  (a working online cancellation path is configured). Default off. */
+  maintenanceUpsellEnabled?: boolean;
 }
 
 export function buildOfferPageModel(input: BuildOfferPageInput): OfferPageModel {
@@ -117,7 +120,7 @@ export function buildOfferPageModel(input: BuildOfferPageInput): OfferPageModel 
     integrityPrinciples: INTEGRITY_PRINCIPLES,
     termsVersion: TERMS_VERSION,
     termsClauses: TERMS_CLAUSES,
-    maintenance: offer.maintenance,
+    maintenance: input.maintenanceUpsellEnabled ? offer.maintenance : null,
     bookingUrl: input.bookingUrl,
     checkout: { purchasable, buyEnabled, reasons: buyEnabled ? ["ready to check out"] : buyReasons },
     conversationOnly,

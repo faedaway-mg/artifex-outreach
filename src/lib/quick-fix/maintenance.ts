@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 // ─────────────────────────────────────────────────────────────────────────────
 // MAINTENANCE PLANS — controlled recurring SKUs (~$49/month). Fixed, explicitly
 // scoped, and bounded so a $49 plan can NEVER silently become unlimited labor.
@@ -103,4 +104,73 @@ const BY_KEY = new Map(MAINTENANCE_PLANS.map((p) => [p.key, p]));
 export function maintenancePlanByKey(key: string | null | undefined): MaintenancePlan | null {
   if (!key) return null;
   return BY_KEY.get(key) ?? null;
+}
+
+// ── Recurring-maintenance consent (separate affirmative opt-in) ──────────────────
+/** The version of the recurring-consent language (bump if the text changes). */
+export const MAINTENANCE_CONSENT_VERSION = "qf-recurring-consent-v1-2026-09";
+
+/** The exact recurring-authorization statement a customer must separately affirm.
+ *  Never buried in the one-time Quick-Fix checkbox. */
+export function maintenanceConsentText(plan: MaintenancePlan): string {
+  const amount = `$${Math.round(plan.monthlyCents / 100)}`;
+  return `I authorize Artifex Labs to charge ${amount} every month for ${plan.name} until I cancel. ` +
+    `I understand that the subscription automatically renews and that I can cancel online before my next billing date.`;
+}
+
+/**
+ * The optional recurring-maintenance UPSELL is enabled ONLY when the operator has
+ * configured a working online cancellation path (Stripe Billing Portal) and set the
+ * env flag. It defaults OFF so the one-time Quick-Fix launch is never blocked and a
+ * subscription is never sold without a usable self-service cancel path. When OFF,
+ * the offer page shows no maintenance upsell and checkout is one-time only.
+ */
+export function maintenanceUpsellEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.QUICKFIX_MAINTENANCE_ENABLED === "true" && env.STRIPE_BILLING_PORTAL_CONFIGURED === "true";
+}
+
+/** Immutable record of a separate recurring-consent affirmation. */
+export interface MaintenanceConsent {
+  offerId: string;
+  leadId: string;
+  customerEmail: string;
+  planKey: string;
+  planName: string;
+  monthlyCents: number;
+  cadence: "month";
+  consentVersion: string;
+  consentText: string;
+  acceptedAt: string;
+  /** SHA-256 digest binding the consent to its exact terms. */
+  digest: string;
+}
+
+export function buildMaintenanceConsent(args: { offerId: string; leadId: string; customerEmail: string; plan: MaintenancePlan; acceptedAt: string }): MaintenanceConsent {
+  const { plan } = args;
+  const consentText = maintenanceConsentText(plan);
+  const digest = createHash("sha256")
+    .update(JSON.stringify({
+      offerId: args.offerId,
+      email: args.customerEmail.toLowerCase(),
+      planKey: plan.key,
+      monthlyCents: plan.monthlyCents,
+      cadence: "month",
+      consentVersion: MAINTENANCE_CONSENT_VERSION,
+      consentText,
+      acceptedAt: args.acceptedAt,
+    }))
+    .digest("hex");
+  return {
+    offerId: args.offerId,
+    leadId: args.leadId,
+    customerEmail: args.customerEmail,
+    planKey: plan.key,
+    planName: plan.name,
+    monthlyCents: plan.monthlyCents,
+    cadence: "month",
+    consentVersion: MAINTENANCE_CONSENT_VERSION,
+    consentText,
+    acceptedAt: args.acceptedAt,
+    digest,
+  };
 }
