@@ -1,0 +1,177 @@
+{
+  "generatedWith": "playwright-chromium + ffmpeg (libx264/aac)",
+  "scriptVersion": "qf-trust-v1-2026-09",
+  "assets": [
+    {
+      "scope": "contact-form-lead-capture",
+      "title": "Contact Form & Lead Capture",
+      "file": "/trust-videos/contact-form-lead-capture-v1.mp4",
+      "poster": "/trust-videos/contact-form-lead-capture-v1-poster.jpg",
+      "version": 1,
+      "scriptVersion": "qf-trust-v1-2026-09",
+      "durationSeconds": 72.8,
+      "audioSha16": "305a5592117b658b",
+      "qa": {
+        "hasVideo": true,
+        "res": "1920x1080",
+        "hasAudio": true,
+        "audioCodec": "aac",
+        "durationSec": 72.8
+      },
+      "active": true,
+      "createdAt": "2026-09-09T03:36:29.482Z"
+    },
+    {
+      "scope": "cta-conversion",
+      "title": "CTA & Conversion",
+      "file": "/trust-videos/cta-conversion-v1.mp4",
+      "poster": "/trust-videos/cta-conversion-v1-poster.jpg",
+      "version": 1,
+      "scriptVersion": "qf-trust-v1-2026-09",
+      "durationSeconds": 73,
+      "audioSha16": "4836f74efd7f454c",
+      "qa": {
+        "hasVideo": true,
+        "res": "1920x1080",
+        "hasAudio": true,
+        "audioCodec": "aac",
+        "durationSec": 73
+      },
+      "active": true,
+      "createdAt": "2026-09-09T03:36:44.047Z"
+    },
+    {
+      "scope": "mobile-responsive",
+      "title": "Mobile & Responsive Layout",
+      "file": "/trust-videos/mobile-responsive-v1.mp4",
+      "poster": "/trust-videos/mobile-responsive-v1-poster.jpg",
+      "version": 1,
+      "scriptVersion": "qf-trust-v1-2026-09",
+      "durationSeconds": 74.5,
+      "audioSha16": "c621167030a63bc5",
+      "qa": {
+        "hasVideo": true,
+        "res": "1920x1080",
+        "hasAudio": true,
+        "audioCodec": "aac",
+        "durationSec": 74.5
+      },
+      "active": true,
+      "createdAt": "2026-09-09T03:36:58.238Z"
+    },
+    {
+      "scope": "accessibility",
+      "title": "Accessibility",
+      "file": "/trust-videos/accessibility-v1.mp4",
+      "poster": "/trust-videos/accessibility-v1-poster.jpg",
+      "version": 1,
+      "scriptVersion": "qf-trust-v1-2026-09",
+      "durationSeconds": 69.1,
+      "audioSha16": "fe6b3e5e830ea66b",
+      "qa": {
+        "hasVideo": true,
+        "res": "1920x1080",
+        "hasAudio": true,
+        "audioCodec": "aac",
+        "durationSec": 69.1
+      },
+      "active": true,
+      "createdAt": "2026-09-09T03:37:12.090Z"
+    },
+    {
+      "scope": "analytics-tracking",
+      "title": "Analytics & Tracking",
+      "file": "/trust-videos/analytics-tracking-v1.mp4",
+      "poster": "/trust-videos/analytics-tracking-v1-poster.jpg",
+      "version": 1,
+      "scriptVersion": "qf-trust-v1-2026-09",
+      "durationSeconds": 69.4,
+      "audioSha16": "85b24d70e6ea2281",
+      "qa": {
+        "hasVideo": true,
+        "res": "1920x1080",
+        "hasAudio": true,
+        "audioCodec": "aac",
+        "durationSec": 69.4
+      },
+      "active": true,
+      "createdAt": "2026-09-09T03:37:26.233Z"
+    },
+    {
+      "scope": "cms-technical",
+      "title": "CMS & Technical",
+      "file": "/trust-videos/cms-technical-v1.mp4",
+      "poster": "/trust-videos/cms-technical-v1-poster.jpg",
+      "version": 1,
+      "scriptVersion": "qf-trust-v1-2026-09",
+      "durationSeconds": 72.2,
+      "audioSha16": "47200e64a6d1dc59",
+      "qa": {
+        "hasVideo": true,
+        "res": "1920x1080",
+        "hasAudio": true,
+        "audioCodec": "aac",
+        "durationSec": 72.2
+      },
+      "active": true,
+      "createdAt": "2026-09-09T03:37:40.767Z"
+    },
+    {
+      "scope": "seo-metadata",
+      "title": "SEO & Metadata",
+      "file": "/trust-videos/seo-metadata-v1.mp4",
+      "poster": "/trust-videos/seo-metadata-v1-poster.jpg",
+      "version": 1,
+      "scriptVersion": "qf-trust-v1-2026-09",
+      "durationSeconds": 73.6,
+      "audioSha16": "24f7af3bc9fc23ee",
+      "qa": {
+        "hasVideo": true,
+        "res": "1920x1080",
+        "hasAudio": true,
+        "audioCodec": "aac",
+        "durationSec": 73.6
+      },
+      "active": true,
+      "createdAt": "2026-09-09T03:37:57.117Z"
+    },
+    {
+      "scope": "homepage-sprint",
+      "title": "Homepage Conversion Sprint",
+      "file": "/trust-videos/homepage-sprint-v1.mp4",
+      "poster": "/trust-videos/homepage-sprint-v1-poster.jpg",
+      "version": 1,
+      "scriptVersion": "qf-trust-v1-2026-09",
+      "durationSeconds": 70.1,
+      "audioSha16": "c778c8c33e2f4e0b",
+      "qa": {
+        "hasVideo": true,
+        "res": "1920x1080",
+        "hasAudio": true,
+        "audioCodec": "aac",
+        "durationSec": 70.1
+      },
+      "active": true,
+      "createdAt": "2026-09-09T03:38:11.329Z"
+    },
+    {
+      "scope": "fix-scan",
+      "title": "Fix Scan",
+      "file": "/trust-videos/fix-scan-v1.mp4",
+      "poster": "/trust-videos/fix-scan-v1-poster.jpg",
+      "version": 1,
+      "scriptVersion": "qf-trust-v1-2026-09",
+      "durationSeconds": 84.8,
+      "audioSha16": "bbd8635b6123605c",
+      "qa": {
+        "hasVideo": true,
+        "res": "1920x1080",
+        "hasAudio": true,
+        "audioCodec": "aac",
+        "durationSec": 84.8
+      },
+      "active": true,
+      "createdAt": "2026-09-09T03:38:26.065Z"
+    }
+  ]
+}
