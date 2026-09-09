@@ -11,6 +11,7 @@
 import type { QuickFixOffer } from "./types";
 import type { CheckoutParams } from "./stripe-commerce";
 import { offerMetadata, productTaxCode } from "./stripe-commerce";
+import { fixScanCheckoutDescription, repairCheckoutDescription } from "./stripe-copy";
 import { FIX_SCAN_SKU, applyCredit, type CreditRecord, type CreditApplication } from "./fix-scan";
 
 /** Deterministic id for a lead's Fix Scan purchase (one active scan per lead). */
@@ -29,15 +30,17 @@ export interface FixScanCheckoutOpts {
 export function buildFixScanCheckoutParams(opts: FixScanCheckoutOpts): CheckoutParams {
   const base = opts.baseUrl.replace(/\/$/, "");
   const id = fixScanOfferId(opts.leadId);
+  const desc = fixScanCheckoutDescription(opts.companyName); // "Artifex Fix Scan — Website Diagnostic — <company>"
   return {
     mode: "payment",
-    lineItems: [{ currency: "usd", unitAmountCents: FIX_SCAN_SKU.priceCents, name: FIX_SCAN_SKU.name, taxCode: productTaxCode() }],
+    lineItems: [{ currency: "usd", unitAmountCents: FIX_SCAN_SKU.priceCents, name: FIX_SCAN_SKU.name, description: desc, taxCode: productTaxCode() }],
     metadata: {
       leadId: opts.leadId,
       companyName: opts.companyName.slice(0, 200),
       offerId: id,
       offerVersion: FIX_SCAN_SKU.version,
       sku: FIX_SCAN_SKU.key,
+      serviceName: "Website Diagnostic",
       priceCents: String(FIX_SCAN_SKU.priceCents),
       purchaseType: "FIX_SCAN",
       kind: "one_time",
@@ -47,6 +50,7 @@ export function buildFixScanCheckoutParams(opts: FixScanCheckoutOpts): CheckoutP
     cancelUrl: `${base}/offer/${id}`,
     clientReferenceId: id,
     customerEmail: opts.customerEmail,
+    paymentIntentDescription: desc,
     idempotencyKey: `${id}:fixscan:one_time`,
   };
 }
@@ -76,6 +80,7 @@ export function buildRepairAfterScanCheckout(args: {
   const finalPriceCents = application.finalPriceCents;
   const base = args.baseUrl.replace(/\/$/, "");
   const name = application.applies ? `${offer.scope.offerName} (Fix Scan credit applied)` : offer.scope.offerName;
+  const desc = application.applies ? `${repairCheckoutDescription(offer)} (Fix Scan credit applied)` : repairCheckoutDescription(offer);
 
   const metadata: Record<string, string> = {
     ...offerMetadata(offer, "one_time"),
@@ -85,12 +90,13 @@ export function buildRepairAfterScanCheckout(args: {
 
   const params: CheckoutParams = {
     mode: "payment",
-    lineItems: [{ currency: offer.currency, unitAmountCents: finalPriceCents, name, taxCode: productTaxCode() }],
+    lineItems: [{ currency: offer.currency, unitAmountCents: finalPriceCents, name, description: desc, taxCode: productTaxCode() }],
     metadata,
     successUrl: `${base}/offer/${offer.offerId}/success?session_id={CHECKOUT_SESSION_ID}`,
     cancelUrl: `${base}/offer/${offer.offerId}`,
     clientReferenceId: offer.offerId,
     customerEmail: args.customerEmail,
+    paymentIntentDescription: desc,
     // Include the credit in the key so a credited retry never reuses an uncredited session.
     idempotencyKey: `${offer.offerId}:${offer.offerVersion}:one_time:credit_${application.creditAppliedCents}`,
   };

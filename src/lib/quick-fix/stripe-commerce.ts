@@ -14,11 +14,14 @@
 import type { QuickFixOffer } from "./types";
 import { maintenancePlanByKey } from "./maintenance";
 import { ARTIFEX_IDENTITY } from "../identity";
+import { repairCheckoutDescription, maintenanceCheckoutDescription } from "./stripe-copy";
 
 export interface CheckoutLineItem {
   currency: string;
   unitAmountCents: number;
   name: string;
+  /** Server-generated human-readable product description (never blank in Stripe). */
+  description?: string;
   /** Present → recurring; absent → one-time (rides first invoice in sub mode). */
   recurringInterval?: "month";
   /** Stripe product tax_code (required by accounts with Stripe Tax enabled). */
@@ -45,6 +48,8 @@ export interface CheckoutParams {
   cancelUrl: string;
   clientReferenceId: string;
   customerEmail?: string;
+  /** Session-level PaymentIntent description (mode=payment only) — human-readable. */
+  paymentIntentDescription?: string;
   /** Stripe idempotency key — safe retries never double-create. */
   idempotencyKey: string;
 }
@@ -97,6 +102,8 @@ export function offerMetadata(offer: QuickFixOffer, kind: CheckoutKind): Record<
     priceCents: String(offer.priceCents),
     // Full traceability (mandate: leadId/offerId/offerVersion/SKU/price version/purchase type).
     sku: offer.capabilityKeys[0] ?? "",
+    // Human-readable canonical label ALONGSIDE the technical SKU (no naming drift).
+    serviceName: offer.scope.offerName.slice(0, 200),
     priceVersion: `pv-${offer.band.toLowerCase()}-baseline`,
     purchaseType: "REPAIR",
     kind,
@@ -120,15 +127,16 @@ export function buildCheckoutParams(offer: QuickFixOffer, opts: BuildParamsOpts)
   const cancelUrl = opts.cancelUrl ?? `${opts.baseUrl.replace(/\/$/, "")}/offer/${offer.offerId}`;
 
   const tax = productTaxCode();
+  const repairDesc = repairCheckoutDescription(offer); // "Artifex Quick-Fix — <offer> — <company>"
   const lineItems: CheckoutLineItem[] = [
-    { currency: offer.currency, unitAmountCents: offer.priceCents, name: offer.scope.offerName, taxCode: tax },
+    { currency: offer.currency, unitAmountCents: offer.priceCents, name: offer.scope.offerName, description: repairDesc, taxCode: tax },
   ];
   let subscriptionMetadata: Record<string, string> | undefined;
 
   if (opts.withMaintenance && offer.maintenance) {
     const plan = maintenancePlanByKey(offer.maintenance.planKey);
     if (plan) {
-      lineItems.push({ currency: offer.currency, unitAmountCents: plan.monthlyCents, name: plan.name, recurringInterval: "month", taxCode: tax });
+      lineItems.push({ currency: offer.currency, unitAmountCents: plan.monthlyCents, name: plan.name, description: maintenanceCheckoutDescription(plan.name, offer.companyName), recurringInterval: "month", taxCode: tax });
       subscriptionMetadata = { ...offerMetadata(offer, kind), planKey: plan.key };
     }
   }
@@ -144,6 +152,8 @@ export function buildCheckoutParams(offer: QuickFixOffer, opts: BuildParamsOpts)
     cancelUrl: cancelUrl || site,
     clientReferenceId: offer.offerId,
     customerEmail: opts.customerEmail,
+    // PaymentIntent description is only valid for one-time payments (not subscriptions).
+    paymentIntentDescription: mode === "payment" ? repairDesc : undefined,
     idempotencyKey: commerceKey(offer.offerId, offer.offerVersion, kind),
   };
 }
@@ -228,9 +238,16 @@ export function toStripeForm(params: CheckoutParams): Record<string, string> {
     out[`line_items[${i}][price_data][currency]`] = li.currency.toLowerCase();
     out[`line_items[${i}][price_data][unit_amount]`] = String(li.unitAmountCents);
     out[`line_items[${i}][price_data][product_data][name]`] = li.name;
+    // Human-readable product description so a Quick-Fix charge is never blank in Stripe.
+    if (li.description) out[`line_items[${i}][price_data][product_data][description]`] = li.description;
     if (li.taxCode) out[`line_items[${i}][price_data][product_data][tax_code]`] = li.taxCode;
     if (li.recurringInterval) out[`line_items[${i}][price_data][recurring][interval]`] = li.recurringInterval;
   });
+  // Session-level PaymentIntent description (one-time payments only — Stripe rejects
+  // payment_intent_data on subscription-mode sessions). Never the statement descriptor.
+  if (params.mode === "payment" && params.paymentIntentDescription) {
+    out["payment_intent_data[description]"] = params.paymentIntentDescription;
+  }
   // Quick-Fix sells human-delivered B2B SERVICES — explicitly opt OUT of Managed
   // Payments (a digital-goods product) so these Checkout Sessions use standard Stripe
   // Payments regardless of any account-level Managed-Payments default. This keeps

@@ -38,3 +38,30 @@ export function buildStripeDescription(offer: QuickFixOffer): StripeDescription 
 
   return { productTitle, shortDescription, scopeSummary, deliveryExpectation, safe };
 }
+
+// ── Canonical one-line purchase description (Stripe line-item + PaymentIntent) ────
+// Format: "<prefix> — <canonical service display name> — <company>". Server-generated
+// ONLY (the browser can never inject it), drawn from the approved offer scope + company.
+// So a Quick-Fix charge is never blank/contextless in Stripe. Never contains metrics.
+const MAX_DESC = 350;
+export const CHECKOUT_PREFIX = {
+  REPAIR: "Artifex Quick-Fix",
+  FIX_SCAN: "Artifex Fix Scan",
+  MAINTENANCE: "Artifex Quick-Fix Maintenance",
+} as const;
+
+export function checkoutDescription(prefix: string, displayName: string, company: string): string {
+  return `${prefix} — ${displayName} — ${company}`.replace(/\s+/g, " ").trim().slice(0, MAX_DESC);
+}
+/** "Artifex Quick-Fix — 24-Hour Primary CTA Repair — Acme Co" */
+export function repairCheckoutDescription(offer: QuickFixOffer): string {
+  return checkoutDescription(CHECKOUT_PREFIX.REPAIR, offer.scope.offerName, offer.companyName);
+}
+/** "Artifex Fix Scan — Website Diagnostic — Acme Co" */
+export function fixScanCheckoutDescription(company: string): string {
+  return checkoutDescription(CHECKOUT_PREFIX.FIX_SCAN, "Website Diagnostic", company);
+}
+/** "Artifex Quick-Fix Maintenance — <plan> — Acme Co" */
+export function maintenanceCheckoutDescription(planName: string, company: string): string {
+  return checkoutDescription(CHECKOUT_PREFIX.MAINTENANCE, planName, company);
+}
