@@ -53,6 +53,9 @@ export async function middleware(req: NextRequest) {
     // operator-only (economics, scoring, notes) is exposed.
     pathname.startsWith("/offer/") ||
     pathname.startsWith("/api/offer/") ||
+    // Evergreen Quick-Fix trust videos (+ posters): public static assets embedded in
+    // the customer offer page, fetched by a prospect with NO session. Non-secret.
+    pathname.startsWith("/trust-videos/") ||
     pathname.startsWith("/icon") ||
     pathname.startsWith("/manifest") ||
     pathname.startsWith("/api/placeholder");
