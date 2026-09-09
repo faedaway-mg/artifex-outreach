@@ -90,6 +90,23 @@ describe("livemode agreement (only consulted post-verification)", () => {
   });
 });
 
+describe("Managed Payments opt-out (Quick-Fix sells services, not digital goods)", () => {
+  it("every Quick-Fix Checkout form explicitly sends managed_payments[enabled]=false and NO tax code", () => {
+    const saved = process.env.STRIPE_PRODUCT_TAX_CODE;
+    delete process.env.STRIPE_PRODUCT_TAX_CODE;
+    const scan = toStripeForm(buildFixScanCheckoutParams({ leadId: "l", companyName: "C", baseUrl: "https://x" }));
+    expect(scan["managed_payments[enabled]"]).toBe("false");
+    expect(scan["line_items[0][price_data][product_data][tax_code]"]).toBeUndefined();
+    expect(scan["automatic_tax[enabled]"]).toBeUndefined();
+    expect(scan["mode"]).toBe("payment");
+    if (saved === undefined) delete process.env.STRIPE_PRODUCT_TAX_CODE; else process.env.STRIPE_PRODUCT_TAX_CODE = saved;
+  });
+  it("the opt-out is never Managed-Payments-ENABLING (value is exactly false)", () => {
+    const scan = toStripeForm(buildFixScanCheckoutParams({ leadId: "l", companyName: "C", baseUrl: "https://x" }));
+    expect(scan["managed_payments[enabled]"]).not.toBe("true");
+  });
+});
+
 describe("product tax code (Stripe Tax / Managed Payments accounts)", () => {
   it("is omitted by default and emitted only when STRIPE_PRODUCT_TAX_CODE is set", () => {
     const saved = process.env.STRIPE_PRODUCT_TAX_CODE;

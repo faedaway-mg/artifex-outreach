@@ -231,6 +231,13 @@ export function toStripeForm(params: CheckoutParams): Record<string, string> {
     if (li.taxCode) out[`line_items[${i}][price_data][product_data][tax_code]`] = li.taxCode;
     if (li.recurringInterval) out[`line_items[${i}][price_data][recurring][interval]`] = li.recurringInterval;
   });
+  // Quick-Fix sells human-delivered B2B SERVICES — explicitly opt OUT of Managed
+  // Payments (a digital-goods product) so these Checkout Sessions use standard Stripe
+  // Payments regardless of any account-level Managed-Payments default. This keeps
+  // STRIPE_PRODUCT_TAX_CODE unset (no forced digital-goods tax code) and never enables
+  // Managed Payments. Applies to every Quick-Fix session (test + live); the separate
+  // deposit flow (payments/stripe.ts) builds its own form and is unaffected.
+  out["managed_payments[enabled]"] = "false";
   for (const [k, v] of Object.entries(params.metadata)) out[`metadata[${k}]`] = v;
   if (params.subscriptionMetadata) {
     for (const [k, v] of Object.entries(params.subscriptionMetadata)) out[`subscription_data[metadata][${k}]`] = v;
