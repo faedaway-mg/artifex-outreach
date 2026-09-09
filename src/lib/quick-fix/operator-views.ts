@@ -264,6 +264,41 @@ export async function fulfillmentView(): Promise<{ rows: FulfillmentRow[]; bySta
   return { rows, byState };
 }
 
+// ── Fulfillment Packet view — the technician workspace's canonical data ──────────
+function extractPlatform(bi: any): string | null {
+  const p = bi?.profile?.businessProfile ?? bi?.businessProfile ?? null;
+  const techs = p?.technologies ?? p?.detectedTech ?? bi?.technologies ?? null;
+  if (Array.isArray(techs)) {
+    for (const t of techs) {
+      const name = typeof t === "string" ? t : (t?.name ?? "");
+      if (/wordpress|woocommerce|shopify|squarespace|webflow|wix|godaddy/i.test(name)) return name;
+    }
+  }
+  // Fall back to a scoped scan of the profile text for a CMS signature.
+  const blob = JSON.stringify(p ?? "").toLowerCase();
+  for (const k of ["wordpress", "shopify", "squarespace", "webflow", "wix", "godaddy"]) if (blob.includes(k)) return k;
+  return null;
+}
+
+export async function fulfillmentPacketView(offerId: string): Promise<import("./fulfillment-center").FulfillmentPacket | null> {
+  const { buildFulfillmentPacket } = await import("./fulfillment-center");
+  const offer = await store.getOffer(offerId);
+  if (!offer) return null;
+  const job = await store.getJob(offerId);
+  if (!job) return null;
+  const state = await store.getState();
+  const customer = state.customers[offer.leadId] ?? null;
+  const bi = await getBusinessIntelligence(offer.leadId).catch(() => null);
+  const acc = await store.getTermsAcceptance(offerId).catch(() => null);
+  return buildFulfillmentPacket({
+    offer: offer as unknown as QuickFixOffer,
+    job,
+    customer,
+    detectedPlatform: extractPlatform(bi),
+    termsVersion: acc?.termsVersion ?? null,
+  });
+}
+
 // ── Catalog (operator visibility; versioned; no unsafe mutation) ─────────────────
 export interface CatalogRow {
   key: string;

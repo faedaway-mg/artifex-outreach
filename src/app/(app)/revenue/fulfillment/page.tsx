@@ -26,20 +26,23 @@ export default async function FulfillmentPage() {
       ) : (
         <ul className="space-y-2.5">
           {rows.map((r) => (
-            <li key={r.offerId} className="card p-4">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="truncate text-[15px] font-semibold text-chalk-100">{r.company}</div>
-                  <div className="mt-0.5 text-[12px] text-chalk-500">{r.sku ?? "—"} · {usd(r.priceCents)}</div>
+            <li key={r.offerId}>
+              <Link href={`/revenue/fulfillment/${r.offerId}`} className="block card p-4 transition-colors hover:bg-white/[0.05]">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="truncate text-[15px] font-semibold text-chalk-100">{r.company}</div>
+                    <div className="mt-0.5 text-[12px] text-chalk-500">{r.sku ?? "—"} · {usd(r.priceCents)}</div>
+                  </div>
+                  <span className="shrink-0 rounded-full bg-teal-400/10 px-2.5 py-1 text-[11.5px] text-teal-200">{STATE_LABEL[r.state] ?? r.state}</span>
                 </div>
-                <span className="shrink-0 rounded-full bg-teal-400/10 px-2.5 py-1 text-[11.5px] text-teal-200">{STATE_LABEL[r.state] ?? r.state}</span>
-              </div>
-              <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11.5px] text-chalk-500">
-                <span>blocking reqs {r.blocking}</span>
-                <span>QA items {r.qaItems}</span>
-                <span>reqs received {r.requirementsReceivedAt ? new Date(r.requirementsReceivedAt).toLocaleDateString() : "—"}</span>
-                <span>target {r.targetDeliveryAt ? new Date(r.targetDeliveryAt).toLocaleString() : "clock not started"}</span>
-              </div>
+                <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11.5px] text-chalk-500">
+                  <span>blocking reqs {r.blocking}</span>
+                  <span>QA items {r.qaItems}</span>
+                  <span>reqs received {r.requirementsReceivedAt ? new Date(r.requirementsReceivedAt).toLocaleDateString() : "—"}</span>
+                  <span>target {r.targetDeliveryAt ? new Date(r.targetDeliveryAt).toLocaleString() : "clock not started"}</span>
+                  <span className="text-azure-300">Open workspace →</span>
+                </div>
+              </Link>
             </li>
           ))}
         </ul>
