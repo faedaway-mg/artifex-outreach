@@ -22,7 +22,10 @@ import {
   baseInput,
   safeApproval,
   goldenPackage,
+  coherentMattVoice,
+  coherentLucasVoice,
 } from "./quickcash-fixtures";
+import { LEGACY_LUCAS_VOICE_KEY } from "../voice/registry";
 import { evidenceVersion } from "../quick-fix/evidence-truth";
 import { outreachPdfFilename } from "../quick-fix/email-attachment-policy";
 import { customerReceivesManifest } from "../quick-fix/evidence-package";
@@ -95,7 +98,7 @@ describe("Failure fixtures produce the exact expected blocker", () => {
   it("all failure fixtures are distinct ids", () => {
     const ids = failureFixtures().map((f) => f.id);
     expect(new Set(ids).size).toBe(ids.length);
-    expect(ids.length).toBe(22);
+    expect(ids.length).toBe(26);
   });
 
   it("failure fixtures never carry a real recipient", () => {
@@ -592,6 +595,98 @@ describe("Personalized video is mandatory (Part AE)", () => {
       const v = runBreakbotPreflight(f.input);
       expect(v.overall).toBe("BLOCKED");
       expect(blockerSurfaces(v)).toContain("video.personalized");
+    }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// JOURNEY-LEVEL VOICE COHERENCE (ElevenLabs voiceover chain)
+//
+// A prospect journey resolves to exactly ONE coherent generation — ALL Matt (current)
+// or ALL Lucas (legacy) — never mixed. Matt is the default for new journeys; Lucas legacy
+// journeys are preserved and valid (and require NO voiceover, since Lucas is not
+// generatable). Voice checks run ONLY when input.voiceCoherence is present.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("Journey-level voice coherence", () => {
+  const voiceBlockers = (v: BreakbotVerdict) =>
+    blockerSurfaces(v).filter((s) => s.startsWith("voice."));
+
+  it("a coherent Matt journey (Matt problem + Matt trust + READY matching voiceover) PASSES", () => {
+    const input = baseInput(goldenOffer());
+    const v = runBreakbotPreflight({ ...input, voiceCoherence: coherentMattVoice(input) });
+    expect(voiceBlockers(v)).toEqual([]);
+    expect(v.overall).toBe("READY");
+  });
+
+  it("Matt problem video + Lucas trust video → BLOCKED on voice.generationMixed", () => {
+    const input = baseInput(goldenOffer());
+    const v = runBreakbotPreflight({
+      ...input,
+      voiceCoherence: { ...coherentMattVoice(input), trustVideoVoiceKey: LEGACY_LUCAS_VOICE_KEY },
+    });
+    expect(blockerSurfaces(v)).toContain("voice.generationMixed");
+    expect(v.overall).toBe("BLOCKED");
+  });
+
+  it("a coherent Lucas journey (Lucas problem + Lucas trust, no voiceover) PASSES — no voiceover required", () => {
+    const input = baseInput(goldenOffer());
+    const v = runBreakbotPreflight({ ...input, voiceCoherence: coherentLucasVoice() });
+    expect(voiceBlockers(v)).toEqual([]);
+    expect(v.overall).toBe("READY");
+  });
+
+  it("a stale voiceover revision → BLOCKED on voice.revisionMismatch", () => {
+    const input = baseInput(goldenOffer());
+    const vc = coherentMattVoice(input);
+    const v = runBreakbotPreflight({
+      ...input,
+      voiceCoherence: { ...vc, voiceover: { ...vc.voiceover!, narrationRevision: "nar1_staleaaaabbbbcccc" } },
+    });
+    expect(blockerSurfaces(v)).toContain("voice.revisionMismatch");
+    expect(v.overall).toBe("BLOCKED");
+  });
+
+  it("a Matt journey missing its Matt trust video → BLOCKED on voice.trustMissing", () => {
+    const input = baseInput(goldenOffer());
+    const v = runBreakbotPreflight({
+      ...input,
+      voiceCoherence: { ...coherentMattVoice(input), trustVideoVoiceKey: null },
+    });
+    expect(blockerSurfaces(v)).toContain("voice.trustMissing");
+    expect(v.overall).toBe("BLOCKED");
+  });
+
+  it("a provider secret in customer-facing copy → BLOCKED on voice.secretLeak", () => {
+    const input = baseInput(goldenOffer());
+    const v = runBreakbotPreflight({
+      ...input,
+      voiceCoherence: coherentMattVoice(input),
+      extraCustomerCopy: ["Internal: https://api.elevenlabs.io key sk_live_abcd1234efgh5678"],
+    });
+    expect(blockerSurfaces(v)).toContain("voice.secretLeak");
+    expect(v.overall).toBe("BLOCKED");
+  });
+
+  it("absent voiceCoherence input adds NO voice blockers (no regression for existing callers)", () => {
+    const input = baseInput(goldenOffer());
+    expect(input.voiceCoherence).toBeUndefined();
+    const v = runBreakbotPreflight(input);
+    expect(voiceBlockers(v)).toEqual([]);
+    expect(v.overall).toBe("READY");
+  });
+
+  it("the voice failure fixtures each BLOCK on their exact voice surface", () => {
+    const cases: Array<[string, string]> = [
+      ["bb_fail_voice_mixed_matt_lucas", "voice.generationMixed"],
+      ["bb_fail_voice_stale_revision", "voice.revisionMismatch"],
+      ["bb_fail_voice_missing_matt_trust", "voice.trustMissing"],
+      ["bb_fail_voice_secret_leak", "voice.secretLeak"],
+    ];
+    for (const [id, surface] of cases) {
+      const f = failureFixtures().find((x) => x.id === id)!;
+      const v = runBreakbotPreflight(f.input);
+      expect(v.overall).toBe("BLOCKED");
+      expect(blockerSurfaces(v)).toContain(surface);
     }
   });
 });

@@ -72,9 +72,11 @@ import { canTransitionJob } from "../quick-fix/fulfillment";
 import {
   buildVideoStoryboard,
   assessNarrationTruth,
+  narrationDigestFor,
   PV_NARRATION_VERSION,
   PV_RENDER_VERSION,
 } from "../quick-fix/personalized-video";
+import { voiceGeneration, sameVoiceGeneration } from "../voice/registry";
 import { playbookFor } from "../quick-fix/playbooks";
 import type { JobRecord } from "../quick-fix/store";
 import type { CustomerRecord } from "../quick-fix/lifecycle";
@@ -212,6 +214,33 @@ export interface BreakbotPreflightInput {
   offerPageBlocksOverride?: string[];
   /** Override whether the exact price is visible before purchase (else derived). */
   priceVisibleBeforePurchaseOverride?: boolean;
+
+  // ── VOICE COHERENCE (journey-level ElevenLabs voiceover chain) ───────────────
+  /**
+   * Journey-level VOICE COHERENCE inputs. A prospect journey resolves to exactly ONE
+   * coherent generation — ALL Matt (current) or ALL Lucas (legacy), never mixed. Matt is
+   * the default for new journeys; Lucas legacy journeys are preserved and remain valid.
+   * OPTIONAL: when absent, Breakbot runs NO voice-coherence checks (existing callers and
+   * the regression batch never regress). When present, runVoiceCoherenceChecks validates
+   * the whole chain (audio readiness + generation coherence + no secret leaks).
+   */
+  voiceCoherence?: {
+    /** The lead's canonical journey voice key (the generation the whole journey must match). */
+    leadCanonicalVoiceKey: string;
+    /** The voice key of the personalized/problem video. */
+    problemVideoVoiceKey?: string | null;
+    /** The voice key of the trust video. */
+    trustVideoVoiceKey?: string | null;
+    /** The canonical voiceover bound to this offer's narration (null ⇒ none bound). */
+    voiceover?: {
+      present: boolean;
+      status: "VOICEOVER_GENERATING" | "VOICEOVER_READY" | "VOICEOVER_FAILED";
+      narrationRevision: string;
+      leadId: string;
+      durationSeconds: number | null;
+      assetBytes: number | null;
+    } | null;
+  } | null;
 }
 
 /** A prior verdict + the versions it was computed under, for staleness detection (Part T). */
@@ -535,6 +564,12 @@ export function runBreakbotPreflight(input: BreakbotPreflightInput): BreakbotVer
         fix: "Classify the legacy record as LEGACY_FROZEN and never as an active send.",
       }));
     } else { pass(); }
+  }
+
+  // ── (Voice coherence): validate the journey-level ElevenLabs voiceover chain. Runs
+  // ONLY when the caller supplied voiceCoherence — absent ⇒ zero voice checks (no regress). ──
+  if (input.voiceCoherence) {
+    runVoiceCoherenceChecks(input, offer, evidence, composedBody, offerPageBlocks, issues, pass);
   }
 
   // ── Verdict roll-up (Part S) — ONLY a blocker prevents READY. ──
@@ -960,6 +995,167 @@ function runFulfillmentChecks(
       expected: "the fulfillment state machine permits PAID → WAITING_FOR_CUSTOMER_INPUT",
       observed: "the transition helper rejected a legal forward step",
       fix: "Restore the canonical job transition table.",
+    }));
+  } else { pass(); }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// VOICE COHERENCE (journey-level ElevenLabs voiceover chain)
+//
+// A prospect journey resolves to exactly ONE coherent generation — ALL Matt (current)
+// or ALL Lucas (legacy) — and is NEVER silently mixed. Matt is the default for anything
+// newly generated; Lucas is a preserved legacy generation with NO live provider (it is
+// not generatable, so a legacy-lucas journey never requires a voiceover record). The
+// CORE rule is: problem-video and trust-video must belong to the same generation, and a
+// Matt journey needs a Matt trust video (never a silent Lucas fallback).
+// ─────────────────────────────────────────────────────────────────────────────
+const ELEVENLABS_HOST_RE = /api\.elevenlabs\.io/i;
+const ELEVENLABS_KEYHDR_RE = /xi-api-key/i;
+const SECRET_KEY_RE = /\bsk[-_][A-Za-z0-9]{12,}/;
+function wordCount(s: string): number {
+  return (s ?? "").trim().split(/\s+/).filter(Boolean).length;
+}
+
+function runVoiceCoherenceChecks(
+  input: BreakbotPreflightInput,
+  offer: QuickFixOffer,
+  evidence: EvidencePackage,
+  composedBody: string,
+  offerPageBlocks: string[],
+  issues: Issue[],
+  pass: () => void,
+): void {
+  const vc = input.voiceCoherence;
+  if (!vc) return; // caller-gated; never invoked without it, but stay defensive.
+
+  const leadGen = voiceGeneration(vc.leadCanonicalVoiceKey);
+  const isLucasJourney = leadGen === "legacy-lucas";
+  const vo = vc.voiceover ?? null;
+
+  // ── (1) AUDIO READINESS — a Matt journey's narration needs READY audio. Lucas is NOT
+  //     generatable (its existing assets stay valid) so a legacy-lucas journey NEVER
+  //     requires a voiceover record; absence of a voiceover there is NOT a defect. ──
+  if (!isLucasJourney) {
+    if (!vo || !vo.present || vo.status !== "VOICEOVER_READY") {
+      issues.push(issue({
+        surface: "voice.audioMissing",
+        severity: "BLOCKER",
+        expected: "narration present ⇒ a READY voiceover asset (status VOICEOVER_READY)",
+        observed: vo ? `voiceover present=${vo.present}, status=${vo.status}` : "no voiceover record bound to this offer",
+        fix: "Generate the ElevenLabs voiceover for this narration and bind the READY asset before sending.",
+      }));
+    } else { pass(); }
+  } else { pass(); }
+
+  // ── (2) AUDIO NOT EMPTY — a bound asset that reports ≤0 bytes is a broken/empty render. ──
+  if (vo && vo.assetBytes != null && vo.assetBytes <= 0) {
+    issues.push(issue({
+      surface: "voice.audioEmpty",
+      severity: "BLOCKER",
+      expected: "a bound voiceover asset has real audio bytes (assetBytes > 0)",
+      observed: `assetBytes=${vo.assetBytes}`,
+      fix: "Re-render the voiceover; an empty (0-byte) asset must never be bound to the offer.",
+    }));
+  } else { pass(); }
+
+  // ── (3) DURATION SANITY — the audio length must be in the plausible band for the script
+  //     word count (expected = words / 2.6 wps; flag <0.4× or >3× expected). WARNING only. ──
+  if (vo && vo.durationSeconds != null) {
+    const sb = buildVideoStoryboard(evidence, experienceFrameForOffer(offer), offer);
+    const wc = wordCount(sb.narrationScript);
+    const expectedSeconds = wc / 2.6;
+    if (expectedSeconds > 0 && (vo.durationSeconds < 0.4 * expectedSeconds || vo.durationSeconds > 3 * expectedSeconds)) {
+      issues.push(issue({
+        surface: "voice.durationUnreasonable",
+        severity: "WARNING",
+        expected: `voiceover duration in the plausible band for ${wc} narration words (~${expectedSeconds.toFixed(1)}s, 0.4×–3×)`,
+        observed: `durationSeconds=${vo.durationSeconds} (expected ~${expectedSeconds.toFixed(1)}s)`,
+        fix: "Confirm the voiceover was rendered from the current narration script; a wildly-off length usually means stale or wrong audio.",
+      }));
+    } else { pass(); }
+  } else { pass(); }
+
+  // ── (4) LEAD BINDING — the audio must belong to THIS offer's lead, never another's. ──
+  if (vo && vo.leadId !== offer.leadId) {
+    issues.push(issue({
+      surface: "voice.leadMismatch",
+      severity: "BLOCKER",
+      expected: `the voiceover asset belongs to this offer's lead (${offer.leadId})`,
+      observed: `voiceover.leadId=${vo.leadId}`,
+      fix: "Bind the voiceover generated for THIS lead; never reuse another lead's audio.",
+    }));
+  } else { pass(); }
+
+  // ── (5) REVISION FRESHNESS — the audio's narration revision must equal the CURRENT
+  //     storyboard narration digest, or it is stale/superseded audio. ──
+  if (vo) {
+    const sb = buildVideoStoryboard(evidence, experienceFrameForOffer(offer), offer);
+    const currentDigest = narrationDigestFor(sb);
+    if (vo.narrationRevision !== currentDigest) {
+      issues.push(issue({
+        surface: "voice.revisionMismatch",
+        severity: "BLOCKER",
+        expected: `the voiceover was rendered against the current narration digest (${currentDigest})`,
+        observed: `voiceover.narrationRevision=${vo.narrationRevision} (superseded)`,
+        fix: "Re-render the voiceover from the current narration script, then re-bind the fresh asset.",
+      }));
+    } else { pass(); }
+  } else { pass(); }
+
+  // ── (6) PROBLEM-VIDEO GENERATION MATCHES THE LEAD — the personalized/problem video must
+  //     be in the SAME generation as the lead's canonical journey voice. ──
+  if (vc.problemVideoVoiceKey != null) {
+    if (voiceGeneration(vc.problemVideoVoiceKey) !== voiceGeneration(vc.leadCanonicalVoiceKey)) {
+      issues.push(issue({
+        surface: "voice.leadVoiceMismatch",
+        severity: "BLOCKER",
+        expected: `the problem video's voice generation matches the lead's journey (${leadGen ?? "unknown"})`,
+        observed: `problem video generation=${voiceGeneration(vc.problemVideoVoiceKey) ?? "unknown"}`,
+        fix: "Re-generate the problem video in the lead's canonical voice generation.",
+      }));
+    } else { pass(); }
+  } else { pass(); }
+
+  // ── (7) CORE COHERENCE — problem video and trust video must be the SAME generation.
+  //     "Matt problem video with a Lucas trust video" (and vice-versa) is the defect. ──
+  if (vc.problemVideoVoiceKey != null && vc.trustVideoVoiceKey != null) {
+    if (!sameVoiceGeneration(vc.problemVideoVoiceKey, vc.trustVideoVoiceKey)) {
+      issues.push(issue({
+        surface: "voice.generationMixed",
+        severity: "BLOCKER",
+        expected: "the whole journey is ONE coherent voice generation — problem video and trust video match",
+        observed: `problem=${voiceGeneration(vc.problemVideoVoiceKey) ?? "unknown"} trust=${voiceGeneration(vc.trustVideoVoiceKey) ?? "unknown"} (mixed)`,
+        fix: "Regenerate both videos in a single generation — all Matt or all Lucas, never mixed.",
+      }));
+    } else { pass(); }
+  } else { pass(); }
+
+  // ── (8) MATT JOURNEY NEEDS A MATT TRUST VIDEO — never silently fall back to a Lucas
+  //     trust video for a current-matt journey. ──
+  if (leadGen === "current-matt") {
+    if (vc.trustVideoVoiceKey == null || voiceGeneration(vc.trustVideoVoiceKey) !== "current-matt") {
+      issues.push(issue({
+        surface: "voice.trustMissing",
+        severity: "BLOCKER",
+        expected: "a Matt journey needs a Matt trust video (never silently fall back to Lucas)",
+        observed: vc.trustVideoVoiceKey == null
+          ? "no trust video voice on a Matt journey"
+          : `trust video generation=${voiceGeneration(vc.trustVideoVoiceKey) ?? "unknown"}`,
+        fix: "Bind (or generate) the current-matt trust video for this Matt journey.",
+      }));
+    } else { pass(); }
+  } else { pass(); }
+
+  // ── (9) NO SECRET LEAK — the customer-facing copy must NEVER contain an ElevenLabs host,
+  //     the xi-api-key header name, or a provider secret key. ──
+  const customerFacing = [composedBody, ...offerPageBlocks].join("\n");
+  if (ELEVENLABS_HOST_RE.test(customerFacing) || ELEVENLABS_KEYHDR_RE.test(customerFacing) || SECRET_KEY_RE.test(customerFacing)) {
+    issues.push(issue({
+      surface: "voice.secretLeak",
+      severity: "BLOCKER",
+      expected: "no ElevenLabs endpoint, API-key header, or provider secret appears in customer-facing copy",
+      observed: "a voice-provider host/header/secret pattern leaked into the composed email or offer page",
+      fix: "Remove the provider endpoint/key from the customer-facing copy; voice generation is server-side only.",
     }));
   } else { pass(); }
 }

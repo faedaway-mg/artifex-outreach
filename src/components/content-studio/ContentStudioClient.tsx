@@ -7,6 +7,7 @@ import {
   CircleCheck, CircleAlert, Clapperboard, Users, ExternalLink, Clock, Radio, Eye, Mail,
 } from "lucide-react";
 import { SectionHeader } from "@/components/ui";
+import { VoiceoverPanel } from "@/components/voice/VoiceoverPanel";
 import { clientVideoPieceId } from "@/lib/content-studio/client-video-routing";
 import { renderLifecycle, canGenerate, type RenderState } from "@/lib/content-studio/render-lifecycle";
 import { isProspectVideo } from "@/lib/content-studio/workflow";
@@ -864,7 +865,22 @@ function PieceDetail({ item, onChanged, setJobOverride, advanceHref }: { item: S
         )}
       </div>
 
-      {/* Voiceover upload + playback — disabled while a client project needs evidence (nothing to voice yet). */}
+      {/* Server-generated voiceover (canonical journey voice). Only for prospect journeys with an active
+          narration; disabled while evidence is missing. The manual MP3 upload below is preserved as the
+          admin fallback. NEVER exposes the raw provider voiceId — display name only. */}
+      {isProspect && !needsEvidence && narrationText && (
+        <VoiceoverPanel
+          leadId={piece.businessId || (piece.id.startsWith("client-") ? piece.id.slice("client-".length) : piece.id)}
+          narrationId={`${piece.id}${typeof piece.revision === "number" ? `@${piece.revision}` : ""}`}
+          narrationScript={narrationText}
+          offerId={piece.businessId ?? null}
+          disabled={preview}
+          disabledReason={preview ? "Disabled in preview — voice generation runs only in the connected functional environment." : undefined}
+        />
+      )}
+
+      {/* Voiceover upload + playback — disabled while a client project needs evidence (nothing to voice yet).
+          Preserved as the ADMIN FALLBACK for a manually recorded MP3 even when server generation is available. */}
       <UploadPanel item={item} onChanged={onChanged} setMsg={setMsg} disabled={needsEvidence} disabledReason="Needs evidence — capture a supported finding before recording a voiceover." advanceHref={advanceHref} autoGenerates={isProspect} />
 
       {/* Generate */}

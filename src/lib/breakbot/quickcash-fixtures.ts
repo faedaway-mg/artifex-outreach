@@ -29,6 +29,8 @@ import {
   TRUST_VIDEO_NARRATION_VERSION,
   type TrustVideoAsset,
 } from "../quick-fix/trust-videos";
+import { buildVideoStoryboard, narrationDigestFor } from "../quick-fix/personalized-video";
+import { DEFAULT_VOICE_KEY, LEGACY_LUCAS_VOICE_KEY } from "../voice/registry";
 import type { BreakbotPreflightInput } from "./quickcash-preflight";
 import { RESERVED_TEST_DOMAIN, BREAKBOT_PROVENANCE, assertFakeRecipient } from "./isolation";
 
@@ -229,6 +231,51 @@ export function baseInput(offer: QuickFixOffer, pkgOver: PackageOverrides = {}):
   };
 }
 
+// ── Voice-coherence builders (journey-level ElevenLabs voiceover chain) ──────────
+export type VoiceCoherence = NonNullable<BreakbotPreflightInput["voiceCoherence"]>;
+
+/** The CURRENT narration digest for an input's offer/evidence (what a fresh render matches). */
+export function currentNarrationDigest(input: BreakbotPreflightInput): string {
+  const sb = buildVideoStoryboard(input.evidence, experienceFrameForOffer(input.offer), input.offer);
+  return narrationDigestFor(sb);
+}
+
+/**
+ * A coherent MATT journey: Matt lead + Matt problem video + Matt trust video + a READY
+ * voiceover rendered against the CURRENT narration digest for THIS lead. This is the
+ * default new-journey shape and must PASS every voice-coherence check.
+ */
+export function coherentMattVoice(input: BreakbotPreflightInput): VoiceCoherence {
+  return {
+    leadCanonicalVoiceKey: DEFAULT_VOICE_KEY,
+    problemVideoVoiceKey: DEFAULT_VOICE_KEY,
+    trustVideoVoiceKey: DEFAULT_VOICE_KEY,
+    voiceover: {
+      present: true,
+      status: "VOICEOVER_READY",
+      narrationRevision: currentNarrationDigest(input),
+      leadId: input.offer.leadId,
+      durationSeconds: 22,
+      assetBytes: 240_000,
+    },
+  };
+}
+
+/**
+ * A coherent LEGACY LUCAS journey: Lucas lead + Lucas problem video + Lucas trust video,
+ * and NO voiceover record (Lucas is not generatable — its existing assets stay valid but
+ * we never generate new ElevenLabs audio for it). This must PASS: a legacy journey never
+ * requires a voiceover.
+ */
+export function coherentLucasVoice(): VoiceCoherence {
+  return {
+    leadCanonicalVoiceKey: LEGACY_LUCAS_VOICE_KEY,
+    problemVideoVoiceKey: LEGACY_LUCAS_VOICE_KEY,
+    trustVideoVoiceKey: LEGACY_LUCAS_VOICE_KEY,
+    voiceover: null,
+  };
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // GOLDEN FIXTURES (Q) — expect READY (except the passive-observation one, which is
 // READY too; the point there is that the fallback copy avoids "I tried").
@@ -297,7 +344,11 @@ export function goldenFixtures(): GoldenFixture[] {
   const passive = baseInput(passiveOffer, { findings: [finding({ id: "f-booking", observation: "Some text was hard to read.", plain: "Some of the text was hard to read on the pages we checked.", whyItMatters: "Hard-to-read text loses visitors." })] });
 
   // 5) Fully-ready customer journey (same as #1 but with a store-backed operator view).
+  //    This golden also exercises the VOICE COHERENCE chain: a coherent Matt journey
+  //    (Matt problem + Matt trust + a READY voiceover matching this lead's current
+  //    narration digest) must PASS all voice-coherence checks.
   const ready = baseInput(goldenOffer({ offerId: "bb_off_ready", companyName: "Summit Auto Care" }));
+  ready.voiceCoherence = coherentMattVoice(ready);
 
   return [
     golden("bb_gold_booking", "gold-booking", "Booking issue — full evidence, delayed price", booking),
@@ -499,6 +550,50 @@ export function failureFixtures(): FailureFixture[] {
       };
       return { ...i, evidence };
     }),
+
+    // 23) VOICE — MIXED GENERATION (Matt problem video + Lucas trust video). The CORE
+    //     coherence violation: a journey must be ALL Matt or ALL Lucas, never mixed.
+    fail("bb_fail_voice_mixed_matt_lucas", "voice-mixed-matt-lucas", "Matt problem video with a Lucas trust video (mixed generation)", "voice.generationMixed", (i) => ({
+      ...i,
+      voiceCoherence: {
+        ...coherentMattVoice(i),
+        trustVideoVoiceKey: LEGACY_LUCAS_VOICE_KEY, // Lucas trust on a Matt journey → mixed.
+      },
+    })),
+
+    // 24) VOICE — STALE REVISION. The voiceover was rendered against an older narration
+    //     digest than the current storyboard → superseded audio.
+    fail("bb_fail_voice_stale_revision", "voice-stale-revision", "Voiceover rendered against a superseded narration revision", "voice.revisionMismatch", (i) => ({
+      ...i,
+      voiceCoherence: {
+        ...coherentMattVoice(i),
+        voiceover: {
+          ...coherentMattVoice(i).voiceover!,
+          narrationRevision: "nar1_deadbeefdeadbeef", // never matches the current digest.
+        },
+      },
+    })),
+
+    // 25) VOICE — MISSING MATT TRUST VIDEO. A Matt journey with no trust video must never
+    //     silently fall back to Lucas → BLOCK on voice.trustMissing.
+    fail("bb_fail_voice_missing_matt_trust", "voice-missing-matt-trust", "Matt journey missing a Matt trust video", "voice.trustMissing", (i) => ({
+      ...i,
+      voiceCoherence: {
+        ...coherentMattVoice(i),
+        trustVideoVoiceKey: null, // no trust video on a Matt journey.
+      },
+    })),
+
+    // 26) VOICE — SECRET LEAK. A provider endpoint/key pattern leaked into the customer-
+    //     facing copy → BLOCK on voice.secretLeak.
+    fail("bb_fail_voice_secret_leak", "voice-secret-leak", "ElevenLabs secret leaked into customer-facing copy", "voice.secretLeak", (i) => ({
+      ...i,
+      voiceCoherence: coherentMattVoice(i),
+      extraCustomerCopy: [
+        ...(i.extraCustomerCopy ?? []),
+        "Debug note: fetched narration from https://api.elevenlabs.io with key sk_live_abcd1234efgh5678.",
+      ],
+    })),
   ];
 }
 

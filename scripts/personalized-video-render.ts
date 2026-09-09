@@ -58,6 +58,7 @@ import {
 import type { EvidencePackage, EvidenceScreenshot } from "../src/lib/quick-fix/evidence-package";
 import type { QuickFixOffer } from "../src/lib/quick-fix/types";
 import { experienceFrameForOffer } from "../src/lib/quick-fix/experience-frame";
+import { generateLeadVoiceover } from "../src/lib/voice/generate";
 
 const ROOT = process.cwd();
 const FONT_DIR = "file://" + path.join(ROOT, "public", "fonts", "pdf");
@@ -222,6 +223,7 @@ async function renderPlanToMp4(
   provider: ScreenshotBytesProvider,
   outDir: string,
   fileStem: string,
+  audioPath?: string | null,
 ): Promise<RenderCoreResult> {
   if (!plan.buildable) throw new Error(`plan is not buildable: ${plan.blockedReason ?? "unknown"}`);
   mkdirSync(outDir, { recursive: true });
@@ -276,6 +278,23 @@ async function renderPlanToMp4(
     "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "20", "-preset", "medium",
     "-movflags", "+faststart", mp4Path,
   ], { stdio: "ignore" });
+
+  // Optional audio mux — the SAME narration revision drove both the audio and the
+  // captions, so muxing the real (Matt) voiceover onto the silent render keeps one
+  // truth. Copy the video stream unchanged; encode the audio to AAC; -shortest so the
+  // track never runs past the picture. Replace the silent file in place.
+  if (audioPath) {
+    const muxedPath = path.join(frameDir, "_muxed.mp4");
+    execFileSync("ffmpeg", [
+      "-y", "-i", mp4Path, "-i", audioPath,
+      "-map", "0:v", "-map", "1:a",
+      "-c:v", "copy", "-c:a", "aac", "-b:a", "128k",
+      "-shortest", "-movflags", "+faststart", muxedPath,
+    ], { stdio: "ignore" });
+    // Overwrite the silent mp4 with the muxed one (re-probe below reflects the audio).
+    writeFileSync(mp4Path, readFileSync(muxedPath));
+  }
+
   rmSync(frameDir, { recursive: true, force: true });
 
   const vttPath = path.join(outDir, "captions.vtt");
@@ -496,9 +515,38 @@ async function runRealOffer(offerId: string): Promise<void> {
     return store.readFull(shot.outputKey).catch(() => null);
   };
 
+  // Generate (or reuse) the lead's canonical ElevenLabs (Matt) voiceover, bound to the
+  // SAME narration revision the captions/render derive from. Never sends or charges any
+  // outbound action; only produces + persists the audio asset. If it is not configured
+  // or fails, we render SILENT (unchanged) — the personalized video still ships.
+  let audioPath: string | null = null;
+  const vo = await generateLeadVoiceover({
+    leadId: offer.leadId,
+    company: offer.companyName,
+    offerId: offer.offerId,
+    narrationId: offer.offerId,
+    narrationRevision: narrationDigest,
+    narrationScript: storyboard.narrationScript,
+    actor: "render-worker",
+  });
+  if ((vo.status === "ready" || vo.status === "reused") && vo.voiceover.assetKey) {
+    const audioBytes = await store.readFull(vo.voiceover.assetKey).catch(() => null);
+    if (audioBytes) {
+      mkdirSync(outDir, { recursive: true });
+      audioPath = path.join(outDir, "voiceover.mp3");
+      writeFileSync(audioPath, audioBytes);
+      console.log(JSON.stringify({ mode: "offer", offerId, voiceover: vo.status, voice: vo.voiceDisplayName, voiceoverDurationSeconds: vo.voiceover.durationSeconds }));
+    } else {
+      console.log(JSON.stringify({ mode: "offer", offerId, voiceover: vo.status, note: "voiceover asset bytes unavailable — rendering silent" }));
+    }
+  } else {
+    const note = vo.status === "not_configured" || vo.status === "failed" ? vo.reason : "voiceover asset missing";
+    console.log(JSON.stringify({ mode: "offer", offerId, voiceover: vo.status, note: `${note} — rendering silent` }));
+  }
+
   const browser = await chromium.launch();
   try {
-    const result = await renderPlanToMp4(browser, plan, provider, outDir, offerId);
+    const result = await renderPlanToMp4(browser, plan, provider, outDir, offerId, audioPath);
     if (!(result.durationSeconds > 0)) throw new Error("rendered a zero-duration mp4");
 
     const readyRecord: PersonalizedDiagnosticVideoRecord = {
