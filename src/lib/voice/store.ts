@@ -45,6 +45,8 @@ export interface VoiceoverRecord {
   assetSha256: string | null;
   characterCount: number | null;
   durationSeconds: number | null;
+  /** Whether durationSeconds was MEASURED (ffprobe) or a text ESTIMATE fallback. */
+  durationSource: "measured" | "estimated" | null;
   requestId: string | null;
   status: VoiceoverStatus;
   failureReason: string | null;
@@ -56,13 +58,23 @@ export interface VoiceoverRecord {
   supersededBy: string | null;
 }
 
+export interface VoiceConfig {
+  /** Operator override for the ElevenLabs monthly minute allowance (null ⇒ use env/default). */
+  monthlyMinuteBudget: number | null;
+  /** Day-of-month (1-28) the allowance resets (null ⇒ calendar month). */
+  billingResetDay: number | null;
+  /** OPTIONAL operator-chosen hard cap (minutes): when set + exceeded, generation is
+   *  refused (a deliberate spend guard). Distinct from the informational 75/90/100 warnings. */
+  hardCapMinutes: number | null;
+}
+
 export interface VoiceState {
   leadVoices: Record<string, string>;
   voiceovers: Record<string, VoiceoverRecord>;
-  config: { monthlyMinuteBudget: number | null; billingResetDay: number | null };
+  config: VoiceConfig;
 }
 
-const EMPTY: VoiceState = { leadVoices: {}, voiceovers: {}, config: { monthlyMinuteBudget: null, billingResetDay: null } };
+const EMPTY: VoiceState = { leadVoices: {}, voiceovers: {}, config: { monthlyMinuteBudget: null, billingResetDay: null, hardCapMinutes: null } };
 
 async function getVoiceState(): Promise<VoiceState> {
   const s = (await getSettings()) as any;
@@ -70,7 +82,11 @@ async function getVoiceState(): Promise<VoiceState> {
   return {
     leadVoices: v.leadVoices ?? {},
     voiceovers: v.voiceovers ?? {},
-    config: { monthlyMinuteBudget: v.config?.monthlyMinuteBudget ?? null, billingResetDay: v.config?.billingResetDay ?? null },
+    config: {
+      monthlyMinuteBudget: v.config?.monthlyMinuteBudget ?? null,
+      billingResetDay: v.config?.billingResetDay ?? null,
+      hardCapMinutes: v.config?.hardCapMinutes ?? null,
+    },
   };
 }
 
@@ -171,6 +187,7 @@ export async function createGeneratingVoiceover(input: CreateGeneratingInput): P
     assetSha256: null,
     characterCount: input.characterCount,
     durationSeconds: null,
+    durationSource: null,
     requestId: null,
     status: "VOICEOVER_GENERATING",
     failureReason: null,
@@ -200,6 +217,7 @@ export interface MarkReadyInput {
   assetBytes: number;
   assetSha256: string;
   durationSeconds: number;
+  durationSource: "measured" | "estimated";
   requestId: string | null;
   now: string;
   actor: string;
@@ -214,13 +232,14 @@ export async function markVoiceoverReady(id: string, input: MarkReadyInput): Pro
     rec.assetBytes = input.assetBytes;
     rec.assetSha256 = input.assetSha256;
     rec.durationSeconds = input.durationSeconds;
+    rec.durationSource = input.durationSource;
     rec.requestId = input.requestId;
     rec.status = "VOICEOVER_READY";
     rec.failureReason = null;
     rec.updatedAt = input.now;
     out = rec;
   });
-  if (out) await appendAudit({ action: "voice.voiceover_ready", actor: input.actor, targetType: "voiceover", targetId: id, meta: { durationSeconds: input.durationSeconds, bytes: input.assetBytes }, ip: null });
+  if (out) await appendAudit({ action: "voice.voiceover_ready", actor: input.actor, targetType: "voiceover", targetId: id, meta: { durationSeconds: input.durationSeconds, durationSource: input.durationSource, bytes: input.assetBytes }, ip: null });
   return out;
 }
 
@@ -256,15 +275,16 @@ export async function supersedeVoiceover(oldId: string, newId: string, opts: { n
 }
 
 // ── Config (budget / billing reset) ──────────────────────────────────────────
-export async function getVoiceConfig(): Promise<VoiceState["config"]> {
+export async function getVoiceConfig(): Promise<VoiceConfig> {
   return (await getVoiceState()).config;
 }
 
-export async function setVoiceConfig(cfg: Partial<VoiceState["config"]>, actor: string): Promise<VoiceState["config"]> {
-  let out!: VoiceState["config"];
+export async function setVoiceConfig(cfg: Partial<VoiceConfig>, actor: string): Promise<VoiceConfig> {
+  let out!: VoiceConfig;
   await mutateVoiceState((s) => {
     if (cfg.monthlyMinuteBudget !== undefined) s.config.monthlyMinuteBudget = cfg.monthlyMinuteBudget;
     if (cfg.billingResetDay !== undefined) s.config.billingResetDay = cfg.billingResetDay;
+    if (cfg.hardCapMinutes !== undefined) s.config.hardCapMinutes = cfg.hardCapMinutes;
     out = s.config;
   });
   await appendAudit({ action: "voice.config_set", actor, targetType: "voice_config", targetId: "voice", meta: { ...out }, ip: null });

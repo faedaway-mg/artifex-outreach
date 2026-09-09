@@ -241,6 +241,45 @@ export interface BreakbotPreflightInput {
       assetBytes: number | null;
     } | null;
   } | null;
+
+  // ── FULL PRESENTATION READINESS (the live customer experience end-to-end) ────
+  /**
+   * The assembled, DURABLE customer-facing experience for the whole journey. OPTIONAL:
+   * when absent, Breakbot runs NO presentation checks (existing callers/regression never
+   * regress). When present, runPresentationReadinessChecks proves the personalized video
+   * exists in durable storage, its served URL resolves + is playable, the trust video
+   * resolves in the SAME generation, no raw storage URL / secret leaks into any customer
+   * asset URL, and nothing stale is selected. Breakbot never fetches — the caller does the
+   * resolution/serve probe and declares the OBSERVED facts here.
+   */
+  presentation?: {
+    /** The personalized diagnostic video's live serving facts. */
+    personalizedVideo: {
+      /** Effective status recomputed against current evidence/narration/render. */
+      status: "NOT_GENERATED" | "QUEUED" | "RENDERING" | "READY" | "STALE" | "FAILED" | "BLOCKED";
+      /** Durable object-store key for the mp4 (null ⇒ local-only / not durable). */
+      mp4Key: string | null;
+      /** App-managed served route the customer page embeds (never a raw storage URL). */
+      mp4Url: string | null;
+      posterKey: string | null;
+      durationSeconds: number | null;
+      /** The render's voice generation (matt | lucas). */
+      voiceGeneration: string | null;
+      /** Did the served-video resolver return OK (the current READY render streams)? */
+      servedUrlResolves: boolean;
+    } | null;
+    /** The journey-resolved trust video's live facts. */
+    trust: {
+      outcome: "use-legacy-lucas" | "reuse-matt" | "prepare-matt";
+      generation: string; // matt | lucas
+      /** The served trust asset URL (null for prepare-matt / script-only). */
+      assetUrl: string | null;
+      /** True ONLY for a Matt journey whose Matt trust video is not built yet. */
+      mattTrustMissing: boolean;
+    } | null;
+    /** EVERY customer-facing asset URL to scan for raw-storage/secret/filesystem leakage. */
+    customerAssetUrls?: string[];
+  } | null;
 }
 
 /** A prior verdict + the versions it was computed under, for staleness detection (Part T). */
@@ -570,6 +609,12 @@ export function runBreakbotPreflight(input: BreakbotPreflightInput): BreakbotVer
   // ONLY when the caller supplied voiceCoherence — absent ⇒ zero voice checks (no regress). ──
   if (input.voiceCoherence) {
     runVoiceCoherenceChecks(input, offer, evidence, composedBody, offerPageBlocks, issues, pass);
+  }
+
+  // ── (Presentation readiness): validate the whole DURABLE live customer experience.
+  // Runs ONLY when the caller supplied presentation — absent ⇒ zero checks (no regress). ──
+  if (input.presentation) {
+    runPresentationReadinessChecks(input, offer, composedBody, offerPageBlocks, issues, pass);
   }
 
   // ── Verdict roll-up (Part S) — ONLY a blocker prevents READY. ──
@@ -1156,6 +1201,140 @@ function runVoiceCoherenceChecks(
       expected: "no ElevenLabs endpoint, API-key header, or provider secret appears in customer-facing copy",
       observed: "a voice-provider host/header/secret pattern leaked into the composed email or offer page",
       fix: "Remove the provider endpoint/key from the customer-facing copy; voice generation is server-side only.",
+    }));
+  } else { pass(); }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FULL PRESENTATION READINESS — the complete live customer experience end-to-end.
+// Proves: the personalized video exists in DURABLE storage, its served URL resolves +
+// is playable, the trust video resolves in the SAME generation (never a cross-generation
+// fallback), no raw storage URL / provider secret / filesystem path leaks into any
+// customer asset URL, and nothing STALE is selected. Caller-gated (no regress when absent).
+// ─────────────────────────────────────────────────────────────────────────────
+// Markers that must NEVER appear in a customer-facing asset URL — a raw storage key,
+// bucket URL, signed cloud URL, provider secret, or an internal filesystem/local path.
+const RAW_STORAGE_MARKERS: RegExp[] = [
+  /content-studio\//i, // a raw object-store KEY (customer sees the app route, not the key)
+  /\/personalized-videos\//i, // the LOCAL public/ render path (not the durable served route)
+  /s3:\/\//i, /\.amazonaws\.com/i, /blob\.core\.windows\.net/i, /storage\.googleapis\.com/i,
+  /supabase\.co\/storage/i, /r2\.cloudflarestorage\.com/i,
+  /[?&]X-Amz-/i, /[?&](sig|signature|token)=/i, // signed/secret query params
+  /api\.elevenlabs\.io/i, /\bsk[-_][A-Za-z0-9]{12,}/, /xi-api-key/i, // provider secrets
+  /(^|[^a-z])(file:\/\/|\/var\/|\/tmp\/|\/app\/|\/Users\/)/i, // filesystem paths
+];
+
+function runPresentationReadinessChecks(
+  input: BreakbotPreflightInput,
+  offer: QuickFixOffer,
+  composedBody: string,
+  offerPageBlocks: string[],
+  issues: Issue[],
+  pass: () => void,
+): void {
+  const p = input.presentation;
+  if (!p) return; // caller-gated; defensive.
+
+  const pv = p.personalizedVideo;
+
+  // ── (1) PERSONALIZED VIDEO IS THE CURRENT READY RENDER — never stale/missing. ──
+  if (!pv || pv.status !== "READY") {
+    issues.push(issue({
+      surface: "presentation.personalizedVideo",
+      severity: "BLOCKER",
+      expected: "the offer's personalized diagnostic video is READY (bound to current evidence + narration + render)",
+      observed: pv ? `personalized video status=${pv.status}` : "no personalized video assembled for the customer experience",
+      fix: "Render the personalized video for this offer's current evidence, then re-check readiness.",
+    }));
+  } else { pass(); }
+
+  // ── (2) DURABLE STORAGE — a READY render MUST resolve to a durable object-store key.
+  //     A local-only render (public/ file, no key) is NOT production-serveable. ──
+  if (pv && pv.status === "READY" && !pv.mp4Key) {
+    issues.push(issue({
+      surface: "presentation.renderDurable",
+      severity: "BLOCKER",
+      expected: "the READY render is persisted to durable object storage (mp4Key present)",
+      observed: "the render has no durable storage key (local-only render)",
+      fix: "Persist the rendered video to the ArtifactStore; a local public/ file is not production truth.",
+    }));
+  } else { pass(); }
+
+  // ── (3) SERVED URL RESOLVES — the customer's served-video route returns the current render. ──
+  if (pv && pv.status === "READY" && !pv.servedUrlResolves) {
+    issues.push(issue({
+      surface: "presentation.servedResolves",
+      severity: "BLOCKER",
+      expected: "the customer-facing served-video URL resolves the current READY render",
+      observed: "the served-video resolver did not return the current render (stale/absent/gated)",
+      fix: "Verify the served route resolves this offer's current render before sending.",
+    }));
+  } else { pass(); }
+
+  // ── (4) PLAYABLE — a served URL + a positive duration. ──
+  if (pv && pv.status === "READY" && (!pv.mp4Url || (pv.durationSeconds ?? 0) <= 0)) {
+    issues.push(issue({
+      surface: "presentation.playable",
+      severity: "BLOCKER",
+      expected: "the personalized video is playable (a served mp4 URL and a positive duration)",
+      observed: `mp4Url=${pv.mp4Url ? "present" : "missing"}, durationSeconds=${pv.durationSeconds ?? 0}`,
+      fix: "Re-render/persist the video so it exposes a served URL and a real duration.",
+    }));
+  } else { pass(); }
+
+  // ── (5) TRUST VIDEO RESOLVES — a coherent trust asset must resolve for the journey.
+  //     A Matt journey missing its Matt trust video is a BLOCKER (never a Lucas fallback). ──
+  const trust = p.trust;
+  if (!trust) {
+    issues.push(issue({
+      surface: "presentation.trustResolves",
+      severity: "BLOCKER",
+      expected: "the journey's trust video resolves (legacy Lucas asset, or the reusable Matt trust video)",
+      observed: "no trust video resolved for this journey",
+      fix: "Resolve the trust video for this offer's journey generation before sending.",
+    }));
+  } else if (trust.mattTrustMissing || (trust.outcome === "reuse-matt" && !trust.assetUrl) || (trust.outcome === "use-legacy-lucas" && !trust.assetUrl)) {
+    issues.push(issue({
+      surface: "presentation.trustResolves",
+      severity: "BLOCKER",
+      expected: "the resolved trust video has a served asset for this journey generation",
+      observed: trust.mattTrustMissing
+        ? "a Matt journey has no Matt trust video yet (prepare-matt) — never falls back to Lucas"
+        : `trust outcome=${trust.outcome} has no served asset URL`,
+      fix: trust.mattTrustMissing
+        ? "Build the Matt trust video for this scope (scripts/matt-trust-video-render.ts), then re-check."
+        : "Ensure the resolved trust asset is served from durable storage.",
+    }));
+  } else { pass(); }
+
+  // ── (6) TRUST GENERATION MATCHES THE PERSONALIZED VIDEO — one coherent generation. ──
+  if (pv && pv.voiceGeneration && trust && trust.generation && pv.voiceGeneration !== trust.generation) {
+    issues.push(issue({
+      surface: "presentation.trustGenerationMatch",
+      severity: "BLOCKER",
+      expected: "the trust video and the personalized video are the SAME voice generation",
+      observed: `personalized=${pv.voiceGeneration} trust=${trust.generation} (mixed)`,
+      fix: "Resolve both the personalized and trust videos in the lead's single journey generation.",
+    }));
+  } else { pass(); }
+
+  // ── (7) NO RAW STORAGE URL / SECRET / FILESYSTEM PATH in any customer asset URL. Every
+  //     customer-facing URL must be an app-relative route, never a storage/secret leak. ──
+  const urls = [
+    ...(p.customerAssetUrls ?? []),
+    pv?.mp4Url ?? "",
+    trust?.assetUrl ?? "",
+  ].filter(Boolean);
+  const leaked = urls.filter((u) => RAW_STORAGE_MARKERS.some((re) => re.test(u)));
+  // Also scan customer copy for the same leakage (belt-and-suspenders with voice.secretLeak).
+  const copyLeak = RAW_STORAGE_MARKERS.some((re) => re.test([composedBody, ...offerPageBlocks].join("\n")));
+  if (leaked.length > 0 || copyLeak) {
+    issues.push(issue({
+      surface: "presentation.rawStorageLeak",
+      severity: "BLOCKER",
+      expected: "every customer-facing asset URL is an app-managed route (no raw storage URL, signed URL, secret, or filesystem path)",
+      observed: leaked.length > 0 ? `leaked URL(s): ${leaked.slice(0, 3).join(", ")}` : "a storage/secret/path marker leaked into customer copy",
+      fix: "Serve every asset through its app route (/api/…) and remove any raw storage URL / signed URL / filesystem path.",
     }));
   } else { pass(); }
 }

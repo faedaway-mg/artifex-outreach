@@ -7,7 +7,7 @@
 import * as store from "./store";
 import type { StoredOffer } from "./store";
 import { buildOfferPageModel, type OfferPageModel } from "./offer-page";
-import { trustVideoAsEvergreen } from "./trust-videos";
+import { journeyTrustAsEvergreen } from "./trust-video-resolve";
 import { termsAcceptanceMatchesOffer } from "./terms";
 import { buildRequirements, type RequirementsChecklist } from "./requirements";
 import { ARTIFEX_IDENTITY } from "../identity";
@@ -36,9 +36,11 @@ export interface PublicOfferView {
 export async function buildPublicOfferView(seg: string, opts?: { preview?: boolean }): Promise<PublicOfferView | null> {
   const offer = await store.resolveOffer(seg);
   if (!offer) return null;
-  // Scope-aware evergreen trust video — deterministic, server-owned (SKU → scope →
-  // active asset → general fallback). The browser cannot choose the asset.
-  const evergreen = trustVideoAsEvergreen(offer);
+  // Scope-aware AND journey-aware evergreen trust video — deterministic, server-owned
+  // (SKU → scope → the lead journey's own generation asset). A Matt journey resolves to
+  // the reusable Matt trust video (script-only until it is built — never a Lucas video);
+  // a legacy Lucas journey resolves to the preserved legacy asset. No cross-generation mix.
+  const evergreen = await journeyTrustAsEvergreen(offer);
   const acc = await store.getTermsAcceptance(offer.offerId);
   const termsAccepted = termsAcceptanceMatchesOffer(acc, offer);
   const approved = offer.approvalStatus === "approved";

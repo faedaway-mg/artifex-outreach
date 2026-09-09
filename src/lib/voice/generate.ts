@@ -25,8 +25,11 @@ import {
   markVoiceoverReady,
   markVoiceoverFailed,
   supersedeVoiceover,
+  listVoiceovers,
+  getVoiceConfig,
   type VoiceoverRecord,
 } from "./store";
+import { computeVoiceUsage, resolveVoiceUsageConfig } from "./usage";
 
 export interface GenerateLeadVoiceoverInput {
   leadId: string;
@@ -49,6 +52,7 @@ export type GenerateLeadVoiceoverResult =
   | { status: "ready"; voiceover: VoiceoverRecord; voiceDisplayName: string }
   | { status: "legacy"; reason: string; voiceKey: string; voiceDisplayName: string }
   | { status: "not_configured"; reason: string }
+  | { status: "capped"; reason: string }
   | { status: "failed"; reason: string; voiceoverId: string };
 
 // Probe real audio duration via ffprobe; on any failure fall back to a deterministic
@@ -97,9 +101,6 @@ export async function generateLeadVoiceover(input: GenerateLeadVoiceoverInput): 
   const now = input.now ?? new Date().toISOString();
   const revision = input.narrationRevision ?? input.narrationId;
 
-  if (!elevenLabsConfigured()) {
-    return { status: "not_configured", reason: "ElevenLabs is not configured (missing API key or voice ID)." };
-  }
   if (!input.narrationScript || !input.narrationScript.trim()) {
     return { status: "not_configured", reason: "Narration script is empty — nothing to generate." };
   }
@@ -118,17 +119,38 @@ export async function generateLeadVoiceover(input: GenerateLeadVoiceoverInput): 
     };
   }
 
+  // Idempotency FIRST: reuse a current canonical READY voiceover unless explicitly forced.
+  // This is checked BEFORE the configured/cap gates so an already-generated asset can be
+  // reused (e.g. by a render host) without the API key present and without touching quota.
+  const existing = await canonicalVoiceover(input.leadId, revision, voiceKey);
+  if (existing && !input.force) {
+    return { status: "reused", voiceover: existing, voiceDisplayName: voiceDisplayName(voiceKey) };
+  }
+
+  // A real new generation from here on — it needs configuration and consumes quota.
+  if (!elevenLabsConfigured()) {
+    return { status: "not_configured", reason: "ElevenLabs is not configured (missing API key or voice ID)." };
+  }
+
+  // OPTIONAL HARD CAP: if the operator set a hard minute cap and this billing period has
+  // reached it, refuse a NEW generation (reuse above is unaffected). A deliberate spend
+  // guard — distinct from the informational 75/90/100 warnings, which never block.
+  const usageCfg = resolveVoiceUsageConfig(await getVoiceConfig());
+  if (usageCfg.config.hardCapMinutes != null) {
+    const usage = computeVoiceUsage(await listVoiceovers(), usageCfg.config, now);
+    if (usage.hardCapReached) {
+      return {
+        status: "capped",
+        reason: `Voice generation hard cap reached (${usage.minutesThisPeriod} of ${usageCfg.config.hardCapMinutes} min this period). Raise or clear the cap to generate more.`,
+      };
+    }
+  }
+
   const voiceId = resolveVoiceId(voiceKey);
   if (!voiceId) {
     return { status: "not_configured", reason: `No provider voice ID resolved for voice '${voiceKey}'.` };
   }
   const cfg = getElevenLabsConfig();
-
-  // Idempotency: reuse a current canonical READY voiceover unless explicitly forced.
-  const existing = await canonicalVoiceover(input.leadId, revision, voiceKey);
-  if (existing && !input.force) {
-    return { status: "reused", voiceover: existing, voiceDisplayName: voiceDisplayName(voiceKey) };
-  }
 
   const kind: "initial" | "regeneration" = existing && input.force ? "regeneration" : "initial";
 
@@ -171,6 +193,7 @@ export async function generateLeadVoiceover(input: GenerateLeadVoiceoverInput): 
       assetBytes: stored.bytes,
       assetSha256: stored.sha256,
       durationSeconds: dur.seconds,
+      durationSource: dur.measured ? "measured" : "estimated",
       requestId: result.requestId,
       now: new Date().toISOString(),
       actor: input.actor,

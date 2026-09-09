@@ -67,12 +67,27 @@ export interface PersonalizedDiagnosticVideoRecord {
 
   status: PersonalizedVideoStatus;
 
+  // Voiceover binding — the exact canonical (Matt) voiceover this render was muxed
+  // against, so a coherent journey and Breakbot can detect a stale/mismatched audio.
+  // Null for a silent render (no audio) or a legacy render that predates this field.
+  voiceoverId: string | null;
+  voiceoverRevision: string | null; // == the voiceover's narrationRevision at render time
+  voiceGeneration: string | null; // "current-matt" | "legacy-lucas" — journey coherence
+
   // Digests — detect drift without re-reading the whole package.
   sourceEvidenceDigest: string; // == evidenceVersion at render time (kept explicit for audit)
   narrationDigest: string; // hash of the authoritative narration script
   renderedAssetDigest: string | null; // hash/etag of the rendered mp4, when READY
 
-  // Asset locations (app routes or storage refs) — never a raw secret.
+  // Durable object-store keys — the SOURCE OF TRUTH for the served bytes. A render is
+  // only production-serveable when these resolve in the ArtifactStore; a local-only
+  // render (public/ file, no key) can NEVER be READY in production.
+  mp4Key: string | null;
+  posterKey: string | null;
+  captionsKey: string | null;
+
+  // Asset locations — the APP-MANAGED served route (never a raw storage URL / secret /
+  // filesystem path). Customer-facing pages read these.
   mp4Url: string | null;
   posterUrl: string | null;
   captionsUrl: string | null;
@@ -348,6 +363,8 @@ export interface PersonalizedVideoCurrentInputs {
   evidenceVersion: string;
   narrationVersion: string;
   renderVersion: string;
+  /** When set, the render must be bound to this exact voiceover revision to be READY. */
+  voiceoverRevision?: string | null;
 }
 
 /**
@@ -377,9 +394,16 @@ export function personalizedVideoReadiness(
     record.narrationVersion === current.narrationVersion &&
     record.renderVersion === current.renderVersion;
 
-  const playable = !!record.mp4Url && !!record.posterUrl && (record.durationSeconds ?? 0) > 0;
+  // When the current inputs name a required voiceover revision, the render must have
+  // been muxed against THAT exact revision (a re-recorded narration must re-render).
+  const voiceoverBound =
+    !current.voiceoverRevision || record.voiceoverRevision === current.voiceoverRevision;
 
-  if (record.status === "READY" && boundToCurrent && playable) return "READY";
+  // Production-serveable ONLY when the durable mp4 key resolves (not just a local file).
+  const durable = !!record.mp4Key;
+  const playable = durable && !!record.mp4Url && !!record.posterUrl && (record.durationSeconds ?? 0) > 0;
+
+  if (record.status === "READY" && boundToCurrent && voiceoverBound && playable) return "READY";
   return "STALE";
 }
 
@@ -412,6 +436,18 @@ export function personalizedVideoAssetStatus(status: PersonalizedVideoStatus): A
   if (status === "READY") return "READY";
   if (status === "STALE") return "STALE";
   return "MISSING";
+}
+
+/**
+ * The APP-MANAGED served routes for an offer's personalized video. Keyed by the offer's
+ * stable, unguessable offerId (NOT the rotatable share token), so a token rotation never
+ * breaks a baked URL. These are relative paths the customer-facing page embeds directly;
+ * the route resolves the durable ArtifactStore bytes and enforces the same approved +
+ * share-context gate as the offer page. No raw storage URL / filesystem path is exposed.
+ */
+export function personalizedVideoServedPaths(offerId: string): { mp4Url: string; posterUrl: string; captionsUrl: string } {
+  const base = `/api/quick-fix/${encodeURIComponent(offerId)}/personalized-video`;
+  return { mp4Url: base, posterUrl: `${base}/poster`, captionsUrl: `${base}/captions` };
 }
 
 /** Build the EvidenceAssetRef the evidence package exposes for the personalized video. */

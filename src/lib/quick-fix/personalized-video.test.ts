@@ -106,9 +106,15 @@ function record(over: Partial<PersonalizedDiagnosticVideoRecord> = {}): Personal
     renderVersion: PV_RENDER_VERSION,
     personalizedVideoVersion: "pvid.v1",
     status: "READY",
+    voiceoverId: "vo_x",
+    voiceoverRevision: "nar1_abc",
+    voiceGeneration: "current-matt",
     sourceEvidenceDigest: "ev1_current",
     narrationDigest: "nar1_abc",
     renderedAssetDigest: "sha_xyz",
+    mp4Key: "content-studio/test/upload/pv-render/qfo_v1_pv_deadbeef.mp4",
+    posterKey: "content-studio/test/upload/pv-render/qfo_v1_pv_deadbeef.jpg",
+    captionsKey: "content-studio/test/upload/pv-render/qfo_v1_pv_deadbeef.vtt",
     mp4Url: "/api/quick-fix/qfo_v1/personalized-video",
     posterUrl: "/api/quick-fix/qfo_v1/personalized-video/poster",
     captionsUrl: null,
@@ -229,6 +235,23 @@ describe("personalizedVideoReadiness", () => {
     expect(personalizedVideoReadiness(record({ mp4Url: null }), current)).toBe("STALE");
     expect(personalizedVideoReadiness(record({ posterUrl: null }), current)).toBe("STALE");
     expect(personalizedVideoReadiness(record({ durationSeconds: 0 }), current)).toBe("STALE");
+  });
+
+  it("STALE when the render is local-only (no durable mp4Key)", () => {
+    // A render that produced a public/ file but was never persisted to the object store
+    // is NOT production-serveable — it degrades to STALE even though it looks playable.
+    expect(personalizedVideoReadiness(record({ mp4Key: null }), current)).toBe("STALE");
+  });
+
+  it("READY ignores voiceover binding unless the current inputs require a revision", () => {
+    expect(personalizedVideoReadiness(record({ voiceoverRevision: "nar1_abc" }), current)).toBe("READY");
+  });
+
+  it("STALE when a required voiceover revision does not match the render's", () => {
+    const withVo = { ...current, voiceoverRevision: "nar1_NEW" };
+    expect(personalizedVideoReadiness(record({ voiceoverRevision: "nar1_OLD" }), withVo)).toBe("STALE");
+    // matching revision → READY
+    expect(personalizedVideoReadiness(record({ voiceoverRevision: "nar1_NEW" }), withVo)).toBe("READY");
   });
 
   it("passes through in-flight and terminal states", () => {

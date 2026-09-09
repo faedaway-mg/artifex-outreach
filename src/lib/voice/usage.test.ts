@@ -6,7 +6,7 @@
 // count is stable; capacity math + warning thresholds; and billing-period bounding.
 // ─────────────────────────────────────────────────────────────────────────────
 import { describe, it, expect } from "vitest";
-import { computeVoiceUsage } from "./usage";
+import { computeVoiceUsage, resolveVoiceUsageConfig } from "./usage";
 import type { VoiceoverRecord, VoiceoverStatus } from "./store";
 
 let seq = 0;
@@ -29,6 +29,7 @@ function rec(over: Partial<VoiceoverRecord> = {}): VoiceoverRecord {
     assetSha256: "abc",
     characterCount: 100,
     durationSeconds: 30,
+    durationSource: "measured",
     requestId: "req",
     status: "VOICEOVER_READY" as VoiceoverStatus,
     failureReason: null,
@@ -133,6 +134,76 @@ describe("capacity math + warning thresholds (mandate #17)", () => {
     expect(u.estimatedVideosRemainingAt30s).toBeNull();
     expect(u.estimatedVideosRemainingAtAverage).toBeNull();
     expect(u.warningLevel).toBe(0);
+  });
+});
+
+describe("exact-duration source + honesty (ffprobe)", () => {
+  it("counts measured vs estimated durations this period", () => {
+    const records = [
+      rec({ durationSeconds: 30, durationSource: "measured", createdAt: "2026-09-10T00:00:00.000Z" }),
+      rec({ durationSeconds: 40, durationSource: "estimated", createdAt: "2026-09-11T00:00:00.000Z" }),
+      rec({ durationSeconds: 50, durationSource: "measured", createdAt: "2026-09-12T00:00:00.000Z" }),
+    ];
+    const u = computeVoiceUsage(records, { monthlyMinuteBudget: null, billingResetDay: null }, NOW);
+    expect(u.measuredThisPeriod).toBe(2);
+    expect(u.estimatedThisPeriod).toBe(1);
+  });
+
+  it("a legacy record with no durationSource counts as measured (never over-warns)", () => {
+    const records = [rec({ durationSeconds: 30, durationSource: null, createdAt: "2026-09-10T00:00:00.000Z" })];
+    const u = computeVoiceUsage(records, { monthlyMinuteBudget: null, billingResetDay: null }, NOW);
+    expect(u.measuredThisPeriod).toBe(1);
+    expect(u.estimatedThisPeriod).toBe(0);
+  });
+
+  it("prefers the persisted duration value (measured when available)", () => {
+    // The record's durationSeconds already holds the measured value; usage sums it verbatim.
+    const records = [rec({ durationSeconds: 8.4, durationSource: "measured", createdAt: "2026-09-10T00:00:00.000Z" })];
+    const u = computeVoiceUsage(records, { monthlyMinuteBudget: null, billingResetDay: null }, NOW);
+    expect(u.minutesThisPeriod).toBe(0.1); // 8.4s → 0.14 → round1 0.1
+  });
+});
+
+describe("optional hard cap + quotaUnknown", () => {
+  it("hardCapReached when the period exceeds the operator cap", () => {
+    const records = [rec({ durationSeconds: 600, createdAt: "2026-09-10T00:00:00.000Z" })]; // 10 min
+    const u = computeVoiceUsage(records, { monthlyMinuteBudget: null, billingResetDay: null, hardCapMinutes: 5 }, NOW);
+    expect(u.hardCapMinutes).toBe(5);
+    expect(u.hardCapReached).toBe(true);
+  });
+
+  it("hard cap not reached under the cap", () => {
+    const records = [rec({ durationSeconds: 120, createdAt: "2026-09-10T00:00:00.000Z" })]; // 2 min
+    const u = computeVoiceUsage(records, { monthlyMinuteBudget: null, billingResetDay: null, hardCapMinutes: 5 }, NOW);
+    expect(u.hardCapReached).toBe(false);
+  });
+
+  it("quotaUnknown is true when no budget is configured", () => {
+    const u = computeVoiceUsage([], { monthlyMinuteBudget: null, billingResetDay: null }, NOW);
+    expect(u.quotaUnknown).toBe(true);
+    const u2 = computeVoiceUsage([], { monthlyMinuteBudget: 10, billingResetDay: null }, NOW);
+    expect(u2.quotaUnknown).toBe(false);
+  });
+});
+
+describe("resolveVoiceUsageConfig — operator overrides env default", () => {
+  it("operator stored value overrides env; env is the fallback; else unset", () => {
+    const env = { ELEVENLABS_MONTHLY_MINUTE_BUDGET: "100", ELEVENLABS_BILLING_RESET_DAY: "5" } as unknown as NodeJS.ProcessEnv;
+    const r = resolveVoiceUsageConfig({ monthlyMinuteBudget: 50, billingResetDay: null, hardCapMinutes: null }, env);
+    expect(r.config.monthlyMinuteBudget).toBe(50);
+    expect(r.source.monthlyMinuteBudget).toBe("operator");
+    expect(r.config.billingResetDay).toBe(5);
+    expect(r.source.billingResetDay).toBe("env");
+    expect(r.config.hardCapMinutes).toBeNull();
+    expect(r.source.hardCapMinutes).toBe("unset");
+  });
+
+  it("ignores non-positive / non-numeric env values", () => {
+    const env = { ELEVENLABS_MONTHLY_MINUTE_BUDGET: "0", ELEVENLABS_HARD_CAP_MINUTES: "abc" } as unknown as NodeJS.ProcessEnv;
+    const r = resolveVoiceUsageConfig({ monthlyMinuteBudget: null, billingResetDay: null, hardCapMinutes: null }, env);
+    expect(r.config.monthlyMinuteBudget).toBeNull();
+    expect(r.source.monthlyMinuteBudget).toBe("unset");
+    expect(r.config.hardCapMinutes).toBeNull();
   });
 });
 

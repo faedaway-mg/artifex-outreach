@@ -31,6 +31,12 @@ ENV NEXT_TELEMETRY_DISABLED=1
 ENV PORT=3000
 ENV HOSTNAME=0.0.0.0
 
+# ffmpeg provides BOTH ffmpeg and ffprobe. ffprobe lets the server measure the EXACT
+# duration of a generated ElevenLabs voiceover (the Voice Generation meter prefers the
+# measured value over the text estimate); ffmpeg is available for any server-side mux.
+# Absence is non-fatal — voiceover generation falls back to a marked text estimate.
+RUN apk add --no-cache ffmpeg
+
 # Non-root runtime user
 RUN addgroup --system --gid 1001 nodejs \
   && adduser --system --uid 1001 nextjs

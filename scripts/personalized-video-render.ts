@@ -217,7 +217,7 @@ export interface RenderCoreResult {
   height: number;
 }
 
-async function renderPlanToMp4(
+export async function renderPlanToMp4(
   browser: Browser,
   plan: PersonalizedVideoRenderPlan,
   provider: ScreenshotBytesProvider,
@@ -430,6 +430,11 @@ async function runRealOffer(offerId: string): Promise<void> {
   const { buildEvidencePackage } = await import("../src/lib/quick-fix/evidence-package");
   const { getArtifactStore } = await import("../src/lib/content-studio/storage-factory");
   const { latestReadyShot } = await import("../src/lib/content-studio/screenshot-jobs");
+  const { buildObjectKey } = await import("../src/lib/content-studio/cs-object-key");
+  const { csEnvironment } = await import("../src/lib/content-studio/env-guard");
+  const { getLeadVoiceKey } = await import("../src/lib/voice/store");
+  const { voiceGeneration } = await import("../src/lib/voice/registry");
+  const { personalizedVideoServedPaths } = await import("../src/lib/quick-fix/personalized-video");
 
   const actor = "render-worker";
   const nowIso = () => new Date().toISOString();
@@ -451,19 +456,26 @@ async function runRealOffer(offerId: string): Promise<void> {
     renderVersion: PV_RENDER_VERSION,
   });
 
-  // IDEMPOTENT: a stored READY record with the same key + playable → reuse, no re-render.
+  // IDEMPOTENT: a stored READY record with the same key + DURABLE asset → reuse, no
+  // re-render. A local-only render (no mp4Key) does NOT satisfy reuse — it must be
+  // re-rendered and persisted to the object store to become production-serveable.
   const existing = await getPersonalizedVideo(offerId);
   if (
     existing &&
     existing.status === "READY" &&
     existing.idempotencyKey === idempotencyKey &&
-    !!existing.mp4Url &&
-    !!existing.posterUrl &&
+    !!existing.mp4Key &&
+    !!existing.posterKey &&
     (existing.durationSeconds ?? 0) > 0
   ) {
-    console.log(JSON.stringify({ mode: "offer", offerId, reused: true, mp4Url: existing.mp4Url, idempotencyKey }, null, 2));
+    console.log(JSON.stringify({ mode: "offer", offerId, reused: true, mp4Url: existing.mp4Url, mp4Key: existing.mp4Key, idempotencyKey }, null, 2));
     return;
   }
+
+  // The lead's canonical journey generation (matt | lucas) — bound onto the record so a
+  // coherent journey + Breakbot can verify the render's voice matches the journey.
+  const leadVoiceKey = await getLeadVoiceKey(offer.leadId);
+  const leadVoiceGeneration = voiceGeneration(leadVoiceKey);
 
   const baseRecord: PersonalizedDiagnosticVideoRecord = {
     offerId: offer.offerId,
@@ -476,9 +488,15 @@ async function runRealOffer(offerId: string): Promise<void> {
     renderVersion: PV_RENDER_VERSION,
     personalizedVideoVersion: PERSONALIZED_VIDEO_VERSION,
     status: "QUEUED",
+    voiceoverId: null,
+    voiceoverRevision: null,
+    voiceGeneration: leadVoiceGeneration,
     sourceEvidenceDigest: evidenceDigest,
     narrationDigest,
     renderedAssetDigest: null,
+    mp4Key: null,
+    posterKey: null,
+    captionsKey: null,
     mp4Url: null,
     posterUrl: null,
     captionsUrl: null,
@@ -520,6 +538,8 @@ async function runRealOffer(offerId: string): Promise<void> {
   // outbound action; only produces + persists the audio asset. If it is not configured
   // or fails, we render SILENT (unchanged) — the personalized video still ships.
   let audioPath: string | null = null;
+  let voiceoverId: string | null = null;
+  let voiceoverRevision: string | null = null;
   const vo = await generateLeadVoiceover({
     leadId: offer.leadId,
     company: offer.companyName,
@@ -530,6 +550,8 @@ async function runRealOffer(offerId: string): Promise<void> {
     actor: "render-worker",
   });
   if ((vo.status === "ready" || vo.status === "reused") && vo.voiceover.assetKey) {
+    voiceoverId = vo.voiceover.id;
+    voiceoverRevision = vo.voiceover.narrationRevision;
     const audioBytes = await store.readFull(vo.voiceover.assetKey).catch(() => null);
     if (audioBytes) {
       mkdirSync(outDir, { recursive: true });
@@ -549,16 +571,39 @@ async function runRealOffer(offerId: string): Promise<void> {
     const result = await renderPlanToMp4(browser, plan, provider, outDir, offerId, audioPath);
     if (!(result.durationSeconds > 0)) throw new Error("rendered a zero-duration mp4");
 
+    // ── PERSIST TO DURABLE STORAGE ────────────────────────────────────────────
+    // The local public/ files are a render scratch space, NOT production truth. Push
+    // the mp4 + poster + captions into the canonical ArtifactStore so the served route
+    // streams durable bytes (survives redeploys; never depends on a container's disk).
+    // Keys are versioned by the idempotency-bound render digest so a re-render is a new
+    // immutable object, never an in-place mutation.
+    const renderVersionTag = `pv_${result.renderedAssetDigest.slice(0, 16)}`;
+    const mp4Bytes = readFileSync(result.mp4Path);
+    const posterBytes = readFileSync(result.posterPath);
+    const vttBytes = readFileSync(result.vttPath);
+    const mkKey = (ext: string) =>
+      buildObjectKey({ artifactClass: "upload", env: csEnvironment(), operatorId: "pv-render", version: `${offerId}_${renderVersionTag}`, ext });
+    const mp4Put = await store.put(mkKey("mp4"), mp4Bytes, { artifactClass: "upload", contentType: "video/mp4", metadata: { personalizedVideo: offerId, kind: "personalized-video-mp4" } });
+    const posterPut = await store.put(mkKey("jpg"), posterBytes, { artifactClass: "upload", contentType: "image/jpeg", metadata: { personalizedVideo: offerId, kind: "personalized-video-poster" } });
+    const captionsPut = await store.put(mkKey("vtt"), vttBytes, { artifactClass: "upload", contentType: "text/vtt", metadata: { personalizedVideo: offerId, kind: "personalized-video-captions" } });
+
+    const served = personalizedVideoServedPaths(offerId);
     const readyRecord: PersonalizedDiagnosticVideoRecord = {
       ...baseRecord,
       status: "READY",
+      voiceoverId,
+      voiceoverRevision,
       renderedAssetDigest: result.renderedAssetDigest,
-      mp4Url: `/personalized-videos/${offerId}/video.mp4`,
-      posterUrl: `/personalized-videos/${offerId}/poster.jpg`,
+      mp4Key: mp4Put.key,
+      posterKey: posterPut.key,
+      captionsKey: captionsPut.key,
+      // App-managed served routes (durable-key backed) — never a raw storage URL/path.
+      mp4Url: served.mp4Url,
+      posterUrl: served.posterUrl,
       // Captions are generated VERBATIM from the authoritative narrationScript — the SAME
       // words that render as on-screen kinetic text. There is no separate audio track to
       // reconcile against, so the VTT is exact-by-construction and marked verified.
-      captionsUrl: `/personalized-videos/${offerId}/captions.vtt`,
+      captionsUrl: served.captionsUrl,
       captionVersion: CAPTION_VERSION,
       captionsVerified: plan.captionsVerbatim,
       durationSeconds: result.durationSeconds,
@@ -567,7 +612,7 @@ async function runRealOffer(offerId: string): Promise<void> {
       failureReason: null,
     };
     await setPersonalizedVideo(offerId, readyRecord, { actor, now: nowIso() });
-    console.log(JSON.stringify({ mode: "offer", offerId, reused: false, status: "READY", mp4Url: readyRecord.mp4Url, durationSeconds: Math.round(result.durationSeconds * 100) / 100, totalFrames: result.totalFrames, vttCues: result.vttCueCount, idempotencyKey }, null, 2));
+    console.log(JSON.stringify({ mode: "offer", offerId, reused: false, status: "READY", mp4Url: readyRecord.mp4Url, mp4Key: readyRecord.mp4Key, durableBytes: mp4Put.bytes, voiceoverId, durationSeconds: Math.round(result.durationSeconds * 100) / 100, totalFrames: result.totalFrames, vttCues: result.vttCueCount, idempotencyKey }, null, 2));
   } catch (e) {
     await setPersonalizedVideo(offerId, { ...baseRecord, status: "FAILED", failureReason: (e as Error).message }, { actor, now: nowIso() });
     throw e;
@@ -608,7 +653,15 @@ async function main() {
   process.exit(2);
 }
 
-main().catch((e) => {
-  console.error(e?.stack || String(e));
-  process.exit(1);
-});
+// Only run the CLI when this file is the process entrypoint — importing it (e.g. the
+// Matt trust-video renderer reuses renderPlanToMp4) must NOT trigger a render.
+function isEntrypoint(): boolean {
+  const invoked = process.argv[1] ? path.resolve(process.argv[1]) : "";
+  return import.meta.url === `file://${invoked}` || invoked.endsWith("personalized-video-render.ts");
+}
+if (isEntrypoint()) {
+  main().catch((e) => {
+    console.error(e?.stack || String(e));
+    process.exit(1);
+  });
+}

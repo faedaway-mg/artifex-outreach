@@ -163,6 +163,10 @@ if [ -s "$OPFILE" ]; then
     ct="$(curl -s -m 40 -b "$COOKIES" -o /dev/null -w '%{content_type}' "$BASE/api/deliverable/$DELIV_ID/pdf")"
     case "$ct" in application/pdf*) echo "  ✓ authenticated PDF route (application/pdf)";; *) echo "  ✗ PDF route content-type: $ct"; PASS=0;; esac
   fi
+  # Launch Readiness gate (GO / NO-GO) — must be reachable + return a state. This diagnostic
+  # never sends anything; we assert it resolves a state, not that state == GO (env-dependent).
+  LR="$(curl -s -m 25 -b "$COOKIES" "$BASE/api/launch-readiness" || true)"
+  echo "$LR" | grep -qE '"state":"(GO|NO-GO)"' && echo "  ✓ launch-readiness gate resolves ($(echo "$LR" | grep -oE '"state":"(GO|NO-GO)"' | head -1))" || { echo "  ✗ launch-readiness gate did not resolve a state"; PASS=0; }
 else
   echo "  ⚠ Could not load OUTREACH_PASSWORD; skipped authenticated smoke checks."
 fi

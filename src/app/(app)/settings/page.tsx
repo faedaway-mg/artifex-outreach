@@ -14,7 +14,7 @@ import { OUTREACH_SIGNERS, signerProfile, signatureHtml, signatureText } from "@
 import { formatRange } from "@/lib/utils";
 import { currentAllocation } from "@/lib/outreach/allocation-state";
 import { CheckCircle2, Circle } from "lucide-react";
-import { VoiceGenerationMeter } from "@/components/voice/VoiceGenerationMeter";
+import { VoiceCapacitySection } from "@/components/voice/VoiceCapacitySection";
 
 export const dynamic = "force-dynamic";
 
@@ -69,8 +69,9 @@ export default async function SettingsPage() {
       {/* Internal email test (operator-only, mobile-friendly) */}
       <EmailTestControl exists={testLeadExists} />
 
-      {/* Voice generation capacity — read-only meter of generated-voiceover minutes vs the configured budget. */}
-      <VoiceGenerationMeter />
+      {/* Voice generation capacity — read-only meter of generated-voiceover minutes vs the configured budget,
+          plus the operator budget form (allowance / reset day / hard cap) that overrides the env default. */}
+      <VoiceCapacitySection />
 
       <div className="grid gap-6 lg:grid-cols-3">
         {/* Identity */}
