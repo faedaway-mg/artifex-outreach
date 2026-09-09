@@ -22,6 +22,10 @@ import type { FreezeDeps, ResolvedFrozenReview } from "../outreach/quick-review-
 import { assembleCommercialMessage } from "./commercial-message";
 import { getEmailProvider } from "./provider";
 import type { EmailMessage, EmailProvider } from "./provider";
+import { primaryTransport, googleTransportConfigured } from "./google-workspace/config";
+import { resolveSenderCredential } from "./google-workspace/sender-registry";
+import { createGmailProvider } from "./google-workspace/gmail-transport";
+import { selectSender, recordSenderSuccess, recordSenderError } from "./google-workspace/sender-health";
 import { isEmailSuppressed } from "./suppression";
 import { sha256 } from "./receipt";
 import { validEmail } from "../acquisition/compliance";
@@ -34,7 +38,14 @@ import type { QuickReview } from "../outreach/quick-review";
 export interface OutreachSendResult { ok: boolean; providerId?: string | null; ambiguous?: boolean; reason?: string }
 
 /** The full transport result (so callers can classify sent / retry / fail / ambiguous). */
-export interface ColdSubmitResult { sent: boolean; providerMessageId: string | null; errorCode?: string; reason?: string; retryable?: boolean; ambiguous?: boolean; statusCode?: number }
+export interface ColdSubmitResult { sent: boolean; providerMessageId: string | null; errorCode?: string; reason?: string; retryable?: boolean; ambiguous?: boolean; statusCode?: number;
+  /** The transport used ("google-workspace" | "resend" | injected). Non-secret. */
+  transport?: string;
+  /** The mailbox that actually sent (derived from the selected sender's From). Non-secret. */
+  senderAddress?: string | null;
+  /** The sender registry id (e.g. "sender-1"). Non-secret. */
+  senderId?: string | null;
+}
 
 export interface TransportDeps {
   isSuppressed?: (email: string) => Promise<boolean>;       // final-boundary suppression check
@@ -94,22 +105,50 @@ export async function submitCompliantDispatch(
   if (!isColdOutreach(req.classification)) {
     return { sent: false, providerMessageId: null, retryable: false, errorCode: "route-refused", reason: `classification ${req.classification} is not a compliant cold route` };
   }
-  // The transport is the configured provider (Resend) via getEmailProvider(); a guarded intercepted
-  // double may stand in for the no-send rehearsal (never in production). Fail closed when it cannot send.
-  const provider = deps.provider ?? getEmailProvider();
+
+  // ── TRANSPORT SELECTION (behind this boundary only) ────────────────────────
+  // An injected provider (rehearsal/tests) always wins and keeps the legacy From.
+  // Otherwise: OUTREACH_PRIMARY_TRANSPORT=google + a configured Workspace app →
+  // pick a healthy dual-sender mailbox (per-sender cap + cooldown); else Resend.
+  // There is NO silent failover between Google and Resend — a Google-primary run
+  // that has no eligible sender fails VISIBLY rather than sending via Resend.
+  const DEFAULT_FROM = "Artifex Labs <hello@artifexlabs.tech>";
+  let provider: EmailProvider;
+  let from: string;
+  let transportName = "resend";
+  let selectedSenderId: string | null = null;
+
+  if (deps.provider) {
+    provider = deps.provider;
+    from = process.env.RESEND_FROM || DEFAULT_FROM;
+    transportName = provider.name;
+  } else if (primaryTransport() === "google" && googleTransportConfigured()) {
+    const sel = await selectSender({ leadId: req.leadId, now: new Date() });
+    if (!sel.ok) return { sent: false, providerMessageId: null, retryable: true, errorCode: "no-eligible-sender", reason: `google transport: ${sel.reason}`, transport: "google-workspace" };
+    const cred = resolveSenderCredential(sel.senderId);
+    if (!cred) return { sent: false, providerMessageId: null, retryable: false, errorCode: "sender-unconfigured", reason: "selected Google sender is not fully configured", transport: "google-workspace" };
+    provider = createGmailProvider(cred);
+    from = cred.fromHeader; // server-controlled; the caller/browser can never set From
+    selectedSenderId = cred.id;
+    transportName = "google-workspace";
+  } else {
+    provider = getEmailProvider();
+    from = process.env.RESEND_FROM || DEFAULT_FROM;
+    transportName = provider.name;
+  }
+
   if (!provider.canSend) {
-    return { sent: false, providerMessageId: null, retryable: false, errorCode: "unconfigured", reason: "cold-outreach transport is not configured (no sending provider)." };
+    return { sent: false, providerMessageId: null, retryable: false, errorCode: "unconfigured", reason: "cold-outreach transport is not configured (no sending provider).", transport: transportName };
   }
   const gate = allowedColdRecipient(req.recipient);
-  if (!gate.ok) return { sent: false, providerMessageId: null, retryable: false, errorCode: "recipient-gate", reason: gate.reason };
+  if (!gate.ok) return { sent: false, providerMessageId: null, retryable: false, errorCode: "recipient-gate", reason: gate.reason, transport: transportName };
   // FINAL suppression recheck — independently, immediately before submission. A stale "eligible"
   // upstream never overrides current suppression.
   const isSuppressed = deps.isSuppressed ?? isEmailSuppressed;
   if (await isSuppressed(req.recipient)) {
-    return { sent: false, providerMessageId: null, retryable: false, errorCode: "suppressed", reason: "recipient suppressed (final boundary)" };
+    return { sent: false, providerMessageId: null, retryable: false, errorCode: "suppressed", reason: "recipient suppressed (final boundary)", transport: transportName };
   }
 
-  const from = process.env.RESEND_FROM || "Artifex Labs <hello@artifexlabs.tech>";
   const headers: Record<string, string> = {
     "List-Unsubscribe": `<${unsubscribeUrl}>`,
     "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
@@ -124,13 +163,20 @@ export async function submitCompliantDispatch(
     idempotencyKey: req.idempotencyKey,
   };
   const res = await provider.send(msg);
+  // Record per-sender health for the Google dual-sender transport (non-secret).
+  if (selectedSenderId) {
+    const nowIso = new Date().toISOString();
+    if (res.sent) await recordSenderSuccess(selectedSenderId, nowIso);
+    else await recordSenderError(selectedSenderId, nowIso, res.errorCode ?? "error");
+  }
+  const attribution = { transport: transportName, senderAddress: bareAddress(from), senderId: selectedSenderId };
   // Ambiguous-send protection: a network/timeout fault happens AFTER the POST is dispatched — Resend
   // may already have accepted the message. Do NOT blindly resend (the ledger + Resend Idempotency-Key
   // are the reconcile guards). A status-bearing 429/5xx means Resend explicitly did NOT accept → safe retry.
   if (!res.sent && (res.errorCode === "network" || res.errorCode === "timeout")) {
-    return { sent: false, providerMessageId: null, retryable: false, ambiguous: true, errorCode: "ambiguous_submit", reason: res.reason };
+    return { sent: false, providerMessageId: null, retryable: false, ambiguous: true, errorCode: "ambiguous_submit", reason: res.reason, ...attribution };
   }
-  return { sent: res.sent, providerMessageId: res.providerMessageId, retryable: res.retryable, errorCode: res.errorCode, reason: res.reason, statusCode: res.statusCode };
+  return { sent: res.sent, providerMessageId: res.providerMessageId, retryable: res.retryable, errorCode: res.errorCode, reason: res.reason, statusCode: res.statusCode, ...attribution };
 }
 
 // ── Compile-time bypass guard: the ONLY attachment a cold message can carry is a FrozenAttachment,
