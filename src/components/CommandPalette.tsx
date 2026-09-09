@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   LayoutGrid, Search, KanbanSquare, CalendarClock, BarChart3, Settings as SettingsIcon,
-  Plus, Mail, FileText, Clapperboard, CornerDownLeft, DollarSign, Zap,
+  Plus, Clapperboard, CornerDownLeft, DollarSign, Zap,
 } from "lucide-react";
 
 interface Cmd {
@@ -15,18 +15,17 @@ interface Cmd {
 }
 
 const COMMANDS: Cmd[] = [
-  { id: "today", label: "Open Today", hint: "Daily queue", icon: LayoutGrid, run: (r) => r.push("/") },
+  { id: "quickcash", label: "Quick-Cash (Home)", hint: "What can we sell right now?", icon: Zap, run: (r) => r.push("/") },
+  { id: "fulfillment", label: "Fulfillment", hint: "Paid work inbox", icon: DollarSign, run: (r) => r.push("/revenue/fulfillment") },
+  { id: "customers", label: "Customers", hint: "Converted customers & next-best-fix", icon: DollarSign, run: (r) => r.push("/revenue/customers") },
+  { id: "meetings", label: "Open Replies", hint: "Inbound conversations", icon: CalendarClock, run: (r) => r.push("/meetings") },
+  { id: "today", label: "Open Today (queue)", hint: "Legacy daily queue", icon: LayoutGrid, run: (r) => r.push("/today") },
   { id: "discover", label: "Discover businesses", hint: "Google Places", icon: Search, run: (r) => r.push("/discover") },
   { id: "add", label: "Add a business", hint: "Manual lead", icon: Plus, run: (r) => r.push("/discover") },
   { id: "pipeline", label: "Open Pipeline", hint: "Stages", icon: KanbanSquare, run: (r) => r.push("/pipeline") },
-  { id: "followups", label: "Follow-ups due", hint: "Today", icon: Mail, run: (r) => r.push("/") },
-  { id: "meetings", label: "Open Meetings", hint: "Discovery calls", icon: CalendarClock, run: (r) => r.push("/meetings") },
   { id: "performance", label: "Open Performance", hint: "Results", icon: BarChart3, run: (r) => r.push("/performance") },
-  { id: "brief", label: "Prepare a brief", hint: "Open a lead → Brief", icon: FileText, run: (r) => r.push("/pipeline") },
-  { id: "video", label: "Prepare a video", hint: "Open a lead → Video", icon: Clapperboard, run: (r) => r.push("/") },
-  { id: "revenue", label: "Quick-Fix Revenue", hint: "Low-ticket transaction engine", icon: DollarSign, run: (r) => r.push("/revenue") },
-  { id: "quickcash", label: "Quick-Cash Opportunities", hint: "What can we sell right now?", icon: Zap, run: (r) => r.push("/revenue/quick-cash") },
-  { id: "fulfillment", label: "Ready for Fulfillment", hint: "Paid work inbox", icon: DollarSign, run: (r) => r.push("/revenue/fulfillment") },
+  { id: "revenue", label: "Quick-Fix Revenue", hint: "Revenue hub", icon: DollarSign, run: (r) => r.push("/revenue") },
+  { id: "allopps", label: "All Quick-Cash Opportunities", hint: "Full ranked list", icon: Zap, run: (r) => r.push("/revenue/quick-cash") },
   { id: "trustvideo", label: "Evergreen Trust Video", hint: "Manage the Quick-Fix explainer", icon: Clapperboard, run: (r) => r.push("/revenue/trust-asset") },
   { id: "settings", label: "Open Settings", hint: "Configuration", icon: SettingsIcon, run: (r) => r.push("/settings") },
 ];

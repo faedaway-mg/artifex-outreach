@@ -4,7 +4,7 @@
 // Derives from stored state + the BI evidence spine. Honest empty/null states —
 // never fabricates events, economics, or customers. No charges, no sends.
 // ─────────────────────────────────────────────────────────────────────────────
-import { listLeads, getBusinessIntelligence, listAudit } from "../repo";
+import { listLeads, getBusinessIntelligence, listAudit, buildSuppressionChecker } from "../repo";
 import { buildOfferForLead } from "./adapter";
 import { rankQuickCash, addressableTotals, type QuickCashRow } from "./quick-cash";
 import { routeLead } from "./fix-scan";
@@ -50,6 +50,126 @@ export async function quickCashView(limit = 500): Promise<QuickCashView> {
     if (r.cannibalizationFlag) routing.cannibalization += 1;
   }
   return { rows, totals, routing };
+}
+
+// ── Quick-Cash inventory — reclassify the whole non-customer lead inventory ──────
+// Every non-customer lead resolves to EXACTLY ONE route via routeLead(). Customers
+// are excluded from selling routes (they get next-best-fix, never cold). Scheduled
+// legacy cold bindings are reported as LEGACY_FROZEN (inert while the cold path is
+// frozen — preserved, never sent, never deleted). Read-only; no sends, no charges.
+export interface QuickCashInventory {
+  totalLeads: number;
+  customers: number;
+  suppressed: number;
+  legacyFrozenScheduled: number;
+  routes: { DIRECT_FIX: number; FIX_SCAN: number; CONVERSATION_REQUIRED: number; NO_FIX_FOUND: number };
+  readyToSell: number;
+  addressableRevenueCents: number;
+  coldOutreachFrozen: boolean;
+  /** Every non-customer lead is counted under exactly one route (invariant check). */
+  exactlyOneRoutePerLead: boolean;
+}
+
+export async function quickCashInventory(opts: { limit?: number; offers?: QuickFixOffer[] } = {}): Promise<QuickCashInventory> {
+  const { legacyColdOutreachFrozen } = await import("../outreach/legacy-freeze");
+  const leads = await listLeads();
+  const state = await store.getState();
+  const customerLeadIds = new Set(Object.keys(state.customers));
+
+  // Offers are built only for non-customer leads that have a BI profile; the rest
+  // (no evidence) fall through to NO_FIX_FOUND so every lead is accounted for once.
+  const built = opts.offers ?? (await buildLeadOffers(opts.limit ?? 1000));
+  const offers = built.filter((o) => !customerLeadIds.has(o.leadId));
+  const routedLeadIds = new Set(offers.map((o) => o.leadId));
+  const routes = { DIRECT_FIX: 0, FIX_SCAN: 0, CONVERSATION_REQUIRED: 0, NO_FIX_FOUND: 0 };
+  for (const o of offers) routes[routeLead(o).route] += 1;
+
+  // Non-customer leads with no offer (no evidence / no profile) → NO_FIX_FOUND.
+  const nonCustomerLeads = leads.filter((l) => !customerLeadIds.has(l.id));
+  const unrouted = nonCustomerLeads.filter((l) => !routedLeadIds.has(l.id)).length;
+  routes.NO_FIX_FOUND += unrouted;
+
+  const rows = rankQuickCash(offers);
+  const readyToSell = rows.filter((r) => r.readyToSell).length;
+  const addressableRevenueCents = addressableTotals(offers).eligibleTotalCents;
+
+  // Suppressed (best-effort by lead domain — a lead can be suppressed independent of route).
+  const check = await buildSuppressionChecker();
+  let suppressed = 0;
+  for (const l of leads) {
+    const site = (l as any).website as string | undefined;
+    let domain: string | null = null;
+    if (site) { try { domain = new URL(site.startsWith("http") ? site : `https://${site}`).hostname.replace(/^www\./, ""); } catch { domain = null; } }
+    if (domain && check({ domain })) suppressed += 1;
+  }
+
+  const { listScheduledBindings } = await import("../outreach/scheduled-batch");
+  const legacyFrozenScheduled = (await listScheduledBindings()).length;
+
+  const routedTotal = routes.DIRECT_FIX + routes.FIX_SCAN + routes.CONVERSATION_REQUIRED + routes.NO_FIX_FOUND;
+  return {
+    totalLeads: leads.length,
+    customers: customerLeadIds.size,
+    suppressed,
+    legacyFrozenScheduled,
+    routes,
+    readyToSell,
+    addressableRevenueCents,
+    coldOutreachFrozen: legacyColdOutreachFrozen(),
+    exactlyOneRoutePerLead: routedTotal === nonCustomerLeads.length,
+  };
+}
+
+// ── Quick-Cash HOME — the default operator workspace ("what can we sell now?"). ──
+// Builds the lead offers ONCE and derives the ranked feed, inventory, and the money-
+// loop metrics band from it (+ fulfillment/customers/intent). Read-only; honest
+// empty states; no fabricated metrics; no sends; no charges.
+const ACTIVE_FULFILLMENT_STATES = ["READY_FOR_FULFILLMENT", "IN_PROGRESS", "QA", "WAITING_FOR_CUSTOMER_INPUT", "PAID"];
+
+export interface QuickCashHome {
+  rows: QuickCashRow[];
+  routing: QuickCashView["routing"];
+  inventory: QuickCashInventory;
+  metrics: {
+    readyToSell: number;
+    addressableRevenueCents: number;
+    inFulfillment: number;
+    customers: number;
+    revenueCents: number;
+    purchases: number;
+    engaged: number;
+    coldOutreachFrozen: boolean;
+  };
+}
+
+export async function quickCashHomeView(limit = 500): Promise<QuickCashHome> {
+  const offers = await buildLeadOffers(limit);
+  const rows = rankQuickCash(offers);
+  const routing = { DIRECT_FIX: 0, FIX_SCAN: 0, CONVERSATION_REQUIRED: 0, NO_FIX_FOUND: 0, cannibalization: 0 };
+  for (const o of offers) { const r = routeLead(o); routing[r.route] += 1; if (r.cannibalizationFlag) routing.cannibalization += 1; }
+
+  const inventory = await quickCashInventory({ offers });
+  const fulfil = await fulfillmentView();
+  const inFulfillment = ACTIVE_FULFILLMENT_STATES.reduce((n, s) => n + (fulfil.byState[s] ?? 0), 0);
+  const customers = await customersView();
+  const revenueCents = customers.reduce((n, c) => n + c.lifetimeRevenueCents, 0);
+  const purchases = customers.reduce((n, c) => n + c.purchases, 0);
+  const intent = await highIntentView();
+  const engaged = intent.length;
+
+  return {
+    rows, routing, inventory,
+    metrics: {
+      readyToSell: inventory.readyToSell,
+      addressableRevenueCents: inventory.addressableRevenueCents,
+      inFulfillment,
+      customers: customers.length,
+      revenueCents,
+      purchases,
+      engaged,
+      coldOutreachFrozen: inventory.coldOutreachFrozen,
+    },
+  };
 }
 
 // ── High purchase intent — from MEASURABLE funnel events only (audit log) ────────

@@ -3,7 +3,6 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  LayoutGrid,
   Search,
   CalendarClock,
   Settings as SettingsIcon,
@@ -12,6 +11,8 @@ import {
   Mail,
   Clapperboard,
   Zap,
+  Wrench,
+  Users,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CommandPalette } from "@/components/CommandPalette";
@@ -22,20 +23,29 @@ import { BrandMark } from "@/components/BrandMark";
 // team) lives in the backend and is NOT navigable. Sent & Scheduled is a single destination.
 // Desktop uses descriptive labels; mobile uses SHORT labels that never wrap (mandate part 5). Both route
 // to the same surfaces. Replies = the conversation inbox; Activity = upcoming/sent/needs-attention.
+// Quick-Cash Consolidation: navigation is organized around the MONEY LOOP —
+// sell (Quick-Cash) → fulfil (paid work) → customers (next-best-fix) → replies →
+// activity → content (supporting) → settings. Quick-Cash is the default home ("/").
+// The legacy Today queue is a secondary surface at /today.
 const NAV = [
-  { href: "/", label: "Today", short: "Today", icon: LayoutGrid },
-  { href: "/revenue/quick-cash", label: "Quick-Cash", short: "Cash", icon: Zap },
+  { href: "/", label: "Quick-Cash", short: "Cash", icon: Zap },
+  { href: "/revenue/fulfillment", label: "Fulfillment", short: "Fulfil", icon: Wrench },
+  { href: "/revenue/customers", label: "Customers", short: "Custom", icon: Users },
   { href: "/meetings", label: "Replies", short: "Replies", icon: CalendarClock },
   { href: "/sent", label: "Activity", short: "Activity", icon: Mail },
   { href: "/content-studio", label: "Content Studio", short: "Studio", icon: Clapperboard },
   { href: "/settings", label: "Settings", short: "Settings", icon: SettingsIcon },
 ];
 
-// With only five destinations, the same five are the mobile bottom bar (no drawer overflow).
-const MOBILE_PRIMARY = NAV;
+// Mobile bottom bar = the five daily money-loop destinations (Content Studio + Settings
+// remain reachable via ⌘K and the desktop rail; no cramped 7-across bar).
+const MOBILE_PRIMARY = NAV.slice(0, 5);
 
 const TITLES: Record<string, string> = {
-  "/": "Today",
+  "/": "Quick-Cash",
+  "/today": "Today",
+  "/revenue/fulfillment": "Fulfillment",
+  "/revenue/customers": "Customers",
   "/meetings": "Replies",
   "/sent": "Activity",
   "/blocked": "Automatically excluded",
