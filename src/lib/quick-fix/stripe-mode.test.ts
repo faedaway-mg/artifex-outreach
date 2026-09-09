@@ -7,6 +7,8 @@ import { describe, it, expect } from "vitest";
 import { createHmac } from "node:crypto";
 import { stripeKeyMode, quickFixStripeMode, resolveQuickFixStripeKey, stripeModeDiagnostics } from "./stripe-mode";
 import { verifyConfiguredWebhook, livemodeAgrees, webhookSecretPresence } from "./webhook-secrets";
+import { buildFixScanCheckoutParams } from "./fix-scan-commerce";
+import { toStripeForm } from "./stripe-commerce";
 
 const FAKE_TEST_KEY = "sk_test_FAKEtest123";
 const FAKE_LIVE_KEY = "sk_live_FAKElive456";
@@ -85,6 +87,21 @@ describe("livemode agreement (only consulted post-verification)", () => {
     expect(livemodeAgrees("live", true)).toBe(true);
     expect(livemodeAgrees("live", false)).toBe(false);
     expect(livemodeAgrees("live", undefined)).toBe(false);
+  });
+});
+
+describe("product tax code (Stripe Tax / Managed Payments accounts)", () => {
+  it("is omitted by default and emitted only when STRIPE_PRODUCT_TAX_CODE is set", () => {
+    const saved = process.env.STRIPE_PRODUCT_TAX_CODE;
+    delete process.env.STRIPE_PRODUCT_TAX_CODE;
+    const p0 = buildFixScanCheckoutParams({ leadId: "l", companyName: "C", baseUrl: "https://x" });
+    expect(p0.lineItems[0].taxCode).toBe("");
+    expect(toStripeForm(p0)["line_items[0][price_data][product_data][tax_code]"]).toBeUndefined();
+    process.env.STRIPE_PRODUCT_TAX_CODE = "txcd_10701400";
+    const p1 = buildFixScanCheckoutParams({ leadId: "l", companyName: "C", baseUrl: "https://x" });
+    expect(p1.lineItems[0].taxCode).toBe("txcd_10701400");
+    expect(toStripeForm(p1)["line_items[0][price_data][product_data][tax_code]"]).toBe("txcd_10701400");
+    if (saved === undefined) delete process.env.STRIPE_PRODUCT_TAX_CODE; else process.env.STRIPE_PRODUCT_TAX_CODE = saved;
   });
 });
 

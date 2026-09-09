@@ -21,6 +21,18 @@ export interface CheckoutLineItem {
   name: string;
   /** Present → recurring; absent → one-time (rides first invoice in sub mode). */
   recurringInterval?: "month";
+  /** Stripe product tax_code (required by accounts with Stripe Tax enabled). */
+  taxCode?: string;
+}
+
+/** The product tax_code applied to every Quick-Fix line item, from STRIPE_PRODUCT_TAX_CODE.
+ *  DEFAULT is empty (omit the field) so accounts WITHOUT Stripe Tax keep working exactly
+ *  as before and NO tax classification is chosen unilaterally. Accounts WITH Stripe Tax /
+ *  Managed Payments REQUIRE an eligible tax_code — the operator/accounting sets
+ *  STRIPE_PRODUCT_TAX_CODE to a code eligible for their account (a tax decision, not code).
+ *  Applied identically to test and live. Empty → the field is not sent. */
+export function productTaxCode(env: NodeJS.ProcessEnv = process.env): string {
+  return env.STRIPE_PRODUCT_TAX_CODE || "";
 }
 
 export interface CheckoutParams {
@@ -107,15 +119,16 @@ export function buildCheckoutParams(offer: QuickFixOffer, opts: BuildParamsOpts)
   const successUrl = opts.successUrl ?? `${opts.baseUrl.replace(/\/$/, "")}/offer/${offer.offerId}/success?session_id={CHECKOUT_SESSION_ID}`;
   const cancelUrl = opts.cancelUrl ?? `${opts.baseUrl.replace(/\/$/, "")}/offer/${offer.offerId}`;
 
+  const tax = productTaxCode();
   const lineItems: CheckoutLineItem[] = [
-    { currency: offer.currency, unitAmountCents: offer.priceCents, name: offer.scope.offerName },
+    { currency: offer.currency, unitAmountCents: offer.priceCents, name: offer.scope.offerName, taxCode: tax },
   ];
   let subscriptionMetadata: Record<string, string> | undefined;
 
   if (opts.withMaintenance && offer.maintenance) {
     const plan = maintenancePlanByKey(offer.maintenance.planKey);
     if (plan) {
-      lineItems.push({ currency: offer.currency, unitAmountCents: plan.monthlyCents, name: plan.name, recurringInterval: "month" });
+      lineItems.push({ currency: offer.currency, unitAmountCents: plan.monthlyCents, name: plan.name, recurringInterval: "month", taxCode: tax });
       subscriptionMetadata = { ...offerMetadata(offer, kind), planKey: plan.key };
     }
   }
@@ -215,6 +228,7 @@ export function toStripeForm(params: CheckoutParams): Record<string, string> {
     out[`line_items[${i}][price_data][currency]`] = li.currency.toLowerCase();
     out[`line_items[${i}][price_data][unit_amount]`] = String(li.unitAmountCents);
     out[`line_items[${i}][price_data][product_data][name]`] = li.name;
+    if (li.taxCode) out[`line_items[${i}][price_data][product_data][tax_code]`] = li.taxCode;
     if (li.recurringInterval) out[`line_items[${i}][price_data][recurring][interval]`] = li.recurringInterval;
   });
   for (const [k, v] of Object.entries(params.metadata)) out[`metadata[${k}]`] = v;

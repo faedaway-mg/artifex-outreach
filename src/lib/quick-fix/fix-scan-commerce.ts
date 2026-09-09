@@ -10,7 +10,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import type { QuickFixOffer } from "./types";
 import type { CheckoutParams } from "./stripe-commerce";
-import { offerMetadata } from "./stripe-commerce";
+import { offerMetadata, productTaxCode } from "./stripe-commerce";
 import { FIX_SCAN_SKU, applyCredit, type CreditRecord, type CreditApplication } from "./fix-scan";
 
 /** Deterministic id for a lead's Fix Scan purchase (one active scan per lead). */
@@ -31,7 +31,7 @@ export function buildFixScanCheckoutParams(opts: FixScanCheckoutOpts): CheckoutP
   const id = fixScanOfferId(opts.leadId);
   return {
     mode: "payment",
-    lineItems: [{ currency: "usd", unitAmountCents: FIX_SCAN_SKU.priceCents, name: FIX_SCAN_SKU.name }],
+    lineItems: [{ currency: "usd", unitAmountCents: FIX_SCAN_SKU.priceCents, name: FIX_SCAN_SKU.name, taxCode: productTaxCode() }],
     metadata: {
       leadId: opts.leadId,
       companyName: opts.companyName.slice(0, 200),
@@ -85,7 +85,7 @@ export function buildRepairAfterScanCheckout(args: {
 
   const params: CheckoutParams = {
     mode: "payment",
-    lineItems: [{ currency: offer.currency, unitAmountCents: finalPriceCents, name }],
+    lineItems: [{ currency: offer.currency, unitAmountCents: finalPriceCents, name, taxCode: productTaxCode() }],
     metadata,
     successUrl: `${base}/offer/${offer.offerId}/success?session_id={CHECKOUT_SESSION_ID}`,
     cancelUrl: `${base}/offer/${offer.offerId}`,
