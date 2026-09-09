@@ -12,6 +12,8 @@ import type { EvergreenAssetVersion } from "./evergreen-asset";
 import { buildRequirements, type RequirementsChecklist } from "./requirements";
 import { buildStripeDescription } from "./stripe-copy";
 import { TERMS_VERSION, TERMS_CLAUSES } from "./terms";
+import { scopeForOffer, type TrustVideoScope } from "./trust-videos";
+import { impactForScope } from "./impact";
 
 // Operationally-true integrity principles (only claims that hold in the process).
 export const INTEGRITY_PRINCIPLES = [
@@ -43,7 +45,14 @@ export interface OfferPageModel {
   priceCents: number;
   priceLabel: string;
   turnaround: string;
-  trustVideo: { present: boolean; assetUrl: string | null; durationSeconds: number | null; script: string; version: number | null };
+  /** Compact hero badges generated from the real offer (scope/turnaround/price). */
+  trustBadges: string[];
+  /** Qualitative "why this matters" points — approved scope-family template, never metrics. */
+  impactPoints: string[];
+  /** Conceptual interface before/after (an EXAMPLE — never a measured customer result). */
+  beforeAfter: { before: string; after: string };
+  scope: TrustVideoScope;
+  trustVideo: { present: boolean; assetUrl: string | null; posterUrl: string | null; captionsUrl: string | null; title: string; durationSeconds: number | null; script: string; version: number | null };
   requirements: RequirementsChecklist;
   howItWorks: string[];
   integrityPrinciples: string[];
@@ -97,6 +106,17 @@ export function buildOfferPageModel(input: BuildOfferPageInput): OfferPageModel 
   if (!input.termsAccepted) buyReasons.push("service terms not accepted yet");
   const buyEnabled = buyReasons.length === 0;
 
+  const scope = scopeForOffer(offer);
+  const impact = impactForScope(scope);
+  // Short turnaround phrase for the hero badge (the full sentence stays in §price).
+  const durMatch = offer.scope.deliveryWindow.match(/within\s+([^.,]+?)\s+of/i);
+  const shortTurn = durMatch ? `${durMatch[1].trim()} after access` : "Fast turnaround";
+  // Hero badges: only claims that are true of every fixed-scope offer, plus the
+  // offer's own turnaround. No metrics — these mirror the integrity principles.
+  const trustBadges = conversationOnly
+    ? []
+    : ["Fixed scope", shortTurn, "No surprise charges"];
+
   return {
     offerId: offer.offerId,
     company: offer.companyName,
@@ -108,9 +128,16 @@ export function buildOfferPageModel(input: BuildOfferPageInput): OfferPageModel 
     priceCents: offer.priceCents,
     priceLabel: conversationOnly ? "" : `$${Math.round(offer.priceCents / 100)} flat`,
     turnaround: offer.scope.deliveryWindow,
+    trustBadges,
+    impactPoints: impact.impactPoints,
+    beforeAfter: { before: impact.before, after: impact.after },
+    scope,
     trustVideo: {
       present: !!input.evergreen,
       assetUrl: input.evergreen?.assetUrl ?? null,
+      posterUrl: input.evergreen?.posterUrl ?? null,
+      captionsUrl: input.evergreen?.captionsUrl ?? null,
+      title: input.evergreen?.title ?? "How the Artifex quick fix works",
       durationSeconds: input.evergreen?.durationSeconds ?? null,
       script: input.evergreen?.script ?? "",
       version: input.evergreen?.version ?? null,

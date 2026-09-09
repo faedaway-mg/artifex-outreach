@@ -11,6 +11,7 @@ import {
   Command,
   Mail,
   Clapperboard,
+  Zap,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CommandPalette } from "@/components/CommandPalette";
@@ -23,6 +24,7 @@ import { BrandMark } from "@/components/BrandMark";
 // to the same surfaces. Replies = the conversation inbox; Activity = upcoming/sent/needs-attention.
 const NAV = [
   { href: "/", label: "Today", short: "Today", icon: LayoutGrid },
+  { href: "/revenue/quick-cash", label: "Quick-Cash", short: "Cash", icon: Zap },
   { href: "/meetings", label: "Replies", short: "Replies", icon: CalendarClock },
   { href: "/sent", label: "Activity", short: "Activity", icon: Mail },
   { href: "/content-studio", label: "Content Studio", short: "Studio", icon: Clapperboard },

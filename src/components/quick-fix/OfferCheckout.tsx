@@ -85,7 +85,7 @@ export function OfferCheckout(props: {
       )}
 
       <label className="flex items-start gap-2.5 text-[13px] text-chalk-300">
-        <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} className="mt-0.5 h-4 w-4" />
+        <input id="accept-terms" type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} className="mt-0.5 h-4 w-4 accent-amber-400" />
         <span>I agree to the <a href="/legal/terms" target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 hover:text-chalk-100">Service Terms</a> and the scope shown above. <span className="text-chalk-500">({props.termsVersion})</span></span>
       </label>
 
@@ -96,7 +96,7 @@ export function OfferCheckout(props: {
 
       <button
         onClick={buy} disabled={loading || !props.purchasable}
-        className="inline-flex w-full items-center justify-center rounded-xl bg-azure-500 px-5 py-3.5 text-[15px] font-semibold text-ink-975 transition-colors hover:bg-azure-400 disabled:opacity-50"
+        className="btn-primary w-full !px-5 !py-3.5 !text-[15px] disabled:opacity-50"
       >
         {loading ? "Starting secure checkout…" : `Get this fixed — ${props.priceLabel}`}
       </button>
