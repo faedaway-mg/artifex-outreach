@@ -14,7 +14,11 @@ export default async function FulfillmentJobPage({ params }: { params: { offerId
   if (!view) notFound();
   return (
     <div className="space-y-3">
-      <Link href="/revenue/fulfillment" className="mx-auto block max-w-3xl text-[12px] text-chalk-500 hover:text-chalk-300">← Fulfillment</Link>
+      <div className="mx-auto flex max-w-3xl items-center justify-between">
+        <Link href="/revenue/fulfillment" className="text-[12px] text-chalk-500 hover:text-chalk-300">← Fulfillment</Link>
+        {/* §17 Preview Customer Portal — see exactly what the customer sees, no impersonation. */}
+        <a href={`/offer/${params.offerId}/portal`} target="_blank" rel="noopener noreferrer" className="text-[12px] text-azure-300 hover:text-azure-200">Preview customer portal ↗</a>
+      </div>
       <FulfillmentWorkspace
         packet={view.packet}
         persisted={{
