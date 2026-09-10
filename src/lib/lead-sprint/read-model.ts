@@ -17,6 +17,7 @@ import type { MarketTierSize } from "../market-policy";
 import { podForLocation } from "./pods";
 import { buildSprintCandidate } from "./adapter";
 import { runLeadSprint, type SprintCandidate, type LeadSprintReport } from "./engine";
+import { classifyLead, type LegacyClassifyOverrides } from "./legacy-active";
 
 /** Everything the read-model needs about ONE lead beyond the Lead row itself. The caller assembles this
  *  from the repo (findings, resolved contact, suppression) + offer/package readiness. Offer-readiness
@@ -99,11 +100,49 @@ export interface BuildReportOpts {
   podsOnly?: boolean;
 }
 
-/** Build the full LeadSprintReport from real lead contexts. Deterministic; no paid calls; no contact. */
-export function buildLeadSprintReport(contexts: LeadSprintContext[], opts: BuildReportOpts): LeadSprintReport {
+/** The read-model report = the engine report PLUS the legacy-exclusion accounting (§4). */
+export interface LeadSprintReadModelReport extends LeadSprintReport {
+  /** Total leads excluded from ACTIVE operations by the legacy classifier (preserved in history). */
+  excludedLegacy: number;
+  excludedLegacyArchived: number;      // LEGACY_ARCHIVED
+  excludedLegacyDisqualified: number;  // DISQUALIFIED_LEGACY
+}
+
+/**
+ * Build the full report from real lead contexts. Deterministic; no paid calls; no contact.
+ *
+ * §4 LEGACY EXCLUSION runs FIRST: any lead the classifier marks LEGACY_ARCHIVED / DISQUALIFIED_LEGACY is
+ * removed from the ACTIVE pipeline (never scored, pooled, ranked, or made a finalist) — so it can never
+ * reach Ready-to-Send or sender allocation. It is only counted here (excludedLegacy*), never contacted;
+ * its history/evidence/suppression remain intact in the store for the Archive/History surfaces.
+ */
+export function buildLeadSprintReport(
+  contexts: LeadSprintContext[],
+  opts: BuildReportOpts,
+): LeadSprintReadModelReport {
+  // Exclude legacy/disqualified BEFORE anything else. A context may carry stronger override signals.
+  let archived = 0;
+  let disqualified = 0;
+  const active = contexts.filter((c) => {
+    const overrides: LegacyClassifyOverrides = {
+      isDuplicateHistorical: c.isDuplicate || undefined,
+      inCurrentTargetMarket: podForLocation(c.lead.city, c.lead.state).pod !== null ? true : undefined,
+    };
+    const disposition = classifyLead(c.lead, overrides).disposition;
+    if (disposition === "LEGACY_ARCHIVED") { archived++; return false; }
+    if (disposition === "DISQUALIFIED_LEGACY") { disqualified++; return false; }
+    return true;
+  });
+
   const scoped = opts.podsOnly
-    ? contexts.filter((c) => podForLocation(c.lead.city, c.lead.state).pod !== null)
-    : contexts;
+    ? active.filter((c) => podForLocation(c.lead.city, c.lead.state).pod !== null)
+    : active;
   const candidates: SprintCandidate[] = scoped.map(sprintCandidateFromLead);
-  return runLeadSprint({ candidates, nearTermCapacity: opts.nearTermCapacity });
+  const report = runLeadSprint({ candidates, nearTermCapacity: opts.nearTermCapacity });
+  return {
+    ...report,
+    excludedLegacy: archived + disqualified,
+    excludedLegacyArchived: archived,
+    excludedLegacyDisqualified: disqualified,
+  };
 }

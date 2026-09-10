@@ -11,15 +11,14 @@
 import { listLeads, buildSuppressionChecker } from "../repo";
 import type { Lead } from "../types";
 import { podForLocation } from "./pods";
-import { buildLeadSprintReport, type LeadSprintContext } from "./read-model";
-import type { LeadSprintReport } from "./engine";
+import { buildLeadSprintReport, type LeadSprintContext, type LeadSprintReadModelReport } from "./read-model";
 
 const domainOf = (lead: Lead): string | null => lead.websiteDomain ?? (lead.website ? lead.website.replace(/^https?:\/\//, "").split("/")[0] : null);
 
 // Provenance heuristics for synthetic/test records — a cheap, deterministic signal (never paid).
 const SYNTHETIC_SOURCE = /test|seed|synthetic|demo|fixture|sample/i;
 
-export interface LeadSprintSnapshot extends LeadSprintReport {
+export interface LeadSprintSnapshot extends LeadSprintReadModelReport {
   generatedAt: string;
   scope: "pods" | "national";
 }
