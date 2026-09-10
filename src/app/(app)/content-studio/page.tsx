@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ContentStudioClient } from "@/components/content-studio/ContentStudioClient";
+import { ZeroTouchStudio } from "@/components/content-studio/ZeroTouchStudio";
 import { loadStudioPageData } from "@/lib/content-studio/studio-page-data";
 
 export const dynamic = "force-dynamic";
@@ -26,7 +26,14 @@ export default async function ContentStudioPage({ searchParams }: { searchParams
         <span className="text-[12.5px] text-chalk-400">Offer / trust assets (evergreen Quick-Fix explainer) are managed separately.</span>
         <Link href="/revenue/trust-asset" className="shrink-0 rounded-lg border border-white/10 px-3 py-1.5 text-[12px] text-chalk-200 hover:bg-white/5">Trust asset →</Link>
       </div>
-      <ContentStudioClient initialItems={items} deepLink={deepLink} videosToCreate={videosToCreate} workerHealth={workerHealth} workspaces={workspaces(activeType)} />
+      {/* Normal view = zero-touch (brief → Generate → finished video). The full workspace
+          machinery lives behind Advanced. A deep-link (from Today / an exact piece) opens
+          Advanced directly so existing navigation is preserved. */}
+      <ZeroTouchStudio
+        items={items}
+        startAdvanced={Boolean(deepLink.piece || deepLink.lead || deepLink.from)}
+        advancedProps={{ initialItems: items, deepLink, videosToCreate, workerHealth, workspaces: workspaces(activeType) }}
+      />
     </>
   );
 }

@@ -108,7 +108,7 @@ export function OfferPageView({ model, token, preview = false }: { model: OfferP
           any technical term. offerHeroTitle/offerHeroSubline are the SINGLE source of
           this framing (shared with the email + PDF). When no attempt is supported the
           frame returns an honest observational hero — used verbatim, never fabricated. */}
-      <header id={HERO_ANCHOR_ID} className="relative overflow-hidden rounded-3xl border border-white/10 bg-gradient-to-b from-white/[0.055] to-white/[0.02] p-6 md:p-8">
+      <header id={HERO_ANCHOR_ID} data-testid="offer-hero" className="relative overflow-hidden rounded-3xl border border-white/10 bg-gradient-to-b from-white/[0.055] to-white/[0.02] p-6 md:p-8">
         <div className="pointer-events-none absolute -right-24 -top-24 h-64 w-64 rounded-full bg-azure-500/10 blur-3xl" />
         <div className="pointer-events-none absolute -bottom-28 -left-20 h-56 w-56 rounded-full bg-amber-400/[0.07] blur-3xl" />
         <div className="relative">
@@ -145,7 +145,7 @@ export function OfferPageView({ model, token, preview = false }: { model: OfferP
                 <div className="grid gap-px bg-white/[0.06] md:grid-cols-3">
                   <div className="bg-ink-975/40 p-4">
                     <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-coral-300"><AlertCircle size={13} /> Observed issue</div>
-                    <p className="mt-2 text-[13.5px] leading-relaxed text-chalk-100">{model.whatWeFound}</p>
+                    <p data-testid="finding-summary" className="mt-2 text-[13.5px] leading-relaxed text-chalk-100">{model.whatWeFound}</p>
                   </div>
                   <div className="bg-ink-975/40 p-4">
                     <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-amber-200"><Sparkles size={13} /> Why it matters</div>
@@ -171,7 +171,7 @@ export function OfferPageView({ model, token, preview = false }: { model: OfferP
                 <div className="absolute left-3 top-3 z-10 inline-flex items-center gap-1.5 rounded-full bg-azure-500/15 px-2.5 py-1 text-[10.5px] font-semibold uppercase tracking-[0.14em] text-azure-200 ring-1 ring-azure-400/25">
                   <Video size={12} /> About your site
                 </div>
-                <video controls preload="metadata" className="aspect-video w-full bg-ink-975">
+                <video data-testid="personalized-video" controls preload="metadata" className="aspect-video w-full bg-ink-975">
                   <source src={personalizedVideo.url!} type="video/mp4" />
                 </video>
                 <div className="border-t border-white/[0.06] px-4 py-3 text-[12.5px] text-chalk-400">
@@ -197,7 +197,7 @@ export function OfferPageView({ model, token, preview = false }: { model: OfferP
           {/* ── 5. THE REPAIR — the proposed change, in plain language ──────────
               6. WHAT'S INCLUDED — the honest value stack (scope.includedItems ONLY,
               no invented bonuses, no fake "$X value", required work never a "bonus"). */}
-          <section id={REPAIR_SECTION_ID} className="scroll-mt-24">
+          <section id={REPAIR_SECTION_ID} data-testid="offer-details" className="scroll-mt-24">
             <Eyebrow>The repair</Eyebrow>
             <Card className="mt-3 p-5">
               <div className="flex items-start gap-3">
@@ -216,7 +216,7 @@ export function OfferPageView({ model, token, preview = false }: { model: OfferP
               No invented guarantees: fixed scope/price, one-time (no subscription), no
               password, no out-of-scope work without asking, tested on the live site,
               turnaround starts after access, and the offer's own revision window. */}
-          <section>
+          <section data-testid="scope-and-protections">
             <Eyebrow>How the process is protected</Eyebrow>
             <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {PROTECTION.map(({ icon: Icon, label, desc }) => (
@@ -292,6 +292,7 @@ export function OfferPageView({ model, token, preview = false }: { model: OfferP
               {video.present && video.assetUrl ? (
                 <div className="relative">
                   <video
+                    data-testid="trust-video"
                     controls playsInline preload="metadata"
                     poster={video.posterUrl ?? undefined}
                     className="aspect-video w-full bg-ink-975"

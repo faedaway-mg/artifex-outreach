@@ -39,14 +39,14 @@ export function CustomerPortalView({ view }: { view: PortalView }) {
       </header>
 
       {/* Milestone progress */}
-      <section className="card p-4">
+      <section className="card p-4" data-testid="portal-progress">
         <p className="label mb-3">Status</p>
         <StageRail stages={view.stages} />
       </section>
 
       {/* §22 Additional Decision Needed — shown prominently; the purchased scope stays frozen below. */}
       {view.decisionNeeded && (
-        <section className="card border-amber-400/30 bg-amber-400/[0.06] p-4">
+        <section className="card border-amber-400/30 bg-amber-400/[0.06] p-4" data-testid="portal-decision">
           <h2 className="text-sm font-semibold text-amber-200">Additional decision needed</h2>
           <p className="mt-1.5 text-[13px] leading-relaxed text-chalk-300">{view.decisionNeeded.discovered}</p>
           <div className="mt-3 grid gap-2 sm:grid-cols-2">
@@ -69,7 +69,7 @@ export function CustomerPortalView({ view }: { view: PortalView }) {
       )}
 
       {/* What we're fixing (frozen purchased scope) */}
-      <section className="card p-4">
+      <section className="card p-4" data-testid="portal-scope">
         <h2 className="text-sm font-semibold text-chalk-100">What we&apos;re fixing</h2>
         <p className="mt-1.5 text-sm leading-relaxed text-chalk-300">{view.finding}</p>
         {view.includedItems.length > 0 && (
@@ -84,7 +84,7 @@ export function CustomerPortalView({ view }: { view: PortalView }) {
 
       {/* Next step for the customer (exactly one dominant action) */}
       {view.currentAction && (
-        <section className="card border-azure-400/20 bg-azure-400/[0.04] p-4">
+        <section className="card border-azure-400/20 bg-azure-400/[0.04] p-4" data-testid="portal-next-action">
           <h2 className="text-sm font-semibold text-chalk-100">Next step</h2>
           <p className="mt-1 text-sm text-chalk-200">{view.currentAction.headline}</p>
           <p className="mt-1 text-[13px] leading-relaxed text-chalk-400">{view.currentAction.detail}</p>
@@ -96,7 +96,7 @@ export function CustomerPortalView({ view }: { view: PortalView }) {
 
       {/* Access Center */}
       {view.access.length > 0 && (
-        <section className="card p-4">
+        <section className="card p-4" data-testid="portal-needs">
           <h2 className="text-sm font-semibold text-chalk-100">Access we need</h2>
           <div className="mt-3 space-y-3">
             {view.access.map((a) => (
@@ -121,7 +121,7 @@ export function CustomerPortalView({ view }: { view: PortalView }) {
 
       {/* Completion */}
       {view.completionReport && (
-        <section className="card border-teal-400/20 bg-teal-400/[0.04] p-4">
+        <section className="card border-teal-400/20 bg-teal-400/[0.04] p-4" data-testid="portal-completion">
           <h2 className="text-sm font-semibold text-teal-200">Your fix is complete</h2>
           <p className="mt-1 text-[13px] text-chalk-300">{view.completionReport.issue}</p>
           {view.completionReport.changes.length > 0 && (
@@ -142,7 +142,7 @@ export function CustomerPortalView({ view }: { view: PortalView }) {
 
       {/* Project activity (customer-safe timeline) */}
       {view.timeline.length > 0 && (
-        <section className="card p-4">
+        <section className="card p-4" data-testid="portal-timeline">
           <h2 className="text-sm font-semibold text-chalk-100">Project activity</h2>
           <ol className="mt-3 space-y-2.5">
             {view.timeline.map((e, i) => (

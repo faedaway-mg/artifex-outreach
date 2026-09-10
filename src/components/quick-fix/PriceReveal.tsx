@@ -34,7 +34,7 @@ export function PriceReveal({
           </span>
           <div className="min-w-0">
             <p className="text-[14px] text-chalk-300">Everything above —</p>
-            <p className="mt-0.5 text-[34px] font-extrabold leading-none tracking-tight text-chalk-50 md:text-[38px]">
+            <p data-testid="price" className="mt-0.5 text-[34px] font-extrabold leading-none tracking-tight text-chalk-50 md:text-[38px]">
               {priceLabel}
             </p>
             <p className="mt-3 text-[13.5px] leading-relaxed text-chalk-300">

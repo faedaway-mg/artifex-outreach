@@ -62,9 +62,10 @@ export const ESCAPED_DEFECTS: EscapedDefect[] = [
     surface: "trust-explainer",
     whyMissed: "No check compared the asset's real pixel orientation against the format contract for its scope.",
     coveredBy: [
-      "src/lib/breakbot/media-qa.ts:assessMedia",   // orientation blocker
-      "media.orientation",                            // finding kind
-      "src/lib/breakbot/quickcash-preflight.ts",     // presentation.trustResolves orientation gate
+      "src/lib/breakbot/media-qa.ts:assessMedia",       // orientation blocker
+      "media.orientation",                                // finding kind
+      "src/lib/breakbot/media-qa.test.ts:media.orientation", // executable regression
+      "src/lib/quick-fix/trust-video-resolve.test.ts",   // executable orientation resolve test
     ],
     firstCovered: "6b5aaf8",
   },
@@ -76,6 +77,7 @@ export const ESCAPED_DEFECTS: EscapedDefect[] = [
     coveredBy: [
       "src/lib/quick-fix/offer-page.ts:buildOfferPageModel", // trustVideoReady gate
       "src/components/quick-fix/OfferCheckout.tsx",           // HOLD state, no $495 button
+      "src/lib/quick-fix/offer-trust-gate.test.ts",           // executable regression
     ],
     firstCovered: "ee60dca",
   },
@@ -87,6 +89,7 @@ export const ESCAPED_DEFECTS: EscapedDefect[] = [
     coveredBy: [
       "src/lib/quick-fix/offer-page.ts:buildOfferPageModel", // requires evergreen.assetUrl (durable bound asset)
       "src/lib/quick-fix/trust-video-resolve.ts",             // resolves only a durable bound asset
+      "src/lib/quick-fix/offer-trust-gate.test.ts",           // executable regression
     ],
     firstCovered: "ee60dca",
   },
@@ -97,6 +100,7 @@ export const ESCAPED_DEFECTS: EscapedDefect[] = [
     whyMissed: "The middleware public allowlist did not include the customer media routes; no synthetic prospect actually fetched the media without a session.",
     coveredBy: [
       "src/middleware.ts",                                   // /api/quick-fix/trust-video/ + personalized-video allowlist
+      "src/lib/breakbot/media-route-isolation.test.ts",      // executable regression (allowlist present)
     ],
     firstCovered: "6b5aaf8",
   },
@@ -107,6 +111,8 @@ export const ESCAPED_DEFECTS: EscapedDefect[] = [
     whyMissed: "No invariant asserted the zero-touch normal view hides the machinery controls; they were only meant for Advanced/History.",
     coveredBy: [
       "src/lib/content-studio/zero-touch.ts:HIDDEN_MACHINERY_CONTROLS",
+      "src/components/content-studio/ZeroTouchStudio.tsx:content-studio-zero-touch", // normal view = brief→Generate
+      "src/lib/content-studio/zero-touch-ui.test.ts",                                  // executable regression
     ],
     firstCovered: "pending-deploy",
   },
@@ -117,6 +123,7 @@ export const ESCAPED_DEFECTS: EscapedDefect[] = [
     whyMissed: "Active-view filtering did not exclude out-of-ICP leads before scoring/promotion.",
     coveredBy: [
       "src/lib/lead-sprint/legacy-active.ts:isActiveLead",
+      "src/lib/lead-sprint/legacy-active.test.ts",           // executable regression
     ],
     firstCovered: "3fd3287",
   },

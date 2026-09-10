@@ -23,9 +23,9 @@ export interface WorkspacePersisted {
   gate: { ok: boolean; blockers: string[] };
 }
 
-function Section({ icon: Icon, title, accent = "text-chalk-400", children }: { icon: any; title: string; accent?: string; children: React.ReactNode }) {
+function Section({ icon: Icon, title, accent = "text-chalk-400", testId, children }: { icon: any; title: string; accent?: string; testId?: string; children: React.ReactNode }) {
   return (
-    <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
+    <section data-testid={testId} className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
       <h2 className={`flex items-center gap-2 text-[12px] font-semibold uppercase tracking-wide ${accent}`}><Icon size={14} /> {title}</h2>
       <div className="mt-3">{children}</div>
     </section>
@@ -135,7 +135,7 @@ export function FulfillmentWorkspace({ packet, persisted }: { packet: Fulfillmen
       </div>
 
       {/* 1 · CUSTOMER & SCOPE */}
-      <Section icon={Building2} title="Customer & scope" accent="text-chalk-300">
+      <Section icon={Building2} title="Customer & scope" accent="text-chalk-300" testId="fulfillment-scope">
         <p className="text-[13.5px] text-chalk-200"><span className="text-chalk-500">Observed issue:</span> {packet.finding}</p>
         <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[12px] text-chalk-500">
           <span>SKU <span className="text-chalk-300">{packet.sku ?? "—"}</span></span>
@@ -157,7 +157,7 @@ export function FulfillmentWorkspace({ packet, persisted }: { packet: Fulfillmen
       </Section>
 
       {/* 2 · ACCESS CENTER */}
-      <Section icon={KeyRound} title="Access center · least privilege" accent="text-azure-300">
+      <Section icon={KeyRound} title="Access center · least privilege" accent="text-azure-300" testId="fulfillment-access-state">
         <div className="flex items-center gap-2 rounded-lg border border-teal-400/20 bg-teal-400/[0.06] px-3 py-2 text-[12.5px] text-teal-200">
           <Lock size={14} className="flex-none" /> We never ask for a password. Access is via {packet.accessCenter.platformLabel} native invite — the minimum this fix needs.
         </div>
@@ -183,7 +183,7 @@ export function FulfillmentWorkspace({ packet, persisted }: { packet: Fulfillmen
       </Section>
 
       {/* 3 · EXECUTION RUNBOOK */}
-      <Section icon={ListChecks} title="Execution runbook" accent="text-chalk-300">
+      <Section icon={ListChecks} title="Execution runbook" accent="text-chalk-300" testId="fulfillment-tasks">
         {!rb.supported ? (
           <div className="flex items-start gap-2 rounded-xl border border-amber-400/30 bg-amber-400/10 p-3 text-[13px] text-amber-200">
             <AlertTriangle size={15} className="mt-0.5 flex-none" /> NEEDS TECHNICAL REVIEW — {rb.reviewReason} Confirm the platform and correct method before making changes.
@@ -213,7 +213,7 @@ export function FulfillmentWorkspace({ packet, persisted }: { packet: Fulfillmen
       </Section>
 
       {/* 5 · COMPLETION EVIDENCE */}
-      <Section icon={CheckCircle2} title="Completion evidence" accent="text-indigo-300">
+      <Section icon={CheckCircle2} title="Completion evidence" accent="text-indigo-300" testId="fulfillment-evidence">
         <p className="text-[12.5px] text-chalk-400">Attach actual proof (before / after / production test) — the completion report derives only from what's recorded here. No fabricated results.</p>
         <p className="mt-1 text-[11.5px] text-amber-300">When capturing screenshots, never include passwords, tokens, or account credentials in the frame.</p>
         {persisted.evidence.length === 0 ? (

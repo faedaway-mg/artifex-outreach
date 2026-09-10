@@ -14,7 +14,7 @@ export default async function ReadinessPage() {
 
   return (
     <div className="space-y-6">
-      <div className={`card flex flex-wrap items-center justify-between gap-3 p-5 ${result.ready ? "border-teal-400/30" : "border-amber-400/30"}`}>
+      <div data-testid="launch-readiness-gate" className={`card flex flex-wrap items-center justify-between gap-3 p-5 ${result.ready ? "border-teal-400/30" : "border-amber-400/30"}`}>
         <div className="flex items-center gap-3">
           <StatusPill status={result.rollup.status} label={result.ready ? "READY" : "NOT READY"} />
           <div>

@@ -89,6 +89,20 @@ else
   step "Breakbot release-preflight (canonical release gate)"
   pnpm -s tsx "$ROOT/scripts/breakbot-release-preflight.ts" \
     || fail "Breakbot release-preflight BLOCKED the deploy — the release candidate is not usable. Read the Release Readiness Report above; fix the blockers (or, only for a genuine emergency, re-run with BREAKBOT_BYPASS=1 to record an audited bypass)."
+
+  # 3.7 ── Breakbot AUTHENTICATED synthetic UI journeys (§2/§5–§13) ────────────
+  # Drives a running release candidate through a real browser as each persona (operator
+  # cockpit sweep incl. Content-Studio machinery-absence, offer, portal, mobile). Requires
+  # a DB-backed RC reachable at BREAKBOT_UI_BASE with BREAKBOT_TEST_AUTH enabled. When no RC
+  # test env is provided this step is SKIPPED (logged, never a false pass) — the unit-level
+  # machinery/ratchet/media guards in the suite above still gate the release.
+  if [ -n "${BREAKBOT_UI_BASE:-}" ] && [ -n "${BREAKBOT_TEST_AUTH:-}" ]; then
+    step "Breakbot authenticated UI journeys (release candidate @ $BREAKBOT_UI_BASE)"
+    pnpm -s tsx "$ROOT/scripts/breakbot-ui-journeys.ts" --base "$BREAKBOT_UI_BASE" ${BREAKBOT_OFFER_FIXTURE:+--offer "$BREAKBOT_OFFER_FIXTURE"} \
+      || fail "Breakbot authenticated UI journeys FAILED — a synthetic user could not complete a critical journey (machinery visible / missing anchor / broken media). Holding the deploy."
+  else
+    printf '  \033[33m· Breakbot authenticated UI journeys SKIPPED — set BREAKBOT_UI_BASE + BREAKBOT_TEST_AUTH to a running release candidate to enable the full browser drive. Unit-level machinery/ratchet/media guards still gate this release.\033[0m\n'
+  fi
 fi
 
 # 4 ── Pending DB migrations ──────────────────────────────────────────────────

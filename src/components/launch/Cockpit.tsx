@@ -45,7 +45,7 @@ export function Cockpit({ view }: { view: CockpitView }) {
   const ls = view.leadSprint;
   const go = view.launchReadiness.state === "GO";
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" data-testid="cockpit">
       {/* Safety banner — delivery/autosend posture always visible. */}
       <div className="card flex flex-wrap items-center gap-x-4 gap-y-1 border-white/[0.08] p-3 text-xs">
         <span className={`rounded-md px-2 py-0.5 ${view.safety.prospectDeliveryOn ? "bg-rose-400/10 text-rose-300" : "bg-white/[0.05] text-chalk-300"}`}>
@@ -77,7 +77,7 @@ export function Cockpit({ view }: { view: CockpitView }) {
       </section>
 
       {/* Google lanes. */}
-      <section>
+      <section data-testid="prospect-lanes">
         <p className="label mb-2">Google lanes · combined real-send capacity {view.combinedDailyCapacity}/day (no quota transfer)</p>
         <div className="grid gap-3 sm:grid-cols-2">{view.lanes.map((l) => <LaneCard key={l.laneId} lane={l} />)}</div>
       </section>
@@ -109,7 +109,7 @@ export function Cockpit({ view }: { view: CockpitView }) {
       </section>
 
       {/* Cost ledger — honest known vs unknown. */}
-      <section>
+      <section data-testid="cost-gate">
         <p className="label mb-2">Cost · {view.cost.totalEvents} measured events · known total {usd(view.cost.summary.knownUsdTotal)}</p>
         <div className="card overflow-x-auto p-0">
           <table className="w-full text-sm">

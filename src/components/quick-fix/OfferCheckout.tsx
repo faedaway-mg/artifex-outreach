@@ -63,7 +63,7 @@ export function OfferCheckout(props: {
   // button, no disabled-price affordance implying availability. A valid, ready offer is unaffected.
   if (!props.purchasable) {
     return (
-      <div className="rounded-xl border border-amber-400/25 bg-amber-400/[0.06] p-4" data-checkout-hold>
+      <div className="rounded-xl border border-amber-400/25 bg-amber-400/[0.06] p-4" data-checkout-hold data-testid="checkout-hold">
         <p className="text-[14px] font-semibold text-amber-100">This offer is being finalized</p>
         <p className="mt-1 text-[13px] leading-relaxed text-chalk-300">Checkout isn&apos;t available yet — we&apos;re getting the last pieces ready. Please check back shortly.</p>
         <a href={props.bookingUrl} className="mt-3 inline-flex text-[13px] text-azure-300 underline underline-offset-2 hover:text-azure-200">
@@ -111,6 +111,7 @@ export function OfferCheckout(props: {
 
       <button
         onClick={buy} disabled={loading || !props.purchasable}
+        data-testid="checkout-cta"
         className="btn-primary w-full !px-5 !py-3.5 !text-[15px] disabled:opacity-50"
       >
         {loading ? "Starting secure checkout…" : `Get this fixed — ${props.priceLabel}`}

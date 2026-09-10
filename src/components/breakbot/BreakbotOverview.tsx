@@ -23,7 +23,7 @@ export function BreakbotOverview({
   coverage: Coverage;
 }) {
   return (
-    <div className="space-y-6">
+    <div data-testid="breakbot-overview" className="space-y-6">
       <div className="card p-5">
         <div className="flex items-center gap-2">
           <ShieldCheck size={18} className="text-teal-300" />

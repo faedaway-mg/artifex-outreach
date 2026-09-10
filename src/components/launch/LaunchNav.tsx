@@ -17,12 +17,13 @@ const TABS = [
 export function LaunchNav() {
   const pathname = usePathname();
   return (
-    <div className="flex flex-wrap gap-1 rounded-xl border border-white/[0.06] bg-white/[0.02] p-1">
+    <div data-testid="launch-nav" className="flex flex-wrap gap-1 rounded-xl border border-white/[0.06] bg-white/[0.02] p-1">
       {TABS.map((t) => {
         const active = t.href === "/launch" ? pathname === "/launch" : pathname.startsWith(t.href);
         return (
           <Link
             key={t.href}
+            data-testid={`nav-${t.href.replace(/^\//, "").replace(/\//g, "-") || "root"}`}
             href={t.href}
             className={cn(
               "rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",

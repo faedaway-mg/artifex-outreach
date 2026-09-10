@@ -30,7 +30,8 @@
     "offers:regenerate-stale": "tsx scripts/regenerate-stale-offers.ts",
     "breakbot:release-preflight": "tsx scripts/breakbot-release-preflight.ts",
     "breakbot:explainer-qa": "tsx scripts/breakbot-explainer-qa.ts",
-    "breakbot:journeys": "tsx scripts/breakbot-journeys.ts"
+    "breakbot:journeys": "tsx scripts/breakbot-journeys.ts",
+    "breakbot:ui-journeys": "tsx scripts/breakbot-ui-journeys.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.693.0",

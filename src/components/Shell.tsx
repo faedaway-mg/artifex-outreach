@@ -81,7 +81,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <div className="flex min-h-screen">
+    <div className="flex min-h-screen" data-testid="app-shell">
       {/* ── Desktop sidebar (Glass Level 1) ─────────────────────────────── */}
       <aside className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col glass-1 px-4 py-5 md:flex">
         <Link href="/" className="mb-8 flex items-center gap-3 px-2">
@@ -95,7 +95,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
           </span>
         </Link>
 
-        <nav className="flex flex-1 flex-col gap-1">
+        <nav className="flex flex-1 flex-col gap-1" data-testid="main-nav">
           {NAV.map(({ href, label, icon: Icon }) => {
             const active = isActive(href);
             return (

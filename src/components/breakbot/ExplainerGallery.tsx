@@ -97,7 +97,7 @@ function ReviewControls({ card }: { card: GalleryCard }) {
 function Card({ card }: { card: GalleryCard }) {
   const orientationBad = card.orientation != null && card.orientation !== card.expectedOrientation;
   return (
-    <div className={cn("card p-4", card.status === "BLOCKED" || card.status === "MISSING" ? "border-coral-400/20" : card.status === "PASS" ? "border-teal-400/15" : "border-white/[0.06]")}>
+    <div data-testid={`explainer-card-${card.scope}`} data-status={card.status} className={cn("card p-4", card.status === "BLOCKED" || card.status === "MISSING" ? "border-coral-400/20" : card.status === "PASS" ? "border-teal-400/15" : "border-white/[0.06]")}>
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <p className="truncate text-sm font-semibold text-chalk-100">{card.title}</p>
@@ -111,6 +111,7 @@ function Card({ card }: { card: GalleryCard }) {
       <div className="mt-3 aspect-video w-full overflow-hidden rounded-lg border border-white/[0.06] bg-black/40">
         {card.servedMp4Url ? (
           <video
+            data-testid={`explainer-player-${card.scope}`}
             controls
             playsInline
             preload="metadata"
@@ -194,7 +195,7 @@ export function ExplainerGallery({ model, escapedTotal }: { model: GalleryModel;
   return (
     <div className="space-y-6">
       {/* Coverage summary (§9). */}
-      <div className={cn("card p-5", model.coverageComplete ? "border-teal-400/30" : (s.blocked > 0 || s.missing > 0) ? "border-coral-400/30" : "border-amber-400/30")}>
+      <div data-testid="explainer-coverage-summary" className={cn("card p-5", model.coverageComplete ? "border-teal-400/30" : (s.blocked > 0 || s.missing > 0) ? "border-coral-400/30" : "border-amber-400/30")}>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <p className="label">Explainer QA Gallery</p>
