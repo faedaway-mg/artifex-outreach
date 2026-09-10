@@ -50,6 +50,7 @@ export const JOURNEY_ASSERTIONS: JourneyAssertion[] = [
   { id: "offer-trust-video", surface: "offer", testid: "trust-video", criticality: "critical", status: "active", firstSupported: "pending-deploy" },
   { id: "offer-price", surface: "offer", testid: "price", criticality: "critical", status: "active", firstSupported: "pending-deploy" },
   { id: "offer-scope", surface: "offer", testid: "scope-and-protections", criticality: "critical", status: "active", firstSupported: "pending-deploy" },
+  { id: "offer-cta", surface: "offer", testid: "checkout-cta", criticality: "critical", status: "active", firstSupported: "pending-deploy" },
   { id: "offer-finding", surface: "offer", testid: "finding-summary", criticality: "noncritical", status: "deferred", reason: "finding summary copy varies; not a gating interaction", firstSupported: "" },
 
   // Customer portal (§11)
@@ -58,10 +59,11 @@ export const JOURNEY_ASSERTIONS: JourneyAssertion[] = [
   { id: "portal-next-action", surface: "customer-portal", testid: "portal-next-action", criticality: "critical", status: "active", firstSupported: "pending-deploy" },
   { id: "portal-evidence", surface: "customer-portal", testid: "portal-evidence", criticality: "noncritical", status: "deferred", reason: "evidence sub-section only present in later states; covered by media QA", firstSupported: "" },
 
-  // Content Studio zero-touch (§10/§14)
+  // Content Studio idea-queue (§10/§14 + idea-queue mandate D)
   { id: "cs-normal", surface: "content-studio", testid: "content-studio-zero-touch", criticality: "critical", status: "active", firstSupported: "pending-deploy" },
-  { id: "cs-brief", surface: "content-studio", testid: "cs-brief-input", criticality: "critical", status: "active", firstSupported: "pending-deploy" },
+  { id: "cs-idea-input", surface: "content-studio", testid: "cs-idea-input", criticality: "critical", status: "active", firstSupported: "pending-deploy" },
   { id: "cs-generate", surface: "content-studio", testid: "cs-generate-button", criticality: "critical", status: "active", firstSupported: "pending-deploy" },
+  { id: "cs-capacity", surface: "content-studio", testid: "cs-capacity-card", criticality: "critical", status: "active", firstSupported: "pending-deploy" },
 
   // Fulfillment (§12)
   { id: "ff-scope", surface: "fulfillment", testid: "fulfillment-scope", criticality: "critical", status: "active", firstSupported: "pending-deploy" },

@@ -27,6 +27,26 @@ export const BUSINESS_INVARIANTS: BusinessInvariant[] = [
   { key: "content-studio-social-only", rule: "Content Studio → social-only, no prospect production workflow", enforcedBy: "src/lib/content-studio/zero-touch.ts" },
   { key: "prospect-transport-fail-closed", rule: "cold prospect outreach → Google lanes only, never Resend (fail-closed)", enforcedBy: "src/lib/comms/prospect-transport.ts" },
   { key: "legacy-excluded-from-active", rule: "out-of-ICP (enterprise/franchise) → excluded from active views", enforcedBy: "src/lib/lead-sprint/legacy-active.ts:isActiveLead" },
+
+  // ── Voice Capacity Manager (mandate C §18) — executable release checks ──────────
+  { key: "capacity-reserve-not-silently-consumed", rule: "social generation crossing the Acquisition reserve → blocked (explicit override only)", enforcedBy: "src/lib/voice/capacity.ts:socialGeneratePolicy" },
+  { key: "capacity-reserve-not-negative-without-override", rule: "reserve math cannot go negative without an explicit override", enforcedBy: "src/lib/voice/capacity.ts:crossesReserve" },
+  { key: "capacity-no-double-count-reuse", rule: "reused audio counts as zero new spend (never double-counted)", enforcedBy: "src/lib/voice/generate.ts:reused" },
+  { key: "capacity-retry-no-double-charge", rule: "a downstream render retry never triggers another ElevenLabs generation", enforcedBy: "src/lib/content-studio/zero-touch-actions.ts:reused" },
+  { key: "capacity-reset-preserves-ledger", rule: "monthly reset does not erase historical cost/usage ledger (append-only)", enforcedBy: "src/lib/lead-sprint/cost-ledger-store.ts:appendCostEntry" },
+  { key: "capacity-unknown-not-fabricated", rule: "unknown provider allowance is never displayed as a fabricated number", enforcedBy: "src/lib/voice/capacity.ts:quotaUnknown" },
+  { key: "capacity-trust-reuse-excluded", rule: "trust-video reuse does not count as new forecast TTS", enforcedBy: "src/lib/voice/capacity.ts:forecastAcquisitionReserve" },
+  { key: "capacity-zero-touch-ui-simple", rule: "zero-touch Content Studio UI stays simple (machinery hidden)", enforcedBy: "src/lib/content-studio/zero-touch.ts:HIDDEN_MACHINERY_CONTROLS" },
+  { key: "capacity-matt-automatic", rule: "Matt remains the automatic social narrator (no voice selector in the normal flow)", enforcedBy: "src/lib/content-studio/zero-touch.ts:SOCIAL_DEFAULT_VOICE" },
+
+  // ── Content Studio idea-queue (mandate D §23) — executable release checks ────────
+  { key: "idea-has-usable-brief", rule: "a system-generated idea carries a usable creative brief before it is Generate-ready", enforcedBy: "src/lib/content-studio/social-ideas.ts:brief" },
+  { key: "idea-no-per-card-textarea", rule: "concept cards show an auto-written description, never a per-card creative textarea", enforcedBy: "src/components/content-studio/ZeroTouchStudio.tsx:cs-idea-brief" },
+  { key: "idea-no-generate-empty-brief", rule: "video generation cannot begin from an empty/unresolved brief", enforcedBy: "src/lib/content-studio/zero-touch-actions.ts:add a brief to generate" },
+  { key: "idea-creation-no-spend", rule: "idea creation consumes no TTS/video resources (paid work begins only on Generate)", enforcedBy: "src/lib/content-studio/idea-actions.ts:generateIdeaAction" },
+  { key: "idea-video-consumes-capacity", rule: "video Generate consumes according to the capacity policy", enforcedBy: "src/lib/content-studio/zero-touch-actions.ts:socialGeneratePolicy" },
+  { key: "idea-finished-exposes-download", rule: "a finished video exposes a canonical Download (no raw storage path)", enforcedBy: "src/components/content-studio/ZeroTouchStudio.tsx:cs-download" },
+  { key: "idea-feed-social-only", rule: "no prospect assets appear in the social idea queue", enforcedBy: "src/lib/content-studio/idea-feed.ts:loadIdeaFeed" },
 ];
 
 export interface InvariantValidation {

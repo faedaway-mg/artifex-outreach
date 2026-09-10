@@ -13,6 +13,7 @@ import type { LaunchReadiness } from "../launch/launch-readiness";
 import type { RampView } from "../comms/ramp-store";
 import type { LeadSprintSnapshot } from "./snapshot";
 import type { CostLedgerView } from "./cost-ledger-store";
+import type { VoiceCapacity } from "../voice/capacity";
 
 export interface CockpitLane {
   laneId: string;
@@ -59,6 +60,8 @@ export interface CockpitView {
   };
   cost: CostLedgerView;
   outcomes: CockpitOutcomes;
+  /** Shared ElevenLabs voice capacity (mandate C) — null when unavailable. */
+  voiceCapacity: VoiceCapacity | null;
   /** Standing safety posture — always shown so the operator can see delivery is OFF at a glance. */
   safety: { prospectDeliveryOn: boolean; autosendOn: boolean; prospectTransport: "google-workspace"; transactionalTransport: "resend" };
 }
@@ -74,6 +77,7 @@ export interface AssembleCockpitInput {
   cost: CostLedgerView;
   production?: Partial<CockpitView["production"]>;
   outcomes?: Partial<CockpitOutcomes>;
+  voiceCapacity?: VoiceCapacity | null;
   safety?: { prospectDeliveryOn?: boolean; autosendOn?: boolean };
 }
 
@@ -112,6 +116,7 @@ export function assembleCockpit(i: AssembleCockpitInput): CockpitView {
       replacementCandidates: i.production?.replacementCandidates ?? 0,
     },
     cost: i.cost,
+    voiceCapacity: i.voiceCapacity ?? null,
     outcomes: {
       // Delivery is OFF this mandate → no outcomes exist yet. Null = honestly unavailable.
       sent: i.outcomes?.sent ?? null,
@@ -152,6 +157,14 @@ export async function buildOperatorCockpit(now: string): Promise<CockpitView> {
     getCostLedgerView(),
   ]);
 
+  // Shared voice capacity (mandate C) — reuse the already-fetched pipeline signals so the
+  // reserve forecast agrees with the funnel above. Fail-open: null when unavailable.
+  const { loadVoiceCapacity } = await import("../voice/capacity-store");
+  const voiceCapacity = await loadVoiceCapacity(now, {
+    finalistsMeetingContract: sprint.finalistsMeetingContract,
+    combinedDailyCapacity: ramp.combinedDailyCapacity,
+  }).catch(() => null);
+
   return assembleCockpit({
     now,
     health: { status: String(health.status), alerts: health.alerts },
@@ -159,5 +172,6 @@ export async function buildOperatorCockpit(now: string): Promise<CockpitView> {
     ramp,
     sprint,
     cost,
+    voiceCapacity,
   });
 }

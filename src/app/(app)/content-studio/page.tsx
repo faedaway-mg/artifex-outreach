@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { ZeroTouchStudio } from "@/components/content-studio/ZeroTouchStudio";
 import { loadStudioPageData } from "@/lib/content-studio/studio-page-data";
+import { loadIdeaFeed } from "@/lib/content-studio/idea-feed";
+import { loadVoiceCapacity } from "@/lib/voice/capacity-store";
 
 export const dynamic = "force-dynamic";
 
@@ -9,6 +11,10 @@ export const dynamic = "force-dynamic";
 // loadStudioPageData() so the index and the dedicated /content-studio/[purpose]/[leadId] pages agree.
 export default async function ContentStudioPage({ searchParams }: { searchParams?: { piece?: string; lead?: string; section?: string; from?: string; type?: string } }) {
   const { items, videosToCreate, workerHealth, workspaces } = await loadStudioPageData();
+  // The curated idea feed (mandate D) — the system supplies concepts; the operator curates.
+  const ideas = await loadIdeaFeed(new Date().toISOString()).catch(() => []);
+  // Shared voice-capacity view (mandate C) — resource-aware Generate. Read-only + fail-open.
+  const capacity = await loadVoiceCapacity(new Date().toISOString()).catch(() => null);
   // Deep-link from Today (section F): ?lead=<id> maps to the stable project id client-<id>; ?piece=<id>
   // selects an exact piece; ?from=today renders a Back-to-Today control preserving Today's state.
   const deepLink = {
@@ -30,7 +36,8 @@ export default async function ContentStudioPage({ searchParams }: { searchParams
           machinery lives behind Advanced. A deep-link (from Today / an exact piece) opens
           Advanced directly so existing navigation is preserved. */}
       <ZeroTouchStudio
-        items={items}
+        ideas={ideas}
+        capacity={capacity}
         startAdvanced={Boolean(deepLink.piece || deepLink.lead || deepLink.from)}
         advancedProps={{ initialItems: items, deepLink, videosToCreate, workerHealth, workspaces: workspaces(activeType) }}
       />

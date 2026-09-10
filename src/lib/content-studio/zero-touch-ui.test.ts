@@ -11,10 +11,18 @@ import { HIDDEN_MACHINERY_CONTROLS } from "./zero-touch";
 const SRC = readFileSync(join(process.cwd(), "src/components/content-studio/ZeroTouchStudio.tsx"), "utf8");
 
 describe("content-studio zero-touch normal view (§14 machinery hidden)", () => {
-  it("exposes the calm brief → Generate → finished controls", () => {
-    for (const id of ["cs-brief-input", "cs-generate-button", "cs-finished-video", "cs-advanced-toggle", "content-studio-zero-touch"]) {
+  it("exposes the curated idea-feed controls (idea in → Generate → finished + download)", () => {
+    for (const id of ["cs-idea-input", "cs-generate-idea", "cs-idea-brief", "cs-generate-button", "cs-finished-video", "cs-download", "cs-advanced-toggle", "content-studio-zero-touch", "cs-capacity-card"]) {
       expect(SRC).toContain(id);
     }
+  });
+
+  it("has NO per-card freeform brief textarea (mandate D §1/§23 — the system generated the idea)", () => {
+    // The operator must not re-describe the system's own idea: no per-card textarea, and no
+    // cs-brief-input anywhere. The ONLY creative field is the single top-level idea input.
+    expect(SRC).not.toContain("cs-brief-input");
+    // A <textarea> must not appear on an idea card (the top idea control is a single-line <input>).
+    expect(SRC).not.toMatch(/<textarea/);
   });
 
   it("mounts the full workspace ONLY inside the advanced branch", () => {

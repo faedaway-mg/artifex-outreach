@@ -26,6 +26,7 @@ const argv = process.argv;
 const arg = (f: string) => { const i = argv.indexOf(f); return i >= 0 ? argv[i + 1] : null; };
 const BASE = (arg("--base") ?? "https://outreach.artifexlabs.tech").replace(/\/$/, "");
 const OFFER = arg("--offer");
+const HOLD_OFFER = arg("--hold-offer");
 const SECRET = (process.env.BREAKBOT_TEST_AUTH ?? "").trim();
 const EVIDENCE = join(process.cwd(), "artifacts/breakbot-ui-journeys");
 const found = new Set<string>();
@@ -46,17 +47,35 @@ async function shot(page: Page, name: string) {
 async function overflow(page: Page): Promise<boolean> {
   return page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 2).catch(() => false);
 }
-async function mediaHealthy(page: Page, testid: string, expectLandscape: boolean): Promise<{ ok: boolean; note: string }> {
+async function mediaHealthy(page: Page, testid: string, expectLandscape: boolean, narrated = true): Promise<{ ok: boolean; note: string }> {
   const src = await page.locator(`[data-testid="${testid}"] source, [data-testid="${testid}"]`).first().getAttribute("src").catch(() => null);
   if (!src) return { ok: false, note: `${testid}: no media src` };
   const url = src.startsWith("http") ? src : `${BASE}${src}`;
+  // Customer-facing media is served via APP-MANAGED routes (/api/…), never a raw storage URL.
+  if (/rlwy\.net|proxy\.rlwy|\.railway\.|amazonaws\.com|blob\.core|storage\.googleapis|postgres:/i.test(src)) {
+    return { ok: false, note: `${testid}: RAW storage URL exposed (${src.slice(0, 40)}…)` };
+  }
   try {
-    const probe = await probeMedia(url, { label: testid, expectedOrientation: expectLandscape ? "landscape" : "portrait", motionExpected: true, narrated: true, minDurationSeconds: 5 });
+    const probe = await probeMedia(url, { label: testid, expectedOrientation: expectLandscape ? "landscape" : "portrait", motionExpected: true, narrated, minDurationSeconds: 5 });
     const r = assessMedia(probe);
     return { ok: r.status !== "BLOCKED", note: `${testid}: ${r.status} alive→${r.aliveThroughPct}% ${r.orientation}` };
   } catch (e: any) {
     return { ok: false, note: `${testid}: probe error ${e?.message || e}` };
   }
+}
+
+// Scan the VISIBLE offer text for raw storage URLs / internal debug language a customer
+// must never see (checks rendered innerText, not framework internals). First violation or null.
+async function forbiddenCustomerContent(page: Page): Promise<string | null> {
+  const text = (await page.evaluate(() => document.body?.innerText || "").catch(() => "")) || "";
+  const patterns: Array<[RegExp, string]> = [
+    [/rlwy\.net|proxy\.rlwy|postgres:\/\/|DATABASE_URL/i, "raw storage/DB reference"],
+    [/objectKey|artifactClass|mp4Key/i, "internal storage field"],
+    [/\[object Object\]|\bNaN\b/i, "render artifact"],
+    [/TODO|FIXME/i, "developer marker"],
+  ];
+  for (const [rx, label] of patterns) if (rx.test(text)) return label;
+  return null;
 }
 
 async function authedContext(browser: Browser): Promise<{ ctx: BrowserContext | null; note: string }> {
@@ -91,12 +110,29 @@ async function operatorSweep(ctx: BrowserContext) {
   await check("/launch/breakbot", ["breakbot-overview"], "breakbot");
   // Content Studio: brief present, machinery absent (the §22 gate).
   await page.goto(`${BASE}/content-studio`, { waitUntil: "domcontentloaded" }).catch(() => {});
-  const brief = await present(page, "cs-brief-input");
-  const gen = await present(page, "cs-generate-button");
   await present(page, "content-studio-zero-touch");
-  const machineryAbsent = await absent(page, "narration-script-editor") && await absent(page, "generate-voiceover-button") && await absent(page, "generate-video-button");
+  // Idea-queue UX (mandate D §22): a global idea field + Generate-idea, concept cards with an
+  // auto-written description and a Generate — and NO per-card freeform textarea.
+  const ideaField = await present(page, "cs-idea-input");
+  const genIdea = await present(page, "cs-generate-idea");
+  const ideaBrief = await present(page, "cs-idea-brief");
+  const cardGenerate = await present(page, "cs-generate-button");
+  const download = (await page.locator('[data-testid="cs-download"]').count().catch(() => 0)) > 0; // present once something is READY
+  if (!ideaField || !genIdea) { notes.push("content-studio: global idea field / Generate-idea missing (§4/§22)"); status = "BLOCKED"; }
+  if (!ideaBrief) notes.push("content-studio: idea cards missing auto-written description (§2/§22)");
+  const noPerCardTextarea = await page.locator('[data-testid^="cs-idea-card-"] textarea').count().catch(() => 0);
+  if (noPerCardTextarea > 0) { notes.push("content-studio: per-card brief TEXTAREA present (§1/§23 regression)"); status = "BLOCKED"; }
+  const machineryAbsent = await absent(page, "narration-script-editor") && await absent(page, "generate-voiceover-button") && await absent(page, "generate-video-button") && await absent(page, "cs-brief-input");
   if (!machineryAbsent) { notes.push("content-studio: MACHINERY VISIBLE in normal view (§22 block)"); status = "BLOCKED"; }
-  if (!brief && !gen) notes.push("content-studio: brief/Generate not found");
+  notes.push(`content-studio: idea feed ${cardGenerate ? "has" : "no"} Generate, download-affordance ${download ? "present" : "n/a"}`);
+  // Capacity mandate C §19: the resource picture is visible BEFORE Generate — the capacity
+  // card + a per-generation forecast, without exposing TTS machinery.
+  if (!await present(page, "cs-capacity-card")) { notes.push("content-studio: VOICE CAPACITY card missing (mandate C §1/§19)"); status = "BLOCKED"; }
+  const capStatus = await page.locator('[data-testid="cs-capacity-status"]').first().innerText().catch(() => "");
+  if (capStatus) notes.push(`content-studio: voice capacity → ${capStatus.trim()}`);
+  if (!await present(page, "cs-generation-forecast") && !await present(page, "cs-reserve-block")) {
+    notes.push("content-studio: per-generation forecast not shown (non-blocking if unknown capacity)");
+  }
   await shot(page, "operator-content-studio");
   await page.close();
   results.push({ journey: "operator-cockpit-sweep", status, notes });
@@ -107,20 +143,60 @@ async function offerJourney(browser: Browser) {
   drivenSurfaces.add("offer");
   const notes: string[] = [];
   let status: "PASS" | "BLOCKED" = "PASS";
+  const fail = (n: string) => { notes.push(n); status = "BLOCKED"; };
   const page = await browser.newPage();
   await page.goto(`${BASE}/offer/${OFFER}`, { waitUntil: "domcontentloaded" }).catch(() => {});
-  // Note: offer identity is the offerId capability + personalized-video binding, not a
-  // visible company label (hero uses experience framing) — so company-name is not required.
-  for (const a of ["price", "scope-and-protections", "offer-details"]) if (!await present(page, a)) notes.push(`offer: missing ${a}`);
-  if (await present(page, "trust-video")) {
-    const m = await mediaHealthy(page, "trust-video", true); notes.push(m.note); if (!m.ok) status = "BLOCKED";
-  } else notes.push("offer: trust-video not present");
+
+  // Core pre-sale anchors: finding/scope/price/protections/CTA.
+  for (const a of ["offer-hero", "price", "scope-and-protections", "offer-details"]) if (!await present(page, a)) fail(`offer: missing ${a}`);
+
+  // Personalized video — REQUIRED, and 9:16 PORTRAIT, silent (kinetic), healthy across the runtime.
   if (await present(page, "personalized-video")) {
-    const m = await mediaHealthy(page, "personalized-video", false); notes.push(m.note); if (!m.ok) status = "BLOCKED";
-  }
+    const m = await mediaHealthy(page, "personalized-video", false, /*narrated*/ false); notes.push(m.note); if (!m.ok) fail("personalized-video unhealthy");
+  } else fail("offer: personalized-video MISSING (pre-sale requires it)");
+
+  // Trust explainer — REQUIRED, 16:9 LANDSCAPE, narrated (Matt), plays, healthy across runtime.
+  if (await present(page, "trust-video")) {
+    const m = await mediaHealthy(page, "trust-video", true, /*narrated*/ true); notes.push(m.note); if (!m.ok) fail("trust-video unhealthy");
+    // The transcript must remain SECONDARY/collapsible (a <details> summary), never primary.
+    const collapsible = await page.locator("details summary", { hasText: /transcript/i }).count().catch(() => 0);
+    if (!collapsible) notes.push("offer: transcript not a collapsible secondary (non-blocking)");
+  } else fail("offer: trust-video MISSING (canonical landscape explainer required)");
+
+  // Purchase CTA present when all gates pass; NO "being prepared/finalized" HOLD when the video exists.
+  if (!await present(page, "checkout-cta")) fail("offer: purchase CTA (checkout-cta) not shown though gates should pass");
+  if (await present(page, "checkout-hold")) fail("offer: HOLD state shown though canonical video exists");
+  const bodyText = (await page.evaluate(() => document.body?.innerText || "").catch(() => "")) || "";
+  if (/being (prepared|finalized)/i.test(bodyText)) fail("offer: 'being prepared/finalized' HOLD copy present with a ready video");
+
+  // No raw storage URLs / internal debug language anywhere the customer can read.
+  const bad = await forbiddenCustomerContent(page); if (bad) fail(`offer: forbidden customer content — ${bad}`);
+
   await shot(page, "prospect-offer");
   await page.close();
   results.push({ journey: "prospect-offer-experience", status, notes });
+}
+
+// NEGATIVE regression: an offer whose required trust video is MISSING must HOLD — no purchase CTA.
+async function holdOfferJourney(browser: Browser) {
+  if (!HOLD_OFFER) { results.push({ journey: "offer-hold-no-cta", status: "NOT_RUN", notes: ["needs --hold-offer fixture"] }); return; }
+  drivenSurfaces.add("offer");
+  const notes: string[] = [];
+  let status: "PASS" | "BLOCKED" = "PASS";
+  const fail = (n: string) => { notes.push(n); status = "BLOCKED"; };
+  const page = await browser.newPage();
+  await page.goto(`${BASE}/offer/${HOLD_OFFER}`, { waitUntil: "domcontentloaded" }).catch(() => {});
+  // The page still renders (hero/price/scope) but the purchase is HELD.
+  if (!await present(page, "offer-hero")) fail("hold-offer: page did not render");
+  if (await present(page, "checkout-cta")) fail("hold-offer: purchase CTA shown despite missing trust video (fail-open bug)");
+  const held = await present(page, "checkout-hold");
+  const bodyText = (await page.evaluate(() => document.body?.innerText || "").catch(() => "")) || "";
+  const heldCopy = /being (prepared|finalized)|not (yet )?available|check back/i.test(bodyText);
+  if (!held && !heldCopy) fail("hold-offer: no visible HOLD state (neither checkout-hold nor hold copy)");
+  else notes.push("hold-offer: purchase correctly HELD, no CTA");
+  await shot(page, "offer-hold");
+  await page.close();
+  results.push({ journey: "offer-hold-no-cta", status, notes });
 }
 
 async function portalJourney(browser: Browser) {
@@ -169,6 +245,7 @@ async function main() {
     if (ctx) await operatorSweep(ctx);
     else results.push({ journey: "operator-cockpit-sweep", status: "NOT_RUN", notes: [note] });
     await offerJourney(browser);
+    await holdOfferJourney(browser);
     await portalJourney(browser);
     await mobileJourneys(ctx, browser);
 

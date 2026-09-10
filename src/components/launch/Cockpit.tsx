@@ -4,6 +4,7 @@
 // buildOperatorCockpit). Mobile-first; every unavailable number shows "—" (never invented).
 // ─────────────────────────────────────────────────────────────────────────────
 import type { CockpitView } from "@/lib/lead-sprint/cockpit";
+import { capacityCardModel } from "@/lib/voice/capacity-view";
 
 const n = (v: number | null | undefined) => (v == null ? "—" : String(v));
 const usd = (v: number | null) => (v == null ? "—" : `$${v.toFixed(2)}`);
@@ -107,6 +108,26 @@ export function Cockpit({ view }: { view: CockpitView }) {
           <Stat label="Replacement candidates" value={n(view.production.replacementCandidates)} />
         </div>
       </section>
+
+      {/* ElevenLabs voice capacity (mandate C) — is voice a production bottleneck? */}
+      {view.voiceCapacity && (() => {
+        const m = capacityCardModel(view.voiceCapacity);
+        const tone = m.statusTone === "ok" ? "text-teal-300" : m.statusTone === "warn" ? "text-amber-300" : m.statusTone === "hold" ? "text-coral-300" : "text-chalk-400";
+        return (
+          <section data-testid="voice-capacity">
+            <p className="label mb-2">ElevenLabs voice capacity · <span className={tone}>{m.statusLabel}</span></p>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+              <Stat label="Used this cycle" value={m.used} />
+              <Stat label="Remaining" value={m.remaining} />
+              <Stat label="Acquisition reserve" value={m.reserved} hint={m.reservedBasis === "fallback" ? "fallback" : "forecast"} />
+              <Stat label="Social available" value={m.available} tone="text-teal-300" />
+              <Stat label="Resets" value={m.resets} />
+              <Stat label="Est. social videos" value={m.estimatedSocialVideos} />
+            </div>
+            {m.unknownNote && <p className="mt-1.5 text-[11px] text-chalk-500">{m.unknownNote}</p>}
+          </section>
+        );
+      })()}
 
       {/* Cost ledger — honest known vs unknown. */}
       <section data-testid="cost-gate">
