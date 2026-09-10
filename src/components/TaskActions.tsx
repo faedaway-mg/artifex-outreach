@@ -18,7 +18,8 @@ function primaryHref(task: Task, leadId: string): string {
     case "prepare_video":
       // Canonical client-video project (section C): open the ONE persisted Content Studio project
       // keyed by lead id — not the retired /leads/#video panel. `from=today` renders Back-to-Today.
-      return `/content-studio?section=client&from=today&lead=${leadId}`;
+      // §13-18 social-only: no `section=client` — the normal studio no longer has a prospect panel.
+      return `/content-studio?from=today&lead=${leadId}`;
     case "review_and_send":
       return `/leads/${leadId}#outreach`;
     case "follow_up":

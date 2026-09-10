@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   Film, Upload, Copy, Check, Download, Play, RefreshCw, Loader2, Plus, X,
-  CircleCheck, CircleAlert, Clapperboard, Users, ExternalLink, Clock, Radio, Eye, Mail,
+  CircleCheck, CircleAlert, Users, ExternalLink, Clock, Radio, Eye, Mail,
 } from "lucide-react";
 import { SectionHeader } from "@/components/ui";
 import { VoiceoverPanel } from "@/components/voice/VoiceoverPanel";
@@ -101,10 +101,6 @@ export function ContentStudioClient({ initialItems, preview = false, deepLink, v
   );
   const [jobOverride, setJobOverride] = useState<Record<string, SafeJob>>({});
   const [creating, setCreating] = useState(false);
-  // Deep-link resolution: when Today points at a project that has no piece yet, we DON'T silently
-  // create it — we surface a truthful "prepare this business's video" repair action (F.10/F.11).
-  const [needsPrepareLead, setNeedsPrepareLead] = useState<string | null>(null);
-  const didDeepLink = useRef(false);
 
   const refetch = useCallback(async () => {
     if (preview) return; // preview never re-fetches server state — fixtures only
@@ -139,16 +135,6 @@ export function ContentStudioClient({ initialItems, preview = false, deepLink, v
     const iv = setInterval(tick, POLL_MS); tick();
     return () => { stop = true; clearInterval(iv); };
   }, [activeJobIds.join(","), refetch, preview]);
-
-  // Resolve the deep-link ONCE. If the target project exists, it's already selected above. If a Today
-  // task references a business with no project yet, surface the repair/create action (never auto-create).
-  useEffect(() => {
-    if (didDeepLink.current || preview) return;
-    didDeepLink.current = true;
-    if (targetPieceId && !initialItems.some((it) => it.piece.id === targetPieceId) && deepLink?.lead) {
-      setNeedsPrepareLead(deepLink.lead);
-    }
-  }, [targetPieceId, preview, initialItems, deepLink?.lead]);
 
   const selected = mergedItems.find((it) => it.piece.id === selectedId) ?? mergedItems[0];
   const backToToday = deepLink?.from === "today";
@@ -196,12 +182,9 @@ export function ContentStudioClient({ initialItems, preview = false, deepLink, v
       )}
       <SectionHeader
         title="Content Studio"
-        subtitle="Social · Field Notes. Prepare narration, upload your voiceover, generate the video, preview and download — all from here."
+        subtitle="Social content creation. Write a script, generate or upload the voiceover, render the video, then preview, publish and export — all from here."
         right={
           <div className="flex items-center gap-2">
-            <Link href="/content-studio?section=client" className="btn-ghost flex items-center gap-1.5 text-xs" title="Prepare and render per-business prospect sales videos here">
-              <Users size={14} /> Prospect videos
-            </Link>
             <button disabled={preview} onClick={() => !preview && setCreating(true)} title={preview ? "Disabled in preview" : ""} className="btn-secondary flex items-center gap-1.5 text-xs disabled:opacity-40"><Plus size={14} /> New video</button>
           </div>
         }
@@ -223,26 +206,7 @@ export function ContentStudioClient({ initialItems, preview = false, deepLink, v
         </div>
       )}
 
-      {/* Prospect/client workflow signpost — preserved, not replaced. */}
-      <div className="card flex items-start gap-3 p-3.5">
-        <span className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-white/[0.07] bg-white/[0.03] text-azure-300"><Clapperboard size={16} /></span>
-        <p className="text-xs leading-relaxed text-chalk-400">
-          <span className="font-medium text-chalk-200">Two separate workflows, one engine.</span> The public
-          <span className="text-chalk-200"> Field Notes</span> (social content, with captioning and posting tools) are in the
-          list below. <span className="text-chalk-200">Prospect video sales packages</span> (evidence-led, delivered to
-          the prospect by secure link) are prepared in the
-          <span className="text-chalk-200"> Prospect videos</span> panel above, bound to the business and its evidence.
-          A Today "Prepare video" task opens that business's package here directly.
-        </p>
-      </div>
-
       {workerHealth && !preview && <WorkerHealthLine health={workerHealth} />}
-
-      <ClientVideosPanel onPrepared={refetch} onSelect={setSelectedId} defaultOpen={deepLink?.section === "client" || !!needsPrepareLead} repairLead={needsPrepareLead} pendingCount={videosToCreate} />
-
-      {/* ── Two top-level tabs (mandate 25): Proposal Videos vs Content Videos. URL-addressable via
-          ?type=, so refresh persists and browser Back restores the tab. ─────────────────────────── */}
-      {workspaces && <VideoTabs workspaces={workspaces} />}
 
       {/* Bounded two-column workspace: the list is height-capped + independently scrollable so it can NEVER
           grow the document or push the detail below it; the detail top-aligns beside it and scrolls on its own. */}
@@ -287,84 +251,6 @@ function WorkerHealthLine({ health }: { health: WorkerHealth }) {
       {health.queued > 0 && <span className="text-chalk-600">· {health.queued} queued</span>}
       {health.stale > 0 && <span className="text-amber-300">· {health.stale} stalled (auto-recovering)</span>}
     </p>
-  );
-}
-
-function ClientVideosPanel({ onPrepared, onSelect, defaultOpen = false, repairLead = null, pendingCount = 0 }: { onPrepared: () => Promise<void>; onSelect: (id: string) => void; defaultOpen?: boolean; repairLead?: string | null; pendingCount?: number }) {
-  const preview = usePreview();
-  const [open, setOpen] = useState(defaultOpen);
-  const [cands, setCands] = useState<any[] | null>(null);
-  const [leadId, setLeadId] = useState(repairLead ?? "");
-  const [msg, setMsg] = useState<{ tone: "ok" | "err"; text: string } | null>(
-    repairLead ? { tone: "err", text: "This Today task has no Content Studio project yet. Prepare it below to open its project — nothing is created automatically." } : null,
-  );
-  const [busy, setBusy] = useState(false);
-  const [preparingId, setPreparingId] = useState<string | null>(null);
-
-  const load = useCallback(async () => {
-    if (preview) { setCands([]); return; } // preview: no server read, show the empty-state copy
-    const r = await fetch("/api/content-studio/client/candidates", { cache: "no-store" });
-    if (r.ok) { const d = await r.json(); setCands(d.candidates ?? []); }
-  }, [preview]);
-  useEffect(() => { if (open && cands === null) load(); }, [open, cands, load]);
-
-  const prepare = async (id: string, allowOverride = false) => {
-    if (preview) { setMsg({ tone: "err", text: "Disabled in preview — connect the functional environment to prepare client videos." }); return; }
-    setBusy(true); setPreparingId(id); setMsg(null);
-    try {
-      const r = await fetch("/api/content-studio/client/prepare", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ leadId: id, allowOverride }) });
-      const d = await r.json();
-      if (!r.ok) setMsg({ tone: "err", text: d.error + (d.blockers?.length ? " (" + d.blockers.join("; ") + ")" : "") });
-      else { setMsg({ tone: "ok", text: `Prepared for ${d.businessName ?? id}. ${d.narrationNote ?? ""} Upload a voiceover, then Generate.` }); await onPrepared(); onSelect(d.pieceId); }
-    } catch (e: any) { setMsg({ tone: "err", text: String(e?.message ?? e) }); }
-    finally { setBusy(false); setPreparingId(null); }
-  };
-
-  return (
-    <div className="card p-4">
-      <button onClick={() => setOpen((o) => !o)} className="flex w-full items-center gap-2 text-left">
-        <span className="grid h-8 w-8 place-items-center rounded-lg border border-white/[0.07] bg-white/[0.03] text-teal-300"><Users size={16} /></span>
-        <span className="min-w-0 flex-1">
-          <span className="block text-sm font-semibold text-chalk-100">Prospect video packages <span className="ml-1 rounded-md border border-teal-400/25 bg-teal-400/10 px-1.5 py-0.5 text-[10px] text-teal-300">evidence-backed</span>{pendingCount > 0 && <span className="ml-1 rounded-md border border-amber-400/25 bg-amber-400/10 px-1.5 py-0.5 text-[10px] text-amber-300">{pendingCount} to create</span>}</span>
-          <span className="block text-xs text-chalk-500">Prepare a prospect sales video from a business's evidence — delivered by secure link, never posted to social.</span>
-        </span>
-        <span className="text-chalk-500">{open ? "▾" : "▸"}</span>
-      </button>
-
-      {open && (
-        <div className="mt-3 space-y-3 border-t border-white/[0.06] pt-3">
-          {msg && <p className={`text-xs ${msg.tone === "ok" ? "text-teal-300" : "text-coral-300"}`}>{msg.text}</p>}
-          {cands === null ? (
-            <p className="text-xs text-chalk-500">Loading eligible businesses…</p>
-          ) : cands.length === 0 ? (
-            <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-3 text-xs leading-relaxed text-chalk-500">
-              No businesses with stored evidence in this local store. Businesses live in the Acquisition OS database — connected to real data, eligible prospects appear here ranked by the review-video readiness gate. You can also prepare one directly by business ID below.
-            </div>
-          ) : (
-            <div className="space-y-1.5">
-              {cands.map((c) => (
-                <div key={c.leadId} className="flex items-center gap-2 rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2 text-xs">
-                  <span className="min-w-0 flex-1 truncate text-chalk-200">{c.businessName}</span>
-                  <span className={`rounded-full border px-1.5 py-0.5 text-[10px] ${c.eligible ? "border-teal-400/25 bg-teal-400/10 text-teal-300" : "border-white/10 text-chalk-400"}`}>{c.readiness}</span>
-                  {c.eligible ? (
-                    <button disabled={busy || preview} onClick={() => prepare(c.leadId)} className="btn-secondary text-[11px] disabled:opacity-40">{preparingId === c.leadId ? "Preparing…" : "Prepare"}</button>
-                  ) : c.overridable ? (
-                    <button disabled={busy || preview} onClick={() => prepare(c.leadId, true)} className="btn-ghost text-[11px] disabled:opacity-40" title={c.blockers?.join("; ")}>Override</button>
-                  ) : (
-                    <span className="text-[10px] text-chalk-600" title={c.blockers?.join("; ")}>blocked</span>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-          <div className="flex items-center gap-2">
-            <input value={leadId} onChange={(e) => setLeadId(e.target.value)} placeholder="business / lead ID" disabled={preview} className="input text-xs disabled:opacity-40" />
-            <button disabled={busy || preview || !leadId.trim()} onClick={() => prepare(leadId.trim())} className="btn-secondary flex items-center gap-1.5 text-xs disabled:opacity-50">{busy ? <Loader2 size={13} className="animate-spin" /> : <Clapperboard size={13} />} {preparingId === leadId.trim() && busy ? "Preparing…" : "Prepare"}</button>
-          </div>
-          <p className="text-[11px] text-chalk-600">The readiness gate is unchanged — insufficient-evidence businesses stay blocked with reasons. Prepared videos are bound to their business and appear in the list above.</p>
-        </div>
-      )}
-    </div>
   );
 }
 
@@ -496,7 +382,7 @@ function PieceRow({ item, active, onClick }: { item: StudioItem; active: boolean
         {item.piece.thumbRel ? <img src={item.piece.thumbRel} alt="" className="h-full w-full object-cover" /> : <span className="grid h-full w-full place-items-center text-chalk-600"><Film size={14} /></span>}
       </span>
       <span className="min-w-0 flex-1">
-        <span className="flex items-center gap-1.5 text-[10.5px] text-chalk-500">{isProspectVideo(item.piece) ? "Prospect video" : `#${item.piece.id}`}</span>
+        <span className="flex items-center gap-1.5 text-[10.5px] text-chalk-500">#{item.piece.id}</span>
         <span className="block truncate text-sm font-semibold text-chalk-100">{item.piece.title}</span>
         <span className={`mt-1 inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] font-medium ${s.tone}`}>
           <Icon size={10} className={Icon === Loader2 ? "animate-spin" : ""} /> {s.label}
@@ -723,7 +609,12 @@ function PieceDetail({ item, onChanged, setJobOverride, advanceHref }: { item: S
   // mandate I: prospect video packages branch on the PERSISTED workflow discriminator (never the id prefix
   // alone). A prospect video NEVER shows social caption / approve-for-posting / mark-posted / social share.
   const isClientPiece = isProspectVideo(piece);
-  const isProspect = isClientPiece;
+  // §13-18 SOCIAL-ONLY: the NORMAL Content Studio experience is social content only. Prospect production
+  // surfaces (evidence expand-and-personalize, the prospect Matt/Lucas voiceover, the sales package,
+  // auto-render on upload) are NEVER shown in the normal studio — they remain reachable ONLY on the focused,
+  // dedicated per-company workspace (an Admin / Journey-Detail surface), which passes `advanceHref`.
+  const focused = !!advanceHref;
+  const isProspect = isClientPiece && focused;
   // A client project whose evidence hasn't cleared the gate: hide its (possibly stale) script from the
   // active voiceover workflow and disable Copy / Upload / Generate until a supported finding is captured.
   const needsEvidence = isClientPiece && piece.evidenceState === "needs-evidence";
@@ -854,7 +745,7 @@ function PieceDetail({ item, onChanged, setJobOverride, advanceHref }: { item: S
             })}
           </ol>
         ) : (
-          <p className="text-xs text-chalk-500">This piece was finished in VEED without a captured timing sheet. Enter narration when regenerating, or copy from the captions below.</p>
+          <p className="text-xs text-chalk-500">No narration script captured yet. Enter narration when regenerating, or copy from the captions below.</p>
         )}
         {isProspect && !needsEvidence && <NarrationExpandPanel leadId={piece.businessId || (piece.id.startsWith("client-") ? piece.id.slice("client-".length) : "")} onChanged={onChanged} />}
         {!isProspect && (piece.captionIG || piece.captionLI) && (
@@ -1140,8 +1031,8 @@ function UploadPanel({ item, onChanged, setMsg, disabled = false, disabledReason
   }
   return (
     <div className="card overflow-hidden p-4">
-      <h4 className="mb-1 text-sm font-semibold text-chalk-100">Your voiceover</h4>
-      <p className="mb-3 text-xs leading-relaxed text-chalk-500">Record narration on your phone (Voice Memos works — export as M4A), then upload it here. MP3 / M4A / AAC / WAV, ≤25 MB, 5–90s. You produce the voice — Content Studio never generates it.</p>
+      <h4 className="mb-1 text-sm font-semibold text-chalk-100">Voiceover</h4>
+      <p className="mb-3 text-xs leading-relaxed text-chalk-500">Generate the voiceover from the script, or upload your own audio file. MP3 / M4A / AAC / WAV, ≤25 MB, 5–90s.</p>
 
       {/* Current upload — filename, detected format, duration, size. Wraps on mobile; never overflows. */}
       {latest && !uploading && (

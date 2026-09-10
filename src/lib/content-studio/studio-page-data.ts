@@ -56,13 +56,27 @@ export async function loadStudioPageData(): Promise<StudioPageData> {
     items.map((it) => ({ piece: it.piece as any, jobs: it.jobs, provenance: it.provenance as any, postedAt: it.postedAt })),
     byLead,
   );
-  const workspaces = (activeType: "proposal" | "content"): StudioWorkspacesProp => ({
-    activeType,
-    counts: { proposal: split.proposal.count, content: split.content.count, unclassified: split.unclassified.length },
-    proposal: { groups: split.proposal.groups },
-    content: { groups: split.content.groups },
-  });
+  // §13-18 SOCIAL-ONLY: the NORMAL Content Studio feed is social/content ONLY (see contentOnlyWorkspaces).
+  // The full `split` (including proposal groups) is still returned for Admin/Detail surfaces (the dedicated
+  // per-company workspace + orderedCardIds); only the normal page-facing `workspaces()` is content-scoped.
+  const workspaces = (_activeType: "proposal" | "content"): StudioWorkspacesProp => contentOnlyWorkspaces(split);
   return { items, videosToCreate, workerHealth, split, workspaces };
+}
+
+/** §13-18 SOCIAL-ONLY projection: the NORMAL Content Studio page shows CONTENT (social) videos ONLY.
+ *  Proposal (prospect) cards and their count are NEVER surfaced here — the tab is forced to "content", the
+ *  proposal count is 0, and the proposal groups are empty. Pure + deterministic over the split so the
+ *  social-only contract is directly unit-testable without I/O. (The prospect split remains available to
+ *  Admin/Detail surfaces via `split` / `orderedCardIds`.) */
+export function contentOnlyWorkspaces(split: ReturnType<typeof buildStudioWorkspaces>): StudioWorkspacesProp {
+  const emptyProposalGroups = () =>
+    Object.fromEntries(PROPOSAL_GROUP_ORDER.map((g) => [g, [] as ProposalCard[]])) as Record<ProposalGroup, ProposalCard[]>;
+  return {
+    activeType: "content",
+    counts: { proposal: 0, content: split.content.count, unclassified: split.unclassified.length },
+    proposal: { groups: emptyProposalGroups() },
+    content: { groups: split.content.groups },
+  };
 }
 
 /** Ordered flat list of card ids within a purpose (for Prev/Next on the dedicated page), in canonical group
