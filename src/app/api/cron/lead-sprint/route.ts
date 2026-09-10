@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { computeLeadSprintSnapshot } from "@/lib/lead-sprint/snapshot";
-import { laneRampStatus, combinedRampCapacity } from "@/lib/comms/ramp";
-import { getSettings } from "@/lib/repo";
+import { rampView } from "@/lib/comms/ramp-store";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,17 +17,12 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    // Near-term capacity comes from the ramp: SUM of each lane's own effective cap (no quota transfer).
-    // Ramp state is conservative until persisted state exists — both lanes WARMING at Level 1.
-    const settings = await getSettings().catch(() => null);
-    void settings; // reserved for persisted ramp state once wired
-    const lanes = [
-      laneRampStatus({ laneId: "sender-1", state: "WARMING", level: 1 }),
-      laneRampStatus({ laneId: "sender-2", state: "WARMING", level: 1 }),
-    ];
-    const nearTermCapacity = combinedRampCapacity(lanes);
-
     const now = new Date().toISOString();
+    // Near-term capacity comes from the PERSISTED ramp: SUM of each lane's own effective cap (no quota
+    // transfer). Reflects real warm-up state + seed placement (Outlook Junk keeps promotion blocked).
+    const ramp = await rampView(now);
+    const nearTermCapacity = ramp.combinedDailyCapacity;
+
     const podsOnly = req.nextUrl.searchParams.get("national") !== "1";
     const snapshot = await computeLeadSprintSnapshot({ now, nearTermCapacity, podsOnly });
 
@@ -50,6 +44,11 @@ export async function POST(req: NextRequest) {
       },
       readyToSendTarget: snapshot.readyToSendTarget,
       marketDistribution: snapshot.marketDistribution,
+      ramp: {
+        lanes: ramp.lanes.map((l) => ({ laneId: l.laneId, state: l.state, level: l.level, effectiveDailyCap: l.effectiveDailyCap })),
+        seed: ramp.seed,
+        outlookBlocksPromotion: ramp.outlookBlocksPromotion,
+      },
       note: "read-only free pipeline — no paid compute, no prospect contact, delivery OFF",
     });
   } catch (e) {

@@ -1275,6 +1275,9 @@ export interface Settings {
   // ── Nationwide refill checkpoint (rolling-reserve mandate) ───────────────────
   // Persisted so the auto-refill loop resumes its geographic rotation + search budget across cron ticks.
   refillCheckpoint?: import("./acquisition/refill").RefillCheckpoint;
+  // ── Warm-up ramp state (master mandate §28-30) ───────────────────────────────
+  // Per Google lane warm-up ramp state + operator-recorded seed placement. Settings jsonb, no migration.
+  rampState?: import("./comms/ramp-store").RampPersistState;
 }
 
 export interface AgreementDefaults {
