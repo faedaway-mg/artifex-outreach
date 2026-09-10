@@ -15,6 +15,7 @@ import type { WebsiteSignals } from "../scoring";
 import { businessImprovementPotential, type BusinessImprovementPotential } from "../improvement";
 import { buildSnapshot, type BusinessTechnologySnapshot } from "../snapshot";
 import { enrich, type EnrichmentInput } from "./providers";
+import { assertAuthorized, type PaidComputeAuthorization } from "../lead-sprint/cost-gate";
 import "./providers/register"; // side-effect: registers first-gen enrichment providers
 import { mergeEvidence, evidenceConfidenceScore, type Evidence } from "./evidence";
 import { fuseEvidence, type FusedEvidence, type FusionResult } from "./fusion";
@@ -71,10 +72,19 @@ export interface AnalyzeInput {
   searchItems?: EnrichmentInput["searchItems"];
   corporateRecord?: EnrichmentInput["corporateRecord"];
   osmRecord?: EnrichmentInput["osmRecord"];
+  /** Paid-compute authorization (#202). When scope is prospect-journey, DEEP ANALYSIS is finalist-gated:
+   *  a non-finalist prospect is refused before any (metered) live enrichment runs. Omit for non-prospect
+   *  analysis (offline/deterministic callers are unchanged). */
+  paidAuthorization?: PaidComputeAuthorization;
 }
 
 export async function analyzeBusiness(input: AnalyzeInput): Promise<BusinessIntelligence> {
   const { lead, findings = [], contacts = [], signals, learning } = input;
+
+  // PAID-COMPUTE GATE (#202): per-prospect deep analysis is finalist-gated. This throws (fail-closed)
+  // before enrich() runs any metered live provider, so a non-finalist prospect cannot consume paid
+  // analysis/capture credits. Non-prospect scopes (and callers that pass no authorization) are unchanged.
+  if (input.paidAuthorization) assertAuthorized("deep-analysis", input.paidAuthorization);
 
   // 1) Enrichment → normalized, provider-agnostic evidence.
   const enrichInput: EnrichmentInput = { lead, findings, signals, pages: input.pages, reviews: input.reviews, searchItems: input.searchItems, corporateRecord: input.corporateRecord, osmRecord: input.osmRecord };

@@ -90,6 +90,23 @@ export async function guardPaidCompute<T>(kind: PaidComputeKind, ctx: PaidComput
   return run();
 }
 
+// ── SCOPE-AWARE AUTHORIZATION — the single shape every metered entry point accepts ──────────────
+// A metered operation declares its scope. Only per-prospect journey work is finalist-gated by #202; the
+// shared evergreen trust asset and the intentional social studio are deliberate creation (recorded but
+// not finalist-gated); admin-recovery is the hidden operator escape hatch. This lives here so voice,
+// deep-analysis, render, and any future metered path share ONE authorization contract (no drift).
+export type PaidComputeAuthorization =
+  | { scope: "prospect-journey"; context: PaidComputeContext } // finalist-gated (#202)
+  | { scope: "trust-video" }                                    // evergreen infra — ungated, recorded
+  | { scope: "social" }                                         // social Content Studio — ungated, recorded
+  | { scope: "admin-recovery"; operator: string };              // hidden admin recovery only
+
+/** Assert authorization for a metered op. Only the prospect-journey scope is gated; other scopes pass
+ *  through (they are deliberate, non-per-prospect asset creation). Throws PaidComputeGateError if gated. */
+export function assertAuthorized(kind: PaidComputeKind, auth: PaidComputeAuthorization): void {
+  if (auth.scope === "prospect-journey") assertPaidComputeAllowed(kind, auth.context);
+}
+
 // ── COST LEDGER (honest; §35 "Do not invent unavailable costs") ─────────────────
 
 export interface UnitRate {

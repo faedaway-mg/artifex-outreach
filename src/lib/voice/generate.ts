@@ -30,18 +30,12 @@ import {
   type VoiceoverRecord,
 } from "./store";
 import { computeVoiceUsage, resolveVoiceUsageConfig } from "./usage";
-import { assertPaidComputeAllowed, PaidComputeGateError, type PaidComputeContext } from "../lead-sprint/cost-gate";
+import { assertAuthorized, PaidComputeGateError, type PaidComputeAuthorization } from "../lead-sprint/cost-gate";
 
-// SCOPE-AWARE PAID-COMPUTE AUTHORIZATION (mandate §6, §202). A NEW ElevenLabs generation is metered spend,
-// so the caller must declare its scope. Only per-prospect journey voice is finalist-gated by the cost
-// gate; the shared evergreen trust asset and the intentional social studio are deliberate asset creation
-// (recorded in the cost ledger but not blocked by the per-lead finalist gate). Reuse/legacy paths spend
-// nothing and are never gated. `admin-recovery` is the hidden operator escape hatch.
-export type PaidComputeAuthorization =
-  | { scope: "prospect-journey"; context: PaidComputeContext } // finalist-gated (#202)
-  | { scope: "trust-video" }                                    // evergreen infra — ungated, recorded
-  | { scope: "social" }                                         // social Content Studio — ungated, recorded
-  | { scope: "admin-recovery"; operator: string };              // hidden admin recovery only
+// A NEW ElevenLabs generation is metered spend, so the caller declares its scope via the shared
+// PaidComputeAuthorization (cost-gate.ts). Only per-prospect journey voice is finalist-gated; trust/
+// social/admin scopes pass through. Reuse/legacy paths spend nothing and are never gated (§11).
+export type { PaidComputeAuthorization };
 
 export interface GenerateLeadVoiceoverInput {
   leadId: string;
@@ -147,15 +141,13 @@ export async function generateLeadVoiceover(input: GenerateLeadVoiceoverInput): 
   // (#202): a per-prospect journey generation is refused unless it is an authorized ranked finalist and
   // the gate is enabled. This runs AFTER the reuse/legacy early-returns, so reuse never trips the gate
   // (§11: a retry must not re-spend credits). Trust/social/admin scopes are deliberate asset creation.
-  if (input.authorization.scope === "prospect-journey") {
-    try {
-      assertPaidComputeAllowed("elevenlabs-voice", input.authorization.context);
-    } catch (e) {
-      if (e instanceof PaidComputeGateError) {
-        return { status: "gated", reason: `Paid-compute gate refused prospect voice generation (${e.code}): ${e.message}` };
-      }
-      throw e;
+  try {
+    assertAuthorized("elevenlabs-voice", input.authorization);
+  } catch (e) {
+    if (e instanceof PaidComputeGateError) {
+      return { status: "gated", reason: `Paid-compute gate refused prospect voice generation (${e.code}): ${e.message}` };
     }
+    throw e;
   }
 
   // A real new generation from here on — it needs configuration and consumes quota.
