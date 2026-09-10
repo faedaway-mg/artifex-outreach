@@ -27,6 +27,13 @@ export interface MattTrustVideoRecord {
   captionsUrl: string | null;
   captionsVerified: boolean;
   durationSeconds: number | null;
+  // ── Explicit media-format contract (video-format amendment) ──────────────────
+  // The offer/trust explainer is LANDSCAPE 16:9. Persisted intent (not inferred), enforced by Breakbot +
+  // the offer player. Optional so legacy records (absent → treated as landscape default for trust) don't break.
+  width?: number;
+  height?: number;
+  orientation?: "landscape" | "portrait";
+  aspectRatio?: string;
   createdAt: string;
   updatedAt: string;
 }

@@ -150,8 +150,13 @@ async function runRender(scope: TrustVideoScope): Promise<void> {
   // (d) storyboard → deterministic render plan → mp4/poster/vtt (with the Matt audio
   //     muxed on). The trust storyboard has NO screenshot scenes, so the provider only
   //     ever returns null (it is never asked for a real capture).
+  // VIDEO-FORMAT CONTRACT: the OFFER / TRUST EXPLAINER is 16:9 LANDSCAPE (1920×1080) — authored for the
+  // horizontal canvas, played inline on the offer page. (Personalized problem videos + social Field Notes
+  // stay 9:16 portrait — a separate media role.) The scene template composes full-width, so the landscape
+  // canvas is a real landscape composition, not a portrait squeezed into a letterbox.
+  const TRUST_W = 1920, TRUST_H = 1080;
   const storyboard = buildTrustVideoStoryboard(scope);
-  const plan = buildPersonalizedVideoRenderPlan(storyboard);
+  const plan = buildPersonalizedVideoRenderPlan(storyboard, { width: TRUST_W, height: TRUST_H });
   if (!plan.buildable) {
     console.error(JSON.stringify({ scope, status: "BLOCKED", reason: plan.blockedReason ?? "trust render plan not buildable" }, null, 2));
     process.exit(3);
@@ -193,6 +198,12 @@ async function runRender(scope: TrustVideoScope): Promise<void> {
       captionsUrl: served.captionsUrl,
       captionsVerified: plan.captionsVerbatim,
       durationSeconds: result.durationSeconds,
+      // Explicit media-format contract: the trust explainer is LANDSCAPE 16:9 (persisted intent, not
+      // inferred from whichever renderer ran). Breakbot + the offer player enforce this.
+      width: TRUST_W,
+      height: TRUST_H,
+      orientation: "landscape",
+      aspectRatio: "16:9",
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
     };
