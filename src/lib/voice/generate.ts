@@ -31,6 +31,7 @@ import {
 } from "./store";
 import { computeVoiceUsage, resolveVoiceUsageConfig } from "./usage";
 import { assertAuthorized, PaidComputeGateError, type PaidComputeAuthorization } from "../lead-sprint/cost-gate";
+import { appendCostEntry } from "../lead-sprint/cost-ledger-store";
 
 // A NEW ElevenLabs generation is metered spend, so the caller declares its scope via the shared
 // PaidComputeAuthorization (cost-gate.ts). Only per-prospect journey voice is finalist-gated; trust/
@@ -225,6 +226,14 @@ export async function generateLeadVoiceover(input: GenerateLeadVoiceoverInput): 
     if (kind === "regeneration" && existing) {
       await supersedeVoiceover(existing.id, rec.id, { now: new Date().toISOString(), actor: input.actor });
     }
+
+    // COST LEDGER (§15): record the MEASURED spend of THIS real generation (minutes of audio). Only the
+    // "ready" path records — a "reused" voiceover returns earlier and is never charged as a new generation
+    // (§10). Best-effort + non-throwing; USD is attached only if a provider rate is configured (never faked).
+    await appendCostEntry("elevenlabs-voice", Math.round(((dur.seconds ?? 0) / 60) * 10000) / 10000, {
+      actor: input.actor,
+      now: new Date().toISOString(),
+    }).catch(() => {});
 
     return { status: "ready", voiceover: ready ?? rec, voiceDisplayName: voiceDisplayName(voiceKey) };
   } catch (e) {

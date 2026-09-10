@@ -1278,6 +1278,10 @@ export interface Settings {
   // ── Warm-up ramp state (master mandate §28-30) ───────────────────────────────
   // Per Google lane warm-up ramp state + operator-recorded seed placement. Settings jsonb, no migration.
   rampState?: import("./comms/ramp-store").RampPersistState;
+  // ── Provider cost ledger (master mandate §15) ────────────────────────────────
+  // Append-only measured provider usage (units always; USD only when a rate is configured — never
+  // fabricated). Settings jsonb, no migration. Read by the operator cockpit cost panel.
+  costLedger?: import("./lead-sprint/cost-ledger-store").PersistedCostEntry[];
 }
 
 export interface AgreementDefaults {
