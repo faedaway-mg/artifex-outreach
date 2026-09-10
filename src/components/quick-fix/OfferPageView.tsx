@@ -292,7 +292,7 @@ export function OfferPageView({ model, token, preview = false }: { model: OfferP
               {video.present && video.assetUrl ? (
                 <div className="relative">
                   <video
-                    controls preload="metadata"
+                    controls playsInline preload="metadata"
                     poster={video.posterUrl ?? undefined}
                     className="aspect-video w-full bg-ink-975"
                   >
@@ -303,18 +303,33 @@ export function OfferPageView({ model, token, preview = false }: { model: OfferP
                   </video>
                 </div>
               ) : (
-                <div className="p-5">
-                  <div className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-wide text-chalk-500"><PlayCircle size={14} /> Explainer{video.version ? ` · v${video.version}` : ""}</div>
-                  <p className="mt-2 text-[13.5px] leading-relaxed text-chalk-300">{video.script || "A short explainer of how our fixed-scope, fixed-price fixes work."}</p>
+                /* No RENDERED explainer video yet — show a neutral placeholder, NEVER the transcript
+                   promoted to primary content. Send is independently BLOCKED upstream (Breakbot
+                   presentation readiness) when the required trust/explainer video is missing, so an
+                   approved customer offer always has the real video here. */
+                <div className="flex items-center gap-3 p-6">
+                  <span className="grid h-10 w-10 flex-none place-items-center rounded-lg bg-azure-500/10 text-azure-300"><Video size={18} /></span>
+                  <p className="text-[13.5px] leading-relaxed text-chalk-300">The short explainer video for how the Artifex quick fix works is being prepared.</p>
                 </div>
               )}
               <div className="flex items-center gap-3 border-t border-white/[0.06] px-4 py-3">
                 <span className="grid h-8 w-8 flex-none place-items-center rounded-lg bg-azure-500/10 text-azure-300"><PlayCircle size={16} /></span>
                 <div className="min-w-0">
-                  <p className="text-[13px] font-semibold text-chalk-100">{video.title}</p>
+                  <p className="text-[13px] font-semibold text-chalk-100">{video.title}{video.version ? ` · v${video.version}` : ""}</p>
                   <p className="truncate text-[12px] text-chalk-500">How our process works — the same for every customer, not about your site.</p>
                 </div>
               </div>
+              {/* Transcript = SECONDARY / accessibility only: collapsible, never a replacement for the
+                  video in the normal customer experience. */}
+              {video.script ? (
+                <details className="group border-t border-white/[0.06]">
+                  <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3 text-[12px] font-medium text-chalk-400 [&::-webkit-details-marker]:hidden">
+                    <FileText size={13} /> View transcript
+                    <ArrowRight size={13} className="ml-auto transition-transform group-open:rotate-90" />
+                  </summary>
+                  <p className="whitespace-pre-wrap px-4 pb-4 text-[12.5px] leading-relaxed text-chalk-400">{video.script}</p>
+                </details>
+              ) : null}
             </Card>
           </section>
 

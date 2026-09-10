@@ -33,6 +33,8 @@ import {
   type BreakbotPreflightInput,
 } from "../breakbot/quickcash-preflight";
 import { trustVideoForOffer } from "./trust-videos";
+import { resolveJourneyTrustVideo } from "./trust-video-resolve";
+import { personalizedVideoServedPaths } from "./personalized-video";
 import { qualifyLeadRecord } from "./qualification-adapter";
 
 // ── Build fresh lead contexts (lead + offer + BI) from current inventory ──────────
@@ -1394,6 +1396,42 @@ async function breakbotInputForStoredOffer(stored: store.StoredOffer): Promise<B
   const evidence = await buildEvidencePackage(offer, { personalizedVideo: stored.personalizedVideo ?? null });
   const ev = evidenceVersion(evidence);
   const videoAsset = trustVideoForOffer(offer).asset;
+
+  // ── PRESENTATION READINESS (fail-closed trust/explainer video) ───────────────
+  // The customer's "How the Artifex quick fix works" experience must carry the REAL journey-coherent
+  // trust/explainer video — a Matt journey needs its Matt trust video, a Lucas journey its legacy Lucas
+  // asset — never a transcript-only substitute. We attach the presentation group ONLY when the
+  // personalized diagnostic video is already READY (the near-sendable offers); an offer without a ready
+  // personalized video is already blocked upstream, so this adds the missing-trust-video BLOCKER exactly
+  // where it matters without changing verdicts for offers that are blocked for other reasons. A
+  // conversation-only offer has no video journey, so it is exempt.
+  const pvReady = evidence.personalizedVideo.status === "READY";
+  const conversationOnly = !offer.quickFixEligible;
+  const pvRec = stored.personalizedVideo ?? null;
+  let presentation: BreakbotPreflightInput["presentation"] | undefined;
+  if (pvReady && !conversationOnly) {
+    const journeyTrust = await resolveJourneyTrustVideo(offer);
+    const served = personalizedVideoServedPaths(offer.offerId);
+    presentation = {
+      personalizedVideo: {
+        status: "READY",
+        mp4Key: pvRec?.mp4Key ?? null,
+        mp4Url: pvRec?.mp4Url ?? served.mp4Url,
+        posterKey: pvRec?.posterKey ?? null,
+        durationSeconds: pvRec?.durationSeconds ?? null,
+        voiceGeneration: pvRec?.voiceGeneration ?? journeyTrust.generation,
+        // A READY render resolves through the served route when it has a durable object key.
+        servedUrlResolves: !!pvRec?.mp4Key,
+      },
+      trust: {
+        outcome: journeyTrust.outcome,
+        generation: journeyTrust.generation,
+        assetUrl: journeyTrust.assetUrl,
+        mattTrustMissing: journeyTrust.mattTrustMissing,
+      },
+      customerAssetUrls: [served.mp4Url, journeyTrust.assetUrl].filter((u): u is string => !!u),
+    };
+  }
   const dependentAssets: DependentAsset[] = [
     { kind: "diagnosticPdf", present: evidence.diagnosticPdf.status === "READY", generatedEvidenceVersion: stored.evidenceVersion ?? ev },
     // The personalized diagnostic video is a dependent asset: present ONLY when the
@@ -1407,6 +1445,7 @@ async function breakbotInputForStoredOffer(stored: store.StoredOffer): Promise<B
     evergreen: null,
     approvedSubject: stored.approvedSubjectFrozen ?? stored.subjectSelected ?? null,
     videoAsset,
+    presentation,
     screenshotsRequired: false,
     // Safe assisted observations — the intended production behavior Breakbot verifies.
     approval: {

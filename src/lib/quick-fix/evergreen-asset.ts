@@ -32,8 +32,10 @@ export interface EvergreenAssetVersion {
 
 // The canonical, operationally-true explainer script (60–120s). No guarantees,
 // no fake testimonials, no unverifiable claims — only how the process works.
+// COMPANY VOICE: the rendered narrator (Matt) speaks as Artifex Labs — "we"/"our" —
+// and NEVER impersonates Jordan. It stays prospect-generic (no site-specific findings).
 export const CANONICAL_EXPLAINER_SCRIPT = [
-  "Hey, I'm Jordan with Artifex Labs.",
+  "Hey, we're Artifex Labs.",
   "If you're on this page, we've identified a specific improvement we believe we can help with.",
   "The idea behind these offers is simple. Instead of a long sales process or a large project, we scope one specific problem, give you a flat price, and clearly explain what we need to complete it.",
   "Once you purchase, you'll get a secure checklist showing anything required from you — like website access, an account invitation, or an approval.",
