@@ -91,12 +91,14 @@ async function runRender(scope: TrustVideoScope): Promise<void> {
   const narrationRevision = trustNarrationRevision(scope);
   const script = trustVideoScript(scope);
 
-  // (a) IDEMPOTENT REUSE — a stored record already bound to the current narration
-  //     revision WITH a durable mp4 key is complete. Never regenerate identical Matt
-  //     narration; short-circuit before touching ElevenLabs or the renderer.
+  // (a) IDEMPOTENT REUSE — a stored record already bound to the current narration revision, WITH a durable
+  //     mp4 key AND the correct LANDSCAPE orientation, is complete. Short-circuit before touching ElevenLabs
+  //     or the renderer. A record that is missing/portrait (wrong media format) does NOT satisfy reuse — it
+  //     re-renders LANDSCAPE, but the downstream voiceover step still REUSES the existing Matt audio (the
+  //     narration revision is unchanged), so no ElevenLabs generation is spent on a format-only re-render.
   const existing = await getMattTrustVideo(scope);
-  if (existing && existing.narrationRevision === narrationRevision && existing.mp4Key) {
-    console.log(JSON.stringify({ scope, status: "READY", reused: true, mp4Key: existing.mp4Key, voiceoverId: existing.voiceoverId, durationSeconds: existing.durationSeconds }, null, 2));
+  if (existing && existing.narrationRevision === narrationRevision && existing.mp4Key && existing.orientation === "landscape") {
+    console.log(JSON.stringify({ scope, status: "READY", reused: true, mp4Key: existing.mp4Key, voiceoverId: existing.voiceoverId, durationSeconds: existing.durationSeconds, orientation: existing.orientation }, null, 2));
     return;
   }
 
@@ -250,7 +252,14 @@ async function main() {
   await runDryRun(scope);
 }
 
-main().catch((e) => {
-  console.error(e?.stack || String(e));
-  process.exit(1);
-});
+main()
+  .then(() => {
+    // Force a clean exit: the postgres pools (repo + cs-storage-pg) keep the event loop alive, so a plain
+    // return would hang the process indefinitely after the work is durably persisted. The record is already
+    // committed at this point — exiting 0 is safe.
+    process.exit(0);
+  })
+  .catch((e) => {
+    console.error(e?.stack || String(e));
+    process.exit(1);
+  });
