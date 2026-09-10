@@ -56,6 +56,13 @@ export async function middleware(req: NextRequest) {
     // Evergreen Quick-Fix trust videos (+ posters): public static assets embedded in
     // the customer offer page, fetched by a prospect with NO session. Non-secret.
     pathname.startsWith("/trust-videos/") ||
+    // Quick-Fix customer-facing served MEDIA embedded in the PUBLIC offer page, fetched with NO session:
+    //   • the evergreen trust/explainer (mp4/poster/captions) — non-secret, generic
+    //   • the offer's PERSONALIZED problem video (mp4/poster/captions) — scoped by the unguessable offerId
+    //     capability + approval/share gate enforced IN-HANDLER. Range-served from durable storage.
+    // Operator Quick-Fix routes (fulfillment, etc.) remain authenticated (this only opens these media paths).
+    pathname.startsWith("/api/quick-fix/trust-video/") ||
+    /^\/api\/quick-fix\/[^/]+\/personalized-video(?:\/|$)/.test(pathname) ||
     // Public legal notices (privacy/access notice + Quick-Fix service terms) linked
     // from the customer offer page and outreach. Static, non-secret, read-only.
     pathname.startsWith("/legal/") ||
