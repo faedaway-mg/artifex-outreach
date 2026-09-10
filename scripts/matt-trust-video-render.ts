@@ -111,6 +111,9 @@ async function runRender(scope: TrustVideoScope): Promise<void> {
     narrationRevision,
     narrationScript: script,
     actor: ACTOR,
+    // The shared evergreen trust asset (§23) — deliberate infra creation, not per-prospect finalist
+    // production, so it is not blocked by the finalist cost gate (still ledger-tracked).
+    authorization: { scope: "trust-video" },
   });
   if (vo.status !== "ready" && vo.status !== "reused") {
     const reason = (vo as { reason?: string }).reason ?? vo.status;

@@ -548,6 +548,14 @@ async function runRealOffer(offerId: string): Promise<void> {
     narrationRevision: narrationDigest,
     narrationScript: storyboard.narrationScript,
     actor: "render-worker",
+    // Per-prospect journey voice — FINALIST-GATED (#202). This render runs for an offer the Lead Sprint
+    // selected as a finalist; the cost gate additionally enforces the enable flag (fail-closed by default,
+    // so no prospect voice spend occurs until paid compute is explicitly enabled). The read-model wiring
+    // will populate this context from the live finalist list.
+    authorization: {
+      scope: "prospect-journey",
+      context: { leadId: offer.leadId, state: "production_finalist", meetsMinimumContract: true, isRankedFinalist: true },
+    },
   });
   if ((vo.status === "ready" || vo.status === "reused") && vo.voiceover.assetKey) {
     voiceoverId = vo.voiceover.id;

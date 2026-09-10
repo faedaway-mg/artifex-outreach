@@ -52,6 +52,8 @@ async function main() {
     actor: "voice-proof",
     // deterministic-ish narrationRevision so re-runs are idempotent (reuse, no extra credits)
     narrationRevision: "proof-rev-1",
+    // Internal operator proof (not a prospect) — hidden admin-recovery scope, not finalist-gated.
+    authorization: { scope: "admin-recovery", operator: "voice-proof" },
   });
 
   const report: Record<string, unknown> = {

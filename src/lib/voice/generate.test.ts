@@ -52,6 +52,8 @@ function baseInput(over: Partial<Parameters<typeof generateLeadVoiceover>[0]> = 
     narrationScript: SCRIPT,
     actor: ACTOR,
     now: "2026-09-09T12:00:00.000Z",
+    // Default scope: trust-video (ungated) so existing reuse/regen/legacy/cap tests are unchanged.
+    authorization: { scope: "trust-video" as const },
     ...over,
   };
 }
@@ -233,5 +235,45 @@ describe("reuse creates no new record (mandate #16 — store side)", () => {
     const reused = await generateLeadVoiceover(baseInput());
     expect(reused.status).toBe("reused");
     expect((await listVoiceovers()).length).toBe(countAfterFirst);
+  });
+});
+
+// ── PAID-COMPUTE GATE on prospect voice generation (mandate §6, §202) ──────────
+describe("paid-compute gate blocks non-finalist prospect voice (§6/§202)", () => {
+  const KEY = "LEAD_SPRINT_PAID_COMPUTE_ENABLED";
+  afterEach(() => { delete process.env[KEY]; });
+
+  const prospect = (over = {}) =>
+    baseInput({
+      leadId: "lead_prospect_gate",
+      authorization: { scope: "prospect-journey", context: { leadId: "lead_prospect_gate", state: "production_finalist", meetsMinimumContract: true, isRankedFinalist: true, ...over } },
+    } as any);
+
+  it("refuses a NEW prospect generation when the gate is disabled (fail-closed)", async () => {
+    const res = await generateLeadVoiceover(prospect());
+    expect(res.status).toBe("gated");
+    expect((res as { reason: string }).reason).toMatch(/GATE_DISABLED|disabled/i);
+  });
+
+  it("allows a prospect generation when enabled AND the candidate is an authorized finalist", async () => {
+    process.env[KEY] = "1";
+    const res = await generateLeadVoiceover(prospect());
+    expect(res.status).toBe("ready"); // mock provider — no real credits
+  });
+
+  it("refuses a non-finalist even when the gate is enabled", async () => {
+    process.env[KEY] = "1";
+    const res = await generateLeadVoiceover(prospect({ isRankedFinalist: false }));
+    expect(res.status).toBe("gated");
+    expect((res as { reason: string }).reason).toMatch(/finalist/i);
+  });
+
+  it("NEVER gates a reuse — a retry reuses the existing voiceover with no spend (§11)", async () => {
+    // Create the asset via an ungated (trust) scope, then retry as a prospect with the gate OFF.
+    await generateLeadVoiceover(baseInput({ leadId: "lead_reuse_gate" }));
+    const res = await generateLeadVoiceover(
+      baseInput({ leadId: "lead_reuse_gate", authorization: { scope: "prospect-journey", context: { leadId: "lead_reuse_gate", state: "production_finalist", meetsMinimumContract: true, isRankedFinalist: true } } } as any),
+    );
+    expect(res.status).toBe("reused"); // reuse returns before the gate — no gating, no spend
   });
 });

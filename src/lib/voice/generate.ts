@@ -30,6 +30,18 @@ import {
   type VoiceoverRecord,
 } from "./store";
 import { computeVoiceUsage, resolveVoiceUsageConfig } from "./usage";
+import { assertPaidComputeAllowed, PaidComputeGateError, type PaidComputeContext } from "../lead-sprint/cost-gate";
+
+// SCOPE-AWARE PAID-COMPUTE AUTHORIZATION (mandate §6, §202). A NEW ElevenLabs generation is metered spend,
+// so the caller must declare its scope. Only per-prospect journey voice is finalist-gated by the cost
+// gate; the shared evergreen trust asset and the intentional social studio are deliberate asset creation
+// (recorded in the cost ledger but not blocked by the per-lead finalist gate). Reuse/legacy paths spend
+// nothing and are never gated. `admin-recovery` is the hidden operator escape hatch.
+export type PaidComputeAuthorization =
+  | { scope: "prospect-journey"; context: PaidComputeContext } // finalist-gated (#202)
+  | { scope: "trust-video" }                                    // evergreen infra — ungated, recorded
+  | { scope: "social" }                                         // social Content Studio — ungated, recorded
+  | { scope: "admin-recovery"; operator: string };              // hidden admin recovery only
 
 export interface GenerateLeadVoiceoverInput {
   leadId: string;
@@ -44,6 +56,9 @@ export interface GenerateLeadVoiceoverInput {
   actor: string;
   /** Explicit operator regeneration — supersedes the prior canonical voiceover. */
   force?: boolean;
+  /** Scope + (for prospects) finalist authorization. A NEW generation without a prospect finalist
+   *  authorization when scope is prospect-journey is refused by the cost gate. */
+  authorization: PaidComputeAuthorization;
   now?: string;
 }
 
@@ -53,6 +68,7 @@ export type GenerateLeadVoiceoverResult =
   | { status: "legacy"; reason: string; voiceKey: string; voiceDisplayName: string }
   | { status: "not_configured"; reason: string }
   | { status: "capped"; reason: string }
+  | { status: "gated"; reason: string }
   | { status: "failed"; reason: string; voiceoverId: string };
 
 // Probe real audio duration via ffprobe; on any failure fall back to a deterministic
@@ -125,6 +141,21 @@ export async function generateLeadVoiceover(input: GenerateLeadVoiceoverInput): 
   const existing = await canonicalVoiceover(input.leadId, revision, voiceKey);
   if (existing && !input.force) {
     return { status: "reused", voiceover: existing, voiceDisplayName: voiceDisplayName(voiceKey) };
+  }
+
+  // A real new generation from here on — it consumes metered ElevenLabs credits. PAID-COMPUTE GATE
+  // (#202): a per-prospect journey generation is refused unless it is an authorized ranked finalist and
+  // the gate is enabled. This runs AFTER the reuse/legacy early-returns, so reuse never trips the gate
+  // (§11: a retry must not re-spend credits). Trust/social/admin scopes are deliberate asset creation.
+  if (input.authorization.scope === "prospect-journey") {
+    try {
+      assertPaidComputeAllowed("elevenlabs-voice", input.authorization.context);
+    } catch (e) {
+      if (e instanceof PaidComputeGateError) {
+        return { status: "gated", reason: `Paid-compute gate refused prospect voice generation (${e.code}): ${e.message}` };
+      }
+      throw e;
+    }
   }
 
   // A real new generation from here on — it needs configuration and consumes quota.

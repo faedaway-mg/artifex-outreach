@@ -38,6 +38,9 @@ export async function POST(req: NextRequest) {
     narrationScript,
     actor: currentActor(),
     force,
+    // Social Content Studio native generation (§17) — deliberate operator creation, not per-prospect
+    // finalist production, so it is not blocked by the paid-compute finalist gate (still ledger-tracked).
+    authorization: { scope: "social" },
   });
 
   // SAFE projection — never leak the raw ElevenLabs voiceId, model, or key.
