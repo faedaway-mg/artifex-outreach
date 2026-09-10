@@ -59,6 +59,7 @@ import type { EvidencePackage, EvidenceScreenshot } from "../src/lib/quick-fix/e
 import type { QuickFixOffer } from "../src/lib/quick-fix/types";
 import { experienceFrameForOffer } from "../src/lib/quick-fix/experience-frame";
 import { generateLeadVoiceover } from "../src/lib/voice/generate";
+import { assertRenderVoiceoverLineage } from "../src/lib/quick-fix/voice-render-orchestration";
 
 const ROOT = process.cwd();
 const FONT_DIR = "file://" + path.join(ROOT, "public", "fonts", "pdf");
@@ -516,9 +517,9 @@ async function runRealOffer(offerId: string): Promise<void> {
     throw new Error(`storyboard not buildable: ${storyboard.blockedReason}`);
   }
 
-  // QUEUED → RENDERING.
+  // QUEUED (auto-enqueued). The RENDERING transition happens AFTER the voiceover is
+  // resolved, so the record is bound to the exact canonical voiceover before any mux.
   await setPersonalizedVideo(offerId, baseRecord, { actor, now: nowIso() });
-  await setPersonalizedVideo(offerId, { ...baseRecord, status: "RENDERING" }, { actor, now: nowIso() });
 
   const plan = buildPersonalizedVideoRenderPlan(storyboard);
   const outDir = path.join(ROOT, "public", "personalized-videos", offerId);
@@ -574,6 +575,18 @@ async function runRealOffer(offerId: string): Promise<void> {
     console.log(JSON.stringify({ mode: "offer", offerId, voiceover: vo.status, note: `${note} — rendering silent` }));
   }
 
+  // LINEAGE (§1): the record entering RENDERING is bound to the EXACT canonical voiceover
+  // we just generated/reused. assertRenderVoiceoverLineage proves the audio about to be
+  // muxed is that exact revision/generation (fail-closed on any mismatch) — a re-recorded
+  // narration or a crossed generation can never be silently rendered into the journey. On a
+  // render/ffmpeg failure the FAILED record keeps this binding so a retry REUSES the audio
+  // and never re-spends ElevenLabs.
+  const boundRecord: PersonalizedDiagnosticVideoRecord = { ...baseRecord, status: "RENDERING", voiceoverId, voiceoverRevision };
+  if (voiceoverId && voiceoverRevision) {
+    assertRenderVoiceoverLineage(boundRecord, { id: voiceoverId, narrationRevision: voiceoverRevision, generation: leadVoiceGeneration });
+  }
+  await setPersonalizedVideo(offerId, boundRecord, { actor, now: nowIso() });
+
   const browser = await chromium.launch();
   try {
     const result = await renderPlanToMp4(browser, plan, provider, outDir, offerId, audioPath);
@@ -622,7 +635,9 @@ async function runRealOffer(offerId: string): Promise<void> {
     await setPersonalizedVideo(offerId, readyRecord, { actor, now: nowIso() });
     console.log(JSON.stringify({ mode: "offer", offerId, reused: false, status: "READY", mp4Url: readyRecord.mp4Url, mp4Key: readyRecord.mp4Key, durableBytes: mp4Put.bytes, voiceoverId, durationSeconds: Math.round(result.durationSeconds * 100) / 100, totalFrames: result.totalFrames, vttCues: result.vttCueCount, idempotencyKey }, null, 2));
   } catch (e) {
-    await setPersonalizedVideo(offerId, { ...baseRecord, status: "FAILED", failureReason: (e as Error).message }, { actor, now: nowIso() });
+    // Keep the voiceover binding on FAILED so a retry REUSES the persisted audio (§1: an
+    // ffmpeg/render failure must never trigger another ElevenLabs generation).
+    await setPersonalizedVideo(offerId, { ...baseRecord, status: "FAILED", voiceoverId, voiceoverRevision, failureReason: (e as Error).message }, { actor, now: nowIso() });
     throw e;
   } finally {
     await browser.close();
