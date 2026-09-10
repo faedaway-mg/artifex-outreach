@@ -34,6 +34,12 @@ export interface MattTrustVideoRecord {
   height?: number;
   orientation?: "landscape" | "portrait";
   aspectRatio?: string;
+  // ── Visual-master lineage (recovery amendment) ───────────────────────────────
+  // When set, the canonical output reuses an APPROVED visual master (e.g. a Lucas explainer) with the Matt
+  // audio swapped in — the animation was intentionally NOT regenerated. Surfaced in the Explainer QA gallery.
+  visualMaster?: string | null;             // e.g. "cta-conversion-v2" (approved Lucas visual)
+  source?: "rendered" | "reuse-visual-master";
+  audioSeconds?: number | null;             // Matt narration length (may be < video length → brand-frame tail)
   createdAt: string;
   updatedAt: string;
 }
