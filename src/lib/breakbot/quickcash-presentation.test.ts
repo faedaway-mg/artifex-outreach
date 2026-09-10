@@ -105,6 +105,21 @@ describe("Breakbot presentation readiness", () => {
     expect(v.issues.filter((i) => i.surface.startsWith("presentation."))).toHaveLength(0);
   });
 
+  it("BLOCKS a PORTRAIT trust explainer — the offer explainer must be landscape 16:9 (format contract §12)", () => {
+    const v = runBreakbotPreflight(withPresentation(readyPresentation({
+      trust: { outcome: "reuse-matt", generation: "current-matt", assetUrl: "/api/quick-fix/trust-video/cta-conversion", mattTrustMissing: false, orientation: "portrait" },
+    })));
+    expect(v.overall).toBe("BLOCKED");
+    expect(surfaces(v)).toContain("presentation.trustResolves");
+  });
+
+  it("a LANDSCAPE Matt trust explainer passes the format contract", () => {
+    const v = runBreakbotPreflight(withPresentation(readyPresentation({
+      trust: { outcome: "reuse-matt", generation: "current-matt", assetUrl: "/api/quick-fix/trust-video/cta-conversion", mattTrustMissing: false, orientation: "landscape" },
+    })));
+    expect(v.issues.filter((i) => i.surface === "presentation.trustResolves")).toHaveLength(0);
+  });
+
   it("BLOCKS a mixed-generation experience (Matt video, Lucas trust)", () => {
     const v = runBreakbotPreflight(withPresentation(readyPresentation({
       personalizedVideo: { ...readyPresentation().personalizedVideo!, voiceGeneration: "current-matt" },

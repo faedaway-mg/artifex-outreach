@@ -1428,6 +1428,7 @@ async function breakbotInputForStoredOffer(stored: store.StoredOffer): Promise<B
         generation: journeyTrust.generation,
         assetUrl: journeyTrust.assetUrl,
         mattTrustMissing: journeyTrust.mattTrustMissing,
+        orientation: journeyTrust.orientation,
       },
       customerAssetUrls: [served.mp4Url, journeyTrust.assetUrl].filter((u): u is string => !!u),
     };

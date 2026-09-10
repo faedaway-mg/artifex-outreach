@@ -36,6 +36,8 @@ export interface ResolvedJourneyTrustVideo {
   script: string;
   /** True ONLY for a Matt journey whose scope has no Matt trust video yet — Breakbot blocks. */
   mattTrustMissing: boolean;
+  /** Media-format contract: the offer/trust explainer must be LANDSCAPE. Null when no asset is bound. */
+  orientation: "landscape" | "portrait" | null;
 }
 
 /**
@@ -68,6 +70,7 @@ export async function resolveJourneyTrustVideo(
       durationSeconds: legacy.asset.durationSeconds,
       script,
       mattTrustMissing: false,
+      orientation: legacy.asset.assetUrl ? "landscape" : null, // legacy explainers are landscape
     };
   }
 
@@ -87,6 +90,7 @@ export async function resolveJourneyTrustVideo(
         durationSeconds: matt.durationSeconds,
         script,
         mattTrustMissing: false,
+        orientation: matt.orientation ?? "landscape", // trust explainer contract → landscape
       };
     }
     // Set claims reuse but the record vanished — treat as prepare-matt (coherent, blocks).
@@ -106,6 +110,7 @@ export async function resolveJourneyTrustVideo(
     durationSeconds: null,
     script,
     mattTrustMissing: true,
+    orientation: null,
   };
 }
 

@@ -276,6 +276,8 @@ export interface BreakbotPreflightInput {
       assetUrl: string | null;
       /** True ONLY for a Matt journey whose Matt trust video is not built yet. */
       mattTrustMissing: boolean;
+      /** Media-format contract: the offer/trust explainer must be LANDSCAPE. Null when no asset is bound. */
+      orientation?: "landscape" | "portrait" | null;
     } | null;
     /** EVERY customer-facing asset URL to scan for raw-storage/secret/filesystem leakage. */
     customerAssetUrls?: string[];
@@ -1304,6 +1306,16 @@ function runPresentationReadinessChecks(
       fix: trust.mattTrustMissing
         ? "Build the Matt trust video for this scope (scripts/matt-trust-video-render.ts), then re-check."
         : "Ensure the resolved trust asset is served from durable storage.",
+    }));
+  } else if (trust.orientation === "portrait") {
+    // §12 media-format contract: the offer/trust EXPLAINER must be LANDSCAPE 16:9. A portrait explainer is
+    // the wrong media role and must NOT count as the canonical finished offer video merely because it plays.
+    issues.push(issue({
+      surface: "presentation.trustResolves",
+      severity: "BLOCKER",
+      expected: "the offer/trust explainer is LANDSCAPE 16:9 (the personalized problem video is portrait — a separate role)",
+      observed: "the resolved trust explainer is PORTRAIT — wrong media format for the offer page",
+      fix: "Re-render the trust explainer in landscape 16:9 (scripts/matt-trust-video-render.ts, 1920×1080) reusing the existing Matt audio.",
     }));
   } else { pass(); }
 
