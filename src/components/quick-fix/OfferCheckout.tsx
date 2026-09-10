@@ -58,6 +58,21 @@ export function OfferCheckout(props: {
     );
   }
 
+  // §16 FAIL-CLOSED: when the offer is not purchasable (e.g. the required explainer video is still being
+  // prepared), NEVER present the price / checkout action. Show a calm "being finalized" hold — no $495
+  // button, no disabled-price affordance implying availability. A valid, ready offer is unaffected.
+  if (!props.purchasable) {
+    return (
+      <div className="rounded-xl border border-amber-400/25 bg-amber-400/[0.06] p-4" data-checkout-hold>
+        <p className="text-[14px] font-semibold text-amber-100">This offer is being finalized</p>
+        <p className="mt-1 text-[13px] leading-relaxed text-chalk-300">Checkout isn&apos;t available yet — we&apos;re getting the last pieces ready. Please check back shortly.</p>
+        <a href={props.bookingUrl} className="mt-3 inline-flex text-[13px] text-azure-300 underline underline-offset-2 hover:text-azure-200">
+          Prefer to talk first? Book a conversation
+        </a>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-3">
       <label className="block">

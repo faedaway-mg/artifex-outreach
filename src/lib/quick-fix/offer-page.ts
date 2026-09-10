@@ -70,7 +70,7 @@ export interface OfferPageModel {
   /** The SECONDARY, evergreen "how the Artifex quick fix works" explainer — supporting
    *  trust content that lives further down the page. It must NEVER occupy the personalized
    *  slot above and is never presented as being about the customer's own site. */
-  trustVideo: { present: boolean; assetUrl: string | null; posterUrl: string | null; captionsUrl: string | null; title: string; durationSeconds: number | null; script: string; version: number | null };
+  trustVideo: { present: boolean; ready: boolean; assetUrl: string | null; posterUrl: string | null; captionsUrl: string | null; title: string; durationSeconds: number | null; script: string; version: number | null };
   requirements: RequirementsChecklist;
   howItWorks: string[];
   integrityPrinciples: string[];
@@ -122,6 +122,14 @@ export function buildOfferPageModel(input: BuildOfferPageInput): OfferPageModel 
   if (input.superseded) reasons.push("a newer version supersedes this offer");
   if (!requirements.items.length) reasons.push("requirements not generated");
   if (!desc.safe) reasons.push("customer-facing copy failed the safety guard");
+
+  // §16 FAIL-CLOSED: a purchasable quick fix REQUIRES a PLAYABLE canonical explainer video. A missing or
+  // not-yet-rendered (script-only) explainer HOLDS the offer — the customer CTA is withheld and a
+  // transcript is NEVER a substitute. `assetUrl` is non-null only when a durable, bound trust asset exists
+  // (resolveJourneyTrustVideo returns it from matt.mp4Url/legacy only when the durable key resolves), so
+  // offers with a valid canonical video are unaffected; the "being prepared" state fails closed.
+  const trustVideoReady = conversationOnly || (!!input.evergreen && !!input.evergreen.assetUrl);
+  if (!trustVideoReady) reasons.push("the explainer video is being prepared");
 
   const purchasable = reasons.length === 0;
   const buyReasons = [...reasons];
@@ -178,6 +186,7 @@ export function buildOfferPageModel(input: BuildOfferPageInput): OfferPageModel 
     personalizedVideo,
     trustVideo: {
       present: !!input.evergreen,
+      ready: trustVideoReady,
       assetUrl: input.evergreen?.assetUrl ?? null,
       posterUrl: input.evergreen?.posterUrl ?? null,
       captionsUrl: input.evergreen?.captionsUrl ?? null,

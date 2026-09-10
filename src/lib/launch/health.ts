@@ -9,6 +9,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import { hasDb, pingDb } from "@/db/client";
 import { storageStatus } from "@/lib/storage";
+import { artifactStoreStatus } from "@/lib/content-studio/storage-factory";
 import { aiMode } from "@/lib/providers/ai";
 import { placesMode } from "@/lib/providers/places";
 import { authConfigOk } from "@/lib/auth-config";
@@ -21,6 +22,9 @@ export interface PlatformHealth {
   generatedAt: string;
   database: { configured: boolean; connected: boolean };
   storage: { provider: string; configured: boolean };
+  /** The DURABLE video/media ArtifactStore (Content Studio) — distinct from `storage` (PDF/screenshot S3).
+   *  `postgres` = durable production; required for servable trust/personalized video assets (§16). */
+  artifactStore: { mode: string; configured: boolean };
   auth: { configured: boolean };
   ai: { mode: string };
   places: { mode: string; configured: boolean };
@@ -48,6 +52,7 @@ export async function platformHealth(now: Date = new Date()): Promise<PlatformHe
   ]);
 
   const store = storageStatus();
+  const artifactStore = artifactStoreStatus();
   const readyCount = readyProviders().length;
   const totalProviders = providers().length;
 
@@ -70,6 +75,7 @@ export async function platformHealth(now: Date = new Date()): Promise<PlatformHe
     generatedAt: now.toISOString(),
     database: { configured: dbConfigured, connected: dbConnected },
     storage: { provider: store.provider, configured: store.configured },
+    artifactStore,
     auth: { configured: authConfigOk() },
     ai: { mode: aiMode().mode },
     places: { mode: placesMode(), configured: Boolean(process.env.GOOGLE_PLACES_API_KEY) },

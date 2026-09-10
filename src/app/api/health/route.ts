@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { hasDb, pingDb } from "@/db/client";
 import { storageStatus } from "@/lib/storage";
+import { artifactStoreStatus } from "@/lib/content-studio/storage-factory";
 import { aiMode } from "@/lib/providers/ai";
 import { placesMode } from "@/lib/providers/places";
 import { authConfigOk } from "@/lib/auth-config";
@@ -27,6 +28,9 @@ export async function GET() {
     time: new Date().toISOString(),
     database: { configured: dbConfigured, connected: dbConnected },
     storage: { provider: store.provider, configured: store.configured },
+    // The DURABLE video/media ArtifactStore (Content Studio) — required for servable trust/personalized
+    // video assets (§16). `postgres` = durable production. Distinct from `storage` (PDF/screenshot S3).
+    artifactStore: artifactStoreStatus(),
     ai: { mode: aiMode().mode },
     auth: { configured: authConfigOk() },
     googlePlaces: {

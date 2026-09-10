@@ -93,6 +93,21 @@ const localStore: ArtifactStore = {
   async del(key) { for (const f of [localPath(key), metaPath(key)]) if (existsSync(f)) await fs.rm(f, { force: true }); },
 };
 
+/**
+ * Non-throwing health probe for the DURABLE video/media ArtifactStore (Content Studio). Reports the
+ * resolved backend + whether it is a durable production store — WITHOUT throwing on a misconfiguration
+ * (so /api/health can surface an honest "unconfigured" instead of 500ing). `postgres` = durable prod
+ * (artifacts live in Postgres, survive restart/redeploy); `local` = durable-on-disk (dev/test only).
+ */
+export function artifactStoreStatus(env: NodeJS.ProcessEnv = process.env): { mode: string; configured: boolean } {
+  try {
+    const mode = resolveStorageMode(env);
+    return { mode, configured: mode === "postgres" };
+  } catch {
+    return { mode: "unconfigured", configured: false };
+  }
+}
+
 // ── Accessor (with test injection) ───────────────────────────────────────────
 let _injected: ArtifactStore | null = null;
 export function __setArtifactStoreForTests(s: ArtifactStore | null) { _injected = s; }
