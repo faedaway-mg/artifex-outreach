@@ -7,6 +7,8 @@ const TABS = [
   { href: "/launch", label: "Dashboard" },
   { href: "/launch/cockpit", label: "Cockpit" },
   { href: "/launch/readiness", label: "Readiness" },
+  { href: "/launch/explainers", label: "Explainers" },
+  { href: "/launch/breakbot", label: "Breakbot" },
   { href: "/launch/health", label: "Health" },
   { href: "/launch/first-100", label: "First 100" },
   { href: "/launch/confidence", label: "Confidence" },

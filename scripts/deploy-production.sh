@@ -58,24 +58,38 @@ else
   echo "  (--skip-build) skipping typecheck/lint/test/build"
 fi
 
-# 3.5 ── Breakbot release-regression gate (Part U) ────────────────────────────
-# Runs the Quick-Cash pre-flight over the 5 golden + 20 failure fixtures and fails
-# closed if any golden stops being READY or any failure stops being caught on its
-# surface. Pure/offline (no DB, no sends). Runs even under --skip-build — it is a
-# release-safety check, not a build step, and it is cheap.
-step "Breakbot release-regression (golden + failure fixtures)"
-pnpm -s tsx "$ROOT/scripts/breakbot-regression.ts" \
-  || fail "Breakbot regression failed — a Quick-Cash experience check regressed. Holding the deploy."
-
-# 3.6 ── Breakbot rendered-browser visual regression (Part Q/T/AD) ──────────────
+# 3.5 ── Breakbot rendered-browser visual regression (Part Q/T/AD) ──────────────
 # Launches headless Chromium over the deterministic layout fixtures at mobile
 # (390×844) + desktop (1440×900) and fails closed if a fixture that must render
 # cleanly is BLOCKED or a deliberately-broken fixture stops being caught (overflow,
 # price-in-hero, sticky-overlap). Requires a local Chromium (Playwright); if the
 # browser genuinely cannot launch, this fails closed rather than silently passing.
+# Runs FIRST so the release-preflight orchestrator (3.6) ingests a fresh verdict.
 step "Breakbot rendered visual regression (mobile + desktop fixtures)"
 pnpm -s tsx "$ROOT/scripts/breakbot-visual.ts" \
   || fail "Breakbot visual regression failed — a rendered layout check regressed (or Chromium could not launch). Holding the deploy."
+
+# 3.6 ── Breakbot RELEASE-PREFLIGHT — the canonical release gate (mandate §1/§20/§31) ──
+# The FINAL AUTHORITY on whether this candidate may deploy. Composes every sub-suite into
+# one Release Readiness Report: regression (golden+failure fixtures) · business invariants ·
+# media TIMELINE QA over every required explainer master (samples the whole runtime — the
+# blank-after-opening class) · explainer coverage · escaped-defect registry · the ingested
+# visual verdict. Fail-closed: any gating suite BLOCKED holds the deploy. A deploy must not
+# happen merely because tests compiled.
+#
+# EMERGENCY BYPASS (§1): only via an explicit, exceptional operator action that leaves an
+# audit record. Never bypassed by default.
+if [ "${BREAKBOT_BYPASS:-0}" = "1" ]; then
+  mkdir -p "$ROOT/artifacts/breakbot-release"
+  printf '{"bypass":true,"sha":"%s","branch":"%s","at":"%s","actor":"%s"}\n' \
+    "$SHA" "$BRANCH" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${USER:-unknown}" \
+    >> "$ROOT/artifacts/breakbot-release/bypass-audit.jsonl"
+  printf '\033[31m  ⚠ BREAKBOT_BYPASS=1 — release gate SKIPPED by explicit operator action. Audit recorded to artifacts/breakbot-release/bypass-audit.jsonl. This is exceptional; the release is NOT Breakbot-verified.\033[0m\n'
+else
+  step "Breakbot release-preflight (canonical release gate)"
+  pnpm -s tsx "$ROOT/scripts/breakbot-release-preflight.ts" \
+    || fail "Breakbot release-preflight BLOCKED the deploy — the release candidate is not usable. Read the Release Readiness Report above; fix the blockers (or, only for a genuine emergency, re-run with BREAKBOT_BYPASS=1 to record an audited bypass)."
+fi
 
 # 4 ── Pending DB migrations ──────────────────────────────────────────────────
 step "Checking pending database migrations"

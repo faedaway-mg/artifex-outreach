@@ -27,7 +27,10 @@
     "breakbot:batch": "tsx scripts/breakbot-batch.ts",
     "breakbot:recheck": "tsx scripts/breakbot-recheck.ts",
     "personalized-video:render": "tsx scripts/personalized-video-render.ts",
-    "offers:regenerate-stale": "tsx scripts/regenerate-stale-offers.ts"
+    "offers:regenerate-stale": "tsx scripts/regenerate-stale-offers.ts",
+    "breakbot:release-preflight": "tsx scripts/breakbot-release-preflight.ts",
+    "breakbot:explainer-qa": "tsx scripts/breakbot-explainer-qa.ts",
+    "breakbot:journeys": "tsx scripts/breakbot-journeys.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.693.0",
