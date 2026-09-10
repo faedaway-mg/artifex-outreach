@@ -145,6 +145,27 @@ export interface JobRecord {
   accessState?: Record<string, AccessItemState>;
   qaState?: Record<string, QaItemState>;
   evidence?: EvidenceItem[];
+  /** Structured scope-complication decision (§22). When status==="open" the purchased scope stays FROZEN
+   *  (offer.scope is never mutated) and the customer portal surfaces "Additional Decision Needed". Absent
+   *  until a complication is raised. Reuses the ScopeGate concept but persists the decision→resolution arc. */
+  scopeDecision?: PersistedScopeDecision;
+}
+
+/** Persisted, customer-safe scope-complication decision. offer.scope remains the frozen purchased promise. */
+export interface PersistedScopeDecision {
+  status: "open" | "resolved";
+  /** Customer-safe description of what Artifex discovered. */
+  discovered: string;
+  /** What the original purchased scope still covers (frozen). */
+  insideScope: string;
+  /** What falls OUTSIDE the purchased scope (never silently absorbed). */
+  outsideScope: string;
+  /** Customer-safe options for the decision. */
+  options: string[];
+  recommendedRoute: "PROCEED" | "DIFFERENT_SKU" | "FIX_SCAN" | "CONVERSATION" | "REFUND_OR_CANCEL" | null;
+  raisedAt: string;
+  decision?: string | null;   // the chosen option (simulated in fixtures)
+  decidedAt?: string | null;
 }
 
 export interface QuickFixState {
@@ -199,6 +220,13 @@ async function mutate(fn: (s: QuickFixState) => void): Promise<QuickFixState> {
   fn(s);
   await saveState(s);
   return s;
+}
+
+/** TEST ONLY: wipe the quick-fix substate via the store's OWN persistence path, so it reliably clears
+ *  regardless of settings module-instance duplication (the general __resetStoreForTests does not reach
+ *  the quickFix namespace). Fixtures call this in beforeEach for a genuinely empty fulfillment store. */
+export async function __resetQuickFixForTests(): Promise<void> {
+  await saveState({ ...EMPTY, offers: {}, jobs: {}, customers: {}, commerce: {}, processedEvents: [], terms: {}, credits: {}, maintenanceConsents: {}, evergreen: [] });
 }
 
 // ── Offers ─────────────────────────────────────────────────────────────────────
@@ -646,6 +674,49 @@ export async function setQaItem(offerId: string, itemId: string, done: boolean, 
     out = job;
   });
   if (changed) await appendAudit({ action: "quickfix.qa_item", actor: "operator", targetType: "quickfix_job", targetId: offerId, meta: { itemId, done }, ip: null });
+  return out;
+}
+
+/**
+ * Raise a scope complication (§22). Records a customer-safe decision on the job WITHOUT mutating the
+ * frozen purchased scope (offer.scope is never touched). Audited — the first half of the decision arc.
+ */
+export async function raiseScopeException(
+  offerId: string,
+  input: Omit<PersistedScopeDecision, "status" | "raisedAt" | "decision" | "decidedAt">,
+  opts: { now?: string; actor?: string } = {},
+): Promise<JobRecord | null> {
+  const now = opts.now ?? new Date().toISOString();
+  let out: JobRecord | null = null;
+  await mutate((s) => {
+    const job = s.jobs[offerId];
+    if (!job) return;
+    job.scopeDecision = { ...input, status: "open", raisedAt: now, decision: null, decidedAt: null };
+    job.updatedAt = now;
+    out = job;
+  });
+  if (out) await appendAudit({ action: "quickfix.scope_exception_raised", actor: opts.actor ?? "operator", targetType: "quickfix_job", targetId: offerId, meta: { outsideScope: input.outsideScope, recommendedRoute: input.recommendedRoute }, ip: null });
+  return out;
+}
+
+/** Resolve an open scope complication with the (simulated) customer decision. Audited — the second half. */
+export async function resolveScopeException(
+  offerId: string,
+  decision: string,
+  opts: { now?: string; actor?: string } = {},
+): Promise<JobRecord | null> {
+  const now = opts.now ?? new Date().toISOString();
+  let out: JobRecord | null = null;
+  let changed = false;
+  await mutate((s) => {
+    const job = s.jobs[offerId];
+    if (!job || !job.scopeDecision || job.scopeDecision.status === "resolved") { out = job ?? null; return; }
+    job.scopeDecision = { ...job.scopeDecision, status: "resolved", decision, decidedAt: now };
+    job.updatedAt = now;
+    changed = true;
+    out = job;
+  });
+  if (changed) await appendAudit({ action: "quickfix.scope_exception_resolved", actor: opts.actor ?? "customer", targetType: "quickfix_job", targetId: offerId, meta: { decision }, ip: null });
   return out;
 }
 

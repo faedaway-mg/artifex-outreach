@@ -9,7 +9,8 @@
 // error traces, the technician runbook/workspace, or any other customer's data.
 // ─────────────────────────────────────────────────────────────────────────────
 import * as store from "./store";
-import { getBusinessIntelligence } from "../repo";
+import type { PersistedScopeDecision } from "./store";
+import { getBusinessIntelligence, listAudit } from "../repo";
 import { buildAccessCenter, accessCloseoutGuidance, normalizePlatform, type Platform } from "./fulfillment-center";
 import { persistedCompletionReport } from "./fulfillment-gates";
 import type { QuickFixOffer, JobState } from "./types";
@@ -53,6 +54,59 @@ export interface CustomerPortalView {
   } | null;
   /** The revision deadline sentence (from the offer's revision policy + delivery). */
   revisionDeadline: string;
+  /** Customer-safe activity timeline (§9) — DERIVED from canonical audit history; auto-updates on every
+   *  fulfillment transition. Internal noise (retries/QA-items/evidence/operator internals) is excluded. */
+  timeline: Array<{ at: string; label: string }>;
+  /** §22 scope complication. Non-null ONLY when a decision is open: the purchased scope stays frozen and
+   *  the portal shows "Additional Decision Needed" with customer-safe options. */
+  decisionNeeded: {
+    discovered: string;
+    insideScope: string;
+    outsideScope: string;
+    options: string[];
+  } | null;
+}
+
+// Customer-SAFE audit → timeline mapping. Any action not listed here (runbook steps, QA items, evidence
+// uploads, operator internals, prospect/outreach events) is DROPPED — never shown to the customer.
+const ADVANCE_LABEL: Record<string, string> = {
+  READY_FOR_FULFILLMENT: "Getting started",
+  IN_PROGRESS: "Implementation started",
+  QA: "Testing started",
+  DELIVERED: "Fix completed",
+  COMPLETE: "Project completed",
+};
+
+/** Build the customer-safe timeline from the canonical audit log for this offer + the job's purchase. */
+export async function customerTimeline(offerId: string, job: { purchasedAt: string | null }): Promise<Array<{ at: string; label: string }>> {
+  const audits = await listAudit(500).catch(() => []);
+  const events: Array<{ at: string; label: string }> = [];
+  if (job.purchasedAt) events.push({ at: job.purchasedAt, label: "Order confirmed" });
+  for (const a of audits) {
+    if (a.targetId !== offerId) continue;
+    let label: string | null = null;
+    if (a.action === "quickfix.intake_completed") label = "Access received";
+    else if (a.action === "quickfix.access_item") {
+      const s = String((a.meta as any)?.status ?? "");
+      if (s === "REQUESTED") label = "Access requested";
+      else if (s === "RECEIVED" || s === "VERIFIED") label = "Access received";
+    } else if (a.action === "quickfix.fulfillment_advanced") {
+      label = ADVANCE_LABEL[String((a.meta as any)?.to ?? "")] ?? null;
+    } else if (a.action === "quickfix.scope_exception_raised") label = "Additional decision needed";
+    else if (a.action === "quickfix.scope_exception_resolved") label = "Decision received — work resumed";
+    if (label) events.push({ at: a.createdAt, label });
+  }
+  // Sort ascending, then collapse consecutive duplicate labels (e.g. two "Access received").
+  events.sort((x, y) => (x.at < y.at ? -1 : x.at > y.at ? 1 : 0));
+  const out: Array<{ at: string; label: string }> = [];
+  for (const e of events) if (out[out.length - 1]?.label !== e.label) out.push(e);
+  return out;
+}
+
+/** Project the persisted scope decision to the customer-safe "Additional Decision Needed" block (open only). */
+function decisionNeededView(sd: PersistedScopeDecision | undefined): CustomerPortalView["decisionNeeded"] {
+  if (!sd || sd.status !== "open") return null;
+  return { discovered: sd.discovered, insideScope: sd.insideScope, outsideScope: sd.outsideScope, options: sd.options };
 }
 
 const STAGE_ORDER: PortalStage[] = ["PURCHASED", "ACCESS_NEEDED", "WORKING", "TESTING", "COMPLETE"];
@@ -128,6 +182,14 @@ export async function buildCustomerPortalView(seg: string): Promise<CustomerPort
 
   const intakeHref = `/offer/${offer.shareToken ?? offerId}/intake`;
 
+  // §22 — when a scope complication is OPEN, the customer's dominant action becomes the decision (the
+  // purchased scope is never silently expanded); otherwise the normal per-stage action applies.
+  const decisionNeeded = decisionNeededView(job.scopeDecision);
+  const currentAction = decisionNeeded
+    ? { headline: "Additional decision needed", detail: `We found something outside your purchased fix: ${decisionNeeded.outsideScope}. Your original fix is unchanged — choose how you'd like to proceed.` }
+    : currentActionFor(stage, access.length > 0, intakeHref);
+  const timeline = await customerTimeline(offerId, job);
+
   return {
     offerId,
     company: offer.companyName,
@@ -137,7 +199,7 @@ export async function buildCustomerPortalView(seg: string): Promise<CustomerPort
     stage,
     stageIndex,
     stages,
-    currentAction: currentActionFor(stage, access.length > 0, intakeHref),
+    currentAction,
     includedItems: offer.scope.includedItems,
     turnaround: offer.scope.deliveryWindow,
     revisionPolicy: offer.scope.revisionPolicy,
@@ -153,6 +215,8 @@ export async function buildCustomerPortalView(seg: string): Promise<CustomerPort
       ? { issue: report.issue, changes: report.changes, verification: report.verification, beforeRef: report.beforeRef, afterRef: report.afterRef, completedAt: report.completedAt }
       : null,
     revisionDeadline: revisionDeadlineSentence(offer.scope.revisionPolicy, delivered ? job.updatedAt : job.targetDeliveryAt),
+    timeline,
+    decisionNeeded,
   };
 }
 

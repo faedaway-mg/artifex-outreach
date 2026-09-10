@@ -44,6 +44,30 @@ export function CustomerPortalView({ view }: { view: PortalView }) {
         <StageRail stages={view.stages} />
       </section>
 
+      {/* §22 Additional Decision Needed — shown prominently; the purchased scope stays frozen below. */}
+      {view.decisionNeeded && (
+        <section className="card border-amber-400/30 bg-amber-400/[0.06] p-4">
+          <h2 className="text-sm font-semibold text-amber-200">Additional decision needed</h2>
+          <p className="mt-1.5 text-[13px] leading-relaxed text-chalk-300">{view.decisionNeeded.discovered}</p>
+          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+            <div className="rounded-lg bg-white/[0.03] p-3">
+              <p className="text-[11px] font-medium text-teal-300">Included in your purchase</p>
+              <p className="mt-0.5 text-[12px] text-chalk-400">{view.decisionNeeded.insideScope}</p>
+            </div>
+            <div className="rounded-lg bg-white/[0.03] p-3">
+              <p className="text-[11px] font-medium text-amber-300">Outside your purchase</p>
+              <p className="mt-0.5 text-[12px] text-chalk-400">{view.decisionNeeded.outsideScope}</p>
+            </div>
+          </div>
+          {view.decisionNeeded.options.length > 0 && (
+            <ul className="mt-3 space-y-1.5">
+              {view.decisionNeeded.options.map((o, i) => <li key={i} className="flex gap-2 text-[13px] text-chalk-300"><span className="text-azure-300">→</span>{o}</li>)}
+            </ul>
+          )}
+          <p className="mt-3 text-[11px] text-chalk-500">Your original fix is unchanged. Nothing outside it happens without your say-so.</p>
+        </section>
+      )}
+
       {/* What we're fixing (frozen purchased scope) */}
       <section className="card p-4">
         <h2 className="text-sm font-semibold text-chalk-100">What we&apos;re fixing</h2>
@@ -113,6 +137,24 @@ export function CustomerPortalView({ view }: { view: PortalView }) {
             </>
           )}
           <p className="mt-3 text-[11px] text-chalk-500">Completed {view.completionReport.completedAt} · {view.accessCloseout}</p>
+        </section>
+      )}
+
+      {/* Project activity (customer-safe timeline) */}
+      {view.timeline.length > 0 && (
+        <section className="card p-4">
+          <h2 className="text-sm font-semibold text-chalk-100">Project activity</h2>
+          <ol className="mt-3 space-y-2.5">
+            {view.timeline.map((e, i) => (
+              <li key={i} className="flex gap-3 text-[13px]">
+                <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-azure-400/70" />
+                <div className="min-w-0">
+                  <p className="text-chalk-200">{e.label}</p>
+                  <p className="text-[11px] text-chalk-500">{new Date(e.at).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</p>
+                </div>
+              </li>
+            ))}
+          </ol>
         </section>
       )}
 
