@@ -43,6 +43,7 @@ import {
 import { getArtifactStore } from "../src/lib/content-studio/storage-factory";
 import { buildObjectKey } from "../src/lib/content-studio/cs-object-key";
 import { csEnvironment } from "../src/lib/content-studio/env-guard";
+import { voiceGeneration } from "../src/lib/voice/registry";
 
 const ROOT = process.cwd();
 const ACTOR = "matt-trust-render";
@@ -125,6 +126,14 @@ async function runRender(scope: TrustVideoScope): Promise<void> {
     process.exit(3);
   }
   const voiceoverId = vo.voiceover.id;
+
+  // (b.1) GENERATION COHERENCE — the bound audio MUST be current-matt. Never bind Lucas
+  //       (or any non-Matt) audio as a Matt trust asset. Fail-closed before any render.
+  const boundGeneration = voiceGeneration(vo.voiceover.voiceKey);
+  if (boundGeneration !== "current-matt") {
+    console.error(JSON.stringify({ scope, status: "BLOCKED", voiceKey: vo.voiceover.voiceKey, generation: boundGeneration, reason: "trust voiceover is not current-matt", note: "A Matt trust video may ONLY bind Matt audio — never cross generations." }, null, 2));
+    process.exit(3);
+  }
 
   // (c) Read the Matt audio bytes from the ArtifactStore → a temp file for the mux.
   const store = getArtifactStore();

@@ -109,12 +109,27 @@ describe("caption truth model", () => {
       if (vttExists) expect(a.captionsUrl).toBeNull();
     }
   });
-  it("19. the company narrator never claims to be Jordan", () => {
+  it("19. the company narrator never uses personal-identity language (§2 full audit)", () => {
+    // §2: audit the ENTIRE script for personal identity language. The synthetic Matt
+    // narrator speaks as Artifex Labs ("we"/"our"), never as an individual.
+    const PERSONAL_IDENTITY = [
+      /\bI'?m Jordan\b/i,
+      /\bI am Jordan\b/i,
+      /\bI'?m Jordan with Artifex\b/i,
+      /\bhi,? I'?m\b/i,
+      /\bhello,? I'?m\b/i,
+      /\bmy name is\b/i,
+      /\bI'?m the (founder|owner|ceo)\b/i,
+    ];
     for (const scope of SCOPES) {
       const script = trustVideoScript(scope);
-      expect(script, scope).not.toMatch(/\bI'?m Jordan\b/i);
-      expect(script, scope).not.toMatch(/\bI am Jordan\b/i);
+      for (const rx of PERSONAL_IDENTITY) {
+        expect(script, `${scope} :: ${rx}`).not.toMatch(rx);
+      }
+      // Speaks in the company voice.
+      expect(script, scope).toMatch(/\bwe'?re\b|\bwe\b|\bour\b/i);
     }
+    // The approved company-voice opening.
     expect(trustSrc).toContain("We're Artifex Labs");
   });
   it("20. the final-audio / caption version relationship is stored on every asset", () => {
