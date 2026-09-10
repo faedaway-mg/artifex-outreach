@@ -70,6 +70,8 @@ describe("auditSendInfrastructure — facts only, no secrets", () => {
         typeof v === "boolean" ||
         typeof v === "number" ||
         (k === "provider" && v === "resend") ||
+        (k === "transactionalProvider" && v === "resend") ||
+        (k === "prospectTransport" && v === "google-workspace") ||
         (k === "replyToBehavior" && v === "mirrors-from");
       expect(isSafe, `field ${k}=${String(v)} must be a boolean/number/known-enum`).toBe(true);
     }

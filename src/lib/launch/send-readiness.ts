@@ -14,6 +14,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import type { Settings } from "@/lib/types";
 import { GLOBAL_DAILY_CAP } from "@/lib/acquisition/daily-cap";
+import { googleConfigPresence } from "@/lib/comms/google-workspace/config";
 
 /** A permissive env view: only presence matters, and tests inject partial objects. */
 export type EnvLike = Record<string, string | undefined>;
@@ -30,8 +31,23 @@ export interface AuditSettingsInput {
  * address: every configuration presence is a boolean.
  */
 export interface SendInfrastructureAudit {
+  // ── Cold PROSPECT transport (the Google Workspace lanes — NEVER Resend) ──────
+  /** The sole cold prospect-outbound transport. Resend can never carry cold acquisition mail. */
+  prospectTransport: "google-workspace";
+  /** OAuth app + at least one full lane (address + refresh token) → cold outreach CAN send. */
+  prospectTransportConfigured: boolean;
+  /** Number of fully-configured prospect lanes (address + refresh token both present). */
+  prospectLanesConfigured: number;
+  // ── TRANSACTIONAL provider (Resend) — receipts/confirmations; does NOT gate prospect sending ──
+  /** The transactional-only provider. Its health is independent of prospect readiness. */
+  transactionalProvider: "resend";
+  /** RESEND_API_KEY present → the TRANSACTIONAL transport can send (receipts, confirmations). */
+  transactionalConfigured: boolean;
+
+  /** @deprecated Legacy alias of `transactionalProvider` (Resend is transactional-only now). */
   provider: "resend";
-  /** RESEND_API_KEY present → the transport CAN send (subject to the gates below). */
+  /** @deprecated Legacy alias of `transactionalConfigured` — RESEND_API_KEY present. Prospect sending
+   *  does NOT depend on this; the Google Workspace lanes are the cold transport. */
   sendConfigured: boolean;
   /** A From identity resolves (RESEND_FROM present OR settings.contactEmail present). */
   fromIdentityConfigured: boolean;
@@ -85,7 +101,16 @@ export async function auditSendInfrastructure(
   const postalAddressConfigured =
     present(env.COMMS_POSTAL_ADDRESS) || present(settings?.businessAddress ?? undefined);
 
+  // Cold prospect transport = the Google Workspace lanes (config presence only; live lane HEALTH is
+  // evaluated by the Launch Readiness gate via prospectLanesView). Pure w.r.t. the world.
+  const google = googleConfigPresence(env as NodeJS.ProcessEnv);
+
   return {
+    prospectTransport: "google-workspace",
+    prospectTransportConfigured: google.transportConfigured,
+    prospectLanesConfigured: google.configuredSenderCount,
+    transactionalProvider: "resend",
+    transactionalConfigured: present(env.RESEND_API_KEY),
     provider: "resend",
     sendConfigured: present(env.RESEND_API_KEY),
     fromIdentityConfigured,

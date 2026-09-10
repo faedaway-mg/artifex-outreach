@@ -37,7 +37,7 @@ export function evaluateFirstSendGate(c: FirstSendConditions): FirstSendVerdict 
   const checks: GateCheck[] = [
     { key: "provenance", label: "Source provenance exact (runtime == deployed commit)", ok: c.sourceProvenanceExact, detail: c.sourceProvenanceExact ? "runtime reports a known commit matching the deploy" : "runtime commit unknown / mismatched" },
     { key: "legacy_frozen", label: "Legacy cold outreach frozen", ok: c.legacyOutreachFrozen, detail: c.legacyOutreachFrozen ? "frozen by default" : "legacy path is NOT frozen" },
-    { key: "google_transport", label: "Google primary transport configured", ok: c.googleTransportConfigured, detail: c.googleTransportConfigured ? "Google Workspace configured + primary" : "Google transport not configured/primary" },
+    { key: "google_transport", label: "Google Workspace prospect lanes configured", ok: c.googleTransportConfigured, detail: c.googleTransportConfigured ? "Google Workspace lanes configured (the sole cold transport)" : "Google Workspace prospect lanes not configured" },
     { key: "stripe_live", label: "Stripe live-capable", ok: c.stripeLiveCapable, detail: c.stripeLiveCapable ? "live secret present" : "Stripe not live-capable" },
     { key: "legal", label: "Quick-Fix legal gate approved", ok: c.legalApproved, detail: c.legalApproved ? "QUICKFIX_LEGAL_APPROVED=true" : "legal gate not approved" },
     { key: "strict_qualification", label: "Strict qualification active", ok: c.strictQualificationActive, detail: c.strictQualificationActive ? "full funnel gating enforced" : "strict qualification inactive" },
@@ -61,6 +61,7 @@ export async function firstSendGateView(): Promise<FirstSendVerdict> {
   const inventory = await quickCashInventory().catch(() => null);
   const sendableInventory = inventory?.funnel.highConfidenceSendable ?? 0;
 
+  const { googleTransportConfigured } = await import("../comms/google-workspace/config");
   const commit = process.env.APP_VERSION ?? process.env.RAILWAY_GIT_COMMIT_SHA ?? "unknown";
   const stripeKey = process.env.STRIPE_SECRET_KEY ?? "";
 
@@ -69,7 +70,9 @@ export async function firstSendGateView(): Promise<FirstSendVerdict> {
     // proof (health SHA == git HEAD) is asserted externally by the deploy smoke test.
     sourceProvenanceExact: commit !== "unknown" && commit.length >= 7,
     legacyOutreachFrozen: legacyColdOutreachFrozen(),
-    googleTransportConfigured: (process.env.OUTREACH_PRIMARY_TRANSPORT ?? "").toLowerCase() === "google" && !!process.env.GOOGLE_WORKSPACE_SENDER_1,
+    // Cold prospect outreach rides the Google Workspace lanes and ONLY those; readiness = lanes
+    // actually configured (OAuth app + at least one sender+token), independent of any legacy toggle.
+    googleTransportConfigured: googleTransportConfigured(),
     stripeLiveCapable: stripeKey.startsWith("sk_live_") || stripeKey.startsWith("rk_live_"),
     legalApproved: (process.env.QUICKFIX_LEGAL_APPROVED ?? "").toLowerCase() === "true",
     strictQualificationActive: true, // enforced in the qualification funnel code path

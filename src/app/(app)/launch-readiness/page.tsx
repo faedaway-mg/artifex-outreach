@@ -5,6 +5,7 @@
 import { computeLaunchReadiness } from "@/lib/launch/launch-readiness";
 import { getSettings } from "@/lib/repo";
 import { StatusPill } from "@/components/launch/LaunchUI";
+import { TransportArchitecture } from "@/components/TransportArchitecture";
 import type { CheckStatus } from "@/lib/launch/types";
 
 export const dynamic = "force-dynamic";
@@ -100,6 +101,10 @@ export default async function LaunchReadinessPage() {
         <Fact label="Autosend enabled (OFF by default)" ok={a.autosendEnabled} goodWhenFalse />
         <Fact label="Operator sending enabled" ok={a.sendingEnabled} />
       </div>
+
+      {/* Transport architecture — which mail system does which job (prospect lanes /
+          transactional / business mailbox). Non-secret read-model; never sends. */}
+      <TransportArchitecture />
     </div>
   );
 }

@@ -27,8 +27,10 @@ describe("structural: cold outreach routes through the one compliant transport, 
     expect(src).toContain("buildColdDispatchFromEmail");
     // dispatchStep must not select an arbitrary provider itself.
     expect(src, "dispatch.ts must not call getEmailProvider").not.toMatch(/getEmailProvider\s*\(/);
-    // The ledger names the transport, never a dynamic provider.
-    expect(src).toContain('provider: "resend"');
+    // The ledger names the ONE cold transport (the Google Workspace lanes), never a dynamic provider,
+    // and never Resend (which is transactional-only).
+    expect(src).toContain("provider: PROSPECT_TRANSPORT");
+    expect(src, "cold dispatcher ledger must not hardcode resend").not.toContain('provider: "resend"');
   });
 
   it("Microsoft Graph is NOT an operational dependency of the cold path", () => {
@@ -113,7 +115,11 @@ describe("behavior: compliance is enforced even with the transport configured", 
   });
 
   it("with the transport UNCONFIGURED, a cold step is released (queued), never sent", async () => {
-    delete process.env.RESEND_API_KEY;
+    // "Unconfigured" = the Google Workspace lanes are absent (the sole cold transport). Removing the
+    // Resend key must NOT gate prospect sending — Resend is transactional-only.
+    delete process.env.GOOGLE_WORKSPACE_SENDER_1;
+    delete process.env.GOOGLE_WORKSPACE_REFRESH_TOKEN_1;
+    delete process.env.GOOGLE_OAUTH_CLIENT_ID;
     const rf = resendFetch();
     global.fetch = rf.fn;
     const lead = await seedLead();
@@ -123,6 +129,6 @@ describe("behavior: compliance is enforced even with the transport configured", 
     expect(rf.calls.all).toBe(0);
     const row = await getEmailSendByKey(`step:${step.id}`);
     expect(row!.status).toBe("queued");
-    expect(row!.provider).toBe("resend");   // the ledger names the one transport
+    expect(row!.provider).toBe("google-workspace");   // the ledger names the one cold transport (the lanes)
   });
 });

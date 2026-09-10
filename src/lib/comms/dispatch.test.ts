@@ -57,17 +57,17 @@ describe("dispatchStep — idempotent sending (Phase 2)", () => {
     const { plan, step } = await seedApprovedPlan(lead.id);
     const r = await dispatchStep(step.id);
     expect(r.outcome).toBe("sent");
-    expect(r.providerMessageId).toBe("resend-1"); // truthful state: the real provider message id
+    expect(r.providerMessageId).toBe("gmail-1"); // truthful state: the real Google Workspace message id
     expect(rf.calls.send).toBe(1);
 
     const sends = await emailSendsForPlan(plan.id);
     expect(sends).toHaveLength(1);
     expect(sends[0].status).toBe("sent");
     expect(sends[0].idempotencyKey).toBe(`step:${step.id}`);
-    expect(sends[0].provider).toBe("resend");
+    expect(sends[0].provider).toBe("google-workspace"); // reconciled to the actual cold lane transport
     const after = await getStep(step.id);
     expect(after!.sentAt).toBeTruthy();
-    expect(after!.providerMessageId).toBe("resend-1");
+    expect(after!.providerMessageId).toBe("gmail-1");
   });
 
   it("writes an immutable receipt bound to the business, and marks the lead contacted", async () => {
@@ -83,7 +83,7 @@ describe("dispatchStep — idempotent sending (Phase 2)", () => {
     expect(m.subject).toBeTruthy();
     expect(m.bodySha256).toBe(sha256(m.bodyText)); // body hash matches the recorded (footer-included) body
     expect(m.bodyText).toContain("Artifex Labs Systems LLC"); // compliant footer is part of what shipped
-    expect(m.providerMessageId).toBe("resend-1");
+    expect(m.providerMessageId).toBe("gmail-1");
 
     const after = await getLead(lead.id);
     expect(after!.lastContactAt).toBeTruthy();
@@ -178,7 +178,11 @@ describe("dispatchStep — idempotent sending (Phase 2)", () => {
   });
 
   it("skips (and releases the claim) when the transport is unconfigured — nothing lost", async () => {
-    delete process.env.RESEND_API_KEY;
+    // Cold outreach rides the Google Workspace lanes; "unconfigured" means the LANES are absent (Resend
+    // health is irrelevant to prospect sending). Removing the Resend key must NOT block a cold send.
+    delete process.env.GOOGLE_WORKSPACE_SENDER_1;
+    delete process.env.GOOGLE_WORKSPACE_REFRESH_TOKEN_1;
+    delete process.env.GOOGLE_OAUTH_CLIENT_ID;
     const rf = resendFetch();
     global.fetch = rf.fn;
     const lead = await seedLead();
@@ -188,7 +192,7 @@ describe("dispatchStep — idempotent sending (Phase 2)", () => {
     expect(rf.calls.all).toBe(0); // nothing attempted
     const row = await getEmailSendByKey(`step:${step.id}`);
     expect(row!.status).toBe("queued"); // released for a later configured run
-    expect(row!.provider).toBe("resend");
+    expect(row!.provider).toBe("google-workspace"); // the provisional cold transport recorded at claim
   });
 
   it("skips a suppressed recipient and stops the plan (never sends)", async () => {
@@ -219,15 +223,22 @@ describe("dispatchStep — idempotent sending (Phase 2)", () => {
 
 // A fetch double for Resend that ALSO records the Idempotency-Key header per POST (the shared harness
 // records only bodies). Lets us prove the PROVIDER key is attempt-scoped while the ledger key is stable.
+// Google-aware fetch double: the OAuth token round-trip is not counted; only the Gmail send is. Cold
+// outreach rides the Google Workspace lanes, so `calls.send` counts actual outbound messages.
 function resendFetchWithHeaders(opts: { send?: (n: number) => number } = {}): { fn: typeof fetch; calls: { send: number; idemKeys: string[] } } {
   const calls = { send: 0, idemKeys: [] as string[] };
   const status = opts.send ?? (() => 200);
-  const fn = (async (_url: any, init?: any) => {
+  const fn = (async (url: any, init?: any) => {
+    const u = String(url);
+    if (/oauth2|\/token/.test(u)) {
+      return { ok: true, status: 200, json: async () => ({ access_token: "AT_test", expires_in: 3600 }), text: async () => "{}" };
+    }
     calls.send++;
     const h = (init?.headers ?? {}) as Record<string, string>;
     calls.idemKeys.push(h["Idempotency-Key"] ?? "");
     const r = status(calls.send);
-    return { ok: r < 400, status: r, json: async () => ({ id: `resend-${calls.send}` }), text: async () => `status ${r}` };
+    const isGmail = /gmail/.test(u);
+    return { ok: r < 400, status: r, json: async () => ({ id: isGmail ? `gmail-${calls.send}` : `resend-${calls.send}` }), text: async () => `status ${r}` };
   }) as unknown as typeof fetch;
   return { fn, calls };
 }
@@ -262,13 +273,12 @@ describe("dispatchStep — operator 'Try send again' (config/transient recovery,
     const retry = await dispatchStep(step.id, { operatorRetry: true });
     expect(retry.outcome).toBe("sent");
     expect(rf.calls.send).toBe(1); // exactly one delivery
-    expect(rf.calls.idemKeys[0]).toBe(`step:${step.id}:a2`); // attempt-scoped provider key (2nd attempt)
 
     row = await getEmailSendByKey(`step:${step.id}`);
     expect(row!.status).toBe("sent");
     expect(row!.idempotencyKey).toBe(`step:${step.id}`); // durable ledger key unchanged → lineage + dedup intact
-    expect(row!.attempts).toBe(2);
-    expect(row!.providerMessageId).toBe("resend-1");
+    expect(row!.attempts).toBe(2); // attempt-scoping lives in the durable ledger (the Gmail API has no wire idempotency key)
+    expect(row!.providerMessageId).toBe("gmail-1");
     // The retry is audited.
     expect((await listAudit(50)).some((a) => a.action === "email.send.retry" && a.targetId === lead.id)).toBe(true);
   });

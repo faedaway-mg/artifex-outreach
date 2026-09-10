@@ -62,11 +62,13 @@ describe("ranking — deterministic + gross-profit-per-hour, not price", () => {
 
 describe("navigation — Quick-Cash is the default home, money-loop order", () => {
   it("the shell nav opens Quick-Cash at '/' and exposes Fulfillment + Customers", () => {
-    const src = readFileSync(path.join(process.cwd(), "src/components/Shell.tsx"), "utf8");
-    expect(src).toContain('{ href: "/", label: "Quick-Cash"');
-    expect(src).toContain('label: "Fulfillment"');
-    expect(src).toContain('label: "Customers"');
+    // NAV destinations live in the shared nav-items module (consumed by Shell); TITLES stays in Shell.
+    const nav = readFileSync(path.join(process.cwd(), "src/components/nav-items.ts"), "utf8");
+    expect(nav).toContain('{ href: "/", label: "Quick-Cash"');
+    expect(nav).toContain('label: "Fulfillment"');
+    expect(nav).toContain('label: "Customers"');
     // Today is now a secondary surface, not the home.
+    const src = readFileSync(path.join(process.cwd(), "src/components/Shell.tsx"), "utf8");
     expect(src).toContain('"/today": "Today"');
   });
   it("the legacy Today content moved to /today", () => {

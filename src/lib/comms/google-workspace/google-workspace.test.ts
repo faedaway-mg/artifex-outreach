@@ -255,16 +255,19 @@ describe("canonical boundary with Google primary", () => {
     expect(calls.length).toBe(0); // did NOT fall through to another provider
   });
 
-  it("rollback: with primary=resend, Google is NOT selected even when configured", async () => {
-    delete process.env.OUTREACH_PRIMARY_TRANSPORT; // default resend
-    delete process.env.RESEND_API_KEY; // resend disabled → unconfigured
+  it("cold outreach ALWAYS uses Google (Resend can never carry it), regardless of any legacy toggle", async () => {
+    // The mandate supersedes the old resend-primary rollback: cold prospect mail rides the Google lanes
+    // and ONLY those. A legacy OUTREACH_PRIMARY_TRANSPORT value and the presence/absence of RESEND_API_KEY
+    // are irrelevant to the cold path — Google is configured here, so the send goes via Google.
+    delete process.env.OUTREACH_PRIMARY_TRANSPORT; // legacy "resend" default — now irrelevant to cold
+    delete process.env.RESEND_API_KEY;             // Resend is transactional-only; not a cold transport
     process.env.COMMS_PROSPECT_DELIVERY_ENABLED = "1";
-    const { fn, calls } = mockFetch([{ status: 200, body: {} }]);
+    const { fn, calls } = mockFetch([{ status: 200, body: { access_token: "AT", expires_in: 3600 } }, { status: 200, body: { id: "gmail_send_x" } }]);
     vi.stubGlobal("fetch", fn);
     const res = await submitCompliantDispatch(dispatchReq(), "https://u");
-    expect(res.transport).not.toBe("google-workspace");
-    expect(res.errorCode).toBe("unconfigured");
-    expect(calls.length).toBe(0);
+    expect(res.sent).toBe(true);
+    expect(res.transport).toBe("google-workspace");
+    expect(res.providerMessageId).toBe("gmail_send_x");
   });
 
   it("an injected provider (rehearsal/test) wins and Google is not used", async () => {
@@ -284,5 +287,25 @@ describe("canonical boundary with Google primary", () => {
     expect(res.sent).toBe(true);
     expect(res.transport).toBe("fake");
     expect(calls.length).toBe(0); // no Google fetch
+  });
+
+  it("REFUSES an injected Resend provider for a cold message — fail closed, exact reason, nothing sent", async () => {
+    process.env.COMMS_PROSPECT_DELIVERY_ENABLED = "1";
+    const { fn, calls } = mockFetch([{ status: 200, body: {} }]);
+    vi.stubGlobal("fetch", fn);
+    // A provider NAMED "resend" is the transactional transport — it can never carry a prospect message.
+    const resendLike: EmailProvider = {
+      name: "resend", canSend: true, meta: { name: "resend", mode: "live", fromDomain: null, batchLimit: 1, configured: true },
+      async send() { return { sent: true, providerMessageId: "resend_should_never_be_used" }; },
+      async sendEmail() { return { sent: true, providerMessageId: "x" }; },
+      async sendBatch() { return [{ sent: true, providerMessageId: "x" }]; },
+      async verifyConfiguration() { return { ok: true, issues: [] }; },
+      async healthCheck() { return { ok: true, issues: [] }; },
+    };
+    const res = await submitCompliantDispatch(dispatchReq(), "https://u", { provider: resendLike });
+    expect(res.sent).toBe(false);
+    expect(res.errorCode).toBe("prospect-transport-forbidden");
+    expect(res.reason).toBe("Prospect outreach cannot use transactional Resend transport.");
+    expect(calls.length).toBe(0); // the Resend provider was never contacted
   });
 });

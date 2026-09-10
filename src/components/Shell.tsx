@@ -2,44 +2,22 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import {
-  Search,
-  CalendarClock,
-  Settings as SettingsIcon,
-  LogOut,
-  Command,
-  Mail,
-  Clapperboard,
-  Zap,
-  Wrench,
-  Users,
-} from "lucide-react";
+import { Search, LogOut, Command, Menu, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CommandPalette } from "@/components/CommandPalette";
 import { BrandMark } from "@/components/BrandMark";
+import { NAV, mobilePrimaryNav, mobileOverflowNav } from "@/components/nav-items";
 
-// Hard-simplification (mandate V): ONE shared nav, only the operator-facing surfaces. Everything
-// that is automatic (discovery, pipeline, approvals, scoring, portfolio management, launch, insights,
-// team) lives in the backend and is NOT navigable. Sent & Scheduled is a single destination.
-// Desktop uses descriptive labels; mobile uses SHORT labels that never wrap (mandate part 5). Both route
-// to the same surfaces. Replies = the conversation inbox; Activity = upcoming/sent/needs-attention.
-// Quick-Cash Consolidation: navigation is organized around the MONEY LOOP —
-// sell (Quick-Cash) → fulfil (paid work) → customers (next-best-fix) → replies →
-// activity → content (supporting) → settings. Quick-Cash is the default home ("/").
-// The legacy Today queue is a secondary surface at /today.
-const NAV = [
-  { href: "/", label: "Quick-Cash", short: "Cash", icon: Zap },
-  { href: "/revenue/fulfillment", label: "Fulfillment", short: "Fulfil", icon: Wrench },
-  { href: "/revenue/customers", label: "Customers", short: "Custom", icon: Users },
-  { href: "/meetings", label: "Replies", short: "Replies", icon: CalendarClock },
-  { href: "/sent", label: "Activity", short: "Activity", icon: Mail },
-  { href: "/content-studio", label: "Content Studio", short: "Studio", icon: Clapperboard },
-  { href: "/settings", label: "Settings", short: "Settings", icon: SettingsIcon },
-];
-
-// Mobile bottom bar = the five daily money-loop destinations (Content Studio + Settings
-// remain reachable via ⌘K and the desktop rail; no cramped 7-across bar).
-const MOBILE_PRIMARY = NAV.slice(0, 5);
+// Hard-simplification (mandate V): ONE shared nav (see @/components/nav-items), only the
+// operator-facing surfaces. Everything that is automatic (discovery, pipeline, approvals,
+// scoring, portfolio management, insights, team) lives in the backend and is NOT navigable.
+// Desktop uses descriptive labels; mobile uses SHORT labels that never wrap (mandate part 5).
+//
+// Mobile bottom bar = the first four daily money-loop destinations + a "More" button that
+// opens a sheet listing EVERY remaining destination — including Launch Readiness — so nothing
+// is reachable only by typing a URL, and no horizontal scrolling is required (320–430px safe).
+const MOBILE_PRIMARY = mobilePrimaryNav();
+const MOBILE_OVERFLOW = mobileOverflowNav();
 
 const TITLES: Record<string, string> = {
   "/": "Quick-Cash",
@@ -51,6 +29,7 @@ const TITLES: Record<string, string> = {
   "/blocked": "Automatically excluded",
   "/needs-attention": "Needs attention",
   "/content-studio": "Content Studio",
+  "/launch-readiness": "Launch Readiness",
   "/settings": "Settings",
 };
 
@@ -188,7 +167,9 @@ export function Shell({ children }: { children: React.ReactNode }) {
 
         <main className="mx-auto w-full max-w-container flex-1 px-4 py-6 pb-24 md:px-8 md:py-8 md:pb-8">{children}</main>
 
-        {/* Mobile bottom navigation — the 3 daily destinations + Menu (the full map) */}
+        {/* Mobile bottom navigation — the 4 daily destinations + a "More" button that opens
+            a sheet with EVERY remaining destination (incl. Launch Readiness). No horizontal
+            scrolling; every operator surface is reachable by tap at 320–430px. */}
         <nav className="fixed inset-x-0 bottom-0 z-30 flex items-stretch justify-around glass-1 pb-[env(safe-area-inset-bottom)] md:hidden" aria-label="Primary">
           {MOBILE_PRIMARY.map(({ href, short, icon: Icon }) => {
             const active = isActive(href);
@@ -199,7 +180,60 @@ export function Shell({ children }: { children: React.ReactNode }) {
               </Link>
             );
           })}
+          {MOBILE_OVERFLOW.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setMenuOpen(true)}
+              aria-label="More destinations"
+              aria-haspopup="menu"
+              aria-expanded={menuOpen}
+              className={cn(
+                "flex flex-1 flex-col items-center gap-0.5 py-2.5 text-[10px]",
+                menuOpen || MOBILE_OVERFLOW.some((n) => isActive(n.href)) ? "text-azure-300" : "text-chalk-500",
+              )}
+            >
+              <Menu size={20} strokeWidth={1.7} />
+              <span className="whitespace-nowrap">More</span>
+            </button>
+          )}
         </nav>
+
+        {/* Mobile "More" sheet — the full destination map for everything the bottom bar can't
+            hold. Tappable overlay dismisses; Escape also closes (handled in the keydown effect). */}
+        {menuOpen && (
+          <div className="fixed inset-0 z-40 md:hidden" role="dialog" aria-modal="true" aria-label="All destinations">
+            <button type="button" aria-label="Close menu" className="absolute inset-0 bg-ink-950/70 backdrop-blur-sm" onClick={() => setMenuOpen(false)} />
+            <div className="absolute inset-x-0 bottom-0 glass-1 rounded-t-2xl px-4 pb-[calc(env(safe-area-inset-bottom)_+_1rem)] pt-3">
+              <div className="mb-2 flex items-center justify-between">
+                <span className="text-sm font-semibold text-chalk-100">All destinations</span>
+                <button type="button" aria-label="Close menu" onClick={() => setMenuOpen(false)} className="rounded-lg p-1.5 text-chalk-400 hover:bg-white/[0.06] hover:text-chalk-100">
+                  <X size={18} />
+                </button>
+              </div>
+              <nav className="grid grid-cols-2 gap-2" aria-label="More">
+                {MOBILE_OVERFLOW.map(({ href, label, icon: Icon }) => {
+                  const active = isActive(href);
+                  return (
+                    <Link
+                      key={href}
+                      href={href}
+                      aria-current={active ? "page" : undefined}
+                      className={cn(
+                        "flex items-center gap-3 rounded-xl border px-3 py-3 text-sm transition-colors ring-focus",
+                        active
+                          ? "border-azure-400/30 bg-white/[0.07] text-chalk-50"
+                          : "border-white/[0.06] bg-white/[0.02] text-chalk-300 hover:bg-white/[0.05] hover:text-chalk-100",
+                      )}
+                    >
+                      <Icon size={18} strokeWidth={active ? 2 : 1.7} className={active ? "text-azure-300" : ""} />
+                      {label}
+                    </Link>
+                  );
+                })}
+              </nav>
+            </div>
+          </div>
+        )}
       </div>
 
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />

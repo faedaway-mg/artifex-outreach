@@ -8,9 +8,11 @@
 // compare-and-set status transitions — never from in-memory locks.
 //
 // Cold outreach is COMPLIANT-ONLY: this dispatcher classifies the message, then submits it through the
-// single canonical compliant transport (submitCompliantDispatch → Resend) which enforces the footer,
-// signed unsubscribe, suppression rechecks, recipient gate, and ambiguous protection. It never selects
-// an arbitrary provider and cannot bypass compliance. The acquisition engine never imports this file.
+// single canonical compliant transport (submitCompliantDispatch → the GOOGLE WORKSPACE lanes) which
+// enforces the footer, signed unsubscribe, suppression rechecks, recipient gate, and ambiguous
+// protection. Cold prospect mail can NEVER resolve to the transactional Resend provider (it fails
+// closed). It never selects an arbitrary provider and cannot bypass compliance. The acquisition engine
+// never imports this file.
 // ─────────────────────────────────────────────────────────────────────────────
 import {
   getStep, getPlan, getLead, getSettings, updateStep, updatePlan, stepsForPlan, isSuppressed,
@@ -22,6 +24,8 @@ import { stopPlansForLead } from "../acquisition/stop";
 import { isRejectedLead } from "../outreach/rejection-core";
 import { unsubscribeUrl as hardenedUnsubUrl } from "./commercial-message";
 import { classifyLeadSource, transportRouteFor } from "./transport-policy";
+import { PROSPECT_TRANSPORT } from "./prospect-transport";
+import { googleTransportConfigured } from "./google-workspace/config";
 import { buildColdDispatchFromEmail, submitCompliantDispatch, toFrozenAttachment } from "./outreach-transport";
 import { renderBody } from "./render";
 import { escapeHtml } from "../outreach/email-render";
@@ -47,7 +51,10 @@ export interface DispatchResult {
 const iso = (d: Date) => d.toISOString();
 const keyFor = (stepId: string) => `step:${stepId}`;
 
-/** The verified From address for cold outreach — the configured Resend sender (RESEND_FROM). */
+/** The provisional From recorded on the ledger at CLAIM time. The AUTHORITATIVE From for a cold
+ *  send is the Google Workspace lane the transport selects (server-controlled); this dispatcher
+ *  reconciles the ledger fromAddr + provider to that actual lane after the send returns. RESEND_FROM
+ *  is only a display fallback and is never used to actually deliver cold prospect mail. */
 function senderFrom(settingsEmail: string): string {
   return process.env.RESEND_FROM || settingsEmail;
 }
@@ -123,7 +130,8 @@ export async function dispatchStep(stepId: string, opts: { now?: Date; operatorR
   const claim = await insertEmailSendIfAbsent({
     idempotencyKey: key, stepId: step.id, planId: plan.id, leadId: lead.id,
     toAddr: lead.publicEmail!, fromAddr: from, subject: step.subject,
-    status: "sending", provider: "resend", providerMessageId: null,
+    // Provisional transport recorded at claim; reconciled to the actual Google lane after send.
+    status: "sending", provider: PROSPECT_TRANSPORT, providerMessageId: null,
     attempts: 1, lastError: null, lastErrorCode: null, nextAttemptAt: null,
     queuedAt: nowIso, sendingAt: nowIso, sentAt: null, deliveredAt: null, openedAt: null,
     clickedAt: null, bouncedAt: null, complainedAt: null, unsubscribedAt: null, failedAt: null,
@@ -166,20 +174,21 @@ export async function dispatchStep(stepId: string, opts: { now?: Date; operatorR
     }
   }
 
-  // ── Send (Microsoft Graph ONLY — cold outreach never selects a provider / never Resend) ──────
+  // ── Send (GOOGLE WORKSPACE LANES ONLY — cold outreach never selects a provider / never Resend) ──
   // Classification → routing policy. An Acquisition OS plan/step email is cold outreach (or the
-  // internal-test rehearsal); both route to the compliant Graph transport. Anything that does not
-  // resolve to "graph-compliant" fails closed and is never sent.
+  // internal-test rehearsal); both route to the compliant Google Workspace transport. Anything that
+  // does not resolve to "compliant" fails closed and is never sent.
   const classification = classifyLeadSource(lead.source);
   if (transportRouteFor(classification) !== "compliant") {
     await updateEmailSend(sendRow.id, { status: "failed", failedAt: nowIso, lastError: `route refused for classification ${classification}`, lastErrorCode: "route_refused" });
     return { stepId, outcome: "failed", reason: "message classification is not permitted on the cold-outreach transport", sendId: sendRow.id };
   }
-  if (!process.env.RESEND_API_KEY) {
-    // No transport configured — release the claim back to the queue (not a failure) so a later,
-    // configured run can pick it up. Nothing is lost.
-    await casEmailSendStatus(sendRow.id, "sending", { status: "queued", nextAttemptAt: nowIso, lastError: "resend transport unconfigured", lastErrorCode: "unconfigured" });
-    return { stepId, outcome: "skipped", reason: "resend transport unconfigured", sendId: sendRow.id };
+  // Prospect-transport readiness gate: cold outreach requires the Google Workspace lanes — NOT Resend.
+  // Resend health is deliberately irrelevant here. If the lanes are not configured, release the claim
+  // back to the queue (not a failure) so a later, configured run can pick it up. Nothing is lost.
+  if (!googleTransportConfigured()) {
+    await casEmailSendStatus(sendRow.id, "sending", { status: "queued", nextAttemptAt: nowIso, lastError: "prospect transport (Google Workspace lanes) unconfigured", lastErrorCode: "unconfigured" });
+    return { stepId, outcome: "skipped", reason: "prospect transport (Google Workspace lanes) unconfigured", sendId: sendRow.id };
   }
 
   // The hardened, recipient-bound unsubscribe URL (COMMS_UNSUBSCRIBE_SECRET + public base). The
@@ -196,9 +205,9 @@ export async function dispatchStep(stepId: string, opts: { now?: Date; operatorR
   // Threading headers ride the MIME message (Message-ID / In-Reply-To / References); List-Unsubscribe
   // is derived from the hardened URL by the compliant transport, not stitched here.
   const threading = threadingHeaders(step, planSteps, domain);
-  // Reply-To follows the SENDING identity, not a separate contact knob, so a recipient
-  // who hits Reply always reaches the monitored mailbox the mail was sent from
-  // (hello@artifexlabs.tech → its Microsoft 365 inbox). Same address as From by design.
+  // Reply-To follows the SENDING identity (the Google Workspace lane that actually sends), not a
+  // separate contact knob, so a recipient who hits Reply reaches the mailbox the mail was sent from.
+  // The transport reconciles this to the selected lane's address; this is the provisional value.
   const replyTo = addressOnly(from);
 
   // The INITIAL outreach email carries the personalized one-page Artifex Quick Review as a
@@ -254,7 +263,7 @@ export async function dispatchStep(stepId: string, opts: { now?: Date; operatorR
   }
 
   // Build the canonical compliant request (CAN-SPAM footer + hardened one-click unsubscribe) and
-  // submit via Microsoft Graph MIME ONLY. The Quick Review PDF (initial sends) rides as a MIME
+  // submit via the GOOGLE WORKSPACE lanes ONLY. The Quick Review PDF (initial sends) rides as a MIME
   // attachment; threading headers keep follow-ups in one conversation. No provider selection, no Resend.
   const htmlBody = html ?? `<div>${escapeHtml(text).replace(/\n/g, "<br>")}</div>`;
   // The attachment can ONLY be a FrozenAttachment minted from the resolved frozen bytes + SHA (runtime
@@ -292,7 +301,13 @@ export async function dispatchStep(stepId: string, opts: { now?: Date; operatorR
   }
 
   if (res.sent) {
-    await updateEmailSend(sendRow.id, { status: "sent", providerMessageId: res.providerMessageId, sentAt: nowIso, nextAttemptAt: null, lastError: null, lastErrorCode: null });
+    // Reconcile the ledger to the ACTUAL transport + sending lane the boundary selected (the
+    // provisional claim recorded the intended cold transport + a placeholder From). This keeps the
+    // send record truthful: which lane sent, and under which transport.
+    const actualFrom = res.senderAddress ?? addressOnly(from);
+    const actualTransport = res.transport ?? PROSPECT_TRANSPORT;
+    const actualReplyTo = res.senderAddress ?? replyTo;
+    await updateEmailSend(sendRow.id, { status: "sent", provider: actualTransport, fromAddr: actualFrom, providerMessageId: res.providerMessageId, sentAt: nowIso, nextAttemptAt: null, lastError: null, lastErrorCode: null });
     await updateStep(step.id, { sentAt: nowIso, providerMessageId: res.providerMessageId, deliveryStatus: "sent" });
     await advancePlan(plan, step);
 
@@ -300,7 +315,7 @@ export async function dispatchStep(stepId: string, opts: { now?: Date; operatorR
     // Append-only; hashed so a later draft regeneration can never rewrite what was sent.
     const receipt: SendReceiptMeta = {
       leadId: lead.id, businessName: lead.businessName,
-      toAddr, fromAddr: from, replyTo,
+      toAddr, fromAddr: actualFrom, replyTo: actualReplyTo,
       subject, bodyText: sentBodyText, bodySha256: sha256(sentBodyText),
       attachmentFilename, attachmentSha256,
       providerMessageId: res.providerMessageId ?? null, sentAt: nowIso,
@@ -319,12 +334,13 @@ export async function dispatchStep(stepId: string, opts: { now?: Date; operatorR
     return { stepId, outcome: "sent", providerMessageId: res.providerMessageId, sendId: sendRow.id };
   }
 
-  // Not sent → decide recovery. An auth error is ACCOUNT-level (expired/invalid
-  // key): it is not the message's fault, so we never permanently fail it — it
-  // stays queued and resumes once the key is fixed ("no communication lost").
-  // Its backoff is capped so it retries promptly after a fix, and it does not
-  // count toward the per-message attempt budget.
-  const accountLevel = res.errorCode === "auth";
+  // Not sent → decide recovery. An ACCOUNT / LANE-CAPACITY condition is not the message's fault, so we
+  // never permanently fail it — it stays queued and resumes once a lane is healthy again ("no
+  // communication lost"). Its backoff is capped so it retries promptly after a fix, and it does not count
+  // toward the per-message attempt budget. This covers: an expired/invalid credential (auth), and every
+  // Google Workspace lane being momentarily capped or cooling down (no-eligible-sender — §5: neither lane
+  // healthy ⇒ HOLD prospect outbound, never lose it).
+  const accountLevel = res.errorCode === "auth" || res.errorCode === "no-eligible-sender";
   const canRetry = accountLevel || (res.retryable === true && sendRow.attempts < MAX_ATTEMPTS);
   if (canRetry) {
     const attemptForBackoff = accountLevel ? Math.min(sendRow.attempts, 6) : sendRow.attempts;

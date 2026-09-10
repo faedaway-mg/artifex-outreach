@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { sendCompliantOutreach, buildOutreachDispatch } from "./outreach-transport";
 import { sha256 } from "./receipt";
-import { configureResendTestEnv, clearResendTestEnv, resendFetch, sentBody } from "./resend-test-harness";
+import { configureResendTestEnv, clearResendTestEnv, resendFetch, sentMime, sentMimeBody, GMAIL_TEST_SENDER } from "./resend-test-harness";
 import type { SendAuthorization } from "../outreach/review-send-policy";
 import type { Lead } from "../types";
 import type { QuickReview } from "../outreach/quick-review";
@@ -36,22 +36,25 @@ const realFetch = global.fetch;
 beforeEach(() => { configureResendTestEnv({ COMMS_TEST_RECIPIENT: RECIPIENT }); delete process.env.COMMS_PROSPECT_DELIVERY_ENABLED; });
 afterEach(() => { global.fetch = realFetch; clearResendTestEnv(); });
 
-describe("canonical compliant cold-outreach transport (Resend, fail-closed)", () => {
-  it("HAPPY PATH: accepted → ok, and the submitted message carries the footer, postal, List-Unsubscribe, and the authorized PDF", async () => {
+describe("canonical compliant cold-outreach transport (Google Workspace lanes, fail-closed)", () => {
+  it("HAPPY PATH: accepted → ok, and the submitted message carries the footer, postal, List-Unsubscribe, and the authorized PDF — from the Google lane", async () => {
     const rf = resendFetch();
     global.fetch = rf.fn;
     process.env.COMMS_PROSPECT_DELIVERY_ENABLED = "1"; // owner-enabled (or use the test address; here allow the send)
     const res = await sendCompliantOutreach({ leadId: "lead-1", auth }, deps());
     expect(res.ok).toBe(true);
-    expect(res.providerId).toBe("resend-1"); // real provider message id persisted as truthful state
-    const b = sentBody(rf.calls, 1);
-    expect(b.headers["List-Unsubscribe"]).toMatch(/^<https:\/\/.*\/api\/comms\/unsubscribe\?lead=lead-1&t=/);
-    expect(b.headers["List-Unsubscribe-Post"]).toBe("List-Unsubscribe=One-Click");
-    expect(b.text).toContain("Artifex Labs Systems LLC"); // legal identity
-    expect(b.text).toContain("commercial message");
-    expect(b.text).toContain("San Francisco, CA 94105"); // runtime postal
-    expect(b.attachments[0].content_type).toBe("application/pdf"); // authorized PDF attached
-    expect(b.from).toContain("hello@artifexlabs.tech");
+    expect(res.providerId).toBe("gmail-1"); // real Google Workspace message id persisted as truthful state
+    const mime = sentMime(rf.calls, 1);
+    expect(mime).toMatch(/List-Unsubscribe: <https:\/\/[^>\r\n]*\/api\/comms\/unsubscribe\?lead=lead-1&t=/);
+    expect(mime).toContain("List-Unsubscribe-Post: List-Unsubscribe=One-Click");
+    expect(mime).toContain("Content-Type: application/pdf"); // authorized PDF attached
+    // Sent FROM the Google Workspace lane (never hello@ M365, never Resend).
+    expect(mime).toContain(`<${GMAIL_TEST_SENDER}>`);
+    expect(mime).not.toContain("<hello@artifexlabs.tech>");
+    const bodyText = sentMimeBody(rf.calls, 1);
+    expect(bodyText).toContain("Artifex Labs Systems LLC"); // legal identity
+    expect(bodyText).toContain("commercial message");
+    expect(bodyText).toContain("San Francisco, CA 94105"); // runtime postal
   });
 
   it("FAIL-CLOSED no postal address → refused, transport never called", async () => {
@@ -117,14 +120,18 @@ describe("canonical compliant cold-outreach transport (Resend, fail-closed)", ()
     expect(res.ambiguous).toBe(true);
   });
 
-  it("transport unconfigured → refused (never a bare send)", async () => {
-    delete process.env.RESEND_API_KEY;
+  it("prospect transport (Google lanes) unconfigured → refused (never a bare send, never Resend)", async () => {
+    // The Google Workspace lanes are the sole cold transport; removing them fails closed. Removing the
+    // Resend key would NOT (Resend is transactional-only) — so we remove the lanes here.
+    delete process.env.GOOGLE_WORKSPACE_SENDER_1;
+    delete process.env.GOOGLE_WORKSPACE_REFRESH_TOKEN_1;
+    delete process.env.GOOGLE_OAUTH_CLIENT_ID;
     process.env.COMMS_PROSPECT_DELIVERY_ENABLED = "1";
     const rf = resendFetch();
     global.fetch = rf.fn;
     const res = await sendCompliantOutreach({ leadId: "lead-1", auth }, deps());
     expect(res.ok).toBe(false);
-    expect(res.reason).toBe("unconfigured");
+    expect(res.reason).toBe("prospect-transport-unconfigured");
     expect(rf.calls.all).toBe(0);
   });
 

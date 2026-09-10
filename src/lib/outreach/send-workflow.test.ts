@@ -20,7 +20,7 @@ function sendable<T extends { businessProfile: { opportunities: any[] } }>(bi: T
   return bi;
 }
 
-import { configureResendTestEnv, clearResendTestEnv, resendFetch } from "../comms/resend-test-harness";
+import { configureResendTestEnv, clearResendTestEnv, resendFetch, GMAIL_TEST_SENDER } from "../comms/resend-test-harness";
 import { __resetStoreForTests } from "../store";
 import { sendIntroductionAction } from "./send-actions";
 import { deriveOutreachState } from "./state";
@@ -32,9 +32,44 @@ import type { Lead } from "../types";
 // (dispatch.test.ts documents the same caveat). The real outbound sends are Resend /emails bodies:
 // valid email JSON carrying a `to` + `from` + `subject`. Identify them by parsing, and count/inspect
 // only those.
+// Reconstruct the Resend-shaped email object ({from,to,subject,reply_to,text,html,attachments}) from
+// each ACTUAL Gmail send (body = { raw: base64url(MIME) }), so the assertions below read the real
+// outbound message. Cold outreach now rides the Google Workspace lanes; non-email fetches (brand/PDF
+// assets) don't parse to a { raw } MIME and are filtered out.
 function resendEmailBodies(calls: ReturnType<typeof resendFetch>["calls"]): any[] {
+  const decodeB64Part = (mime: string, start: number): string => {
+    const a = mime.indexOf("\r\n\r\n", start);
+    if (a < 0) return "";
+    const rest = mime.slice(a + 4);
+    const end = rest.indexOf("\r\n--");
+    const b64 = (end >= 0 ? rest.slice(0, end) : rest).replace(/\s+/g, "");
+    try { return Buffer.from(b64, "base64").toString("utf8"); } catch { return ""; }
+  };
   return calls.bodies
-    .map((b) => { try { return JSON.parse(b); } catch { return null; } })
+    .map((b) => {
+      let raw: string | undefined;
+      try { raw = JSON.parse(b).raw; } catch { return null; }
+      if (!raw) return null;
+      const mime = Buffer.from(raw, "base64url").toString("utf8");
+      const header = (name: string): string | undefined => { const m = mime.match(new RegExp("^" + name + ": (.*)$", "mi")); return m ? m[1].trim() : undefined; };
+      const subjRaw = header("Subject");
+      const subjM = subjRaw?.match(/=\?UTF-8\?B\?(.*)\?=/i);
+      const subject = subjM ? Buffer.from(subjM[1], "base64").toString("utf8") : subjRaw;
+      const partOf = (ct: string): string | undefined => { const i = mime.indexOf(`Content-Type: ${ct}`); return i < 0 ? undefined : decodeB64Part(mime, i); };
+      // Attachment (application/pdf): capture filename + raw base64 content.
+      const attHeaderIdx = mime.indexOf("Content-Disposition: attachment");
+      let attachments: any[] = [];
+      if (attHeaderIdx >= 0) {
+        const fnM = mime.slice(0, attHeaderIdx + 200).match(/filename="([^"]+)"/);
+        const ctM = mime.slice(Math.max(0, attHeaderIdx - 200), attHeaderIdx).match(/Content-Type: ([^;\r\n]+)/);
+        const a = mime.indexOf("\r\n\r\n", attHeaderIdx);
+        const rest = a >= 0 ? mime.slice(a + 4) : "";
+        const end = rest.indexOf("\r\n--");
+        const content = (end >= 0 ? rest.slice(0, end) : rest).replace(/\s+/g, "");
+        attachments = [{ filename: fnM?.[1], content_type: ctM?.[1]?.trim(), content }];
+      }
+      return { from: header("From"), to: header("To"), reply_to: header("Reply-To"), subject, text: partOf("text/plain"), html: partOf("text/html"), attachments };
+    })
     .filter((j) => j && j.to && j.from && j.subject);
 }
 
@@ -135,18 +170,19 @@ describe("operator edits are the actual send payload", () => {
     expect(content).not.toContain("{{unsubscribe}}");
   });
 
-  it("From and Reply-To both resolve to the monitored hello@ mailbox (replies land in Outlook)", async () => {
-    // RESEND_FROM in this suite is "Artifex Labs <hello@artifexlabs.tech>" (the verified mailbox).
+  it("From and Reply-To both resolve to the Google Workspace lane mailbox (replies land in that lane)", async () => {
+    // Cold prospect outreach rides the Google Workspace lanes; From is the server-controlled lane mailbox
+    // and Reply-To mirrors it, so a recipient's reply returns to the lane that actually sent — NEVER
+    // hello@ (Microsoft 365, the preserved business mailbox) and NEVER Resend.
     const lead = await seedQualifiedLead();
     const bi = sendable(await analyzeBusiness({ lead, findings: [], contacts: [] }));
     await upsertBusinessIntelligence({ leadId: lead.id, profile: bi, enrichmentDelta: null, generatedAt: "2026-07-22T00:00:00.000Z" });
     const r = await sendIntroductionAction(lead.id);
     expect(r.outcome).toBe("sent");
     const email = sentEmail();
-    expect(email.from).toContain("hello@artifexlabs.tech");
-    // Reply-To is the bare sending address, so a recipient's reply returns to that
-    // exact mailbox (its Microsoft 365 inbox), not a divergent contact address.
-    expect(email.reply_to).toContain("hello@artifexlabs.tech");
+    expect(email.from).toContain(GMAIL_TEST_SENDER);
+    expect(email.from).not.toContain("hello@artifexlabs.tech");
+    expect(email.reply_to).toContain(GMAIL_TEST_SENDER);
   });
 
   it("an untouched send is unchanged (blank override falls back to the generated draft)", async () => {
@@ -246,8 +282,8 @@ describe("initial email attaches the Quick Review PDF", () => {
     expect(att?.content_type).toBe("application/pdf");
     // The base64 attachment payload is a real (non-trivial) PDF.
     expect((att?.content ?? "").length).toBeGreaterThan(1000); // base64 of a real PDF
-    // The email still carries From unchanged.
-    expect(email.from).toContain("hello@artifexlabs.tech");
+    // The email is sent from the Google Workspace lane (the sole cold transport).
+    expect(email.from).toContain(GMAIL_TEST_SENDER);
   }, 20000);
 });
 

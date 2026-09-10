@@ -52,8 +52,8 @@ describe("conversationState (Phase 7)", () => {
     const lead = await seedLead();
     const { step1 } = await seedActivePlan(lead.id);
     await dispatchStep(step1.id);
-    // Resend returns a real provider message id (resend-<n>); the send is recorded under it.
-    const pmid = "resend-1";
+    // The Google Workspace lane returns a real Gmail message id (gmail-<n>); the send is recorded under it.
+    const pmid = "gmail-1";
     await applyDeliveryEvent({ type: "delivered", providerMessageId: pmid, at: "2026-07-15T10:00:00Z" });
     await applyDeliveryEvent({ type: "opened", providerMessageId: pmid, at: "2026-07-15T10:05:00Z" });
     await applyDeliveryEvent({ type: "clicked", providerMessageId: pmid, at: "2026-07-15T10:06:00Z" });
@@ -71,7 +71,7 @@ describe("conversationState (Phase 7)", () => {
     const lead = await seedLead();
     const { step1 } = await seedActivePlan(lead.id);
     await dispatchStep(step1.id);
-    await ingestInboundReply({ from: "owner@conv.example", subject: "re", body: "Yes, let's schedule a call", inReplyTo: "resend-1" });
+    await ingestInboundReply({ from: "owner@conv.example", subject: "re", body: "Yes, let's schedule a call", inReplyTo: "gmail-1" });
     let cs = await conversationState(lead.id);
     expect(cs.currentStage).toBe("Replied");
 
@@ -91,7 +91,7 @@ describe("conversationState (Phase 7)", () => {
     const lead = await seedLead();
     const { step1 } = await seedActivePlan(lead.id);
     await dispatchStep(step1.id);
-    const pmid = "resend-1";
+    const pmid = "gmail-1";
     await ingestInboundReply({ from: "owner@conv.example", subject: "auto", body: "I am out of office", inReplyTo: pmid });
     await applyDeliveryEvent({ type: "bounced", providerMessageId: pmid, at: "2026-07-15T11:00:00Z" });
     const cs = await conversationState(lead.id);

@@ -8,7 +8,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import { getSettings, updateSettings } from "../../repo";
 import { configuredSenderIds, listSenderPublic } from "./sender-registry";
-import { senderDailyCap } from "./config";
+import { laneDailyCap, laneEnabled } from "./config";
 
 export interface SenderHealthState {
   date: string; // LA accounting date the counters belong to
@@ -67,23 +67,26 @@ export async function selectSender(args: { leadId?: string; now?: Date; env?: No
   const now = args.now ?? new Date();
   const ids = configuredSenderIds(env);
   if (ids.length === 0) return { ok: false, reason: "no configured Google Workspace senders" };
-  const cap = senderDailyCap(env);
   const date = laDate(now);
   const health = await readHealth();
   const nowIso = now.toISOString();
 
+  // Per-lane eligibility: a lane must be ENABLED, under ITS OWN daily cap, and not cooling down. One
+  // lane's cap/cooldown never spills over to the other — a disabled or capped lane simply contributes no
+  // capacity (no quota transfer).
   const eligible = ids.filter((id) => {
+    if (!laneEnabled(id, env)) return false;
     const st = forDate(health[id], date);
     const cooling = !!st.cooldownUntil && st.cooldownUntil > nowIso;
-    return st.sentToday < cap && !cooling;
+    return st.sentToday < laneDailyCap(id, env) && !cooling;
   });
-  if (eligible.length === 0) return { ok: false, reason: "all configured senders are at their daily cap or cooling down" };
+  if (eligible.length === 0) return { ok: false, reason: "all configured senders are disabled, at their daily cap, or cooling down" };
 
   const idx = args.leadId ? hash(args.leadId) % eligible.length : 0;
   const senderId = eligible[idx];
   const address = listSenderPublic(env).find((s) => s.id === senderId)?.address ?? "";
   const st = forDate(health[senderId], date);
-  return { ok: true, senderId, address, sentToday: st.sentToday, cap };
+  return { ok: true, senderId, address, sentToday: st.sentToday, cap: laneDailyCap(senderId, env) };
 }
 
 /** Record a successful send against a sender (increments the daily count, clears errors). */
@@ -95,13 +98,19 @@ export async function recordSenderSuccess(senderId: string, nowIso: string): Pro
   await writeHealth(health);
 }
 
-/** Record a transport error; after repeated failures the sender enters cooldown. */
+/** Record a transport error; after repeated TRANSIENT failures the sender enters cooldown.
+ *  An AUTH error (expired/revoked credential) is NOT a "flaky lane" signal — cooling down would only
+ *  delay recovery, and the fix is operator-side (rotate the token), not the passage of time. So an auth
+ *  error is surfaced on the lane (lastErrorCode) but never escalates to cooldown; the message is held
+ *  upstream (dispatch account-level) and resumes the instant the credential is fixed. Cooldown is
+ *  reserved for rate/server/transient errors, where backing off genuinely helps. */
 export async function recordSenderError(senderId: string, nowIso: string, code: string): Promise<void> {
   const date = laDate(new Date(nowIso));
   const health = await readHealth();
   const st = forDate(health[senderId], date);
-  const consecutiveErrors = st.consecutiveErrors + 1;
-  const cooldownUntil = consecutiveErrors >= COOLDOWN_ERROR_THRESHOLD ? new Date(new Date(nowIso).getTime() + COOLDOWN_MS).toISOString() : st.cooldownUntil;
+  const isAuth = code === "auth";
+  const consecutiveErrors = isAuth ? st.consecutiveErrors : st.consecutiveErrors + 1;
+  const cooldownUntil = !isAuth && consecutiveErrors >= COOLDOWN_ERROR_THRESHOLD ? new Date(new Date(nowIso).getTime() + COOLDOWN_MS).toISOString() : st.cooldownUntil;
   health[senderId] = { ...st, date, lastErrorAt: nowIso, lastErrorCode: code, consecutiveErrors, cooldownUntil };
   await writeHealth(health);
 }
@@ -118,19 +127,20 @@ export interface SenderHealthRow {
   healthy: boolean;
 }
 
-/** Non-secret snapshot for diagnostics / operator display. */
+/** Non-secret snapshot for diagnostics / operator display. Uses each lane's OWN cap + enabled switch. */
 export async function senderHealthSnapshot(env: NodeJS.ProcessEnv = process.env, now: Date = new Date()): Promise<SenderHealthRow[]> {
-  const cap = senderDailyCap(env);
   const date = laDate(now);
   const nowIso = now.toISOString();
   const health = await readHealth();
   return listSenderPublic(env).map((s) => {
     const st = forDate(health[s.id], date);
     const cooling = !!st.cooldownUntil && st.cooldownUntil > nowIso;
+    const cap = laneDailyCap(s.id, env);
+    const enabled = laneEnabled(s.id, env);
     return {
       id: s.id, address: s.address, sentToday: st.sentToday, cap,
       lastSuccessAt: st.lastSuccessAt, lastErrorAt: st.lastErrorAt, lastErrorCode: st.lastErrorCode,
-      cooldownUntil: st.cooldownUntil, healthy: st.sentToday < cap && !cooling,
+      cooldownUntil: st.cooldownUntil, healthy: enabled && st.sentToday < cap && !cooling,
     };
   });
 }

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { insertLead, insertPlan, insertStep } from "../repo";
 import { dispatchStep } from "../comms/dispatch";
-import { configureResendTestEnv, clearResendTestEnv, resendFetch, sentBody } from "../comms/resend-test-harness";
+import { configureResendTestEnv, clearResendTestEnv, resendFetch, sentMimeBody, sentMimeHtml } from "../comms/resend-test-harness";
 import { __resetStoreForTests } from "../store";
 import type { Lead } from "../types";
 
@@ -51,19 +51,19 @@ afterEach(() => { global.fetch = realFetch; clearResendTestEnv(); vi.restoreAllM
 
 describe("v2 send reuses the real dispatch pipeline", () => {
   it("sends HTML + text through the provider and records the provider id", async () => {
-    const rf = resendFetch(); // 200 = accepted; providerMessageId = the Resend id
+    const rf = resendFetch(); // 200 = accepted; providerMessageId = the Google Workspace (Gmail) id
     global.fetch = rf.fn;
     const lead = await seedLead();
     const step = await seedStep(lead.id);
     const res = await dispatchStep(step.id);
     expect(res.outcome).toBe("sent");
-    expect(res.providerMessageId).toBe("resend-1"); // the real provider message id
+    expect(res.providerMessageId).toBe("gmail-1"); // the real provider message id
     expect(rf.calls.send).toBe(1);
-    // The HTML + text ride the Resend body, with {{unsubscribe}} resolved to a real URL.
-    const body = sentBody(rf.calls, 1);
-    expect(body.html).toContain("<p>Hi there.</p>");
-    expect(body.html).not.toContain("{{unsubscribe}}");
-    expect(body.text).toContain("I spent ten minutes");
+    // The HTML + text ride the Gmail MIME body, with {{unsubscribe}} resolved to a real URL.
+    const html = sentMimeHtml(rf.calls, 1);
+    expect(html).toContain("<p>Hi there.</p>");
+    expect(html).not.toContain("{{unsubscribe}}");
+    expect(sentMimeBody(rf.calls, 1)).toContain("I spent ten minutes");
   });
 
   it("is idempotent — a second dispatch does not send again", async () => {
@@ -79,7 +79,9 @@ describe("v2 send reuses the real dispatch pipeline", () => {
   });
 
   it("never fakes a send when the transport is unconfigured", async () => {
-    delete process.env.RESEND_API_KEY;
+    delete process.env.GOOGLE_WORKSPACE_SENDER_1;
+    delete process.env.GOOGLE_WORKSPACE_REFRESH_TOKEN_1;
+    delete process.env.GOOGLE_OAUTH_CLIENT_ID;
     const rf = resendFetch();
     global.fetch = rf.fn;
     const lead = await seedLead();

@@ -16,6 +16,12 @@ import type { EnvLike } from "./send-readiness";
 // A fully-configured, no-send-by-default environment that should reach GO. Prospect
 // delivery + autosend are OFF (the safe default), which is exactly what the gate wants.
 const GO_ENV: EnvLike = {
+  // Cold PROSPECT transport = the Google Workspace lanes (the sole cold transport).
+  GOOGLE_OAUTH_CLIENT_ID: "gcid_x",
+  GOOGLE_OAUTH_CLIENT_SECRET: "gcs_x",
+  GOOGLE_WORKSPACE_SENDER_1: "outreach-a@artifex-outreach-test.com",
+  GOOGLE_WORKSPACE_REFRESH_TOKEN_1: "grt1_x",
+  // Resend is transactional-only (does NOT gate prospect sending, but kept configured for receipts).
   RESEND_API_KEY: "re_x",
   RESEND_FROM: "Artifex Labs <hello@artifexlabs.tech>",
   RESEND_WEBHOOK_SECRET: "whsec_x",
@@ -51,13 +57,24 @@ describe("computeLaunchReadiness — GO / NO-GO", () => {
     for (const c of r.checks.filter((c) => c.required)) expect(c.ok, `${c.id} should pass`).toBe(true);
   });
 
-  it("NO-GO when the outbound provider is unconfigured", async () => {
-    const { RESEND_API_KEY, ...noProvider } = GO_ENV;
-    void RESEND_API_KEY;
-    const r = await computeLaunchReadiness(noProvider);
+  it("NO-GO when the prospect transport (Google Workspace lanes) is unconfigured", async () => {
+    // Removing the Google lanes fails closed. Note: removing RESEND would NOT (it's transactional-only).
+    const { GOOGLE_OAUTH_CLIENT_ID, GOOGLE_WORKSPACE_SENDER_1, GOOGLE_WORKSPACE_REFRESH_TOKEN_1, ...noLanes } = GO_ENV;
+    void GOOGLE_OAUTH_CLIENT_ID; void GOOGLE_WORKSPACE_SENDER_1; void GOOGLE_WORKSPACE_REFRESH_TOKEN_1;
+    const r = await computeLaunchReadiness(noLanes, { contactEmail: null, businessAddress: null });
     expect(r.state).toBe("NO-GO");
-    expect(check(r, "provider").ok).toBe(false);
-    expect(r.blockers.join(" ")).toMatch(/provider/i);
+    expect(check(r, "prospect-transport").ok).toBe(false);
+    expect(r.blockers.join(" ")).toMatch(/Google Workspace lanes/i);
+  });
+
+  it("Resend being unconfigured does NOT block prospect sending (transactional-only)", async () => {
+    const { RESEND_API_KEY, ...noResend } = GO_ENV;
+    void RESEND_API_KEY;
+    const r = await computeLaunchReadiness(noResend, { contactEmail: null, businessAddress: null });
+    // Prospect readiness stands entirely on the Google lanes — Resend health is advisory.
+    expect(check(r, "prospect-transport").ok).toBe(true);
+    expect(check(r, "transactional-email").required).toBe(false);
+    expect(r.state).toBe("GO");
   });
 
   it("NO-GO when the opt-out path is missing (no unsubscribe secret / no postal)", async () => {
@@ -69,12 +86,14 @@ describe("computeLaunchReadiness — GO / NO-GO", () => {
     expect(check(r, "opt-out").detail).toMatch(/COMMS_UNSUBSCRIBE_SECRET|postal/);
   });
 
-  it("NO-GO when the sender identity is missing (also collapses the reply path)", async () => {
-    const { RESEND_FROM, ...noFrom } = GO_ENV;
-    void RESEND_FROM;
-    const r = await computeLaunchReadiness(noFrom, { contactEmail: null, businessAddress: null });
+  it("NO-GO when the prospect lane sender/token is missing (also collapses the reply path)", async () => {
+    // The cold From is the Google lane mailbox; without a configured lane there is no sender and no
+    // reply path. (RESEND_FROM is irrelevant to prospect outreach now.)
+    const { GOOGLE_WORKSPACE_SENDER_1, GOOGLE_WORKSPACE_REFRESH_TOKEN_1, ...noLaneSender } = GO_ENV;
+    void GOOGLE_WORKSPACE_SENDER_1; void GOOGLE_WORKSPACE_REFRESH_TOKEN_1;
+    const r = await computeLaunchReadiness(noLaneSender, { contactEmail: null, businessAddress: null });
     expect(r.state).toBe("NO-GO");
-    expect(check(r, "sender").ok).toBe(false);
+    expect(check(r, "prospect-transport").ok).toBe(false);
     expect(check(r, "reply-path").ok).toBe(false);
   });
 });

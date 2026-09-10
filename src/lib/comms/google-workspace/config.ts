@@ -66,3 +66,29 @@ export function senderDailyCap(env: NodeJS.ProcessEnv = process.env): number {
   const n = Number(env.GOOGLE_SENDER_DAILY_CAP);
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : 8;
 }
+
+// ── Two independent prospect lanes (A / B) — per-lane cap + enabled switch ────
+// Each lane may set its OWN daily cap and be independently disabled. Caps are always
+// configurable and NEVER assumed: two lanes do not automatically authorize 2× volume.
+export const LANE_SLOTS = [
+  { id: "sender-1", label: "A", addrKey: "GOOGLE_WORKSPACE_SENDER_1", tokKey: "GOOGLE_WORKSPACE_REFRESH_TOKEN_1", capKey: "GOOGLE_SENDER_1_DAILY_CAP", enKey: "GOOGLE_SENDER_1_ENABLED" },
+  { id: "sender-2", label: "B", addrKey: "GOOGLE_WORKSPACE_SENDER_2", tokKey: "GOOGLE_WORKSPACE_REFRESH_TOKEN_2", capKey: "GOOGLE_SENDER_2_DAILY_CAP", enKey: "GOOGLE_SENDER_2_ENABLED" },
+] as const;
+
+/** This lane's OWN daily cap: a lane-specific override (GOOGLE_SENDER_<n>_DAILY_CAP), else the shared cap. */
+export function laneDailyCap(laneId: string, env: NodeJS.ProcessEnv = process.env): number {
+  const slot = LANE_SLOTS.find((s) => s.id === laneId);
+  if (slot) {
+    const n = Number(env[slot.capKey]);
+    if (Number.isFinite(n) && n > 0) return Math.floor(n);
+  }
+  return senderDailyCap(env);
+}
+
+/** A lane is enabled unless its switch (GOOGLE_SENDER_<n>_ENABLED) is explicitly "0". Default: enabled. */
+export function laneEnabled(laneId: string, env: NodeJS.ProcessEnv = process.env): boolean {
+  const slot = LANE_SLOTS.find((s) => s.id === laneId);
+  if (!slot) return false;
+  const v = (env[slot.enKey] ?? "").trim();
+  return v !== "0";
+}

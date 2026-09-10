@@ -87,7 +87,8 @@ describe("offer page model — premium hero + skimmable fields", () => {
 
 describe("Quick-Cash is exposed in the primary sidebar", () => {
   it("the shell nav exposes Quick-Cash (now the default home route)", () => {
-    const src = readFileSync(path.join(process.cwd(), "src/components/Shell.tsx"), "utf8");
+    // NAV destinations live in the shared nav-items module (consumed by the Shell sidebar).
+    const src = readFileSync(path.join(process.cwd(), "src/components/nav-items.ts"), "utf8");
     expect(src).toContain('label: "Quick-Cash"');
     // Quick-Cash Consolidation moved Quick-Cash to the home route "/".
     expect(src).toContain('{ href: "/", label: "Quick-Cash"');

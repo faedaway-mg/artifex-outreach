@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { listUnsubscribeHeaders } from "./unsubscribe";
 import { insertLead, insertPlan, insertStep } from "../repo";
 import { dispatchStep } from "./dispatch";
-import { configureResendTestEnv, clearResendTestEnv, resendFetch, sentBody } from "./resend-test-harness";
+import { configureResendTestEnv, clearResendTestEnv, resendFetch, sentMime } from "./resend-test-harness";
 import { __resetStoreForTests } from "../store";
 import type { Lead } from "../types";
 
@@ -28,9 +28,9 @@ describe("listUnsubscribeHeaders (Phase 7 deliverability)", () => {
 });
 
 describe("dispatch attaches List-Unsubscribe to the outbound message", () => {
-  // Resend send: List-Unsubscribe is derived from the hardened, recipient-bound URL by the
-  // compliant transport and rides in the Resend request body headers (COMMS_UNSUBSCRIBE_SECRET +
-  // PUBLIC_BASE_URL come from configureResendTestEnv).
+  // Cold send rides the Google Workspace lanes: List-Unsubscribe is derived from the hardened,
+  // recipient-bound URL by the compliant transport and rides as a header in the Gmail MIME message
+  // (COMMS_UNSUBSCRIBE_SECRET + PUBLIC_BASE_URL come from configureResendTestEnv).
   beforeEach(() => { __resetStoreForTests(); configureResendTestEnv(); });
 
   it("carries compliant List-Unsubscribe headers on the outbound message", async () => {
@@ -57,9 +57,9 @@ describe("dispatch attaches List-Unsubscribe to the outbound message", () => {
     const step = await insertStep({ planId: plan.id, stepNumber: 1, channel: "email", delayDays: 0, subject: "s", content: "b {{unsubscribe}}", approvalRequired: false, approvalStatus: "approved", scheduledAt: "2026-07-01T00:00:00Z", sentAt: null, providerMessageId: null, deliveryStatus: null, stoppedAt: null, stopReason: null });
     await dispatchStep(step.id);
     expect(rf.calls.send).toBe(1);
-    const body = sentBody(rf.calls, 1);
-    // The recipient-bound one-click unsubscribe URL rides as the List-Unsubscribe header on the message.
-    expect(body.headers["List-Unsubscribe"]).toMatch(/^<https:\/\/[^>]*\/api\/comms\/unsubscribe\?lead=[^>]+>/);
-    expect(body.headers["List-Unsubscribe-Post"]).toBe("List-Unsubscribe=One-Click");
+    const mime = sentMime(rf.calls, 1);
+    // The recipient-bound one-click unsubscribe URL rides as the List-Unsubscribe header in the MIME.
+    expect(mime).toMatch(/List-Unsubscribe: <https:\/\/[^>\r\n]*\/api\/comms\/unsubscribe\?lead=[^>\r\n]+>/);
+    expect(mime).toContain("List-Unsubscribe-Post: List-Unsubscribe=One-Click");
   });
 });

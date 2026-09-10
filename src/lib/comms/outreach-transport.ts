@@ -4,15 +4,16 @@
 //   • Layer B (scheduled Quick-Review runner) → sendCompliantOutreach()  [persisted SendAuthorization]
 //   • Layer A (AcquisitionPlan/Step dispatcher) → buildColdDispatchFromEmail() → submitCompliantDispatch()
 // Both build the SAME canonical OutreachDispatchRequest and submit it through the SAME core
-// (submitCompliantDispatch). The transport is RESEND (the configured provider); cold outreach has no
-// provider SELECTION — it cannot pick an arbitrary sender and cannot bypass compliance. Compliant by
+// (submitCompliantDispatch). The transport is the GOOGLE WORKSPACE lanes, and ONLY those — cold
+// prospect outreach can NEVER be delivered via the transactional Resend provider (it fails closed if it
+// would resolve to Resend; there is no silent fallback). Cold outreach also has no provider SELECTION
+// exposed to callers — it cannot pick an arbitrary sender and cannot bypass compliance. Compliant by
 // construction: recipient/PDF-drift guards, fail-closed CAN-SPAM footer (exact postal + signed
 // recipient-bound one-click unsubscribe), List-Unsubscribe + One-Click headers, the authorized PDF,
 // permanent-suppression rechecks (including one IMMEDIATELY before submission), a provider-neutral
 // recipient gate (test address until the owner enables prospect delivery), and ambiguous-send
-// protection (a post-submit network/timeout fault is NEVER blindly resent; Resend's Idempotency-Key is
-// a second guard). A provider message id is persisted as truthful state.
-// (Microsoft Graph was evaluated and abandoned — it is not an operational dependency of this module.)
+// protection (a post-submit network/timeout fault is NEVER blindly resent). A provider message id is
+// persisted as truthful state. (Microsoft Graph was evaluated and abandoned; Resend is transactional-only.)
 // ─────────────────────────────────────────────────────────────────────────────
 import { getLead } from "../repo";
 import { effectiveReviewFor } from "../outreach/review-revisions";
@@ -20,12 +21,12 @@ import { escapeHtml } from "../outreach/email-render";
 import { resolveApprovedArtifactForSend } from "../outreach/resolve-approved-artifact";
 import type { FreezeDeps, ResolvedFrozenReview } from "../outreach/quick-review-freeze";
 import { assembleCommercialMessage } from "./commercial-message";
-import { getEmailProvider } from "./provider";
 import type { EmailMessage, EmailProvider } from "./provider";
-import { primaryTransport, googleTransportConfigured } from "./google-workspace/config";
 import { resolveSenderCredential } from "./google-workspace/sender-registry";
 import { createGmailProvider } from "./google-workspace/gmail-transport";
 import { selectSender, recordSenderSuccess, recordSenderError } from "./google-workspace/sender-health";
+import { resolveProspectTransport, refuseResendForProspect } from "./prospect-transport";
+import { canonicalReplyToOverride } from "./reply-routing";
 import { isEmailSuppressed } from "./suppression";
 import { sha256 } from "./receipt";
 import { validEmail } from "../acquisition/compliance";
@@ -113,23 +114,29 @@ export async function submitCompliantDispatch(
     return { sent: false, providerMessageId: null, retryable: false, errorCode: "legacy-frozen", reason: LEGACY_FROZEN_REASON };
   }
 
-  // ── TRANSPORT SELECTION (behind this boundary only) ────────────────────────
-  // An injected provider (rehearsal/tests) always wins and keeps the legacy From.
-  // Otherwise: OUTREACH_PRIMARY_TRANSPORT=google + a configured Workspace app →
-  // pick a healthy dual-sender mailbox (per-sender cap + cooldown); else Resend.
-  // There is NO silent failover between Google and Resend — a Google-primary run
-  // that has no eligible sender fails VISIBLY rather than sending via Resend.
+  // ── PROSPECT TRANSPORT SELECTION — GOOGLE WORKSPACE LANES ONLY (behind this boundary) ──
+  // Cold prospect outreach rides the Google Workspace lanes and NOTHING else. It can never
+  // resolve to the transactional Resend provider — if it would, we FAIL CLOSED (no silent
+  // fallback). An injected provider is honored for rehearsal/tests ONLY, and is itself refused
+  // if it is the Resend provider. When Google has no eligible healthy sender the send fails
+  // VISIBLY (a cap/cooldown condition), never spilling over to another transport.
   const DEFAULT_FROM = "Artifex Labs <hello@artifexlabs.tech>";
   let provider: EmailProvider;
   let from: string;
-  let transportName = "resend";
+  let transportName: string;
   let selectedSenderId: string | null = null;
 
   if (deps.provider) {
+    // Rehearsal/test double only. HARD GUARD: a prospect message may never ride Resend, even injected.
+    const forbidden = refuseResendForProspect(deps.provider.name);
+    if (forbidden) return { sent: false, providerMessageId: null, retryable: false, ...forbidden, transport: deps.provider.name };
     provider = deps.provider;
     from = process.env.RESEND_FROM || DEFAULT_FROM;
     transportName = provider.name;
-  } else if (primaryTransport() === "google" && googleTransportConfigured()) {
+  } else {
+    // Real path: the Google Workspace lanes are the ONLY cold transport. Fail closed if unconfigured.
+    const decision = resolveProspectTransport();
+    if (!decision.ok) return { sent: false, providerMessageId: null, retryable: false, errorCode: decision.errorCode, reason: decision.reason, transport: "google-workspace" };
     const sel = await selectSender({ leadId: req.leadId, now: new Date() });
     if (!sel.ok) return { sent: false, providerMessageId: null, retryable: true, errorCode: "no-eligible-sender", reason: `google transport: ${sel.reason}`, transport: "google-workspace" };
     const cred = resolveSenderCredential(sel.senderId);
@@ -138,11 +145,11 @@ export async function submitCompliantDispatch(
     from = cred.fromHeader; // server-controlled; the caller/browser can never set From
     selectedSenderId = cred.id;
     transportName = "google-workspace";
-  } else {
-    provider = getEmailProvider();
-    from = process.env.RESEND_FROM || DEFAULT_FROM;
-    transportName = provider.name;
   }
+
+  // DEFENSE IN DEPTH: whatever the branch above resolved, a cold message must never be handed to Resend.
+  const resendGuard = refuseResendForProspect(transportName);
+  if (resendGuard) return { sent: false, providerMessageId: null, retryable: false, ...resendGuard, transport: transportName };
 
   if (!provider.canSend) {
     return { sent: false, providerMessageId: null, retryable: false, errorCode: "unconfigured", reason: "cold-outreach transport is not configured (no sending provider).", transport: transportName };
@@ -163,8 +170,12 @@ export async function submitCompliantDispatch(
     ...(req.inReplyTo ? { "In-Reply-To": req.inReplyTo } : {}),
     ...(req.references ? { References: req.references } : {}),
   };
+  // Reply-To routes replies to the ACTUAL sending lane's mailbox (bareAddress(from)) so a reply
+  // returns to the mailbox that sent — UNLESS an operator has configured a canonical Reply-To override
+  // (COMMS_CANONICAL_REPLY_TO). Replies are NEVER pointed at Resend or silently at hello@ M365.
+  const replyTo = canonicalReplyToOverride() ?? bareAddress(from);
   const msg: EmailMessage = {
-    to: req.recipient, from, replyTo: bareAddress(from),
+    to: req.recipient, from, replyTo,
     subject: req.subject, text: req.bodyText, html: req.bodyHtml, headers,
     ...(req.pdfBase64 && req.pdfFilename ? { attachments: [{ filename: req.pdfFilename, content: req.pdfBase64, contentType: "application/pdf" }] } : {}),
     idempotencyKey: req.idempotencyKey,
@@ -177,9 +188,9 @@ export async function submitCompliantDispatch(
     else await recordSenderError(selectedSenderId, nowIso, res.errorCode ?? "error");
   }
   const attribution = { transport: transportName, senderAddress: bareAddress(from), senderId: selectedSenderId };
-  // Ambiguous-send protection: a network/timeout fault happens AFTER the POST is dispatched — Resend
-  // may already have accepted the message. Do NOT blindly resend (the ledger + Resend Idempotency-Key
-  // are the reconcile guards). A status-bearing 429/5xx means Resend explicitly did NOT accept → safe retry.
+  // Ambiguous-send protection: a network/timeout fault happens AFTER the POST is dispatched — the Gmail
+  // API may already have accepted the message. Do NOT blindly resend (the durable ledger is the reconcile
+  // guard). A status-bearing 429/5xx means the provider explicitly did NOT accept → safe to retry.
   if (!res.sent && (res.errorCode === "network" || res.errorCode === "timeout")) {
     return { sent: false, providerMessageId: null, retryable: false, ambiguous: true, errorCode: "ambiguous_submit", reason: res.reason, ...attribution };
   }
