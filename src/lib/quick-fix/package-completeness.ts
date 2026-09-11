@@ -37,16 +37,18 @@ export interface Dependency {
   cheap: boolean;
 }
 
-// The canonical order the materialization pipeline builds in (§5).
+// The canonical order the materialization pipeline builds in (§5) — the diagnostic PDF is
+// generated LAST (Problem-Reality amendment §21/§45): it SYNTHESIZES the completed evidence
+// + media, so it is never a partially-informed early artifact.
 export const DEPENDENCY_ORDER: DependencyKey[] = [
   "finding",
   "subject",
   "evidence-screenshots",
   "email-copy",
-  "diagnostic-pdf",
   "offer-page",
   "personalized-video",
   "evergreen-explainer",
+  "diagnostic-pdf",
 ];
 
 export interface CompletenessInput {
@@ -114,11 +116,6 @@ export function assessPackageCompleteness(input: CompletenessInput): PackageComp
   else if (input.policyStale) deps.push(dep("email-copy", "STALE", "copy prepared under an older policy — regenerate", { cheap: true }));
   else deps.push(dep("email-copy", "MISSING", "email copy fails the safety/plain-language guard", { cheap: true }));
 
-  // Diagnostic PDF — renders on demand from current evidence.
-  if (input.pdfRenderable && !input.evidenceStale) deps.push(dep("diagnostic-pdf", "READY", "diagnostic PDF renders truthfully"));
-  else if (input.evidenceStale && input.pdfRenderable) deps.push(dep("diagnostic-pdf", "STALE", "PDF bound to older evidence — rebuild", { cheap: true }));
-  else deps.push(dep("diagnostic-pdf", "MISSING", "diagnostic PDF has no renderable evidence", { cheap: true }));
-
   // Offer page — cheap regeneration (scope/copy).
   deps.push(input.offerPageReady
     ? dep("offer-page", "READY", "offer page complete + purchasable")
@@ -134,6 +131,18 @@ export function assessPackageCompleteness(input: CompletenessInput): PackageComp
   if (input.evergreenStatus === "READY") deps.push(dep("evergreen-explainer", "READY", "canonical evergreen explainer bound"));
   else if (input.evergreenStatus === "STALE") deps.push(dep("evergreen-explainer", "STALE", "evergreen explainer stale — reconcile", { cheap: false }));
   else deps.push(dep("evergreen-explainer", "MISSING", "no canonical evergreen explainer for this scope", { cheap: false }));
+
+  // Diagnostic PDF — generated LAST (§21/§45): it SYNTHESIZES the finished evidence + media.
+  // READY only once its inputs are (screenshots + evergreen + any required personalized video);
+  // otherwise it stays "waiting for package completion" rather than freezing stale/partial
+  // content as READY. When the ONLY outstanding input is the PAID personalized video, the PDF
+  // waits on paid production too (so it never blocks the waiting-for-paid classification).
+  const cheapInputsReady = input.screenshotStatus === "READY" && !input.evidenceStale && input.evergreenStatus === "READY";
+  const pvReady = !input.personalizedVideo.required || input.personalizedVideo.status === "READY";
+  if (!input.pdfRenderable) deps.push(dep("diagnostic-pdf", "MISSING", "diagnostic PDF has no renderable evidence", { cheap: true }));
+  else if (cheapInputsReady && pvReady) deps.push(dep("diagnostic-pdf", "READY", "diagnostic PDF synthesizes the finished package"));
+  else if (cheapInputsReady && !pvReady) deps.push(dep("diagnostic-pdf", "WAITING_FOR_PAID", "PDF waits for the personalized video (generated last)", { paid: true }));
+  else deps.push(dep("diagnostic-pdf", "MISSING", "diagnostic PDF waits for package completion — generated last", { cheap: true }));
 
   const missing = deps.filter((d) => d.status === "MISSING");
   const stale = deps.filter((d) => d.status === "STALE");

@@ -57,9 +57,20 @@ describe("package completeness / materialization chain", () => {
   it("treats stale dependent assets as gaps, not present (§4)", () => {
     const c = assessPackageCompleteness(base({ evidenceStale: true }));
     expect(c.complete).toBe(false);
-    const staleKeys = c.stale.map((d) => d.dep);
-    expect(staleKeys).toContain("evidence-screenshots");
-    expect(staleKeys).toContain("diagnostic-pdf");
+    // Screenshots are STALE; the PDF (generated LAST, §21) then waits for package completion.
+    expect(c.stale.map((d) => d.dep)).toContain("evidence-screenshots");
+    const pdf = c.dependencies.find((d) => d.dep === "diagnostic-pdf")!;
+    expect(pdf.status).not.toBe("READY");
+  });
+
+  it("the diagnostic PDF is generated LAST — never READY before its inputs (§21/§45)", () => {
+    // Evidence + evergreen not ready → PDF waits even though it is renderable.
+    const waiting = assessPackageCompleteness(base({ screenshotStatus: "MISSING", pdfRenderable: true }));
+    expect(waiting.dependencies.find((d) => d.dep === "diagnostic-pdf")!.status).not.toBe("READY");
+    // Only PAID personalized video outstanding → PDF waits on paid production, not a cheap gap.
+    const paidWait = assessPackageCompleteness(base({ personalizedVideo: { required: true, status: "MISSING" }, pdfRenderable: true }));
+    expect(paidWait.waitingForPaidOnly).toBe(true);
+    expect(paidWait.dependencies.find((d) => d.dep === "diagnostic-pdf")!.status).toBe("WAITING_FOR_PAID");
   });
 
   it("marks copy as STALE when prepared under an older policy (§4)", () => {
