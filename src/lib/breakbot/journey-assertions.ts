@@ -68,6 +68,10 @@ export const JOURNEY_ASSERTIONS: JourneyAssertion[] = [
   // Fulfillment (§12)
   { id: "ff-scope", surface: "fulfillment", testid: "fulfillment-scope", criticality: "critical", status: "active", firstSupported: "pending-deploy" },
   { id: "ff-portal-projection", surface: "fulfillment", testid: "fulfillment-portal-projection", criticality: "critical", status: "active", firstSupported: "pending-deploy" },
+
+  // Quick Cash operating queue (mandate E §20)
+  { id: "qc-page", surface: "quick-cash", testid: "quick-cash-page", criticality: "critical", status: "active", firstSupported: "pending-deploy" },
+  { id: "qc-summary", surface: "quick-cash", testid: "quick-cash-summary", criticality: "critical", status: "active", firstSupported: "pending-deploy" },
 ];
 
 export interface RatchetReport {

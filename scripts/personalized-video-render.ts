@@ -243,28 +243,34 @@ export async function renderPlanToMp4(
     return uri;
   }
 
-  const page = await browser.newPage({ viewport: { width: plan.width, height: plan.height }, deviceScaleFactor: 1 });
   let posterBuf: Buffer | null = null;
   let frameIndex = 0;
 
   for (const scene of plan.scenes) {
     const shotUri = await resolveShot(scene.visualSpec.screenshotId);
-    await page.setContent(sceneHtml(scene, shotUri, plan.width, plan.height), { waitUntil: "networkidle" });
-    await page.evaluate(() => (document as any).fonts?.ready);
-    await page.evaluate(() => {
-      if (!(window as any).__draw) throw new Error("scene timeline did not initialise");
-    });
-    for (let f = 0; f < scene.frames; f++) {
-      const p = scene.frames <= 1 ? 1 : f / (scene.frames - 1);
-      await page.evaluate((pp) => (window as any).__draw(pp), p);
-      const buf = await page.screenshot({ type: "png" });
-      writeFileSync(path.join(frameDir, `f${String(frameIndex).padStart(6, "0")}.png`), buf);
-      // Poster = a settled frame of the first evidence (or the first) scene.
-      if (posterBuf === null && p > 0.7) posterBuf = buf;
-      frameIndex++;
+    // A FRESH page per scene — the scene HTML's inline <script> (which defines window.__draw
+    // over THIS scene's elements) must run for every scene. Reusing one page left window.__draw
+    // from scene 1 stale, so scenes 2..N never animated (blank frames, empty progress bar) —
+    // a blank-after-opening render. A new page guarantees each scene's timeline initialises.
+    const page = await browser.newPage({ viewport: { width: plan.width, height: plan.height }, deviceScaleFactor: 1 });
+    try {
+      await page.setContent(sceneHtml(scene, shotUri, plan.width, plan.height), { waitUntil: "networkidle" });
+      await page.evaluate(() => (document as any).fonts?.ready);
+      // Wait for THIS scene's script to signal ready (never trust a stale global).
+      await page.waitForFunction(() => (window as any).__ready === true && typeof (window as any).__draw === "function", undefined, { timeout: 5000 });
+      for (let f = 0; f < scene.frames; f++) {
+        const p = scene.frames <= 1 ? 1 : f / (scene.frames - 1);
+        await page.evaluate((pp) => (window as any).__draw(pp), p);
+        const buf = await page.screenshot({ type: "png" });
+        writeFileSync(path.join(frameDir, `f${String(frameIndex).padStart(6, "0")}.png`), buf);
+        // Poster = a settled frame (first scene that reaches a settled state).
+        if (posterBuf === null && p > 0.7) posterBuf = buf;
+        frameIndex++;
+      }
+    } finally {
+      await page.close();
     }
   }
-  await page.close();
   if (posterBuf === null) posterBuf = readFileSync(path.join(frameDir, "f000000.png"));
 
   const posterPath = path.join(outDir, "poster.jpg");
@@ -461,7 +467,9 @@ async function runRealOffer(offerId: string): Promise<void> {
   // re-render. A local-only render (no mp4Key) does NOT satisfy reuse — it must be
   // re-rendered and persisted to the object store to become production-serveable.
   const existing = await getPersonalizedVideo(offerId);
+  const forceRerender = process.argv.includes("--force");
   if (
+    !forceRerender &&
     existing &&
     existing.status === "READY" &&
     existing.idempotencyKey === idempotencyKey &&

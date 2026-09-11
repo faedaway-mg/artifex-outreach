@@ -261,6 +261,46 @@ export async function getOffer(offerId: string): Promise<StoredOffer | null> {
   return (await getState()).offers[offerId] ?? null;
 }
 
+/**
+ * AUTONOMOUS RECONCILE (mandate E §2/§7): ensure each eligible offer is persisted +
+ * approved WITHOUT a per-lead operator click. Idempotent + batched into ONE state write.
+ * A brand-new eligible offer is added as approved; an existing draft is promoted to
+ * approved; an already-approved offer is untouched. Approval HISTORY is preserved (an
+ * offer approved by a human keeps its approvedBy). NEVER sends, charges, or mutates
+ * scope/price. Returns what changed so the caller can skip the write when nothing did.
+ */
+export async function reconcileQuickCashOffers(offers: QuickFixOffer[], opts: { now: string }): Promise<{ added: number; approved: number }> {
+  const changedIds: string[] = [];
+  let added = 0;
+  let approved = 0;
+  await mutate((s) => {
+    for (const offer of offers) {
+      const id = offerIdFor(offer);
+      const prev = s.offers[id];
+      if (!prev) {
+        s.offers[id] = {
+          ...offer, offerId: id,
+          approvalStatus: "approved", approvedBy: "system-reconcile", recipientEmail: null,
+          shareToken: newShareToken(), shareRevoked: false,
+          persuasionPolicyVersion: PERSUASION_POLICY_VERSION, evidenceVersion: undefined,
+          createdAt: opts.now, updatedAt: opts.now, state: "APPROVED",
+        } as StoredOffer;
+        added++; changedIds.push(id);
+      } else if (prev.approvalStatus !== "approved") {
+        prev.approvalStatus = "approved";
+        prev.approvedBy = prev.approvedBy ?? "system-reconcile";
+        prev.state = prev.state === "DRAFT" ? "APPROVED" : prev.state;
+        prev.updatedAt = opts.now;
+        approved++; changedIds.push(id);
+      }
+    }
+  });
+  for (const id of changedIds) {
+    await appendAudit({ action: "quickfix.offer_reconciled_ready", actor: "system-reconcile", targetType: "quickfix_offer", targetId: id, meta: null, ip: null });
+  }
+  return { added, approved };
+}
+
 export async function listOffers(): Promise<StoredOffer[]> {
   return Object.values((await getState()).offers);
 }

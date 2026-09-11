@@ -18,6 +18,10 @@ import { playbookFor } from "./playbooks";
 import { DEFAULT_AUTOMATION_LEVEL, AUTO_ELIGIBLE_CAPABILITY_ALLOWLIST } from "./automation-policy";
 import * as store from "./store";
 import type { QuickFixOffer } from "./types";
+import {
+  deriveQuickCashLifecycle, prospectDeliveryEnabled, QUICK_CASH_STATE_ORDER,
+  type QuickCashState, type QuickCashLifecycle,
+} from "./quick-cash-lifecycle";
 import { buildEvidencePackage, customerReceivesManifest, type EvidencePackage, type ManifestRow, type EvidenceAssetRef, type AssetStatus } from "./evidence-package";
 import { composeOfferOutreach, type OfferOutreachCopy } from "./offer-outreach";
 import { offerIdFor } from "./store";
@@ -799,6 +803,116 @@ export interface QuickCashOpportunityRow extends QuickCashRow {
   /** The STORED offerId when this lead's offer is already prepared, else null. */
   offerId: string | null;
   websiteUrl: string | null;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// QUICK CASH — AUTONOMOUS OPERATING QUEUE (mandate E). The page shows canonical
+// lifecycle state (from persisted truth), not an approval inbox. Eligible packages
+// are auto-reconciled (persisted + approved) with NO per-lead operator click, so a
+// completed package never reverts to "needs approval" on refresh.
+// ─────────────────────────────────────────────────────────────────────────────
+export interface QuickCashPipelineRow {
+  leadId: string;
+  company: string;
+  offerName: string;
+  problem: string;
+  priceCents: number;
+  band: string | null;
+  sla: string | null;
+  offerId: string | null;
+  shareToken: string | null;
+  lifecycle: QuickCashLifecycle;
+  // Secondary detail (shown only in expanded/detail views on mobile).
+  score: number;
+  estimatedHours: number;
+  effectiveHourlyCents: number;
+  confidence: number;
+}
+
+export interface QuickCashOutbound {
+  deliveryOn: boolean;
+  posture: "PAUSED" | "WARMING" | "ACTIVE";
+  lanes: Array<{ laneId: string; state: string }>;
+}
+
+export interface QuickCashPipelineView {
+  rows: QuickCashPipelineRow[];
+  counts: Record<QuickCashState, number>;
+  order: QuickCashState[];
+  totals: ReturnType<typeof addressableTotals>;
+  outbound: QuickCashOutbound;
+}
+
+/**
+ * The autonomous Quick Cash pipeline. Reconciles eligible packages into their correct
+ * canonical state (idempotent — steady state performs NO writes), then derives each
+ * card's lifecycle from persisted truth + the delivery posture. Read-mostly; never
+ * sends or charges. While delivery is OFF, complete packages are READY · Waiting for
+ * outbound activation — never a fake SCHEDULED.
+ */
+export async function quickCashPipelineView(limit = 500): Promise<QuickCashPipelineView> {
+  const contexts = await buildLeadContexts(limit);
+  const offers = contexts.map((c) => c.offer).filter((o): o is QuickFixOffer => !!o);
+  const ranked = rankQuickCash(offers);
+  const totals = addressableTotals(offers);
+  const now = new Date().toISOString();
+
+  // Auto-reconcile: persist + approve any eligible offer not already approved. Only writes
+  // when something is actually missing (so a warm page load performs zero writes).
+  let state = await store.getState();
+  const eligibleOffers = offers.filter((o) => o.quickFixEligible);
+  const needing = eligibleOffers.filter((o) => {
+    const stored = state.offers[store.offerIdFor(o)];
+    return !stored || stored.approvalStatus !== "approved";
+  });
+  if (needing.length) {
+    await store.reconcileQuickCashOffers(needing, { now });
+    state = await store.getState();
+  }
+
+  const storedByLead = new Map<string, store.StoredOffer>();
+  for (const o of Object.values(state.offers)) {
+    const prev = storedByLead.get(o.leadId);
+    if (!prev || (o.updatedAt ?? "") > (prev.updatedAt ?? "")) storedByLead.set(o.leadId, o);
+  }
+  const jobs = await store.listJobs();
+  const purchasedOfferIds = new Set(jobs.map((j) => j.offerId));
+  const deliveryOn = prospectDeliveryEnabled();
+
+  const rows: QuickCashPipelineRow[] = ranked.map((r) => {
+    const stored = storedByLead.get(r.leadId) ?? null;
+    const lifecycle = deriveQuickCashLifecycle({
+      eligible: r.eligible,
+      hasOffer: !!stored,
+      approved: stored?.approvalStatus === "approved",
+      packageComplete: stored?.approvalStatus === "approved",
+      outreachState: stored?.outreachState ?? null,
+      purchased: stored ? purchasedOfferIds.has(stored.offerId) : false,
+      deliveryOn,
+    });
+    return {
+      leadId: r.leadId, company: r.company, offerName: r.offerName, problem: r.problem,
+      priceCents: r.priceCents, band: r.band, sla: r.sla,
+      offerId: stored?.offerId ?? null, shareToken: stored?.shareToken ?? null,
+      lifecycle,
+      score: r.score, estimatedHours: r.estimatedHours, effectiveHourlyCents: r.effectiveHourlyCents, confidence: r.confidence,
+    };
+  });
+
+  const counts = Object.fromEntries(QUICK_CASH_STATE_ORDER.map((s) => [s, 0])) as Record<QuickCashState, number>;
+  for (const row of rows) counts[row.lifecycle.state] += 1;
+
+  // Outbound posture from the real ramp — never claim ACTIVE while delivery is OFF.
+  let outbound: QuickCashOutbound = { deliveryOn, posture: deliveryOn ? "ACTIVE" : "PAUSED", lanes: [] };
+  try {
+    const { rampView } = await import("../comms/ramp-store");
+    const rv = await rampView(now);
+    const lanes = rv.lanes.map((l) => ({ laneId: l.laneId, state: l.state }));
+    const anyWarming = rv.lanes.some((l) => l.state === "WARMING" || l.state === "RAMPING");
+    outbound = { deliveryOn, posture: deliveryOn ? "ACTIVE" : anyWarming ? "WARMING" : "PAUSED", lanes };
+  } catch { /* ramp view is best-effort */ }
+
+  return { rows, counts, order: QUICK_CASH_STATE_ORDER, totals, outbound };
 }
 
 export async function quickCashOpportunitiesView(limit = 500): Promise<{ rows: QuickCashOpportunityRow[]; totals: ReturnType<typeof addressableTotals>; routing: QuickCashView["routing"] }> {

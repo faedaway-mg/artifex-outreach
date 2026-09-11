@@ -19,7 +19,8 @@ export type DefectSurface =
   | "media-route"
   | "content-studio"
   | "lead-views"
-  | "customer-portal";
+  | "customer-portal"
+  | "quick-cash";
 
 export interface EscapedDefect {
   /** Stable id (kebab). */
@@ -102,6 +103,18 @@ export const ESCAPED_DEFECTS: EscapedDefect[] = [
       "src/lib/quick-fix/evidence-package.ts:getPersonalizedVideo",        // fetch the record when opts omitted
       "src/lib/quick-fix/personalized-video-serve.ts",                     // offerId capability (mirrors offer page)
       "src/lib/quick-fix/personalized-video-surfacing.test.ts",           // executable regression (both fixes)
+    ],
+    firstCovered: "pending-deploy",
+  },
+  {
+    id: "quickcash-approval-reverts-on-refresh",
+    defectClass: "An operator lifecycle action on Quick Cash (Prepare & approve → get link) appeared complete, then reverted on refresh/navigation — the card fell back to a needs-approval state as though the action never happened.",
+    surface: "quick-cash",
+    whyMissed: "The 'done' link state lived only in client component state; nothing asserted that the canonical persisted offer state survives a reload, and the page rebuilt cards from a fresh per-load pass without an autonomous reconcile.",
+    coveredBy: [
+      "src/lib/quick-fix/store.ts:reconcileQuickCashOffers",              // autonomous idempotent persist+approve
+      "src/lib/quick-fix/quick-cash-lifecycle.ts:deriveQuickCashLifecycle", // canonical state from persisted truth
+      "src/lib/quick-fix/quick-cash-persistence.test.ts:refresh",        // executable regression: survives repeated reads
     ],
     firstCovered: "pending-deploy",
   },

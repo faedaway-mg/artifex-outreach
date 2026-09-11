@@ -48,7 +48,10 @@ async function overflow(page: Page): Promise<boolean> {
   return page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 2).catch(() => false);
 }
 async function mediaHealthy(page: Page, testid: string, expectLandscape: boolean, narrated = true): Promise<{ ok: boolean; note: string }> {
-  const src = await page.locator(`[data-testid="${testid}"] source, [data-testid="${testid}"]`).first().getAttribute("src").catch(() => null);
+  // The <video> element carries no src attribute — its <source> child does. Prefer the
+  // child source; fall back to a src directly on the element (some players inline it).
+  const src = (await page.locator(`[data-testid="${testid}"] source`).first().getAttribute("src").catch(() => null))
+    ?? (await page.locator(`[data-testid="${testid}"]`).first().getAttribute("src").catch(() => null));
   if (!src) return { ok: false, note: `${testid}: no media src` };
   const url = src.startsWith("http") ? src : `${BASE}${src}`;
   // Customer-facing media is served via APP-MANAGED routes (/api/…), never a raw storage URL.
@@ -134,6 +137,30 @@ async function operatorSweep(ctx: BrowserContext) {
     notes.push("content-studio: per-generation forecast not shown (non-blocking if unknown capacity)");
   }
   await shot(page, "operator-content-studio");
+
+  // Quick Cash — autonomous OPERATING QUEUE (mandate E §20). No routine approval; lifecycle
+  // states; delivery-OFF says waiting-for-outbound not Scheduled; state persists on refresh.
+  drivenSurfaces.add("quick-cash");
+  await page.goto(`${BASE}/revenue/quick-cash`, { waitUntil: "domcontentloaded" }).catch(() => {});
+  if (!await present(page, "quick-cash-page")) { notes.push("quick-cash: page did not render"); status = "BLOCKED"; }
+  await present(page, "quick-cash-summary");
+  await present(page, "quick-cash-outbound");
+  const qcText = (await page.evaluate(() => document.body?.innerText || "").catch(() => "")) || "";
+  if (/prepare\s*&\s*approve|→\s*get link/i.test(qcText)) { notes.push("quick-cash: routine 'Prepare & approve → get link' still present (§2 block)"); status = "BLOCKED"; }
+  // Delivery OFF: no package may sit in a real SCHEDULED group (a fake schedule) — check
+  // for actual SCHEDULED cards, not the always-present summary label.
+  const deliveryOff = /delivery is OFF/i.test(qcText);
+  const scheduledCards = await page.locator('[data-testid="qc-group-SCHEDULED"] [data-testid^="qc-card-"]').count().catch(() => 0);
+  if (deliveryOff && scheduledCards > 0) { notes.push("quick-cash: package shown SCHEDULED while delivery OFF (§4 block)"); status = "BLOCKED"; }
+  if (deliveryOff && /waiting for outbound/i.test(qcText)) notes.push("quick-cash: Ready packages correctly show 'waiting for outbound'");
+  // Persistence: a lifecycle state must survive a refresh (the reset-bug regression).
+  const cardBefore = await page.locator('[data-testid^="qc-card-"]').first().getAttribute("data-state").catch(() => null);
+  await page.reload({ waitUntil: "domcontentloaded" }).catch(() => {});
+  const cardAfter = await page.locator('[data-testid^="qc-card-"]').first().getAttribute("data-state").catch(() => null);
+  if (cardBefore && cardAfter && cardBefore !== cardAfter) { notes.push(`quick-cash: lifecycle REGRESSED on refresh (${cardBefore}→${cardAfter}) — reset bug`); status = "BLOCKED"; }
+  else if (cardBefore) notes.push(`quick-cash: lifecycle persists on refresh (${cardAfter})`);
+  await shot(page, "operator-quick-cash");
+
   await page.close();
   results.push({ journey: "operator-cockpit-sweep", status, notes });
 }

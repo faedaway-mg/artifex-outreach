@@ -47,6 +47,15 @@ export const BUSINESS_INVARIANTS: BusinessInvariant[] = [
   { key: "idea-video-consumes-capacity", rule: "video Generate consumes according to the capacity policy", enforcedBy: "src/lib/content-studio/zero-touch-actions.ts:socialGeneratePolicy" },
   { key: "idea-finished-exposes-download", rule: "a finished video exposes a canonical Download (no raw storage path)", enforcedBy: "src/components/content-studio/ZeroTouchStudio.tsx:cs-download" },
   { key: "idea-feed-social-only", rule: "no prospect assets appear in the social idea queue", enforcedBy: "src/lib/content-studio/idea-feed.ts:loadIdeaFeed" },
+
+  // ── Quick Cash operating queue (mandate E §22) — executable release checks ───────
+  { key: "quickcash-no-routine-approval", rule: "a routine eligible prospect does not require a per-lead operator approval (autonomous reconcile)", enforcedBy: "src/lib/quick-fix/store.ts:reconcileQuickCashOffers" },
+  { key: "quickcash-ready-not-approve-prompt", rule: "READY never simultaneously asks the operator to prepare/approve it", enforcedBy: "src/lib/quick-fix/quick-cash-lifecycle.ts:deriveQuickCashLifecycle" },
+  { key: "quickcash-no-fake-scheduled", rule: "delivery OFF cannot display a fake Scheduled state", enforcedBy: "src/lib/quick-fix/quick-cash-lifecycle.ts:prospectDeliveryEnabled" },
+  { key: "quickcash-sent-requires-evidence", rule: "the SENT state requires canonical send evidence (outreachState SENT)", enforcedBy: "src/lib/quick-fix/quick-cash-lifecycle.ts:SENT" },
+  { key: "quickcash-no-refresh-regression", rule: "a page refresh cannot regress a persisted lifecycle state back to needs-approval", enforcedBy: "src/lib/quick-fix/quick-cash-persistence.test.ts:PREPARING" },
+  { key: "quickcash-weak-lead-retires", rule: "a normal weak/ineligible lead retires/replaces rather than waiting for approval", enforcedBy: "src/lib/quick-fix/quick-cash-lifecycle.ts:RETIRED" },
+  { key: "quickcash-schedule-only-when-assigned", rule: "a Google-lane schedule is shown only when a real slot is truly assigned (delivery ON)", enforcedBy: "src/lib/quick-fix/quick-cash-lifecycle.ts:schedulable" },
 ];
 
 export interface InvariantValidation {
