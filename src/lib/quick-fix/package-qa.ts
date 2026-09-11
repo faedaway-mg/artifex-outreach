@@ -25,6 +25,10 @@ export interface PackageQAResult {
   /** Verdict for the CURRENT live revision. */
   verdict: PackageVerdict;
   readiness: PackageReadiness;
+  /** Problem Reality verdict (§33) — null when never assessed. */
+  problemReality: string | null;
+  /** Market label / "OUT_OF_MARKET" (§10/§41) — null when no location supplied. */
+  market: string | null;
   reasons: string[];
   coherenceIssues: CoherenceIssue[];
   /** Dependency keys still missing/stale. */
@@ -54,7 +58,7 @@ export async function runPackageQA(
   opts: { stored?: StoredOffer | null; personalizedVideoRequired?: boolean; pkg?: CanonicalPackage } = {},
 ): Promise<PackageQAResult> {
   const pkg = opts.pkg ?? (await buildCanonicalPackage(offer, { stored: opts.stored ?? null, personalizedVideoRequired: opts.personalizedVideoRequired }));
-  const liveVerdict = verdictFromReadiness(pkg.readiness);
+  let liveVerdict = verdictFromReadiness(pkg.readiness);
   const wasInvalidatedByTouch =
     !!opts.stored && opts.stored.qaVerdict === "PASS" && packageQAStale(opts.stored, pkg.revision);
 
@@ -63,6 +67,14 @@ export async function runPackageQA(
     ...pkg.coherence.issues.filter((i) => i.severity === "BLOCK").map((i) => i.detail),
   ];
 
+  // §33/§46 FAIL-CLOSED: a PASS (Ready-to-Send) is only valid for a PROVEN problem. If the
+  // Problem Reality verdict is absent or not PROVEN, the package cannot PASS — no green
+  // status may coexist with an unproven problem or missing required assets.
+  if (liveVerdict === "PASS" && pkg.problemReality?.verdict !== "PROVEN") {
+    liveVerdict = "BLOCKED";
+    reasons.push(pkg.problemReality ? `problem reality ${pkg.problemReality.verdict} — not Ready-to-Send` : "problem reality not assessed — run the reality gate + counter-test before Ready-to-Send");
+  }
+
   return {
     offerId: pkg.offerId,
     leadId: pkg.leadId,
@@ -70,6 +82,8 @@ export async function runPackageQA(
     revision: pkg.revision,
     verdict: liveVerdict,
     readiness: pkg.readiness,
+    problemReality: pkg.problemReality?.verdict ?? null,
+    market: pkg.market?.inMarket === false ? "OUT_OF_MARKET" : pkg.market?.label ?? null,
     reasons: Array.from(new Set(reasons)),
     coherenceIssues: pkg.coherence.issues,
     open: [...pkg.completeness.missing, ...pkg.completeness.stale].map((d) => `${d.dep}:${d.status}`),

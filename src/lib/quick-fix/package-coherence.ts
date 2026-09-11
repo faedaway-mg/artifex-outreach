@@ -19,7 +19,7 @@
 // this function only judges them, so it is trivially unit-testable and Breakbot runs
 // it over every real active package (§32) without any I/O.
 // ─────────────────────────────────────────────────────────────────────────────
-import { classifyDefectFamily, type SubjectFamily } from "./subject-engine";
+import { classifyDefectFamily, isRetiredSubject, type SubjectFamily } from "./subject-engine";
 
 export type CoherenceSeverity = "BLOCK" | "WARN";
 
@@ -100,13 +100,14 @@ export function assessPackageCoherence(input: CoherenceInput): CoherenceIssue[] 
   // one-story contract does not apply. We still guard truthfulness below.
   const sellable = input.quickFixEligible;
 
-  // 1) Subject present + specific (§12). An active sellable package MUST have a real subject.
+  // 1) Subject present + specific + business-language (§12/§16). An active sellable package
+  //    MUST have a real subject, and NEVER a retired generic web-sales phrasing.
   const subject = norm(input.subject);
-  if (sellable && (!subject || subject === "website note" || subject === "— no subject —" || subject === "no subject")) {
+  if (sellable && (!subject || subject === "— no subject —" || subject === "no subject" || isRetiredSubject(subject))) {
     issues.push({
       kind: "subject.missing",
       severity: "BLOCK",
-      detail: `subject is empty/generic ("${input.subject || "—"}") — every active package needs a specific evidence-tied subject`,
+      detail: `subject is empty or a retired web-sales phrasing ("${input.subject || "—"}") — use a specific business-journey subject`,
     });
   }
 

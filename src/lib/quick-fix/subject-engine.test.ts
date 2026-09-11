@@ -44,33 +44,34 @@ beforeEach(() => { __resetStoreForTests(); });
 
 // ── SUBJECT ENGINE ───────────────────────────────────────────────────────────────
 describe("subject engine — evidence-derived, curiosity from brevity", () => {
-  it("1. contact-form defect → website inquiry (evidence-derived primary)", () => {
+  it("1. contact-form defect → business-language 'contact question' (§16-18)", () => {
     const c = generateSubjectCandidates({ observation: FORM.observation });
     expect(c.family).toBe("contact");
-    expect(c.primary).toBe("website inquiry");
+    expect(c.primary).toBe("contact question");
+    expect(c.primary).not.toMatch(/website (inquiry|note|review)/); // retired web-sales framing
   });
 
-  it("2. booking defect → online booking", () => {
+  it("2. booking defect → 'booking question'", () => {
     const c = generateSubjectCandidates({ observation: BOOKING.observation });
     expect(c.family).toBe("booking");
-    expect(c.primary).toBe("online booking");
+    expect(c.primary).toBe("booking question");
   });
 
-  it("3. NO contact-form evidence does NOT become 'website inquiry'", () => {
+  it("3. NO contact-form evidence does NOT become 'contact question'", () => {
     const c = generateSubjectCandidates({ observation: READ.observation });
     expect(c.family).not.toBe("contact");
-    expect([c.primary, ...c.alternates]).not.toContain("website inquiry");
+    expect([c.primary, ...c.alternates]).not.toContain("contact question");
   });
 
-  it("4. NO booking evidence does NOT become 'online booking'", () => {
+  it("4. NO booking evidence does NOT become 'booking question'", () => {
     const c = generateSubjectCandidates({ observation: SEARCH.observation });
     expect(c.family).toBe("search");
-    expect(c.primary).not.toBe("online booking");
+    expect(c.primary).not.toBe("booking question");
   });
 
-  it("5. singular is preserved — 'website inquiry' not 'inquiries'", () => {
+  it("5. singular is preserved — no 'inquiries'/'bookings'", () => {
     const c = generateSubjectCandidates({ observation: FORM.observation });
-    expect(c.primary).toBe("website inquiry");
+    expect(c.primary).toBe("contact question");
     expect(c.primary).not.toMatch(/inquiries|bookings/);
   });
 
@@ -137,29 +138,29 @@ describe("subject engine — evidence-derived, curiosity from brevity", () => {
 
   it("14. all THREE candidates map to the issue (topic/action/surface) and are distinct", () => {
     const c = generateSubjectCandidates({ observation: FORM.observation });
-    expect(c.primary).toBe("website inquiry");
-    expect(c.alternates).toEqual(["contact form", "website contact"]);
+    expect(c.primary).toBe("contact question");
+    expect(c.alternates).toEqual(["your contact form", "getting in touch"]);
     expect(new Set([c.primary, ...c.alternates]).size).toBe(3);
   });
 
-  it("15. mobile+booking → mobile booking (mobile-qualified family)", () => {
+  it("15. mobile+booking → 'booking on mobile' (mobile-qualified family)", () => {
     const c = generateSubjectCandidates({ observation: MOBILE_BOOKING.observation });
     expect(c.family).toBe("mobile_booking");
-    expect(c.primary).toBe("mobile booking");
+    expect(c.primary).toBe("booking on mobile");
   });
 
-  it("16. readability/search/analytics map to their curated topics", () => {
-    expect(generateSubjectCandidates({ observation: READ.observation }).primary).toBe("website readability");
-    expect(generateSubjectCandidates({ observation: SEARCH.observation }).primary).toBe("search listing");
-    expect(generateSubjectCandidates({ observation: ANALYTICS.observation }).primary).toBe("website tracking");
+  it("16. readability/search/analytics map to business-language topics (no 'website X')", () => {
+    expect(generateSubjectCandidates({ observation: READ.observation }).primary).toBe("reading your site");
+    expect(generateSubjectCandidates({ observation: SEARCH.observation }).primary).toBe("finding you on google");
+    expect(generateSubjectCandidates({ observation: ANALYTICS.observation }).primary).toBe("tracking your leads");
   });
 
-  it("17. an unmapped/vague observation stays true+vague (generic), never invents a defect", () => {
+  it("17. an unmapped/vague observation → neutral 'quick question' (§16), never invents a defect", () => {
     const c = generateSubjectCandidates({ observation: "something about the overall brand feel" });
     expect(c.family).toBe("generic");
     expect(isPolicyCompliantSubject(c.primary)).toBe(true);
-    expect(c.primary).not.toBe("website inquiry");
-    expect(c.primary).not.toBe("online booking");
+    expect(c.primary).toBe("quick question");
+    expect(c.primary).not.toMatch(/website (note|inquiry|review)/); // retired framing
   });
 
   it("18. classifier requires the evidence to actually describe the family", () => {

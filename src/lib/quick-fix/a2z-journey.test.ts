@@ -141,15 +141,15 @@ describe("Part X — a2z booking journey over the real functions (SAFE fixture, 
     expect(frame.attemptSupported).toBe(true); // booking implies a real attempted action
   });
 
-  it("subject is the booking family primary — 'online booking'", () => {
+  it("subject is the booking family primary — business-language 'booking question' (§16-18)", () => {
     const offer = buildJourneyOffer();
     // The engine-derived first-touch subject...
     const copy = composeOfferOutreach(offer, { buyUrl: `/offer/${(offer as any).shareToken}`, bookingUrl: ARTIFEX_IDENTITY.bookingUrl });
-    expect(copy.subject).toBe("online booking");
+    expect(copy.subject).toBe("booking question");
     // ...and the subject engine agrees on the booking family + primary.
     const cands = generateSubjectCandidates({ observation: offer.scope.problemBeingSolved, context: offer.scope.proposedSolution });
     expect(cands.family).toBe("booking");
-    expect(cands.primary).toBe("online booking");
+    expect(cands.primary).toBe("booking question");
   });
 
   it("email first line === experienceFrame.emailOpener; body has NO price and NO raw URL", async () => {

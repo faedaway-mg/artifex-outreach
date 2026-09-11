@@ -223,6 +223,65 @@ export const ESCAPED_DEFECTS: EscapedDefect[] = [
     firstCovered: "pending-deploy",
   },
   {
+    id: "weak-observation-manufactured-into-offer",
+    defectClass: "Acquisition OS turned a weak observation into an offer instead of deciding NO_MATERIAL_PROBLEM — it tried to find a sentence to say about every website rather than a real, demonstrable problem.",
+    surface: "lead-views",
+    whyMissed: "There was no first-class 'no material problem' outcome and no Problem Reality gate; any concrete-ish finding could anchor an offer.",
+    coveredBy: [
+      "src/lib/quick-fix/problem-reality.ts:NO_MATERIAL_PROBLEM",
+      "src/lib/quick-fix/problem-reality.ts:assessProblemReality",
+      "src/lib/quick-fix/problem-reality.test.ts",
+    ],
+    firstCovered: "pending-deploy",
+  },
+  {
+    id: "false-broken-path-not-counter-tested",
+    defectClass: "A 'no booking / no contact path' hypothesis survived even though the path actually works (Book Now → postal code → valid flow) — the first crawler pass missed the control and nothing tried to disprove it.",
+    surface: "lead-views",
+    whyMissed: "Qualification relied on page-text/crawler interpretation and never ran an adversarial counter-test to find a working path before accepting the finding.",
+    coveredBy: [
+      "src/lib/quick-fix/problem-reality.ts:counterTestPlan",
+      "src/lib/quick-fix/problem-reality.ts:DISPROVEN",
+      "src/lib/quick-fix/problem-reality.test.ts",
+    ],
+    firstCovered: "pending-deploy",
+  },
+  {
+    id: "out-of-market-lead-in-active-inventory",
+    defectClass: "California (and other out-of-market) leads remained in active Quick Cash inventory and consumed attention, though California is outside the approved outbound market strategy.",
+    surface: "package-integrity",
+    whyMissed: "The geography gate ran in Lead Sprint classification but was never re-applied to stored offers; the canonical package had no market gate.",
+    coveredBy: [
+      "src/lib/quick-fix/market-gate.ts:assessMarketGate",
+      "src/lib/quick-fix/canonical-package.ts:market",
+      "src/lib/quick-fix/market-gate.test.ts",
+    ],
+    firstCovered: "pending-deploy",
+  },
+  {
+    id: "package-pass-without-proven-problem",
+    defectClass: "A package could read Ready-to-Send / 'no blockers' while the underlying problem was unproven or the required assets were missing — green status coexisting with an unproven problem.",
+    surface: "package-integrity",
+    whyMissed: "The QA verdict was derived from asset completeness alone; it did not require a PROVEN Problem Reality verdict and did not fail closed when reality was unassessed.",
+    coveredBy: [
+      "src/lib/quick-fix/package-qa.ts:problemReality",           // PASS requires PROVEN (§33/§46)
+      "src/lib/quick-fix/package-qa.test.ts",
+    ],
+    firstCovered: "pending-deploy",
+  },
+  {
+    id: "generic-web-sales-subject",
+    defectClass: "Active packages kept generic web-sales subjects ('website note', 'website inquiry') that instantly read as website-sales spam instead of a natural business-journey subject.",
+    surface: "package-integrity",
+    whyMissed: "The subject engine emitted 'website X' framing and nothing retired it; the coherence gate only blocked an empty subject.",
+    coveredBy: [
+      "src/lib/quick-fix/subject-engine.ts:isRetiredSubject",
+      "src/lib/quick-fix/package-coherence.ts:subject.missing",
+      "src/lib/quick-fix/subject-engine.test.ts",
+    ],
+    firstCovered: "pending-deploy",
+  },
+  {
     id: "blank-after-opening-explainer",
     defectClass: "A rendered explainer opened correctly then went blank/static for the rest of a ~65s runtime, yet passed 200/duration/first-frame checks.",
     surface: "trust-explainer",

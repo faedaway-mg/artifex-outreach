@@ -128,17 +128,33 @@ export function isPolicyCompliantSubject(subject: string): boolean {
 
 // ── The deterministic family → triple mappings ──────────────────────────────────
 // Order of each triple is ALWAYS [topic, action, surface]. The topic is the primary.
-// Singular is preserved deliberately ("website inquiry", never "inquiries").
+// BUSINESS-JOURNEY language (Problem-Reality amendment §16–§18): a subject should feel
+// like a natural attempt to interact with the BUSINESS (booking / appointment / contact),
+// NOT generic web-sales framing. We deliberately RETIRED "website note / website inquiry /
+// website review" — those instantly read as website-sales spam.
 const FAMILY_TRIPLES: Record<Exclude<SubjectFamily, "generic">, [string, string, string]> = {
-  //                topic (primary)     action                 surface
-  contact: ["website inquiry", "contact form", "website contact"],
-  booking: ["online booking", "appointment booking", "booking page"],
-  mobile_booking: ["mobile booking", "online booking", "mobile website"],
-  mobile_contact: ["mobile contact", "website inquiry", "mobile website"],
-  readability: ["website readability", "mobile readability", "website text"],
-  search: ["search listing", "google result", "page description"],
-  analytics: ["website tracking", "booking tracking", "form tracking"],
+  //                topic (primary)      action                 surface
+  contact: ["contact question", "your contact form", "getting in touch"],
+  booking: ["booking question", "your booking page", "appointment booking"],
+  mobile_booking: ["booking on mobile", "your booking page", "booking from a phone"],
+  mobile_contact: ["contact on mobile", "your contact form", "reaching you"],
+  readability: ["reading your site", "your site text", "hard-to-read text"],
+  search: ["finding you on google", "your google listing", "your search result"],
+  analytics: ["tracking your leads", "your lead tracking", "measuring signups"],
 };
+
+// Retired generic web-sales subject phrasings (§16). A package must never keep one on an
+// ACTIVE outbound-ready subject; the coherence gate blocks them and the canonical package
+// treats them as non-specific.
+const RETIRED_SUBJECTS = new Set([
+  "website note", "website review", "website inquiry", "site audit",
+  "quick website fix", "website problem", "website improvement", "website audit",
+]);
+
+/** True when a subject is a retired generic web-sales phrasing that must not ship (§16). */
+export function isRetiredSubject(subject: string): boolean {
+  return RETIRED_SUBJECTS.has((subject ?? "").trim().toLowerCase());
+}
 
 /**
  * Classify an evidence text into a defect family. A mapping is used ONLY when the
@@ -184,15 +200,17 @@ export function generateSubjectCandidates(input: SubjectInput): SubjectCandidate
 
   let triple: [string, string, string];
   if (family === "generic") {
-    // No accurate mapping. Do NOT assert a specific broken thing — stay true+vague.
-    triple = ["website note", "website note", "website note"];
+    // No accurate mapping. Do NOT assert a specific broken thing — a neutral, business-
+    // natural "quick question" (§16), never a retired web-sales phrasing. A generic-family
+    // package is rejected upstream by the Problem Reality gate, so this rarely ships.
+    triple = ["quick question", "quick question", "quick question"];
   } else {
     triple = FAMILY_TRIPLES[family];
   }
 
   // Every candidate must pass policy. A generic fallback replaces any that doesn't
   // (defense in depth — the curated triples are authored to pass).
-  const safe = triple.map((c) => (isPolicyCompliantSubject(c) ? c : "website note")) as [string, string, string];
+  const safe = triple.map((c) => (isPolicyCompliantSubject(c) ? c : "quick question")) as [string, string, string];
 
   // De-dupe alternates against the primary while preserving role order, so the
   // operator always sees genuinely distinct choices.

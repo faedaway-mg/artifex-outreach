@@ -17,7 +17,7 @@ import * as store from "./store";
 import type { QuickFixOffer } from "./types";
 import { buildCanonicalPackage } from "./canonical-package";
 import { offerSubject } from "./offer-outreach";
-import { classifyDefectFamily, SUBJECT_POLICY_VERSION } from "./subject-engine";
+import { classifyDefectFamily, isRetiredSubject, SUBJECT_POLICY_VERSION } from "./subject-engine";
 import { regeneratePlainScope, offerNeedsScopeRegeneration } from "./scope-regeneration";
 
 export type Viewport = "mobile" | "desktop";
@@ -109,7 +109,7 @@ export async function completePackage(
   const offer0 = stored0 as unknown as QuickFixOffer;
 
   const before = await buildCanonicalPackage(offer0, { stored: stored0 });
-  const subjectSpecific = before.story.subject.trim().toLowerCase() !== "website note" && before.story.subject.trim() !== "";
+  const subjectSpecific = before.story.subject.trim() !== "" && !isRetiredSubject(before.story.subject);
 
   const plan = packageRepairPlan({
     eligible: offer0.quickFixEligible,

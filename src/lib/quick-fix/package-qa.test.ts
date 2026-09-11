@@ -41,6 +41,9 @@ function stored(offer: QuickFixOffer, over: Partial<StoredOffer> = {}): StoredOf
     ...offer,
     approvalStatus: "approved", approvedBy: "system-reconcile", recipientEmail: null,
     shareToken: "tok_test", shareRevoked: false, createdAt: "", updatedAt: "",
+    // Default fixtures carry a PROVEN reality so a materialized package can PASS; individual
+    // tests override this to exercise the reality gate.
+    problemRealityVerdict: "PROVEN", problemRealityScore: 100,
     ...over,
   } as StoredOffer;
 }
@@ -90,6 +93,32 @@ describe("runPackageQA over a real canonical package", () => {
     const live = await runPackageQA(offer, { stored: stored(offer) });
     const again = await runPackageQA(offer, { stored: stored(offer, { qaVerdict: "PASS", qaRevision: live.revision }) });
     expect(again.wasInvalidatedByTouch).toBe(false);
+  });
+
+  it("FAIL-CLOSED: a materialized package cannot PASS without a PROVEN problem reality (§33/§46)", async () => {
+    const offer = genOffer();
+    // Reality never assessed → not Ready-to-Send even though the package is complete.
+    const res = await runPackageQA(offer, { stored: stored(offer, { problemRealityVerdict: null, problemRealityScore: null }) });
+    expect(res.verdict).not.toBe("PASS");
+    expect(res.reasons.join(" ")).toMatch(/problem reality/i);
+  });
+
+  it("BLOCKS + recommends retire when the problem is NO_MATERIAL_PROBLEM (§1/§33)", async () => {
+    const offer = genOffer();
+    const res = await runPackageQA(offer, { stored: stored(offer, { problemRealityVerdict: "NO_MATERIAL_PROBLEM", problemRealityScore: 0 }) });
+    expect(res.verdict).toBe("BLOCKED");
+    expect(res.problemReality).toBe("NO_MATERIAL_PROBLEM");
+  });
+
+  it("out-of-market lead cannot PASS and is flagged for retire (§10)", async () => {
+    const offer = genOffer();
+    // buildCanonicalPackage takes location via opts; runPackageQA passes stored only, so
+    // exercise the gate directly through the canonical package location path.
+    const { buildCanonicalPackage } = await import("./canonical-package");
+    const pkg = await buildCanonicalPackage(offer, { stored: stored(offer), location: { city: "Los Angeles", state: "CA" } });
+    expect(pkg.market?.inMarket).toBe(false);
+    expect(pkg.readiness).toBe("BLOCKED");
+    expect(pkg.nextAction.kind).toBe("retire");
   });
 });
 

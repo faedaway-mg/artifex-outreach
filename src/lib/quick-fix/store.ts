@@ -96,6 +96,14 @@ export interface StoredOffer extends QuickFixOffer {
   qaRevision?: string | null;
   qaAt?: string | null;
 
+  // ── Problem Reality verdict (Problem-Reality amendment §33) ──────────────────────
+  /** The persisted PROBLEM REALITY verdict from qualification/counter-test. Only a PROVEN
+   *  problem may consume paid production / reach Ready-to-Send. Absent ⇒ never assessed
+   *  under the reality gate (fail-closed: the QA gate treats it as not-yet-PROVEN). */
+  problemRealityVerdict?: "PROVEN" | "PLAUSIBLE" | "WEAK" | "DISPROVEN" | "NO_MATERIAL_PROBLEM" | null;
+  problemRealityScore?: number | null;
+  problemRealityAt?: string | null;
+
   // ── Retire / Not-a-Fit (Active Inventory Integrity mandate §10) ──────────────────
   /** When set, the operator retired this package as not-a-fit — it leaves ACTIVE counts
    *  and production consideration immediately, but the record is NEVER deleted (audit
@@ -396,6 +404,30 @@ export async function recordPackageQA(
     out = o;
   });
   if (out) await appendAudit({ action: "quickfix.package_qa", actor: opts.actor, targetType: "quickfix_offer", targetId: offerId, meta: { verdict: opts.verdict, revision: opts.revision }, ip: null });
+  return out;
+}
+
+/**
+ * Persist the PROBLEM REALITY verdict for an offer (§33). Records the verdict + score +
+ * timestamp so the QA gate + canonical package can enforce "only PROVEN proceeds". Never
+ * sends/charges/mutates scope. When verdict is NO_MATERIAL_PROBLEM/DISPROVEN the caller
+ * should also retire the offer (a good, honest result — the site works / hypothesis died).
+ */
+export async function setProblemReality(
+  offerId: string,
+  opts: { verdict: NonNullable<StoredOffer["problemRealityVerdict"]>; score: number; actor: string; now: string },
+): Promise<StoredOffer | null> {
+  let out: StoredOffer | null = null;
+  await mutate((s) => {
+    const o = s.offers[offerId];
+    if (!o) return;
+    o.problemRealityVerdict = opts.verdict;
+    o.problemRealityScore = opts.score;
+    o.problemRealityAt = opts.now;
+    o.updatedAt = opts.now;
+    out = o;
+  });
+  if (out) await appendAudit({ action: "quickfix.problem_reality", actor: opts.actor, targetType: "quickfix_offer", targetId: offerId, meta: { verdict: opts.verdict, score: opts.score }, ip: null });
   return out;
 }
 
