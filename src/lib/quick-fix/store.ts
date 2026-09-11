@@ -87,6 +87,15 @@ export interface StoredOffer extends QuickFixOffer {
    *  substituted for this. */
   personalizedVideo?: PersonalizedDiagnosticVideoRecord;
 
+  // ── Per-package Breakbot QA verdict, BOUND to the package revision (§32/§33) ──────
+  /** The last Breakbot PACKAGE QA verdict for this offer. */
+  qaVerdict?: "PASS" | "BLOCKED" | "WAITING_FOR_PAID" | "REPAIRING" | null;
+  /** The canonical package revision the verdict was recorded against. If the live package
+   *  revision differs, the verdict is STALE (NEEDS_QA) — a changed artifact never inherits
+   *  the old PASS (§33). */
+  qaRevision?: string | null;
+  qaAt?: string | null;
+
   // ── Retire / Not-a-Fit (Active Inventory Integrity mandate §10) ──────────────────
   /** When set, the operator retired this package as not-a-fit — it leaves ACTIVE counts
    *  and production consideration immediately, but the record is NEVER deleted (audit
@@ -326,6 +335,74 @@ export async function setApproval(offerId: string, status: ApprovalStatus, actor
   });
   if (out) await appendAudit({ action: `quickfix.offer_${status}`, actor, targetType: "quickfix_offer", targetId: offerId, meta: null, ip: null });
   return out;
+}
+
+/**
+ * RETIRE / NOT A FIT (Active Inventory Integrity mandate §10). Marks a package retired:
+ * it leaves ACTIVE counts + production consideration immediately, but is NEVER deleted —
+ * the record + a reason + timestamp + actor are preserved for audit. Idempotent. Passing
+ * status "active" un-retires (recovery). Never sends, charges, or mutates scope/price.
+ */
+export async function retireOffer(
+  offerId: string,
+  opts: { reason: string; actor: string; now: string },
+): Promise<StoredOffer | null> {
+  let out: StoredOffer | null = null;
+  await mutate((s) => {
+    const o = s.offers[offerId];
+    if (!o) return;
+    o.retiredAt = opts.now;
+    o.retiredReason = opts.reason;
+    o.retiredBy = opts.actor;
+    o.updatedAt = opts.now;
+    out = o;
+  });
+  if (out) await appendAudit({ action: "quickfix.offer_retired", actor: opts.actor, targetType: "quickfix_offer", targetId: offerId, meta: { reason: opts.reason }, ip: null });
+  return out;
+}
+
+export async function unretireOffer(offerId: string, opts: { actor: string; now: string }): Promise<StoredOffer | null> {
+  let out: StoredOffer | null = null;
+  await mutate((s) => {
+    const o = s.offers[offerId];
+    if (!o) return;
+    o.retiredAt = null;
+    o.retiredReason = null;
+    o.retiredBy = null;
+    o.updatedAt = opts.now;
+    out = o;
+  });
+  if (out) await appendAudit({ action: "quickfix.offer_unretired", actor: opts.actor, targetType: "quickfix_offer", targetId: offerId, meta: null, ip: null });
+  return out;
+}
+
+/**
+ * Record a Breakbot PACKAGE QA verdict BOUND to the package revision (§32/§33). A verdict
+ * is only ever valid for the exact revision it was taken against; when the live package
+ * revision differs, `packageQAStale` reports NEEDS_QA and the old verdict is ignored.
+ */
+export async function recordPackageQA(
+  offerId: string,
+  opts: { verdict: NonNullable<StoredOffer["qaVerdict"]>; revision: string; actor: string; now: string },
+): Promise<StoredOffer | null> {
+  let out: StoredOffer | null = null;
+  await mutate((s) => {
+    const o = s.offers[offerId];
+    if (!o) return;
+    o.qaVerdict = opts.verdict;
+    o.qaRevision = opts.revision;
+    o.qaAt = opts.now;
+    o.updatedAt = opts.now;
+    out = o;
+  });
+  if (out) await appendAudit({ action: "quickfix.package_qa", actor: opts.actor, targetType: "quickfix_offer", targetId: offerId, meta: { verdict: opts.verdict, revision: opts.revision }, ip: null });
+  return out;
+}
+
+/** Whether a stored QA verdict is STALE for the current live package revision (§33). */
+export function packageQAStale(stored: Pick<StoredOffer, "qaVerdict" | "qaRevision">, currentRevision: string): boolean {
+  if (!stored.qaVerdict || !stored.qaRevision) return true; // never QA'd ⇒ needs QA
+  return stored.qaRevision !== currentRevision;
 }
 
 // ── Personalized diagnostic video record (Part B/J) ─────────────────────────────
