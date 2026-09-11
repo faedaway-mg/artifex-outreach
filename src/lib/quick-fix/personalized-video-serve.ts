@@ -46,10 +46,14 @@ export async function resolvePersonalizedVideoForServe(
   }
 
   if (!opts.operator) {
-    // Customer path: must be the offer's own (unrevoked) share token AND approved.
-    const viaShareToken = !!byToken && !byToken.shareRevoked;
+    // Customer path — the SAME capability model as the public offer page
+    // (buildPublicOfferView/resolveOffer): the offer is reachable by its unguessable
+    // offerId OR its unrevoked share token, and must be approved. The offer-page video
+    // URL is intentionally offerId-keyed (survives token rotation), so requiring the raw
+    // share token here would 404 every customer view — the offerId is itself the capability.
     const approved = offer.approvalStatus === "approved";
-    if (!viaShareToken || !approved) {
+    const revokedToken = !!byToken && byToken.shareRevoked;
+    if (!approved || revokedToken) {
       return { ok: false, httpStatus: 404, reason: "not-public", status: null, record: null, offerId: offer.offerId };
     }
   }

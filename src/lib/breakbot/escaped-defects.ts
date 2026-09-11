@@ -94,6 +94,18 @@ export const ESCAPED_DEFECTS: EscapedDefect[] = [
     firstCovered: "ee60dca",
   },
   {
+    id: "ready-personalized-video-never-surfaces",
+    defectClass: "A genuinely-READY personalized diagnostic video never reached the customer: the offer page built the evidence package without the record (never fetched it), and the serve gate demanded the raw share token though the media URL is offerId-keyed — so every customer view showed no video / 404'd.",
+    surface: "offer-page",
+    whyMissed: "No synthetic prospect ever loaded an offer with a REAL rendered personalized video — the asset was MISSING in prod, so the fetch-omission and the offerId-vs-token gate mismatch stayed dormant until one was generated.",
+    coveredBy: [
+      "src/lib/quick-fix/evidence-package.ts:getPersonalizedVideo",        // fetch the record when opts omitted
+      "src/lib/quick-fix/personalized-video-serve.ts",                     // offerId capability (mirrors offer page)
+      "src/lib/quick-fix/personalized-video-surfacing.test.ts",           // executable regression (both fixes)
+    ],
+    firstCovered: "pending-deploy",
+  },
+  {
     id: "media-route-login-redirect",
     defectClass: "The customer-facing trust-video / personalized-video media routes 307-redirected to /login, so the video could not play on the public offer page.",
     surface: "media-route",

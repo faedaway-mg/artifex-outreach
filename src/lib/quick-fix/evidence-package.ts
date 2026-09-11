@@ -22,6 +22,7 @@ import { gradedProblemStatement } from "./evidence-gate";
 import { toOfferFindings } from "./adapter";
 import { trustVideoForOffer } from "./trust-videos";
 import { getLead, getBusinessIntelligence } from "../repo";
+import { getPersonalizedVideo } from "./store";
 import { latestReadyShot, type Viewport } from "../content-studio/screenshot-jobs";
 import { evidenceVersion } from "./evidence-truth";
 import {
@@ -199,7 +200,13 @@ export async function buildEvidencePackage(
     evidenceGrade: offer.evidenceGrade,
     generatedAt: offer.generatedAt,
   });
-  const personalizedVideo: EvidenceAssetRef = personalizedVideoAssetRef(opts.personalizedVideo ?? null, {
+  // Use the caller-supplied record when explicitly provided; otherwise FETCH the persisted
+  // record. (A caller that omits opts must still get the real personalized video — otherwise
+  // a genuinely READY asset silently never reaches the offer page: an escaped-defect class.)
+  const pvRecord = opts.personalizedVideo !== undefined
+    ? opts.personalizedVideo
+    : await getPersonalizedVideo(offer.offerId).catch(() => null);
+  const personalizedVideo: EvidenceAssetRef = personalizedVideoAssetRef(pvRecord ?? null, {
     offerVersion: offer.offerVersion,
     evidenceVersion: currentEvidenceVersion,
     narrationVersion: PV_NARRATION_VERSION,
