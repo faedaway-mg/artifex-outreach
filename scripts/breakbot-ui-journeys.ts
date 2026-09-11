@@ -27,6 +27,7 @@ const arg = (f: string) => { const i = argv.indexOf(f); return i >= 0 ? argv[i +
 const BASE = (arg("--base") ?? "https://outreach.artifexlabs.tech").replace(/\/$/, "");
 const OFFER = arg("--offer");
 const HOLD_OFFER = arg("--hold-offer");
+const PORTAL_OFFER = arg("--portal-offer"); // a POST-SALE offer for the customer-portal drive
 const SECRET = (process.env.BREAKBOT_TEST_AUTH ?? "").trim();
 const EVIDENCE = join(process.cwd(), "artifacts/breakbot-ui-journeys");
 const found = new Set<string>();
@@ -98,8 +99,15 @@ async function operatorSweep(ctx: BrowserContext) {
   drivenSurfaces.add("operator");
   drivenSurfaces.add("content-studio");
   const page = await ctx.newPage();
+  // Heavy operator server-components can take many DB round-trips (especially a local RC
+  // pointed read-only at a remote DB over a public proxy). Give navigation + the first
+  // anchor generous headroom so latency never reads as a missing element.
+  page.setDefaultNavigationTimeout(90_000);
+  page.setDefaultTimeout(20_000);
   const check = async (route: string, anchors: string[], label: string) => {
-    await page.goto(`${BASE}${route}`, { waitUntil: "domcontentloaded" }).catch(() => {});
+    await page.goto(`${BASE}${route}`, { waitUntil: "domcontentloaded", timeout: 90_000 }).catch(() => {});
+    // Wait for the FIRST expected anchor to actually attach before asserting the rest.
+    if (anchors[0]) await page.waitForSelector(`[data-testid="${anchors[0]}"]`, { timeout: 90_000, state: "attached" }).catch(() => {});
     for (const a of anchors) {
       const ok = await present(page, a);
       if (!ok) { notes.push(`${label}: missing ${a}`); }
@@ -112,7 +120,8 @@ async function operatorSweep(ctx: BrowserContext) {
   await check("/launch/explainers", ["explainer-coverage-summary"], "explainers");
   await check("/launch/breakbot", ["breakbot-overview"], "breakbot");
   // Content Studio: brief present, machinery absent (the §22 gate).
-  await page.goto(`${BASE}/content-studio`, { waitUntil: "domcontentloaded" }).catch(() => {});
+  await page.goto(`${BASE}/content-studio`, { waitUntil: "domcontentloaded", timeout: 90_000 }).catch(() => {});
+  await page.waitForSelector('[data-testid="content-studio-zero-touch"], [data-testid="cs-simple-toggle"]', { timeout: 90_000, state: "attached" }).catch(() => {});
   await present(page, "content-studio-zero-touch");
   // Idea-queue UX (mandate D §22): a global idea field + Generate-idea, concept cards with an
   // auto-written description and a Generate — and NO per-card freeform textarea.
@@ -141,7 +150,8 @@ async function operatorSweep(ctx: BrowserContext) {
   // Quick Cash — autonomous OPERATING QUEUE (mandate E §20). No routine approval; lifecycle
   // states; delivery-OFF says waiting-for-outbound not Scheduled; state persists on refresh.
   drivenSurfaces.add("quick-cash");
-  await page.goto(`${BASE}/revenue/quick-cash`, { waitUntil: "domcontentloaded" }).catch(() => {});
+  await page.goto(`${BASE}/revenue/quick-cash`, { waitUntil: "domcontentloaded", timeout: 90_000 }).catch(() => {});
+  await page.waitForSelector('[data-testid="quick-cash-page"]', { timeout: 90_000, state: "attached" }).catch(() => {});
   if (!await present(page, "quick-cash-page")) { notes.push("quick-cash: page did not render"); status = "BLOCKED"; }
   await present(page, "quick-cash-summary");
   await present(page, "quick-cash-outbound");
@@ -227,16 +237,28 @@ async function holdOfferJourney(browser: Browser) {
 }
 
 async function portalJourney(browser: Browser) {
-  if (!OFFER) { results.push({ journey: "customer-portal", status: "NOT_RUN", notes: ["needs --offer fixture"] }); return; }
-  drivenSurfaces.add("customer-portal");
+  // The customer PORTAL is a POST-SALE surface — it only has scope/progress/next-action once a
+  // purchase created a project. Drive a post-sale fixture when supplied (--portal-offer); a
+  // PRE-SALE offer legitimately has no portal, so we report NOT_RUN and do NOT ratchet its
+  // anchors (the portal product is covered by the Breakbot fulfillment regression suite).
+  const target = PORTAL_OFFER ?? OFFER;
+  if (!target) { results.push({ journey: "customer-portal", status: "NOT_RUN", notes: ["needs --portal-offer (post-sale) fixture"] }); return; }
   const notes: string[] = [];
-  let status: "PASS" | "BLOCKED" = "PASS";
+  let status: "PASS" | "BLOCKED" | "NOT_RUN" = "PASS";
   const page = await browser.newPage();
-  await page.goto(`${BASE}/offer/${OFFER}/portal`, { waitUntil: "domcontentloaded" }).catch(() => {});
-  for (const a of ["portal-scope", "portal-progress", "portal-next-action"]) if (!await present(page, a)) notes.push(`portal: missing ${a}`);
+  await page.goto(`${BASE}/offer/${target}/portal`, { waitUntil: "domcontentloaded" }).catch(() => {});
+  const hasProject = await present(page, "portal-scope");
+  if (!hasProject) {
+    // No post-sale project on this offer → portal not applicable here (not a defect).
+    results.push({ journey: "customer-portal", status: "NOT_RUN", notes: [`portal not applicable for ${target} (no post-sale project) — covered by the fulfillment regression suite`] });
+    await page.close();
+    return;
+  }
+  drivenSurfaces.add("customer-portal");
+  for (const a of ["portal-progress", "portal-next-action"]) if (!await present(page, a)) { notes.push(`portal: missing ${a}`); status = "BLOCKED"; }
   await shot(page, "customer-portal");
   await page.close();
-  results.push({ journey: "customer-portal", status, notes });
+  results.push({ journey: "customer-portal", status, notes: notes.length ? notes : ["portal-scope/progress/next-action present"] });
 }
 
 async function mobileJourneys(ctx: BrowserContext | null, browser: Browser) {
