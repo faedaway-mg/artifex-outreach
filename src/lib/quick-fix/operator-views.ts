@@ -822,6 +822,12 @@ export interface QuickCashPipelineRow {
   offerId: string | null;
   shareToken: string | null;
   lifecycle: QuickCashLifecycle;
+  // Identity + market + reality (Problem-Reality amendment §13/§41).
+  market: string;
+  inMarket: boolean;
+  googleUrl: string | null;
+  websiteUrl: string | null;
+  problemReality: string | null;
   // Secondary detail (shown only in expanded/detail views on mobile).
   score: number;
   estimatedHours: number;
@@ -879,8 +885,15 @@ export async function quickCashPipelineView(limit = 500): Promise<QuickCashPipel
   const purchasedOfferIds = new Set(jobs.map((j) => j.offerId));
   const deliveryOn = prospectDeliveryEnabled();
 
+  // Lead identity (market + Google profile) keyed by leadId for the card (§13/§41).
+  const { assessMarketGate, marketLabel, googleProfileUrl } = await import("./market-gate");
+  const leadById = new Map(contexts.map((c) => [c.lead.id, c.lead]));
+
   const rows: QuickCashPipelineRow[] = ranked.map((r) => {
     const stored = storedByLead.get(r.leadId) ?? null;
+    const lead = leadById.get(r.leadId) as { city?: string; state?: string; googlePlaceId?: string | null; businessName?: string; website?: string | null } | undefined;
+    const loc = { city: lead?.city, state: lead?.state };
+    const gate = assessMarketGate(loc);
     const lifecycle = deriveQuickCashLifecycle({
       eligible: r.eligible,
       hasOffer: !!stored,
@@ -895,6 +908,10 @@ export async function quickCashPipelineView(limit = 500): Promise<QuickCashPipel
       priceCents: r.priceCents, band: r.band, sla: r.sla,
       offerId: stored?.offerId ?? null, shareToken: stored?.shareToken ?? null,
       lifecycle,
+      market: marketLabel(loc), inMarket: gate.inMarket,
+      googleUrl: lead ? googleProfileUrl({ googlePlaceId: lead.googlePlaceId, businessName: lead.businessName ?? r.company, city: lead.city, state: lead.state }) : null,
+      websiteUrl: lead?.website ?? null,
+      problemReality: stored?.problemRealityVerdict ?? null,
       score: r.score, estimatedHours: r.estimatedHours, effectiveHourlyCents: r.effectiveHourlyCents, confidence: r.confidence,
     };
   });

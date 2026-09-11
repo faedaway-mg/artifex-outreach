@@ -1,6 +1,9 @@
 import Link from "next/link";
 import { quickCashPipelineView } from "@/lib/quick-fix/operator-views";
 import { QUICK_CASH_STATE_TITLE, type QuickCashState, type Tone } from "@/lib/quick-fix/quick-cash-lifecycle";
+import { rejectLeadAction } from "./actions";
+
+const REJECT_REASONS = ["No material problem", "Functional site", "Wrong geography", "Wrong ICP", "Closed", "Too enterprise", "Weak value proposition", "Duplicate", "Other"];
 
 export const dynamic = "force-dynamic";
 const usd = (c: number) => `$${Math.round(c / 100)}`;
@@ -77,6 +80,13 @@ export default async function QuickCashPage() {
                           <div className="min-w-0">
                             <div className="truncate text-[15px] font-semibold text-chalk-100">{r.company}</div>
                             <div className="mt-0.5 text-[12.5px] text-chalk-400">{r.offerName} — {r.problem}</div>
+                            {/* Market + Problem Reality chips (§41). */}
+                            <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px]">
+                              <span className={`rounded px-1.5 py-0.5 ${r.inMarket ? "bg-teal-500/15 text-teal-300" : "bg-red-500/15 text-red-300"}`} data-testid={`qc-market-${r.leadId}`}>{r.market}</span>
+                              {r.problemReality && (
+                                <span className={`rounded px-1.5 py-0.5 ${r.problemReality === "PROVEN" ? "bg-emerald-500/15 text-emerald-300" : r.problemReality === "NO_MATERIAL_PROBLEM" || r.problemReality === "DISPROVEN" ? "bg-red-500/15 text-red-300" : "bg-amber-500/15 text-amber-300"}`} data-testid={`qc-reality-${r.leadId}`}>reality: {r.problemReality}</span>
+                              )}
+                            </div>
                           </div>
                           <div className="shrink-0 text-right">
                             <div className="text-[16px] font-bold text-chalk-50">{usd(r.priceCents)}</div>
@@ -91,12 +101,28 @@ export default async function QuickCashPage() {
                         </div>
                         <p className="mt-1 text-[12px] text-chalk-400">{lc.detail}</p>
 
-                        {/* Inspection only — never tied to readiness. No routine Prepare & approve. */}
-                        {r.offerId && (
-                          <div className="mt-3">
-                            <Link data-testid="qc-view-package" href={`/revenue/opportunity/${r.offerId}`} className="inline-flex rounded-lg bg-azure-500/15 px-2.5 py-1 text-[12px] font-medium text-azure-200 hover:bg-azure-500/25">View package →</Link>
-                          </div>
-                        )}
+                        {/* Operator controls (§13/§14/§40): inspect · open website/Google · reject.
+                            Primary automation stays autonomous — these are escape/recovery controls. */}
+                        <div className="mt-3 flex flex-wrap items-center gap-2 text-[12px]">
+                          {r.offerId && (
+                            <Link data-testid="qc-view-package" href={`/revenue/opportunity/${r.offerId}`} className="inline-flex rounded-lg bg-azure-500/15 px-2.5 py-1 font-medium text-azure-200 hover:bg-azure-500/25">View package →</Link>
+                          )}
+                          {r.websiteUrl && (
+                            <a href={r.websiteUrl} target="_blank" rel="noreferrer" className="inline-flex rounded-lg bg-white/[0.05] px-2.5 py-1 text-chalk-300 hover:bg-white/[0.1]">Open Website ↗</a>
+                          )}
+                          {r.googleUrl && (
+                            <a data-testid={`qc-google-${r.leadId}`} href={r.googleUrl} target="_blank" rel="noreferrer" className="inline-flex rounded-lg bg-white/[0.05] px-2.5 py-1 text-chalk-300 hover:bg-white/[0.1]">Open Google Profile ↗</a>
+                          )}
+                          {r.offerId && (
+                            <form action={rejectLeadAction} className="ml-auto flex items-center gap-1.5">
+                              <input type="hidden" name="offerId" value={r.offerId} />
+                              <select name="reason" data-testid={`qc-reject-reason-${r.leadId}`} defaultValue="No material problem" className="rounded-lg bg-white/[0.05] px-1.5 py-1 text-[11px] text-chalk-400">
+                                {REJECT_REASONS.map((x) => <option key={x} value={x}>{x}</option>)}
+                              </select>
+                              <button data-testid={`qc-reject-${r.leadId}`} type="submit" className="rounded-lg bg-red-500/15 px-2.5 py-1 font-medium text-red-300 hover:bg-red-500/25">Reject</button>
+                            </form>
+                          )}
+                        </div>
                       </li>
                     );
                   })}

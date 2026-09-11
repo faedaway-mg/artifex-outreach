@@ -44,6 +44,17 @@ export function assessMarketGate(loc: { city?: string | null; state?: string | n
   };
 }
 
+/**
+ * A Google profile / Maps link for the operator to confirm identity/status/reviews (§13).
+ * NEVER invents a business-profile URL: uses the resolved Google Place id when available,
+ * else a Maps SEARCH for the business name + location (a query, not a fabricated profile).
+ */
+export function googleProfileUrl(lead: { googlePlaceId?: string | null; businessName?: string | null; city?: string | null; state?: string | null }): string {
+  if (lead.googlePlaceId) return `https://www.google.com/maps/place/?q=place_id:${encodeURIComponent(lead.googlePlaceId)}`;
+  const q = [lead.businessName, lead.city, lead.state].filter(Boolean).join(" ");
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(q || "business")}`;
+}
+
 /** Compact market label for a Quick Cash card (§41). */
 export function marketLabel(loc: { city?: string | null; state?: string | null }): string {
   const g = assessMarketGate(loc);
