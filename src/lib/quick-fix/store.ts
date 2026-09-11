@@ -86,6 +86,14 @@ export interface StoredOffer extends QuickFixOffer {
    *  record is STALE, never silently READY. The evergreen video is separate + never
    *  substituted for this. */
   personalizedVideo?: PersonalizedDiagnosticVideoRecord;
+
+  // ── Retire / Not-a-Fit (Active Inventory Integrity mandate §10) ──────────────────
+  /** When set, the operator retired this package as not-a-fit — it leaves ACTIVE counts
+   *  and production consideration immediately, but the record is NEVER deleted (audit
+   *  history preserved). A retired package is excluded from Repair-All + sweeps. */
+  retiredAt?: string | null;
+  retiredReason?: string | null;
+  retiredBy?: string | null;
 }
 
 // ── Persisted fulfillment sub-state (Part A) ─────────────────────────────────────
