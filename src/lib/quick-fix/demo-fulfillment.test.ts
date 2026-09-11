@@ -10,6 +10,7 @@ import { __resetStoreForTests } from "../store";
 import * as store from "./store";
 import {
   seedDemoScenarios, listDemoJobs, assertDemoIsolated, isDemoRecipient, DEMO_SCENARIOS,
+  buildDemoWalkthroughs, DEMO_WALKTHROUGH_BADGES,
 } from "./demo-fulfillment";
 import { RESERVED_TEST_DOMAIN } from "../breakbot/isolation";
 import { fulfillmentView, profitabilityView, customersView, fulfillmentWorkspaceView } from "./operator-views";
@@ -182,6 +183,75 @@ describe("fail-closed isolation guard", () => {
         expect(Object.keys(item)).not.toContain("secret");
         expect(Object.keys(item)).not.toContain("credential");
       }
+    }
+  });
+});
+
+// §46–§48 — the explicit, USABLE guided DEMO A/B/C walkthroughs.
+describe("buildDemoWalkthroughs (guided DEMO A/B/C)", () => {
+  // The canonical job lifecycle order — a walkthrough's steps must be non-decreasing along it.
+  const LIFECYCLE_ORDER = [
+    "PAID", "WAITING_FOR_CUSTOMER_INPUT", "READY_FOR_FULFILLMENT", "IN_PROGRESS", "QA", "DELIVERED", "COMPLETE",
+  ];
+  const rank = (s: string) => LIFECYCLE_ORDER.indexOf(s);
+
+  it("returns exactly the 3 demos A/B/C mapped to the canonical scenarios", () => {
+    const ws = buildDemoWalkthroughs();
+    expect(ws).toHaveLength(3);
+    expect(ws.map((w) => w.letter)).toEqual(["A", "B", "C"]);
+    // A→wordpress-happy, B→unknown-platform, C→scope-exception.
+    expect(ws.find((w) => w.letter === "A")!.scenarioKey).toBe("wordpress-happy");
+    expect(ws.find((w) => w.letter === "B")!.scenarioKey).toBe("unknown-platform");
+    expect(ws.find((w) => w.letter === "C")!.scenarioKey).toBe("scope-exception");
+  });
+
+  it("every walkthrough carries the DEMO + NO-CHARGE + NO-EXTERNAL (+ NO REAL CUSTOMER) badges", () => {
+    for (const w of buildDemoWalkthroughs()) {
+      expect(w.badges).toEqual([...DEMO_WALKTHROUGH_BADGES]);
+      expect(w.badges).toContain("DEMO");
+      expect(w.badges).toContain("NO CHARGE");
+      expect(w.badges).toContain("NO EXTERNAL MESSAGE");
+      expect(w.badges).toContain("NO REAL CUSTOMER");
+    }
+  });
+
+  it("DEMO B includes an explicit waiting-for-customer-access state (WAITING_FOR_CUSTOMER_INPUT)", () => {
+    const b = buildDemoWalkthroughs().find((w) => w.letter === "B")!;
+    const waiting = b.steps.find((s) => s.isCustomerWaiting === true);
+    expect(waiting).toBeTruthy();
+    expect(waiting!.state).toBe("WAITING_FOR_CUSTOMER_INPUT");
+    expect(waiting!.showsCustomerPortal).toBe(true);
+  });
+
+  it("DEMO C includes an explicit 'Additional Decision Needed' state", () => {
+    const c = buildDemoWalkthroughs().find((w) => w.letter === "C")!;
+    const decision = c.steps.find((s) => s.isAdditionalDecision === true);
+    expect(decision).toBeTruthy();
+    expect(decision!.label).toMatch(/Additional Decision Needed/i);
+  });
+
+  it("every walkthrough's step order matches the job lifecycle (non-decreasing)", () => {
+    for (const w of buildDemoWalkthroughs()) {
+      expect(w.steps.length).toBeGreaterThan(0);
+      for (const s of w.steps) expect(rank(s.state)).toBeGreaterThanOrEqual(0); // every state is a real lifecycle state
+      for (let i = 1; i < w.steps.length; i++) {
+        expect(rank(w.steps[i].state)).toBeGreaterThanOrEqual(rank(w.steps[i - 1].state));
+      }
+      // Ends at completion, and every walkthrough reaches the customer portal + completion.
+      expect(w.steps[w.steps.length - 1].state).toBe("COMPLETE");
+      expect(w.steps.some((s) => s.showsCustomerPortal)).toBe(true);
+    }
+  });
+
+  it("resolves workspace + customer-portal deep links from the seeded offerIds (idempotent seed)", async () => {
+    const seeded = await seedDemoScenarios();
+    const byKey = Object.fromEntries(seeded.map((s) => [s.key, s.offerId]));
+    const ws = buildDemoWalkthroughs(byKey as any);
+    for (const w of ws) {
+      const offerId = byKey[w.scenarioKey];
+      expect(w.workspaceHref).toBe(`/revenue/fulfillment/${offerId}`);
+      expect(w.portalHref).toBe(`/offer/${offerId}/portal`);
+      expect(w.resetHref).toMatch(/reset/);
     }
   });
 });

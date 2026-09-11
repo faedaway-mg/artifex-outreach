@@ -263,6 +263,94 @@ describe("evidence-package.diagnosticPdf status tracks renderability", () => {
   });
 });
 
+describe("§20/§21 — the PDF cannot claim screenshots it does not embed", () => {
+  // A neutral (non-mobile) finding so we control screenshot presence independently
+  // of the mobile-claim guard.
+  const NEUTRAL = { id: "cta", category: "Customer Acquisition",
+    observation: "the primary button is hard to find", whyItMatters: "visitors can't easily take the next step",
+    confidence: { label: "Observed", score: 0.95 }, basis: ["link: https://x"], estimatedImpact: { level: "High" } };
+
+  it("with ZERO embedded screenshots the §2 intro makes NO 'screenshot(s) we captured' claim", async () => {
+    mockOpportunities = [NEUTRAL];
+    mockReadyShots = {}; // nothing captured → nothing embedded
+    const offer = gen([CTA]);
+    const pkg = await buildEvidencePackage(offer);
+    const doc = assembleDiagnosticDoc(offer, pkg);
+
+    expect(doc.embeddedScreenshotCount).toBe(0);
+    // Truthful language: it must not assert a captured screenshot when none is embedded.
+    expect(doc.evidenceIntro.toLowerCase()).not.toMatch(/screenshots? we captured/);
+    expect(doc.evidenceIntro.toLowerCase()).not.toContain("screenshot");
+    // And no finding embeds a shot.
+    for (const f of doc.findings) expect(f.screenshot).toBeNull();
+  });
+
+  it("with exactly ONE embedded screenshot the intro uses the SINGULAR 'the screenshot we captured'", async () => {
+    mockOpportunities = [NEUTRAL];
+    mockReadyShots = { desktop: readyShot("desktop") }; // one shot the neutral finding links to
+    const offer = gen([CTA]);
+    const pkg = await buildEvidencePackage(offer);
+    const doc = assembleDiagnosticDoc(offer, pkg);
+
+    expect(doc.embeddedScreenshotCount).toBe(1);
+    expect(doc.evidenceIntro).toContain("the screenshot we captured");
+    expect(doc.evidenceIntro).not.toContain("screenshots we captured");
+  });
+
+  it("with TWO+ embedded screenshots the intro uses the PLURAL 'the screenshots we captured'", async () => {
+    // Two neutral findings, each linking to a READY shot → two embedded screenshots.
+    mockOpportunities = [
+      { ...NEUTRAL, id: "a", observation: "the primary button is hard to find" },
+      { ...NEUTRAL, id: "b", observation: "the headline does not explain the offer" },
+    ];
+    mockReadyShots = { desktop: readyShot("desktop"), mobile: readyShot("mobile") };
+    const offer = gen([F({ id: "a" }), F({ id: "b" })]);
+    const pkg = await buildEvidencePackage(offer);
+    // Force each finding onto a distinct READY viewport so two shots are embedded.
+    const twoShotPkg = {
+      ...pkg,
+      findings: pkg.findings.map((f, i) => ({ ...f, screenshotId: i === 0 ? `${offer.leadId}:desktop` : `${offer.leadId}:mobile` })),
+    };
+    const doc = assembleDiagnosticDoc(offer, twoShotPkg);
+
+    expect(doc.embeddedScreenshotCount).toBeGreaterThanOrEqual(2);
+    expect(doc.evidenceIntro).toContain("the screenshots we captured");
+  });
+
+  it("a MOBILE finding with only a DESKTOP shot does NOT print an embedded-screenshot claim (mobile claim demoted to text-only)", async () => {
+    // CTA text asserts mobile; only a DESKTOP shot exists → the wrong-viewport shot
+    // cannot back a mobile claim, so it is dropped and the finding renders text-only.
+    mockReadyShots = { desktop: readyShot("desktop") };
+    const offer = gen([CTA]);
+    const pkg = await buildEvidencePackage(offer);
+    const doc = assembleDiagnosticDoc(offer, pkg);
+
+    // The unbacked (wrong-viewport) mobile claim is demoted, not asserted.
+    expect(doc.unbackedFindingIds).toContain("cta");
+    // The finding still SURVIVES as text-only (a text observation makes no screenshot claim).
+    const df = doc.findings.find((f) => f.id === "cta")!;
+    expect(df).toBeTruthy();
+    expect(df.screenshot).toBeNull();
+    // No embedded screenshot survives, and the intro claims none.
+    expect(doc.embeddedScreenshotCount).toBe(0);
+    expect(doc.evidenceIntro.toLowerCase()).not.toContain("screenshot");
+  });
+
+  it("a MOBILE finding WITH a mobile shot survives and is backed by the mobile screenshot", async () => {
+    mockReadyShots = { mobile: readyShot("mobile") };
+    const offer = gen([CTA]);
+    const pkg = await buildEvidencePackage(offer);
+    const doc = assembleDiagnosticDoc(offer, pkg);
+
+    expect(doc.unbackedFindingIds).not.toContain("cta");
+    const df = doc.findings.find((f) => f.id === "cta")!;
+    expect(df).toBeTruthy();
+    expect(df.screenshot?.viewport).toBe("mobile");
+    expect(doc.embeddedScreenshotCount).toBe(1);
+    expect(doc.evidenceIntro).toContain("the screenshot we captured");
+  });
+});
+
 describe("the full render pipe produces a real PDF", () => {
   it("renders a non-empty %PDF Buffer using the real embedded screenshot bytes", async () => {
     mockReadyShots = { mobile: readyShot("mobile") };

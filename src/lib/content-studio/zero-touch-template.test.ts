@@ -3,6 +3,10 @@ import { buildZeroTouchTemplate, zeroTouchTemplateId } from "./zero-touch-templa
 import { parseTemplate, validateTemplateStructure } from "./template-schema";
 import { planSocialAnimation } from "./zero-touch-orchestrator";
 import { composeScriptFromBrief } from "./zero-touch";
+import { assessScenePlanRichness, STRUCTURED_BEAT_KINDS } from "./social-richness";
+
+const structuredKindsIn = (beats: { type: string }[]) =>
+  new Set(beats.map((b) => b.type).filter((t) => (STRUCTURED_BEAT_KINDS as readonly string[]).includes(t)));
 
 function build(brief: string, title = "Field note", concept: string | null = "Why good businesses lose leads after hours") {
   const script = composeScriptFromBrief({ brief, title, concept, targetSeconds: 30 });
@@ -51,5 +55,65 @@ describe("zero-touch → renderable template (mandate §17 renderability fix)", 
     const a = build("One. Two. Three.");
     const b = build("One. Two. Three.");
     expect(JSON.stringify(a.template)).toBe(JSON.stringify(b.template));
+  });
+});
+
+describe("zero-touch → VISUAL STORYTELLING (mandate §40–§45)", () => {
+  it("emits ≥2 distinct STRUCTURED beat kinds for 'Entered four times.'", () => {
+    const { template } = build(
+      "Every new customer enters their details on your web form. Then a staffer re-types it into email. Then again into a spreadsheet. Then a fourth time into the CRM. The same data, entered four times.",
+      "Entered four times",
+      "Entered four times.",
+    );
+    const kinds = structuredKindsIn(template.beats);
+    expect(kinds.size).toBeGreaterThanOrEqual(2); // NOT text-on-blue
+    // The demonstrative chain that SHOWS the retyping hand-off must be present.
+    expect(template.beats.some((b) => b.type === "chain")).toBe(true);
+    const r = assessScenePlanRichness(template);
+    expect(r.ok).toBe(true);
+    expect(r.distinctBeatKinds).toBeGreaterThanOrEqual(2);
+  });
+
+  it("emits ≥2 distinct STRUCTURED beat kinds for 'Nobody followed up.'", () => {
+    const { template } = build(
+      "A great lead came in on Friday. It sat in the inbox over the weekend. No reminder fired. By Monday it had gone cold. Nobody followed up, and the lead was lost.",
+      "Nobody followed up",
+      "Nobody followed up.",
+    );
+    const kinds = structuredKindsIn(template.beats);
+    expect(kinds.size).toBeGreaterThanOrEqual(2);
+    expect(template.beats.some((b) => b.type === "chain")).toBe(true);
+    const r = assessScenePlanRichness(template);
+    expect(r.ok).toBe(true);
+  });
+
+  it("even an unremarkable concept still reaches ≥2 distinct structured kinds (fallbacks)", () => {
+    const { template } = build("One. Two. Three.", "Field note", "A short field note");
+    const r = assessScenePlanRichness(template);
+    expect(r.ok).toBe(true);
+    expect(r.distinctBeatKinds).toBeGreaterThanOrEqual(2);
+  });
+
+  it("the plan is NOT centered-text-only — every produced template passes the richness gate", () => {
+    const briefs = [
+      "Visitors try to book after 6pm and hit a dead form. That silence is lost revenue.",
+      "Your leads live across spreadsheets, sticky notes and five open tabs.",
+      "Nobody can find you when they search Google for what you do.",
+      "It takes hours a week to re-enter the same data every morning.",
+    ];
+    for (const brief of briefs) {
+      const { template } = build(brief);
+      const r = assessScenePlanRichness(template);
+      expect(r.ok, `richness for: ${brief} → ${r.issues.join("; ")}`).toBe(true);
+    }
+  });
+
+  it("the thumbnail art reflects the leading structured demonstration (not always 'statement')", () => {
+    const { template } = build(
+      "The same data is entered four times across four systems.",
+      "Entered four times",
+      "Entered four times.",
+    );
+    expect(template.thumbnail.art).not.toBe("statement"); // previews the visual story
   });
 });

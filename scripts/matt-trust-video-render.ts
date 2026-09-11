@@ -24,6 +24,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import { chromium } from "playwright";
 import { mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import path from "node:path";
 // Fail-closed: strip any send/charge credentials so this can NEVER dispatch or bill.
@@ -62,6 +63,76 @@ function isRenderableScope(s: string): s is TrustVideoScope {
 function argVal(flag: string): string | null {
   const i = process.argv.indexOf(flag);
   return i >= 0 && i + 1 < process.argv.length ? process.argv[i + 1] : null;
+}
+
+// ── §26 narration-completeness mux ────────────────────────────────────────────
+// The shared renderer muxes audio with a bare `-shortest`, which SILENTLY TRUNCATES the
+// Matt narration whenever it runs past the visual master (the reported CTA-Conversion
+// cut-off). So this tool NEVER hands the audio to the renderer for muxing — it renders a
+// SILENT visual master, then muxes here with a real tail-extension: when Matt is longer
+// than the picture we FREEZE the final visual frame to cover the full narration (never
+// cut Matt off); when Matt is shorter a short silent tail is fine (never truncate the
+// picture below the audio). Both true durations are then probed and persisted so the QA
+// gate is no longer blind (§27).
+function probeStreamSeconds(file: string, stream: "v" | "a"): number {
+  try {
+    const out = execFileSync(
+      "ffprobe",
+      ["-v", "error", "-select_streams", `${stream}:0`, "-show_entries", "stream=duration", "-of", "csv=p=0", file],
+      { encoding: "utf8" },
+    ).trim();
+    const n = Number(out);
+    if (n > 0) return n;
+  } catch {
+    /* fall through to the container-duration probe */
+  }
+  // Fallback: container/format duration (some containers omit per-stream duration).
+  const fmt = Number(
+    execFileSync("ffprobe", ["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", file], { encoding: "utf8" }).trim(),
+  );
+  return fmt > 0 ? fmt : 0;
+}
+
+/**
+ * Mux Matt audio onto a SILENT visual master WITHOUT cutting the narration (§26). Returns
+ * the true post-mux video duration and the true audio duration. When audio > video the
+ * final frame is frozen (tpad=stop_mode=clone) so the picture covers the whole narration.
+ */
+function muxCoveringNarration(silentVideoPath: string, audioPath: string, outPath: string, workDir: string): { durationSeconds: number; audioSeconds: number } {
+  const videoSeconds = probeStreamSeconds(silentVideoPath, "v");
+  const audioSeconds = probeStreamSeconds(audioPath, "a");
+  const TAIL_TOLERANCE_S = 0.15; // sub-frame slack; not worth a re-encode below this.
+
+  if (audioSeconds > videoSeconds + TAIL_TOLERANCE_S) {
+    // Matt outruns the picture → EXTEND (freeze) the last visual frame to the audio end,
+    // then mux the FULL audio. No `-shortest` on the audio side: the narration is never cut.
+    // tpad=stop_mode=clone holds the final frame; stop=-1 clones to the longest input, and
+    // `-shortest` here is bounded by the (now audio-length) audio stream, so it trims only the
+    // frozen padding tail to the narration end — the picture covers 100% of Matt.
+    const extendedPath = path.join(workDir, "_extended.mp4");
+    execFileSync("ffmpeg", [
+      "-y", "-i", silentVideoPath,
+      "-vf", "tpad=stop_mode=clone:stop=-1",
+      "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "20", "-preset", "medium",
+      "-movflags", "+faststart", extendedPath,
+    ], { stdio: "ignore" });
+    execFileSync("ffmpeg", [
+      "-y", "-i", extendedPath, "-i", audioPath,
+      "-map", "0:v", "-map", "1:a",
+      "-c:v", "copy", "-c:a", "aac", "-b:a", "128k",
+      "-shortest", "-movflags", "+faststart", outPath,
+    ], { stdio: "ignore" });
+  } else {
+    // Audio fits inside the picture → mux straight through. A short trailing silent tail
+    // is acceptable; never truncate the picture below the audio, so NO `-shortest`.
+    execFileSync("ffmpeg", [
+      "-y", "-i", silentVideoPath, "-i", audioPath,
+      "-map", "0:v", "-map", "1:a",
+      "-c:v", "copy", "-c:a", "aac", "-b:a", "128k",
+      "-movflags", "+faststart", outPath,
+    ], { stdio: "ignore" });
+  }
+  return { durationSeconds: probeStreamSeconds(outPath, "v"), audioSeconds };
 }
 
 // ── DRY RUN — describe what a real render WOULD do; no generation, no writes. ─────
@@ -167,8 +238,21 @@ async function runRender(scope: TrustVideoScope): Promise<void> {
 
   const browser = await chromium.launch();
   try {
-    const result = await renderPlanToMp4(browser, plan, emptyProvider, outDir, `trust_${scope}`, audioPath);
+    // (d.1) Render the SILENT visual master only — we do the audio mux ourselves so the
+    //       narration is never `-shortest`-truncated (§26). Passing no audioPath here.
+    const result = await renderPlanToMp4(browser, plan, emptyProvider, outDir, `trust_${scope}`, null);
     if (!(result.durationSeconds > 0)) throw new Error("rendered a zero-duration mp4");
+
+    // (d.2) Mux Matt audio onto the silent master, freezing the final frame if Matt outruns
+    //       the picture so the full narration is covered. Overwrite the render mp4 in place.
+    const finalMp4Path = path.join(outDir, `trust_${scope}_matt.mp4`);
+    const { durationSeconds: muxedDurationSeconds, audioSeconds } = muxCoveringNarration(result.mp4Path, audioPath, finalMp4Path, outDir);
+    writeFileSync(result.mp4Path, readFileSync(finalMp4Path));
+    if (!(muxedDurationSeconds > 0)) throw new Error("muxed a zero-duration mp4");
+    // Fail-closed: the muxed picture MUST cover the narration (never persist a cut asset).
+    if (muxedDurationSeconds < audioSeconds - 0.5) {
+      throw new Error(`muxed video ${muxedDurationSeconds.toFixed(2)}s is shorter than Matt audio ${audioSeconds.toFixed(2)}s — narration would be cut off`);
+    }
 
     // (e) PERSIST TO DURABLE STORAGE — the local public/ files are render scratch, not
     //     production truth. Push mp4 + poster + vtt into the canonical ArtifactStore so
@@ -199,7 +283,10 @@ async function runRender(scope: TrustVideoScope): Promise<void> {
       posterUrl: served.posterUrl,
       captionsUrl: served.captionsUrl,
       captionsVerified: plan.captionsVerbatim,
-      durationSeconds: result.durationSeconds,
+      // Post-mux TRUE video length (picture covers the full narration) + the TRUE Matt
+      // narration length — persisting BOTH un-blinds the Breakbot completeness gate (§27).
+      durationSeconds: muxedDurationSeconds,
+      audioSeconds,
       // Explicit media-format contract: the trust explainer is LANDSCAPE 16:9 (persisted intent, not
       // inferred from whichever renderer ran). Breakbot + the offer player enforce this.
       width: TRUST_W,
@@ -218,7 +305,9 @@ async function runRender(scope: TrustVideoScope): Promise<void> {
       mp4Key: record.mp4Key,
       voiceoverId,
       voiceover: vo.status,
-      durationSeconds: Math.round(result.durationSeconds * 100) / 100,
+      durationSeconds: Math.round(muxedDurationSeconds * 100) / 100,
+      audioSeconds: Math.round(audioSeconds * 100) / 100,
+      tailExtended: muxedDurationSeconds > result.durationSeconds + 0.15,
       totalFrames: result.totalFrames,
       vttCues: result.vttCueCount,
       narrationRevision,

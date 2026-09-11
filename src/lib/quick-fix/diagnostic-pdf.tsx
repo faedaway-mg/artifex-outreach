@@ -104,6 +104,20 @@ export interface DiagnosticDoc {
   findings: DiagnosticFindingBlock[];
   /** Findings dropped because their assembled text tripped the fabrication guard. */
   droppedFindingIds: string[];
+  /** Findings dropped because they asserted a viewport (e.g. mobile) with no matching embedded shot (§21). */
+  unbackedFindingIds: string[];
+  /**
+   * The COUNT of findings that actually embed a READY captured screenshot. This is
+   * the single source of truth for any "screenshot(s) we captured" language — the
+   * document is FORBIDDEN from claiming screenshots it does not embed (§20).
+   */
+  embeddedScreenshotCount: number;
+  /**
+   * The §2 intro line, computed from embeddedScreenshotCount: it asserts we captured
+   * screenshot(s) ONLY when ≥1 is embedded (grammatically singular/plural), and uses
+   * truthful non-screenshot language when zero are embedded. Never lies (§20).
+   */
+  evidenceIntro: string;
   repair: DiagnosticRepair;
   /** §FINAL price block — the ONLY place a price appears in the document. */
   pricing: DiagnosticPricing;
@@ -111,6 +125,25 @@ export interface DiagnosticDoc {
   nextStepUrl: string;
   /** True when at least one presentable finding survived — the PDF is renderable. */
   renderable: boolean;
+}
+
+const MOBILE_CLAIM = /\bmobile\b|\bphone\b|\bsmall screen\b|\bresponsive\b|\bhandheld\b|\btouch\b/i;
+
+/**
+ * The §2 intro — the ONE place the document may (or may not) claim captured
+ * screenshots. It asserts "screenshot(s) we captured" ONLY when at least one is
+ * actually embedded, grammatically singular for exactly one, plural for two or
+ * more; with zero embedded it uses truthful language that claims NO screenshot.
+ * §20: the doc can never contain a screenshot claim without a matching embedded shot.
+ */
+export function evidenceIntroFor(embeddedCount: number): string {
+  if (embeddedCount <= 0) {
+    return "Each item below is what we actually saw on your live site, with a plain explanation of why it matters.";
+  }
+  if (embeddedCount === 1) {
+    return "Below is what we actually saw on your live site, paired with the screenshot we captured of the page we tested and a plain explanation.";
+  }
+  return "Below is what we actually saw on your live site, paired with the screenshots we captured of the pages we tested and a plain explanation.";
 }
 
 function priceLabelOf(offer: QuickFixOffer): string {
@@ -139,10 +172,13 @@ export function assembleDiagnosticDoc(
 
   const findings: DiagnosticFindingBlock[] = [];
   const droppedFindingIds: string[] = [];
+  const unbackedFindingIds: string[] = [];
 
   for (const f of pkg.findings) {
+    // Bind the BEST screenshot: the finding's OWN linked shot, and only when it is
+    // READY. Never substitute a homepage-hero/cookie-banner filler for a finding
+    // that has no shot of its own (§20b).
     const shot = f.screenshotId ? byScreenshotId.get(f.screenshotId) ?? null : null;
-    // Only a READY captured shot is ever embedded — never a placeholder.
     const screenshot = shot && shot.status === "READY" ? shot : null;
 
     // Run the fabrication guard over EVERYTHING customer-facing we would print for
@@ -153,15 +189,33 @@ export function assembleDiagnosticDoc(
       continue;
     }
 
+    // §21 — a finding whose copy ASSERTS the mobile/phone experience must not print
+    // a NON-mobile screenshot beside it: pairing a desktop shot with a mobile claim
+    // silently implies "this image proves the mobile problem", which is an unbacked
+    // claim. When the only embedded shot is the wrong viewport, DROP the mobile shot
+    // (render the finding text-only) rather than assert it — and when a wrong-viewport
+    // shot was the finding's only link, record it as an unbacked-claim demotion. A
+    // finding with NO shot at all stays text-only: it makes no screenshot claim.
+    const assertsMobile = MOBILE_CLAIM.test(customerText);
+    const mismatchedShot = !!screenshot && assertsMobile && screenshot.viewport !== "mobile";
+    const boundScreenshot = mismatchedShot ? null : screenshot;
+    if (mismatchedShot) unbackedFindingIds.push(f.id);
+
     findings.push({
       id: f.id,
       observed: f.plain,
       whyItMatters: f.whyItMatters,
-      screenshot,
-      inspectedUrl: screenshot?.sourceUrl ?? pkg.websiteUrl,
+      screenshot: boundScreenshot,
+      inspectedUrl: boundScreenshot?.sourceUrl ?? pkg.websiteUrl,
       confidenceLabel: f.confidenceLabel,
     });
   }
+
+  // The single source of truth for any captured-screenshot language: only findings
+  // that actually embed a READY shot count. The §2 intro is derived from this so the
+  // document can never claim screenshots it does not embed (§20).
+  const embeddedScreenshotCount = findings.filter((f) => f.screenshot).length;
+  const evidenceIntro = evidenceIntroFor(embeddedScreenshotCount);
 
   // §1 — one evidence truth: the SAME opener the email + offer hero derive from the
   // canonical defect. experienceFrameForOffer is the arbiter of the allowed claim.
@@ -193,6 +247,9 @@ export function assembleDiagnosticDoc(
     opener,
     findings,
     droppedFindingIds,
+    unbackedFindingIds,
+    embeddedScreenshotCount,
+    evidenceIntro,
     repair,
     pricing,
     nextStepUrl: offerNextStepUrl(offer, shareToken),
@@ -294,7 +351,7 @@ function DiagnosticDocument({ doc, images }: { doc: DiagnosticDoc; images: Map<s
         <SectionHeader
           eyebrow="The evidence"
           title="What we found on your site"
-          intro="Each item pairs what we actually saw with a captured image of your live site — the page we tested and a plain explanation, where an image is available."
+          intro={doc.evidenceIntro}
           icon="search"
         />
 

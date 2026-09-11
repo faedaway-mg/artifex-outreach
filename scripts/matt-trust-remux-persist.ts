@@ -11,7 +11,10 @@
 //     --mp4 /tmp/remux/matt_cta_landscape.mp4 --poster public/trust-videos/cta-conversion-v2-poster.jpg \
 //     --visual-master cta-conversion-v2 --audio-seconds 65.78 --video-seconds 70.875
 // ─────────────────────────────────────────────────────────────────────────────
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { getArtifactStore } from "../src/lib/content-studio/storage-factory";
 import { buildObjectKey } from "../src/lib/content-studio/cs-object-key";
 import { csEnvironment } from "../src/lib/content-studio/env-guard";
@@ -23,6 +26,52 @@ import { createHash } from "node:crypto";
 
 const ACTOR = "matt-trust-remux";
 const arg = (f: string) => { const i = process.argv.indexOf(f); return i >= 0 && i + 1 < process.argv.length ? process.argv[i + 1] : null; };
+
+// ── §26 narration-completeness probe/repair ───────────────────────────────────
+// The operator's `--audio-seconds`/`--video-seconds` are UNVALIDATED claims. If the local
+// remux cut Matt off (audio outran the Lucas picture), those numbers would happily persist
+// a defective asset. So we PROBE the real stream durations from the mp4 itself, and if the
+// narration runs past the picture we FREEZE the final visual frame to cover it (never cut
+// Matt), rewriting the mp4 before it is uploaded. Probed truths — not operator claims — are
+// what get persisted, so the Breakbot completeness gate is no longer blind (§27).
+function probeStreamSeconds(file: string, stream: "v" | "a"): number {
+  try {
+    const out = execFileSync(
+      "ffprobe",
+      ["-v", "error", "-select_streams", `${stream}:0`, "-show_entries", "stream=duration", "-of", "csv=p=0", file],
+      { encoding: "utf8" },
+    ).trim();
+    const n = Number(out);
+    if (n > 0) return n;
+  } catch {
+    /* fall through */
+  }
+  const fmt = Number(
+    execFileSync("ffprobe", ["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", file], { encoding: "utf8" }).trim(),
+  );
+  return fmt > 0 ? fmt : 0;
+}
+
+/** Return an mp4 whose picture covers the full narration. If the audio outruns the video,
+ *  freeze the final frame (tpad=stop_mode=clone) so Matt is never cut; else pass through. */
+function ensureNarrationCovered(mp4Path: string): { path: string; durationSeconds: number; audioSeconds: number; tailExtended: boolean } {
+  const videoSeconds = probeStreamSeconds(mp4Path, "v");
+  const audioSeconds = probeStreamSeconds(mp4Path, "a");
+  const TAIL_TOLERANCE_S = 0.15;
+  if (audioSeconds > videoSeconds + TAIL_TOLERANCE_S) {
+    // Freeze the final visual frame to the audio end, keeping the existing audio in full.
+    const outPath = path.join(tmpdir(), `matt-remux-covered-${process.pid}.mp4`);
+    execFileSync("ffmpeg", [
+      "-y", "-i", mp4Path,
+      "-vf", "tpad=stop_mode=clone:stop=-1",
+      "-map", "0:v", "-map", "0:a",
+      "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "20", "-preset", "medium",
+      "-c:a", "copy", "-shortest", "-movflags", "+faststart", outPath,
+    ], { stdio: "ignore" });
+    return { path: outPath, durationSeconds: probeStreamSeconds(outPath, "v"), audioSeconds, tailExtended: true };
+  }
+  return { path: mp4Path, durationSeconds: videoSeconds, audioSeconds, tailExtended: false };
+}
 
 /** Build a deterministic Matt-aligned WebVTT: the trust narration split into cues distributed evenly over
  *  the AUDIO duration (Matt's timing). Lucas caption timing is NOT reused (it was Lucas-timed). */
@@ -51,10 +100,11 @@ async function main() {
   const mp4Path = arg("--mp4");
   const posterPath = arg("--poster");
   const visualMaster = arg("--visual-master") ?? "lucas-approved";
-  const audioSeconds = Number(arg("--audio-seconds") ?? "0");
-  const videoSeconds = Number(arg("--video-seconds") ?? "0");
-  if (!scope || !mp4Path || !posterPath || !(audioSeconds > 0) || !(videoSeconds > 0)) {
-    console.error("required: --scope --mp4 --poster --audio-seconds --video-seconds"); process.exit(2);
+  // (§26) Operator-supplied seconds are now advisory cross-checks — the mp4 is the truth.
+  const claimedAudioSeconds = Number(arg("--audio-seconds") ?? "0");
+  const claimedVideoSeconds = Number(arg("--video-seconds") ?? "0");
+  if (!scope || !mp4Path || !posterPath) {
+    console.error("required: --scope --mp4 --poster  (optional cross-checks: --audio-seconds --video-seconds)"); process.exit(2);
   }
 
   const existing = await getMattTrustVideo(scope);
@@ -62,7 +112,22 @@ async function main() {
   const voiceoverId = existing?.voiceoverId ?? null; // reuse the canonical Matt voiceover lineage
 
   const store = getArtifactStore();
-  const mp4 = readFileSync(mp4Path);
+  // (§26) PROBE the real stream durations; freeze the final frame if Matt outran the picture
+  //  so the narration is never cut. `covered.path` is the mp4 we actually persist.
+  const covered = ensureNarrationCovered(mp4Path);
+  const audioSeconds = covered.audioSeconds;
+  const videoSeconds = covered.durationSeconds;
+  if (!(audioSeconds > 0) || !(videoSeconds > 0)) {
+    console.error(JSON.stringify({ scope, status: "BLOCKED", reason: "could not probe audio/video durations from the mp4", audioSeconds, videoSeconds })); process.exit(2);
+  }
+  // Fail-closed: after any tail-extension the picture MUST cover the narration.
+  if (videoSeconds < audioSeconds - 0.5) {
+    console.error(JSON.stringify({ scope, status: "BLOCKED", reason: "picture shorter than narration — narration would be cut off", audioSeconds, videoSeconds })); process.exit(3);
+  }
+  // Surface any operator-claim drift (non-fatal — the probe wins) for the audit trail.
+  const claimDrift = (claimedAudioSeconds > 0 && Math.abs(claimedAudioSeconds - audioSeconds) > 1)
+    || (claimedVideoSeconds > 0 && Math.abs(claimedVideoSeconds - videoSeconds) > 1);
+  const mp4 = readFileSync(covered.path);
   const poster = readFileSync(posterPath);
   const vtt = Buffer.from(buildMattVtt(scope, audioSeconds), "utf8");
   const tag = `${scope}_remux_${createHash("sha256").update(mp4).digest("hex").slice(0, 16)}`;
@@ -86,7 +151,7 @@ async function main() {
     posterUrl: served.posterUrl,
     captionsUrl: served.captionsUrl,
     captionsVerified: true, // VTT generated verbatim from the canonical narration
-    durationSeconds: videoSeconds, // the playable length (full approved Lucas animation)
+    durationSeconds: videoSeconds, // PROBED post-cover picture length (covers the full narration — §26)
     width: 1920,
     height: 1080,
     orientation: "landscape",
@@ -99,7 +164,7 @@ async function main() {
     audioSeconds,
   };
   await setMattTrustVideo(record, ACTOR);
-  console.log(JSON.stringify({ scope, status: "BOUND", mp4Key: record.mp4Key, orientation: "landscape", visualMaster, voiceoverId, durationSeconds: videoSeconds, audioSeconds }, null, 2));
+  console.log(JSON.stringify({ scope, status: "BOUND", mp4Key: record.mp4Key, orientation: "landscape", visualMaster, voiceoverId, durationSeconds: videoSeconds, audioSeconds, tailExtended: covered.tailExtended, claimDrift }, null, 2));
 }
 
 main().then(() => process.exit(0)).catch((e) => { console.error(e?.stack || String(e)); process.exit(1); });

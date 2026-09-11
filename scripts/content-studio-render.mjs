@@ -18,6 +18,19 @@ import { renderTemplateThumbnail } from "./render-template-thumbnail.mjs";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const FPS = 24;
 
+// Beat kinds the generic renderer (public/content/_shared/scene-template.html BUILD map) knows how to
+// DRAW. Zero-touch Field Notes now emit the richer, structured grammar (chain/cards/surface/search/report,
+// §40–§45 visual storytelling) — every one of those is in this set. This guard asserts the template only
+// contains drawable kinds so an unknown kind fails the job HONESTLY (a clear error) instead of rendering a
+// blank/broken frame inside headless Chrome. Keep in sync with the BUILD map in scene-template.html.
+const DRAWABLE_BEAT_KINDS = new Set([
+  "title", "statement", "surface", "cards", "chain", "routes", "search", "report", "brand", "evidenceShot",
+]);
+function assertDrawableBeats(tpl) {
+  const unknown = [...new Set((tpl?.beats ?? []).map((b) => b?.type).filter((t) => t && !DRAWABLE_BEAT_KINDS.has(t)))];
+  if (unknown.length) throw new Error(`template contains beat kind(s) the renderer cannot draw: ${unknown.join(", ")}`);
+}
+
 // Environment for object keys — mirrors src/lib/content-studio/env-guard.ts csEnvironment().
 function csEnv() {
   const e = (process.env.CS_ENV ?? "").trim().toLowerCase();
@@ -198,6 +211,7 @@ async function main() {
     const speech = readSpeech(voPath);
     // Composite the SHA-verified screenshot(s) into the interior finding scene(s) per the storyboard.
     const { tpl: rtpl, evidence } = await compositeStoryboard(tpl, job);
+    assertDrawableBeats(rtpl); // every emitted beat kind must be in the renderer's BUILD map (§40–§45)
     if (evidence.length) patchJob({ stage: `Compositing ${evidence.length} evidence scene(s)`, progress: 0.07 });
     newTL = buildTemplateTimeline(rtpl, speech);
     // Record where each composited screenshot appears in time (for the visual-acceptance harness).

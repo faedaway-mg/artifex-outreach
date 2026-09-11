@@ -146,8 +146,11 @@ function aspectRatioOf(width: number | null, height: number | null): string | nu
  *   4. missing audio (§7)              — a narrated asset with no audio stream
  *   5. blank/static timeline (§6)      — visuals die before MIN_ALIVE_THROUGH_PCT,
  *                                        or a motion asset never varies (static)
- *   6. narration not covered (§7)      — video meaningfully shorter than the audio
- * Warnings: long silent tail; a single interior dead frame that recovers.
+ *   6. narration not covered (§7/§27)  — video meaningfully shorter than the audio; a
+ *                                        narrated asset with UNKNOWN audio duration cannot
+ *                                        prove completeness → WARNING (never a silent PASS)
+ * Warnings: long silent tail; unknown audio duration on a narrated asset; a single interior
+ * dead frame that recovers.
  */
 export function assessMedia(probe: MediaProbe): MediaQaResult {
   const findings: MediaFinding[] = [];
@@ -271,24 +274,40 @@ export function assessMedia(probe: MediaProbe): MediaQaResult {
     });
   }
 
-  // ── 6) Audio / video duration coherence (§7) ──────────────────────────────────
+  // ── 6) Audio / video duration coherence + narration COMPLETENESS (§7/§27) ──────
+  // The completeness contract: a narrated explainer PASSES only when we can prove the
+  // picture covers the narration to its end. A video that stays visually alive but whose
+  // narration is cut off must NOT pass — the duration check above (liveness) cannot see a
+  // truncated audio track, so this is the assertion that catches the `-shortest` cut.
   const audioDur = probe.audioDurationSeconds ?? null;
-  if (narrated && audioDur != null && audioDur > 0) {
-    // Video meaningfully SHORTER than narration → the narration is cut off.
-    if (probe.durationSeconds < audioDur - DURATION_TOLERANCE_S) {
+  if (narrated) {
+    if (audioDur != null && audioDur > 0) {
+      // Video meaningfully SHORTER than narration → the narration is cut off (§26/§27).
+      if (probe.durationSeconds < audioDur - DURATION_TOLERANCE_S) {
+        findings.push({
+          kind: "media.narrationCut",
+          severity: "BLOCKER",
+          detail: `video runtime ${probe.durationSeconds.toFixed(1)}s is shorter than the ${audioDur.toFixed(1)}s narration — the narration is cut off`,
+        });
+      }
+      // Long silent tail (video much longer than the narration) → warn.
+      const tail = probe.durationSeconds - audioDur;
+      if (tail > probe.durationSeconds * MAX_SILENT_TAIL_FRACTION && tail > DURATION_TOLERANCE_S) {
+        findings.push({
+          kind: "media.silentTail",
+          severity: "WARNING",
+          detail: `video runs ${tail.toFixed(1)}s past the narration (${((tail / probe.durationSeconds) * 100).toFixed(0)}% silent tail)`,
+        });
+      }
+    } else {
+      // (§27) A narrated explainer with NO known audio duration cannot have its narration
+      // completeness verified — the gate is blind. This must never silently PASS the
+      // completeness contract, so surface it as an explicit WARNING (audio present, but the
+      // render pipeline failed to record the narration length that proves it is covered).
       findings.push({
-        kind: "media.narrationCut",
-        severity: "BLOCKER",
-        detail: `video runtime ${probe.durationSeconds.toFixed(1)}s is shorter than the ${audioDur.toFixed(1)}s narration — the narration is cut off`,
-      });
-    }
-    // Long silent tail (video much longer than the narration) → warn.
-    const tail = probe.durationSeconds - audioDur;
-    if (tail > probe.durationSeconds * MAX_SILENT_TAIL_FRACTION && tail > DURATION_TOLERANCE_S) {
-      findings.push({
-        kind: "media.silentTail",
+        kind: "media.audioDurationUnknown",
         severity: "WARNING",
-        detail: `video runs ${tail.toFixed(1)}s past the narration (${((tail / probe.durationSeconds) * 100).toFixed(0)}% silent tail)`,
+        detail: "audio duration unknown — cannot verify narration completeness (no audioDurationSeconds recorded for this narrated asset)",
       });
     }
   }

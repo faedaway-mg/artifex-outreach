@@ -113,6 +113,53 @@ describe("media timeline QA — audio / duration coherence (§7)", () => {
   });
 });
 
+describe("media timeline QA — narration completeness contract (§26/§27)", () => {
+  it("(a) BLOCKS when audio (74s) is longer than video (70s) — the narration is cut off", () => {
+    // The exact §26 defect: Matt narration outruns the visual master and `-shortest`
+    // truncated the audio. Even with a perfectly alive picture, this cannot PASS.
+    const r = assessMedia(
+      landscapeExplainer(HEALTHY_SIZES, {
+        durationSeconds: 70,
+        audioDurationSeconds: 74,
+        samples: samples(HEALTHY_SIZES, 70),
+      }),
+    );
+    expect(r.status).toBe("BLOCKED");
+    const cut = r.findings.find((f) => f.kind === "media.narrationCut");
+    expect(cut).toBeDefined();
+    expect(cut!.severity).toBe("BLOCKER");
+    // A visually-alive video with cut narration must NOT slip through on liveness alone.
+    expect(r.aliveThroughPct).toBe(100);
+  });
+
+  it("(b) WARNS (never silently PASSes) a narrated asset with unknown audio duration", () => {
+    // §27: a narrated explainer whose narration length was never recorded cannot have its
+    // completeness verified — the gate is blind, so it must surface, not pass silently.
+    const r = assessMedia(landscapeExplainer(HEALTHY_SIZES, { audioDurationSeconds: null }));
+    expect(r.status).toBe("WARNING");
+    const unknown = r.findings.find((f) => f.kind === "media.audioDurationUnknown");
+    expect(unknown).toBeDefined();
+    expect(unknown!.severity).toBe("WARNING");
+    // Completeness is unproven → this is explicitly NOT a PASS.
+    expect(r.status).not.toBe("PASS");
+  });
+
+  it("(c) PASSes audio 68s vs video 71s with at most a short silent-tail WARNING", () => {
+    const r = assessMedia(
+      landscapeExplainer(HEALTHY_SIZES, {
+        durationSeconds: 71,
+        audioDurationSeconds: 68,
+        samples: samples(HEALTHY_SIZES, 71),
+      }),
+    );
+    // A 3s silent tail is within tolerance → no findings at all, a clean PASS.
+    expect(r.status).toBe("PASS");
+    // Whatever findings exist (if any) may only be the non-blocking silent tail.
+    expect(r.findings.every((f) => f.severity === "WARNING" && f.kind === "media.silentTail")).toBe(true);
+    expect(r.findings.some((f) => f.kind === "media.narrationCut")).toBe(false);
+  });
+});
+
 describe("media timeline QA — nothing inspected fails closed", () => {
   it("BLOCKS when there are no samples", () => {
     const r = assessMedia(landscapeExplainer(HEALTHY_SIZES, { samples: [] }));

@@ -316,7 +316,9 @@ export function OfferPageView({ model, token, preview = false }: { model: OfferP
               <div className="flex items-center gap-3 border-t border-white/[0.06] px-4 py-3">
                 <span className="grid h-8 w-8 flex-none place-items-center rounded-lg bg-azure-500/10 text-azure-300"><PlayCircle size={16} /></span>
                 <div className="min-w-0">
-                  <p className="text-[13px] font-semibold text-chalk-100">{video.title}{video.version ? ` · v${video.version}` : ""}</p>
+                  {/* §28: NEVER surface an internal version label (v2/v3/draft) to the customer. The
+                      customer sees a stable, plain title; version history lives in the operator gallery. */}
+                  <p className="text-[13px] font-semibold text-chalk-100">{video.title || "Artifex Quick-Fix Explainer"}</p>
                   <p className="truncate text-[12px] text-chalk-500">How our process works — the same for every customer, not about your site.</p>
                 </div>
               </div>

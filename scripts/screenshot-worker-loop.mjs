@@ -103,6 +103,55 @@ async function assertHostPublic(hostname) {
   return { ok: true, ips };
 }
 
+// §17 — BEST-EFFORT dismissal of generic cookie/consent/chat CHROME so a banner cannot cover the evidence.
+// A bounded, allow-listed set of accept/close controls for the common platforms only; each click is tried
+// with a short timeout and swallowed on any error. We deliberately target only well-known consent/chat
+// widgets — never a generic modal that could BE the finding we are documenting. Never throws; never blocks
+// the capture. Returns the count dismissed (for provenance/observability only — output contract unchanged).
+const OVERLAY_DISMISS_SELECTORS = [
+  // Cookiebot — accept the banner.
+  "#CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll",
+  "#CybotCookiebotDialogBodyButtonAccept",
+  // OneTrust — accept all.
+  "#onetrust-accept-btn-handler",
+  ".onetrust-close-btn-handler",
+  // TrustArc / Osano / Cookie-Script / Termly common accept controls.
+  "#truste-consent-button",
+  ".osano-cm-accept-all",
+  "#cookiescript_accept",
+  "#cookie-script-accept",
+  ".termly-styles-accept-button",
+  // Generic, LABEL-scoped accept/consent buttons (must read as an explicit consent action).
+  'button[aria-label*="accept" i]',
+  'button[title*="accept cookies" i]',
+  'button[id*="accept-cookie" i]',
+  'button[class*="cookie-accept" i]',
+  '[data-testid*="cookie-accept" i]',
+  // Chat widgets — close the launcher/panel (never the page content).
+  "#intercom-container button[aria-label*='close' i]",
+  ".drift-widget-controller button[aria-label*='close' i]",
+  "iframe[title*='chat' i] ~ button[aria-label*='close' i]",
+  "button[aria-label='Close chat']",
+];
+
+async function dismissOverlays(page) {
+  let dismissed = 0;
+  for (const sel of OVERLAY_DISMISS_SELECTORS) {
+    try {
+      const loc = page.locator(sel).first();
+      if (await loc.isVisible({ timeout: 400 }).catch(() => false)) {
+        await loc.click({ timeout: 800, noWaitAfter: true }).catch(() => {});
+        dismissed++;
+      }
+    } catch {
+      // swallow — a missing/detached/cross-origin control must never fail the capture.
+    }
+  }
+  // Let the layout reflow after removing the chrome before the settle+clip.
+  if (dismissed) await page.waitForTimeout(400).catch(() => {});
+  return dismissed;
+}
+
 // Capture one job. Returns {kind:'ready',...} | {kind:'blocked',reason,provenance}. Throws on transient error.
 export async function captureJob(browser, job, opts) {
   const norm = normalizeCaptureUrl(job.requested_url);
@@ -171,6 +220,11 @@ export async function captureJob(browser, job, opts) {
     if (blocked) return { kind: "blocked", reason: blocked, provenance: { resolvedIps: [...resolvedIps], redirects, finalUrl: page.url() } };
     const status = resp ? resp.status() : 0;
     if (status >= 400) throw new Error(`site returned HTTP ${status}`);
+
+    // Best-effort dismiss generic consent/chat CHROME that would otherwise cover the evidence (§17).
+    // We remove ONLY known cookie/consent/chat widgets — never anything that could BE the finding — then
+    // let layout settle. Every step is bounded + swallowed: a failed dismissal never fails the capture.
+    await dismissOverlays(page);
 
     // Settle for above-the-fold content to paint, then capture the clean viewport (NO device frame, NO
     // vignette, NO shadow — a raw, legible page crop at the exact output resolution).
