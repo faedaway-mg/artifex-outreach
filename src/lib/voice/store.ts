@@ -91,9 +91,14 @@ async function getVoiceState(): Promise<VoiceState> {
 }
 
 async function mutateVoiceState(fn: (s: VoiceState) => void): Promise<VoiceState> {
+  // Preserve SIBLING keys under `voice` that this store does not own (e.g.
+  // voice.mattTrustVideos, owned by matt-trust-store). A voiceover generation must NEVER
+  // clobber the recovered Matt trust videos — writing only the VoiceState projection here
+  // would drop them. Merge the raw namespace with the updated projection instead.
+  const rawVoice = (((await getSettings()) as any).voice ?? {}) as Record<string, unknown>;
   const s = await getVoiceState();
   fn(s);
-  await updateSettings({ voice: s } as any);
+  await updateSettings({ voice: { ...rawVoice, leadVoices: s.leadVoices, voiceovers: s.voiceovers, config: s.config } } as any);
   return s;
 }
 

@@ -107,6 +107,17 @@ export const ESCAPED_DEFECTS: EscapedDefect[] = [
     firstCovered: "pending-deploy",
   },
   {
+    id: "voiceover-write-clobbers-matt-trust",
+    defectClass: "Generating a voiceover wiped the recovered Matt trust videos: the voice store overwrote the whole `voice` Settings namespace with its VoiceState projection (leadVoices/voiceovers/config), silently dropping the sibling voice.mattTrustVideos owned by the matt-trust-store — so the first social/prospect generation after a trust recovery HELD every offer (no CTA).",
+    surface: "trust-explainer",
+    whyMissed: "No test generated a voiceover AFTER a trust video was set and then asserted the trust video survived; the two stores share the `voice` namespace but only one preserved the other's keys.",
+    coveredBy: [
+      "src/lib/voice/store.ts:rawVoice",                          // mutateVoiceState merges, never clobbers siblings
+      "src/lib/voice/matt-trust-preservation.test.ts",           // executable regression (voiceover write preserves trust)
+    ],
+    firstCovered: "pending-deploy",
+  },
+  {
     id: "quickcash-approval-reverts-on-refresh",
     defectClass: "An operator lifecycle action on Quick Cash (Prepare & approve → get link) appeared complete, then reverted on refresh/navigation — the card fell back to a needs-approval state as though the action never happened.",
     surface: "quick-cash",
