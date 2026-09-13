@@ -196,7 +196,7 @@ function acquisitionSection(
     rejected: rejectedLeadIds.size,
     rejectionReasons: distribution(reasons, (r) => r),
     avgImprovementPotential: avg(bi.map((b) => b.improvementScore)),
-    avgTechnologyMaturity: avg(bi.map((b) => levelOrdinal(b.profile.maturity.overall))),
+    avgTechnologyMaturity: avg(bi.flatMap((b) => (b.profile.maturity ? [levelOrdinal(b.profile.maturity.overall)] : []))),
     avgEvidenceConfidence: avg(bi.map((b) => b.evidenceConfidence)),
     leadSourceDistribution: distribution(leads, (l) => l.source),
     avgEnrichmentSeconds: durations.length ? Math.round(avg(durations)!) : null,

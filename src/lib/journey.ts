@@ -144,7 +144,11 @@ export function opportunityMetrics(leads: Lead[], bi: StoredBusinessIntelligence
   const maturityCounts = new Map<string, number>();
   const frictionCounts = new Map<string, number>();
   for (const b of bi) {
-    maturityCounts.set(b.profile.maturity.overall, (maturityCounts.get(b.profile.maturity.overall) ?? 0) + 1);
+    // maturity is optional on a profile (partial/demo records may omit it) — guard it the
+    // same way frictionDomains is guarded below, so one incomplete profile can never take
+    // down every page that computes opportunity metrics.
+    const overall = b.profile.maturity?.overall;
+    if (overall) maturityCounts.set(overall, (maturityCounts.get(overall) ?? 0) + 1);
     for (const f of b.profile.frictionDomains ?? []) frictionCounts.set(f, (frictionCounts.get(f) ?? 0) + 1);
   }
 
