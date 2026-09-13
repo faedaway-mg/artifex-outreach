@@ -217,17 +217,30 @@ export interface QuickCashHome {
     purchases: number;
     engaged: number;
     coldOutreachFrozen: boolean;
+    /** Inventory that COULD qualify but has no current action — discoverable, not active. */
+    inventoryQualifiable: number;
+    /** Total non-customer leads held as inventory (awaiting fresh Needle qualification). */
+    inventoryTotal: number;
   };
 }
 
 export async function quickCashHomeView(limit = 500): Promise<QuickCashHome> {
   const contexts = await buildLeadContexts(limit);
   const offers = contexts.map((c) => c.offer).filter((o): o is QuickFixOffer => !!o);
-  const rows = rankQuickCash(offers);
+  const allRows = rankQuickCash(offers);
   const routing = { DIRECT_FIX: 0, FIX_SCAN: 0, CONVERSATION_REQUIRED: 0, NO_FIX_FOUND: 0, cannibalization: 0 };
   for (const o of offers) { const r = routeLead(o); routing[r.route] += 1; if (r.cannibalizationFlag) routing.cannibalization += 1; }
 
   const inventory = await quickCashInventory({ contexts });
+
+  // CANONICAL ACTIVE-WORK GATE — the board shows only leads with a CURRENT next action
+  // (a committed plan/offer), never raw BI-derived inventory. This is what keeps the
+  // daily discovery cron from re-populating the board with un-requalified businesses.
+  const { loadActiveWorkContext } = await import("./active-work");
+  const active = await loadActiveWorkContext();
+  const rows = allRows.filter((r) => active.leadIds.has(r.leadId));
+  const activeReady = rows.filter((r) => r.readyToSell);
+
   const fulfil = await fulfillmentView();
   const inFulfillment = ACTIVE_FULFILLMENT_STATES.reduce((n, s) => n + (fulfil.byState[s] ?? 0), 0);
   const customers = await customersView();
@@ -239,14 +252,17 @@ export async function quickCashHomeView(limit = 500): Promise<QuickCashHome> {
   return {
     rows, routing, inventory,
     metrics: {
-      readyToSell: inventory.readyToSell,
-      addressableRevenueCents: inventory.addressableRevenueCents,
+      // ACTIVE ready-to-sell only — inventory that merely COULD sell is reported separately.
+      readyToSell: activeReady.length,
+      addressableRevenueCents: activeReady.reduce((n, r) => n + (r.priceCents ?? 0), 0),
       inFulfillment,
       customers: customers.length,
       revenueCents,
       purchases,
       engaged,
       coldOutreachFrozen: inventory.coldOutreachFrozen,
+      inventoryQualifiable: inventory.readyToSell,
+      inventoryTotal: inventory.funnel.totalDiscovered,
     },
   };
 }

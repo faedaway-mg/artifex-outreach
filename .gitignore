@@ -23,3 +23,9 @@ artifacts/
 /public/content/shares
 .backups/
 .proof/
+
+# reconciliation scratch scripts (not shipped)
+scripts/queue-audit.ts
+scripts/store-audit.ts
+scripts/store-fixture-check.ts
+scripts/purge-fixture-offers.ts

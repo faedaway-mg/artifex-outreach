@@ -19,6 +19,7 @@ export default async function HomePage() {
 
   const tiles = [
     { label: "Ready to sell", value: String(metrics.readyToSell), accent: "text-teal-300" },
+    { label: "Inventory", value: String(metrics.inventoryTotal), accent: "text-chalk-400" },
     { label: "Addressable", value: usd(metrics.addressableRevenueCents), accent: "text-chalk-50" },
     { label: "In fulfillment", value: String(metrics.inFulfillment), accent: "text-amber-300" },
     { label: "Customers", value: String(metrics.customers), accent: "text-chalk-50" },
@@ -73,7 +74,7 @@ export default async function HomePage() {
       {/* Honest usable-inventory funnel — raw discovery is NOT sellable inventory. */}
       <div className="rounded-xl border border-white/10 bg-white/[0.02] px-3.5 py-2.5 text-[12px] text-chalk-500">
         <p>
-          Funnel — {inventory.funnel.totalDiscovered} discovered · {inventory.funnel.hasWebsite} w/ website · {inventory.funnel.emailable} emailable · {inventory.funnel.commerciallyQualified} commercially-qualified · {inventory.funnel.evidenceQualified} evidence-qualified · <span className="text-teal-300">{inventory.funnel.readyToSell} ready to sell</span>.
+          Inventory funnel — {inventory.funnel.totalDiscovered} discovered · {inventory.funnel.hasWebsite} w/ website · {inventory.funnel.emailable} emailable · {inventory.funnel.commerciallyQualified} commercially-qualified · {inventory.funnel.evidenceQualified} evidence-qualified · <span className="text-chalk-300">{inventory.funnel.readyToSell} could qualify</span> (not active until re-qualified).
         </p>
         <p className="mt-1">
           Not sellable (preserved) — no-email {inventory.disqualified.noEmail} · no-website {inventory.disqualified.noWebsite} · suppressed {inventory.disqualified.suppressed} · overlap {inventory.disqualified.competitiveOverlap} · weak-fit {inventory.disqualified.weakCommercialFit} · weak-evidence {inventory.disqualified.weakEvidence} · jurisdiction {inventory.disqualified.jurisdictionBlocked + inventory.disqualified.jurisdictionUnknown}.
@@ -85,7 +86,16 @@ export default async function HomePage() {
 
       {/* Ranked opportunity feed */}
       {top.length === 0 ? (
-        <div className="card p-6 text-center text-[13px] text-chalk-400">No confidently-sellable fixes in the current inventory yet.</div>
+        <div className="card p-6 text-center text-[13px] text-chalk-400">
+          No active opportunities right now.
+          {metrics.inventoryQualifiable > 0 && (
+            <span className="mt-1 block text-[12px] text-chalk-500">
+              {metrics.inventoryTotal} businesses in inventory ({metrics.inventoryQualifiable} could qualify) — none has a current action yet.
+              Inventory enters the board only after it passes fresh Needle/Problem-Reality qualification.
+              Browse it under <Link href="/revenue/quick-cash" className="text-teal-300 hover:underline">All opportunities</Link>.
+            </span>
+          )}
+        </div>
       ) : (
         <ul className="space-y-2.5">
           {top.map((r) => (
