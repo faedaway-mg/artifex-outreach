@@ -12,7 +12,7 @@ const usd = (c: number) => `$${Math.round(c / 100).toLocaleString()}`;
 // the revenue metrics band, the reclassification inventory, and the ranked, ready-
 // to-sell opportunity feed. Legacy cold outreach is frozen; nothing here sends.
 export default async function HomePage() {
-  const { rows, routing, inventory, metrics } = await quickCashHomeView();
+  const { rows, routing, inventory, metrics, preparedActions } = await quickCashHomeView();
   const { scoreboard } = await sprintScoreboardView();
   const eligible = rows.filter((r) => r.eligible);
   const top = eligible.slice(0, 12);
@@ -121,6 +121,26 @@ export default async function HomePage() {
             </li>
           ))}
         </ul>
+      )}
+
+      {/* Prepared actions — ACTIVE conversations from the qualifier (OBSERVED → CONVERSATION,
+          PROVEN) that aren't sellable-offer rows. Awaiting operator review; nothing sends. */}
+      {preparedActions.length > 0 && (
+        <div>
+          <p className="eyebrow mb-2 flex items-center gap-1.5"><ShieldCheck size={13} className="text-teal-300" /> Prepared conversations · awaiting review</p>
+          <ul className="space-y-2">
+            {preparedActions.map((a) => (
+              <li key={a.leadId} className="card flex items-center justify-between p-3.5">
+                <div className="min-w-0">
+                  <div className="truncate text-[14px] font-semibold text-chalk-100">{a.business}</div>
+                  <div className="mt-0.5 text-[12px] text-chalk-500">{a.verdict} · {a.route} · contact: <span className={a.contact === "email" ? "text-teal-300" : "text-amber-300"}>{a.contact}</span></div>
+                </div>
+                <Link href={`/leads/${a.leadId}`} className="btn-secondary !px-3 !py-1.5 text-xs shrink-0">Review</Link>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-1.5 text-[11.5px] text-chalk-600">Prepared, not sent. Autosend is off — first touch requires your review.</p>
+        </div>
       )}
 
       {/* Money-loop quick links */}

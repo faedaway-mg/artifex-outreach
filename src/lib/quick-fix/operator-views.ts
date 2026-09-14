@@ -222,6 +222,17 @@ export interface QuickCashHome {
     /** Total non-customer leads held as inventory (awaiting fresh Needle qualification). */
     inventoryTotal: number;
   };
+  /** ACTIVE prepared actions that aren't offer-feed rows (e.g. OBSERVED → CONVERSATION
+   *  leads with a canonical plan but no sellable offer). Makes promoted work visible. */
+  preparedActions: PreparedAction[];
+}
+
+export interface PreparedAction {
+  leadId: string;
+  business: string;
+  verdict: string;   // PROVEN / OBSERVED
+  route: string;     // DIRECT_FIX / CONVERSATION / …
+  contact: string;   // "email" | "phone" | "none"
 }
 
 export async function quickCashHomeView(limit = 500): Promise<QuickCashHome> {
@@ -240,6 +251,25 @@ export async function quickCashHomeView(limit = 500): Promise<QuickCashHome> {
   const active = await loadActiveWorkContext();
   const rows = allRows.filter((r) => active.leadIds.has(r.leadId));
   const activeReady = rows.filter((r) => r.readyToSell);
+
+  // Prepared actions that are ACTIVE but not offer-feed rows (OBSERVED → CONVERSATION
+  // leads carry a canonical plan, not a sellable offer). Surface them so promoted work
+  // is visible and the active-board count is honest.
+  const { allPlans } = await import("../repo");
+  const leadById = new Map(contexts.map((c) => [c.lead.id, c.lead]));
+  const rowLeadIds = new Set(rows.map((r) => r.leadId));
+  const TERMINAL = new Set(["retired", "archived", "lost", "cancelled", "done", "rejected"]);
+  const preparedActions: PreparedAction[] = [];
+  for (const p of (await allPlans()) as any[]) {
+    if (!active.leadIds.has(p.leadId) || rowLeadIds.has(p.leadId)) continue;
+    if (TERMINAL.has(String(p.status)) || TERMINAL.has(String(p.approvalStatus))) continue;
+    const lead: any = leadById.get(p.leadId);
+    const rationale = String(p.rationale ?? "");
+    const verdict = /PROVEN/i.test(rationale) ? "PROVEN" : /OBSERVED/i.test(rationale) ? "OBSERVED" : "—";
+    const route = /CONVERSATION/i.test(rationale) ? "CONVERSATION" : /DIRECT_FIX/i.test(rationale) ? "DIRECT_FIX" : "—";
+    const contact = lead?.publicEmail ? "email" : lead?.phone ? "phone" : "none";
+    preparedActions.push({ leadId: p.leadId, business: lead?.businessName ?? p.leadId, verdict, route, contact });
+  }
 
   const fulfil = await fulfillmentView();
   const inFulfillment = ACTIVE_FULFILLMENT_STATES.reduce((n, s) => n + (fulfil.byState[s] ?? 0), 0);
@@ -264,6 +294,7 @@ export async function quickCashHomeView(limit = 500): Promise<QuickCashHome> {
       inventoryQualifiable: inventory.readyToSell,
       inventoryTotal: inventory.funnel.totalDiscovered,
     },
+    preparedActions,
   };
 }
 
