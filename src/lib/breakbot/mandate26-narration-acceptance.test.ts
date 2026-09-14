@@ -46,6 +46,11 @@ async function call(body: any): Promise<{ status: number; json: any }> {
   return { status: res.status, json: await res.json() };
 }
 
+// Heavy SERVER-LEVEL acceptance tests (real narration variant generation); each runs
+// several seconds and can exceed the 30s global timeout under full-suite CPU contention.
+// Explicit headroom keeps a saturated machine from false-failing them.
+vi.setConfig({ testTimeout: 90_000, hookTimeout: 90_000 });
+
 describe("mandate 26 — narration route acceptance (server-level, isolated)", () => {
   it("editable draft: analyze reports editable permissions; accept-on-draft succeeds", async () => {
     const ids = await seedVideoWorkspaceFixtures();

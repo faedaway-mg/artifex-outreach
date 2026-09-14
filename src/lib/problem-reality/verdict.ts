@@ -39,6 +39,79 @@ export const PAYMENT_HOSTS = [
   "checkout.stripe.com", "paypal.com/checkout", "squareup.com/checkout", "shop.", "/checkout", "/cart", "/payment",
 ];
 
+// Known cross-origin CONTACT/LEAD FORM providers. An iframe pointed at one of these
+// is a customer-facing form path even though same-origin DOM inspection cannot see
+// its <form> (River Dental's blind spot: forms.variable.systems). Presence ⇒ a path
+// exists ⇒ a "no contact/booking path" claim cannot be PROVEN.
+export const FORM_HOSTS = [
+  "forms.variable.systems", "variable.systems", "jotform.com", "jotform.co", "form.jotform",
+  "typeform.com", "hsforms.com", "hs-sites.com", "hubspotusercontent", "js.hsforms",
+  "wufoo.com", "formstack.com", "gravityforms", "cognitoforms.com", "123formbuilder.com",
+  "formsite.com", "paperform.co", "docs.google.com/forms", "forms.gle", "forms.office.com",
+  "mailchimp.com", "list-manage.com", "constantcontact.com", "getweave.com", "podium.com",
+  "birdeye.com", "solutionreach.com", "revenuewell", "yapi", "flexbook", "gogaddy", "leadconnectorhq",
+];
+
+// Iframes that are clearly NOT a contact/booking form (maps, video, analytics, ads,
+// social, captcha). These never count as a path — and never block a no-path verdict.
+export const NON_FORM_IFRAME_HOSTS = [
+  "google.com/maps", "maps.google", "maps.googleapis", "youtube.com", "youtube-nocookie",
+  "youtu.be", "vimeo.com", "player.vimeo", "googletagmanager", "google-analytics",
+  "doubleclick", "googlesyndication", "adservice", "facebook.com/plugins", "instagram.com",
+  "twitter.com", "platform.twitter", "x.com", "recaptcha", "gstatic.com/recaptcha",
+  "hcaptcha", "spotify.com", "soundcloud.com", "yelp.com/biz", "tripadvisor",
+];
+
+/**
+ * Classify an iframe src for form/booking-path purposes.
+ *  • "confirmed"  — a known form/booking provider ⇒ a real customer-facing path.
+ *  • "possible"   — a cross-origin iframe we cannot inspect that looks form-ish ⇒
+ *                   must PREVENT a no-path PROVEN (route to NEEDS_MORE_EVIDENCE).
+ *  • "non-form"   — maps/video/analytics/ads/social/captcha ⇒ ignore for paths.
+ */
+export function classifyIframe(src: string): "confirmed" | "possible" | "non-form" {
+  const u = (src || "").toLowerCase();
+  if (!u) return "non-form";
+  if (NON_FORM_IFRAME_HOSTS.some((h) => u.includes(h))) return "non-form";
+  if (FORM_HOSTS.some((h) => u.includes(h)) || BOOKING_HOSTS.some((h) => u.includes(h))) return "confirmed";
+  if (/\b(form|contact|appoint|book|schedul|inquir|request|reserv|widget|embed|lead)\b/.test(u)) return "possible";
+  return "non-form";
+}
+
+// Rendered-text North-American phone numbers. Groups MUST be separated (so a
+// run-together 10-digit id or a "12345-6789" ZIP+4 won't match), and the match may
+// not sit inside a longer digit run.
+const PHONE_RX = /(?<![\d])(?:\+?1[\s.\-]?)?\(?\d{3}\)?[\s.\-]\d{3}[\s.\-]\d{4}(?![\d])/g;
+
+/** Normalize an NANP number to +1XXXXXXXXXX for de-dupe/storage. */
+export function normalizePhone(digits: string): string {
+  let d = digits.replace(/\D/g, "");
+  if (d.length === 11 && d.startsWith("1")) d = d.slice(1);
+  return d.length === 10 ? `+1${d}` : "";
+}
+
+/**
+ * Detect dialable phone numbers that appear as RENDERED TEXT (not tel: anchors) —
+ * the River Dental blind spot. Reads visible innerText only, so scripts/JSON are
+ * excluded. Guards reject dates, ZIP+4, repeated-digit placeholders, and numbers
+ * with invalid NANP area/exchange leading digits.
+ */
+export function detectRenderedPhones(text: string): string[] {
+  if (!text) return [];
+  const found = new Set<string>();
+  for (const m of text.matchAll(PHONE_RX)) {
+    const norm = normalizePhone(m[0]);
+    if (!norm) continue;
+    const d = norm.slice(2); // strip +1
+    if (/^(\d)\1{9}$/.test(d)) continue;                 // 0000000000, 1111111111 …
+    const area = d.slice(0, 3), exch = d.slice(3, 6);
+    if (area[0] === "0" || area[0] === "1") continue;    // invalid NANP area code
+    if (exch[0] === "0" || exch[0] === "1") continue;    // invalid exchange code
+    found.add(norm);
+  }
+  return [...found];
+}
+
 function matcher(keywords: string[]): RegExp | null {
   if (!keywords.length) return null;
   const esc = keywords.map((k) => k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
@@ -53,15 +126,37 @@ export function actionMatchesText(action: PrimaryCustomerAction, text: string): 
   return re ? re.test(text) : false;
 }
 
+/** How completely the evidence harvester was able to inspect the surface. A
+ *  NO-PATH defect may only become PROVEN from a COMPLETE harvest — PARTIAL/BLOCKED
+ *  fails closed to NEEDS_MORE_EVIDENCE. */
+export type HarvestCompleteness = "COMPLETE" | "PARTIAL" | "BLOCKED";
+
+/** Separated tracking of how the probe itself fared, so a raw-fetch/WAF failure can
+ *  never override a successful browser render. */
+export type ProbeStatus = "BROWSER_SUCCESS" | "HTTP_FETCH_BLOCKED" | "BOT_CHALLENGE" | "INDETERMINATE";
+
 export interface ProbeSignal {
   loaded: boolean;
   onlinePath?: boolean;    // a usable online path to complete the action was found
   candidatePath?: boolean; // a matching control exists but wasn't confirmed usable
   widget?: boolean;        // scheduler widget present
   phonePath?: boolean;     // tel: link present
+  phoneText?: boolean;     // dialable phone present as RENDERED TEXT (no tel: anchor)
   emailPath?: boolean;     // mailto: link present
   formPath?: boolean;      // an on-page form that could serve the action
+  /** Cross-origin embedded form signal: "confirmed" (known provider) or "possible"
+   *  (form-ish iframe we cannot inspect). Either one blocks a no-path PROVEN. */
+  iframeForm?: "confirmed" | "possible";
   bodyMentions?: boolean;  // the action is mentioned in body copy
+  /** Affirmative evidence the intended path is meant to exist (a CTA/control/copy
+   *  referencing the action). Required before "no path" can be PROVEN. */
+  pathIntended?: boolean;
+  /** How complete this viewport's harvest was (fail-closed gate for no-path). */
+  completeness?: HarvestCompleteness;
+  /** How the probe fared for this viewport. */
+  probeStatus?: ProbeStatus;
+  /** Provenance of any detected phone signals (PHONE_LINK / PHONE_RENDERED_TEXT). */
+  phoneProvenance?: string[];
   /** A reproducible FAILURE of the intended surface observed in this viewport —
    *  a dead/erroring destination, a broken control, a malformed contact link.
    *  This is a defect FACT; an alternate path does not erase it. */
@@ -119,13 +214,26 @@ function gradeImpact(opts: { anyOnline: boolean; anyPhone: boolean; anyEmail: bo
  */
 export function decideVerdict(h: ProblemHypothesis, signals: ProbeSignal[]): VerdictDecision {
   const loaded = signals.filter((s) => s.loaded);
-  if (loaded.length === 0) return { verdict: "NEEDS_MORE_EVIDENCE", rationale: "Site did not load in any viewport; could not attempt to disprove the claim." };
-
   const action = h.primaryCustomerAction;
-  const anyPhone = loaded.some((s) => s.phonePath);
+
+  // 0) The harvester never got a usable render in any viewport. A raw/HTTP failure
+  //    or a bot challenge is NOT evidence of a missing path — fail closed.
+  if (loaded.length === 0) {
+    const blocked = signals.some((s) => s.probeStatus === "BOT_CHALLENGE" || s.probeStatus === "HTTP_FETCH_BLOCKED");
+    return {
+      verdict: "NEEDS_MORE_EVIDENCE",
+      rationale: blocked
+        ? "The site could not be inspected (bot-protection / access block); a failure to OBSERVE a path is not evidence a path is missing."
+        : "Site did not load in any viewport; could not attempt to disprove the claim.",
+    };
+  }
+
+  const anyPhone = loaded.some((s) => s.phonePath || s.phoneText);
   const anyEmail = loaded.some((s) => s.emailPath);
-  const anyForm = loaded.some((s) => s.formPath);
-  const anyOnline = loaded.some((s) => s.onlinePath || s.widget);
+  const iframeConfirmed = loaded.some((s) => s.iframeForm === "confirmed");
+  const iframePossible = loaded.some((s) => s.iframeForm === "possible");
+  const anyForm = loaded.some((s) => s.formPath) || iframeConfirmed;
+  const anyOnline = loaded.some((s) => s.onlinePath || s.widget) || iframeConfirmed;
 
   // 1) REPRODUCIBLE DEFECT on the intended surface ⇒ PROVEN (regardless of any
   //    alternate path). The alternate path is recorded as mitigation, not as a
@@ -147,9 +255,9 @@ export function decideVerdict(h: ProblemHypothesis, signals: ProbeSignal[]): Ver
   }
 
   // 2) The intended surface WORKS ⇒ DISPROVEN (the claim is false). This includes
-  //    a confirmed online path, and — for contact/quote/forms — a present phone/
-  //    email/form with no observed defect (test #3: working form + phone ⇒ DISPROVEN).
-  if (anyOnline) return { verdict: "DISPROVEN", rationale: `A usable online path for "${action}" was found during live interaction — the claimed problem is false.` };
+  //    a confirmed online path (incl. a known cross-origin form/booking iframe), and
+  //    — for contact/quote/forms — a present phone/email/form with no observed defect.
+  if (anyOnline) return { verdict: "DISPROVEN", rationale: `A usable online path for "${action}" was found during live interaction${iframeConfirmed ? " (embedded form/scheduling provider present)" : ""} — the claimed problem is false.` };
 
   if ((action === "contact" || action === "quote" || action === "forms") && (anyPhone || anyEmail || anyForm)) {
     return { verdict: "DISPROVEN", rationale: `A working ${action} path exists (${anyForm ? "an on-page form" : anyPhone ? "a phone number" : "email"}) and no defect was reproduced on it — the claim is false.` };
@@ -162,14 +270,49 @@ export function decideVerdict(h: ProblemHypothesis, signals: ProbeSignal[]): Ver
     return { verdict: "OBSERVED", rationale: "No online booking path was found on the site; the business is reachable by phone, and no reproducible defect was observed. A specific observable condition, not a provable material defect — appropriate for a hedged conversation, not a fix claim." };
   }
 
-  const anyCandidate = loaded.some((s) => s.candidatePath || s.bodyMentions);
-  if (anyCandidate) return { verdict: "NEEDS_MORE_EVIDENCE", rationale: `The site references "${action}" but a working path could not be confirmed by interaction — needs a closer look.` };
+  // 4) An UNRESOLVED cross-origin form-ish iframe means we could not see the path,
+  //    not that it is missing. Never PROVEN off a blind spot ⇒ NEEDS_MORE_EVIDENCE.
+  if (iframePossible) {
+    return { verdict: "NEEDS_MORE_EVIDENCE", rationale: `A cross-origin embedded widget that may be a contact/booking form was present but could not be inspected — cannot conclude "no ${action} path" without seeing inside it.` };
+  }
 
-  // 4) Loaded, searched everywhere, NO usable path AND no fallback at all ⇒ a
-  //    reproducibly broken customer journey ⇒ PROVEN (mitigation NONE).
+  const anyCandidate = loaded.some((s) => s.candidatePath || s.bodyMentions);
+  if (anyCandidate && !loaded.some((s) => s.pathIntended)) {
+    return { verdict: "NEEDS_MORE_EVIDENCE", rationale: `The site references "${action}" but a working path could not be confirmed by interaction — needs a closer look.` };
+  }
+
+  // 5) NO-PATH standard (tightened). "Not present" is not "broken." A no-path defect
+  //    may become PROVEN only when the harvest was COMPLETE (browser rendered, dynamic
+  //    content given a bounded chance, site-wide destinations checked, no unresolved
+  //    widget) AND there is AFFIRMATIVE evidence the path is intended/required. Absent
+  //    either, fail closed.
+  const harvestComplete =
+    loaded.some((s) => s.completeness === "COMPLETE") &&
+    !loaded.some((s) => s.completeness === "BLOCKED") &&
+    !signals.some((s) => s.probeStatus === "BOT_CHALLENGE" || s.probeStatus === "HTTP_FETCH_BLOCKED");
+  const pathIntended = loaded.some((s) => s.pathIntended || s.candidatePath || s.bodyMentions);
+
+  if (!harvestComplete) {
+    return {
+      verdict: "NEEDS_MORE_EVIDENCE",
+      rationale: `Evidence collection was incomplete (harvest not COMPLETE) — a "no ${action} path" conclusion cannot be drawn from a partial/blocked inspection. Fail closed.`,
+    };
+  }
+  if (!pathIntended) {
+    // Fully inspected, genuinely nothing — but no affirmative evidence the business
+    // intends this path. Pure absence is not a provable material defect.
+    const material = MATERIAL_ACTIONS.has(action);
+    return {
+      verdict: material ? "OBSERVED" : "NO_MATERIAL_PROBLEM",
+      rationale: `Inspected desktop + mobile (header, mobile menu, footer, body) and bounded same-site destinations; no "${action}" path was found, but nothing affirmatively indicates the business intends one here. Absence of a feature is not itself a defect — ${material ? "recorded as an observation, not a provable problem." : "not a material problem."}`,
+    };
+  }
+
+  // 6) COMPLETE harvest + affirmative intent + reproducibly no usable path or fallback
+  //    ⇒ PROVEN no-path (mitigation NONE).
   const defect: DefectObservation = {
     family: "no-path",
-    detail: `Loaded and searched header, mobile menu, footer and body across desktop and mobile — no usable path for "${action}" and no phone/email/form fallback exists.`,
+    detail: `Intended "${action}" path is referenced but, after a COMPLETE harvest (desktop + mobile: header, mobile menu, footer, body, and bounded same-site destinations), no usable path and no phone/email/form fallback exists.`,
     viewports: signalViewports(signals, loaded),
   };
   const materiality: Materiality = MATERIAL_ACTIONS.has(action) ? "PASS" : "FAIL";

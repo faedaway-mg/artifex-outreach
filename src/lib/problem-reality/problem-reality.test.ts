@@ -56,8 +56,20 @@ describe("decideVerdict", () => {
   it("contact + phone/email ⇒ DISPROVEN", () => {
     expect(decideVerdict(H({ primaryCustomerAction: "contact" }), [{ loaded: true, emailPath: true }]).verdict).toBe("DISPROVEN");
   });
-  it("loaded, nothing found ⇒ PROVEN", () => {
-    expect(decideVerdict(H(), [{ loaded: true }, { loaded: true }]).verdict).toBe("PROVEN");
+  it("loaded but harvest INCOMPLETE ⇒ NEEDS_MORE_EVIDENCE (fail closed, never PROVEN)", () => {
+    // No completeness asserted ⇒ the tightened standard refuses a no-path PROVEN.
+    expect(decideVerdict(H(), [{ loaded: true }, { loaded: true }]).verdict).toBe("NEEDS_MORE_EVIDENCE");
+  });
+  it("COMPLETE harvest + intended path + genuinely nothing ⇒ PROVEN no-path", () => {
+    const d = decideVerdict(H(), [
+      { loaded: true, completeness: "COMPLETE", probeStatus: "BROWSER_SUCCESS", pathIntended: true },
+      { loaded: true, completeness: "COMPLETE", probeStatus: "BROWSER_SUCCESS", pathIntended: true },
+    ]);
+    expect(d.verdict).toBe("PROVEN");
+    expect(d.defect?.family).toBe("no-path");
+  });
+  it("COMPLETE harvest but NO affirmative intent ⇒ OBSERVED, not PROVEN (absence ≠ broken)", () => {
+    expect(decideVerdict(H(), [{ loaded: true, completeness: "COMPLETE", probeStatus: "BROWSER_SUCCESS" }]).verdict).toBe("OBSERVED");
   });
   it("never loaded ⇒ NEEDS_MORE_EVIDENCE", () => {
     expect(decideVerdict(H(), [{ loaded: false }]).verdict).toBe("NEEDS_MORE_EVIDENCE");
@@ -96,11 +108,14 @@ describe("executeCounterTest (injected browser)", () => {
     const ex = await executeCounterTest(H({ primaryCustomerAction: "contact", claim: "No usable way to contact" }), { launch: async () => fakeBrowser(probe) });
     expect(ex.verdict).toBe("DISPROVEN");
   });
-  it("empty site with a booking claim ⇒ PROVEN and continues downstream", async () => {
+  it("empty site + booking claim + NO affirmative intent ⇒ OBSERVED, does NOT continue", async () => {
+    // Corrected standard: a fully-rendered empty page proves nothing is INTENDED here,
+    // so pure absence is an observation, not a provable material defect.
     const ex = await executeCounterTest(H(), { launch: async () => fakeBrowser(emptyProbe) });
-    expect(ex.verdict).toBe("PROVEN");
+    expect(ex.verdict).toBe("OBSERVED");
+    expect(ex.harvestCompleteness).toBe("COMPLETE");
     const pr = { hypothesis: H(), status: ex.verdict, execution: ex, basis: "live-counter-test" as const, decidedAt: "" };
-    expect(continuesDownstream(pr)).toBe(true);
+    expect(continuesDownstream(pr)).toBe(false);
   });
   it("PLANNED never satisfies EXECUTED: a browser-dependent PROVEN needs a live basis", () => {
     const planned = { hypothesis: H(), status: "PROVEN" as const, basis: "not-executed" as const, decidedAt: "" };

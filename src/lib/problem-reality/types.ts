@@ -115,6 +115,10 @@ export interface CounterTestExecution {
   mitigation?: DefectMitigation;
   /** Whether a PROVEN defect clears the materiality threshold for outreach. */
   materiality?: Materiality;
+  /** How completely the evidence harvester inspected the surface (fail-closed gate). */
+  harvestCompleteness?: "COMPLETE" | "PARTIAL" | "BLOCKED";
+  /** How the probe itself fared (a raw/WAF block never overrides a browser render). */
+  probeStatus?: "BROWSER_SUCCESS" | "HTTP_FETCH_BLOCKED" | "BOT_CHALLENGE" | "INDETERMINATE";
   /** Screenshot storage keys captured during the test (evidence), if any. */
   evidenceShots: string[];
   error?: string;

@@ -48,6 +48,11 @@ async function buildByLead(): Promise<Record<string, LeadLifecycle>> {
   return byLead;
 }
 
+// These are heavy SERVER-LEVEL acceptance tests (real narration/fixture work); each
+// legitimately runs 5–13s and can exceed the 30s global timeout under full-suite CPU
+// contention. Give them explicit headroom so a saturated machine can't false-fail them.
+vi.setConfig({ testTimeout: 90_000, hookTimeout: 90_000 });
+
 describe("mandate 25 — two-tab workspace fixtures (server-level acceptance)", () => {
   it("seeds the fixtures and splits them cleanly into Proposal / Content / unclassified", async () => {
     const ids = await seedVideoWorkspaceFixtures();
