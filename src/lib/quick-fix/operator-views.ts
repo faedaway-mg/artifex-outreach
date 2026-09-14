@@ -264,9 +264,11 @@ export async function quickCashHomeView(limit = 500): Promise<QuickCashHome> {
     if (!active.leadIds.has(p.leadId) || rowLeadIds.has(p.leadId)) continue;
     if (TERMINAL.has(String(p.status)) || TERMINAL.has(String(p.approvalStatus))) continue;
     const lead: any = leadById.get(p.leadId);
-    const rationale = String(p.rationale ?? "");
-    const verdict = /PROVEN/i.test(rationale) ? "PROVEN" : /OBSERVED/i.test(rationale) ? "OBSERVED" : "—";
-    const route = /CONVERSATION/i.test(rationale) ? "CONVERSATION" : /DIRECT_FIX/i.test(rationale) ? "DIRECT_FIX" : "—";
+    // Verdict is stamped on the lead ("problem-reality:OBSERVED"); route derives from it
+    // (OBSERVED is always CONVERSATION; PROVEN uses the plan's channel/strategy).
+    const note = String(lead?.note ?? "");
+    const verdict = /problem-reality:\s*PROVEN/i.test(note) ? "PROVEN" : /problem-reality:\s*OBSERVED/i.test(note) ? "OBSERVED" : "—";
+    const route = verdict === "OBSERVED" ? "CONVERSATION" : verdict === "PROVEN" ? "DIRECT_FIX" : "—";
     const contact = lead?.publicEmail ? "email" : lead?.phone ? "phone" : "none";
     preparedActions.push({ leadId: p.leadId, business: lead?.businessName ?? p.leadId, verdict, route, contact });
   }
