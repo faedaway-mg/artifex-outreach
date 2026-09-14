@@ -100,14 +100,12 @@ export async function qualifyThroughFunnel(
     decidedAt: new Date().toISOString(),
   };
 
-  // 6) DECISION — PROVEN and OBSERVED continue; everything else rejects.
-  //    PROVEN  → a provable defect: routed by strategy (DIRECT_FIX / FIX_SCAN / CONVERSATION).
-  //    OBSERVED → a real-but-unprovable condition: CONVERSATION ONLY, never a defect claim.
+  // 6) DECISION — ONLY PROVEN is outreach-eligible (canonical doctrine). OBSERVED is a
+  //    real-but-unprovable condition: it is preserved for internal research/retesting but
+  //    NEVER creates outreach/active work — we do not contact a business to discover whether
+  //    an observation is actually a problem. Everything else rejects.
   if (status === "PROVEN" && execution.executed) {
     return { ...base, decision: "promote", stageReached: "counter-test", verdict: status, reason: execution.rationale, hypothesis, execution, problemReality };
-  }
-  if (status === "OBSERVED" && execution.executed) {
-    return { ...base, decision: "promote", stageReached: "counter-test", verdict: status, route: "CONVERSATION", reason: execution.rationale, hypothesis, execution, problemReality };
   }
   return { ...base, decision: "reject", stageReached: "counter-test", verdict: status, category: categoryFor(status), reason: execution.rationale || `verdict ${status}`, hypothesis, execution, problemReality };
 }

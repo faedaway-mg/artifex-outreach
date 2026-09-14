@@ -24,15 +24,14 @@ describe("OBSERVED verdict — routing", () => {
     expect(fr.route).toBeUndefined(); // strategy decides DIRECT_FIX / FIX_SCAN / CONVERSATION
   });
 
-  it("OBSERVED promotes but is CONVERSATION-only (never a direct fix)", async () => {
+  it("OBSERVED does NOT promote — research only, never outreach (verdict preserved)", async () => {
     const fr = await qualifyThroughFunnel(CAND, runnerWith("OBSERVED"));
-    expect(fr.decision).toBe("promote");
-    expect(fr.verdict).toBe("OBSERVED");
-    expect(fr.route).toBe("CONVERSATION");
+    expect(fr.decision).toBe("reject");
+    expect(fr.verdict).toBe("OBSERVED"); // preserved for internal research/retesting
   });
 
-  it("DISPROVEN / NO_MATERIAL / NEEDS_MORE_EVIDENCE all reject (no outreach)", async () => {
-    for (const v of ["DISPROVEN", "NO_MATERIAL_PROBLEM", "NEEDS_MORE_EVIDENCE"] as ProblemRealityStatus[]) {
+  it("OBSERVED / DISPROVEN / NO_MATERIAL / NEEDS_MORE_EVIDENCE all reject (no outreach)", async () => {
+    for (const v of ["OBSERVED", "DISPROVEN", "NO_MATERIAL_PROBLEM", "NEEDS_MORE_EVIDENCE"] as ProblemRealityStatus[]) {
       const fr = await qualifyThroughFunnel(CAND, runnerWith(v));
       expect(fr.decision).toBe("reject");
     }

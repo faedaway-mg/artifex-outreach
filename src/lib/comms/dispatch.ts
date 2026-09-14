@@ -104,6 +104,18 @@ export async function dispatchStep(stepId: string, opts: { now?: Date; operatorR
   // in flight. This is an internal disposition, NOT a suppression: delivered receipts stay intact.
   if (isRejectedLead(lead)) { await stopPlansForLead(lead.id, "rejected — removed from pipeline"); return { stepId, outcome: "skipped", reason: "lead rejected — removed from pipeline" }; }
 
+  // OUTREACH ELIGIBILITY DOCTRINE — WIRE ENFORCEMENT (defense-in-depth, independent of
+  // UI/plan state). The fail-closed PROVEN gate is enforced at COMPOSE by dispatchGate
+  // (only PROVEN copy is preparable) and by the funnel (OBSERVED never promotes). Here at
+  // the send wire we hard-block any lead the qualifier stamped as NON-PROVEN
+  // (problem-reality:OBSERVED / DISPROVEN / NO_MATERIAL / NEEDS_MORE_EVIDENCE), so no path
+  // (scheduler, retry, canary, manual) can cold-contact a business we did not prove.
+  const prNote = String((lead as any).note ?? "");
+  const prMatch = prNote.match(/problem-reality:\s*([A-Z_]+)/i);
+  if (step.stepNumber <= 1 && prMatch && prMatch[1].toUpperCase() !== "PROVEN") {
+    return { stepId, outcome: "skipped", reason: "SUPPRESSED — PROBLEM NOT PROVEN" };
+  }
+
   // A follow-up (step 2+) can NEVER precede a provider-accepted initial. Defense-in-depth at the send
   // core so no caller (scheduler, retry, canary) can dispatch a follow-up before its introduction has
   // actually left the system. The intro is the lowest-numbered email step; require it to have sentAt.

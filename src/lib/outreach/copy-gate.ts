@@ -141,6 +141,14 @@ export function suppressionReason(evalResult: CopyEvaluation): string {
  * copy is never false-positived at the wire. Fail closed on any essential failure.
  */
 export function dispatchGate(i: CopyEvalInput): { block: boolean; reason: string; verdict: CopyVerdict } {
+  // OUTREACH ELIGIBILITY DOCTRINE (canonical): cold first-touch is permitted ONLY when
+  // Problem Reality is PROVEN. OBSERVED / NEEDS_MORE_EVIDENCE / NO_MATERIAL_PROBLEM /
+  // DISPROVEN / unset are research states, never outreach — we do not contact a business
+  // to find out whether it has a problem. Enforced at the WIRE, independent of UI/plan.
+  const proven = (i.problemRealityStatus ?? "").toUpperCase() === "PROVEN";
+  if (!proven) {
+    return { block: true, reason: "SUPPRESSED — PROBLEM NOT PROVEN", verdict: "SUPPRESSED" };
+  }
   const full = evaluateFirstTouchCopy(i);
   // Essential (blocking) failures: genericness / lead-relevance / claim-safety.
   const essentialFail =
