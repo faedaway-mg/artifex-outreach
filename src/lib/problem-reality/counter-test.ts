@@ -97,6 +97,20 @@ function hostOf(url: string): string {
   try { return new URL(url).hostname.replace(/^www\./, "").toLowerCase(); } catch { return ""; }
 }
 
+/** A tel: href is usable when it carries enough digits to dial. */
+function isValidTel(href: string): boolean {
+  const raw = (href || "").replace(/^tel:/i, "").trim();
+  if (!raw) return false;
+  if (/[a-z]/i.test(raw.replace(/^tel/i, ""))) return false;   // letters ⇒ malformed
+  return (raw.match(/\d/g)?.length ?? 0) >= 7;
+}
+
+/** A mailto: href is usable when it is a plausible address. */
+function isValidMailto(href: string): boolean {
+  const raw = (href || "").replace(/^mailto:/i, "").split("?")[0].trim();
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(raw);
+}
+
 /** Analyse one viewport's probe into signals (pure given the probe result). */
 function analyzeProbe(
   h: ProblemHypothesis, probe: ProbeResult, viewport: "desktop" | "mobile",
@@ -126,11 +140,23 @@ function analyzeProbe(
     actions.push({ step: "found-candidates", viewport, observation: `${linkHits.length} link(s) + ${btnHits.length} button(s) match ${action}` });
     for (const l of linkHits.slice(0, 3)) alternates.push({ kind: "link", detail: `${l.text || "(icon)"} → ${l.href}`, viewport });
   }
-  // 3) Phone / email fallback paths for the action.
-  const hasTel = probe.tel.length > 0;
-  const hasMail = probe.mailto.length > 0;
-  if (hasTel) alternates.push({ kind: "tel", detail: probe.tel[0], viewport });
-  if (hasMail) alternates.push({ kind: "email", detail: probe.mailto[0], viewport });
+  // 3) Phone / email fallback paths for the action. A tel:/mailto: only counts as a
+  //    real fallback when it is well-formed; a malformed advertised contact link is a
+  //    DEFECT (family: contact-path), not a working alternate.
+  const validTel = probe.tel.filter(isValidTel);
+  const validMail = probe.mailto.filter(isValidMailto);
+  const hasTel = validTel.length > 0;
+  const hasMail = validMail.length > 0;
+  if (hasTel) alternates.push({ kind: "tel", detail: validTel[0], viewport });
+  if (hasMail) alternates.push({ kind: "email", detail: validMail[0], viewport });
+  // Malformed advertised contact link with no working counterpart ⇒ contact-path defect.
+  let deadPath: { family: string; detail: string } | undefined;
+  if ((action === "contact" || action === "quote" || action === "forms") && probe.forms === 0) {
+    const badMail = probe.mailto.find((m) => !isValidMailto(m));
+    const badTel = probe.tel.find((t) => !isValidTel(t));
+    if (badMail && !hasMail && !hasTel) deadPath = { family: "contact-path", detail: `advertised email link is malformed: ${badMail}` };
+    else if (badTel && !hasTel && !hasMail) deadPath = { family: "contact-path", detail: `advertised phone link is malformed: ${badTel}` };
+  }
   // 4) Contact/quote via a form on the page.
   const formPath = (action === "contact" || action === "quote" || action === "forms") && probe.forms > 0;
   if (formPath) alternates.push({ kind: "form", detail: `${probe.forms} form(s) present`, viewport });
@@ -144,6 +170,8 @@ function analyzeProbe(
     if (external) { onlinePath = true; alternates.push({ kind: "widget", detail: `external scheduler: ${external.text || "(link)"} → ${external.href}`, viewport }); }
   }
 
+  if (deadPath) actions.push({ step: "defect", viewport, observation: `${deadPath.family}: ${deadPath.detail}` });
+
   const signal: ProbeSignal = {
     loaded: true,
     onlinePath: onlinePath || (action !== "booking" && action !== "appointment" && (linkHits.length > 0 || formPath)),
@@ -153,6 +181,7 @@ function analyzeProbe(
     emailPath: hasMail,
     formPath,
     bodyMentions,
+    deadPath,
   };
   return { signal, actions, alternates, clickTargets };
 }
@@ -200,6 +229,14 @@ export async function executeCounterTest(h: ProblemHypothesis, opts: CounterTest
             base.pagesVisited.push(p2.url());
             base.actionsAttempted.push({ step: "click", target: `${target.text || "(link)"} → ${dest}`, viewport: vp, observation: `HTTP ${st2}; ${widget2 ? "scheduler present" : probe2.forms > 0 ? `${probe2.forms} form(s)` : "no obvious path"}` });
             if (usable) { signal.onlinePath = true; base.alternatePathsFound.push({ kind: widget2 ? "widget" : "page", detail: `reached ${dest}${widget2 ? ` (widget ${widget2})` : ""}`, viewport: vp }); }
+            else if (st2 >= 400) {
+              // The intended primary-action control leads to a dead/erroring destination —
+              // a reproducible defect on the tested surface (a phone/email elsewhere would
+              // only MITIGATE this, never erase it).
+              const family = h.primaryCustomerAction === "booking" || h.primaryCustomerAction === "appointment" ? "broken-booking" : "broken-cta";
+              signal.deadPath = { family, detail: `primary "${h.primaryCustomerAction}" control '${target.text || "(link)"}' → ${dest} returned HTTP ${st2}` };
+              base.actionsAttempted.push({ step: "defect", target: dest, viewport: vp, observation: `dead destination HTTP ${st2}` });
+            }
             await p2.close();
           } catch (e) { base.actionsAttempted.push({ step: "click", target: dest, viewport: vp, observation: `navigation failed: ${(e as Error).message}` }); }
         }
@@ -209,8 +246,12 @@ export async function executeCounterTest(h: ProblemHypothesis, opts: CounterTest
         signals.push({ loaded: false } as ProbeSignal);
       } finally { await ctx.close(); }
     }
-    const { verdict, rationale } = decideVerdict(h, signals);
-    return { ...base, executed: true, finishedAt: new Date().toISOString(), verdict, rationale };
+    const d = decideVerdict(h, signals);
+    return {
+      ...base, executed: true, finishedAt: new Date().toISOString(),
+      verdict: d.verdict, rationale: d.rationale,
+      defect: d.defect ?? null, severity: d.severity, mitigation: d.mitigation, materiality: d.materiality,
+    };
   } catch (e) {
     return { ...base, executed: false, finishedAt: new Date().toISOString(), verdict: "NEEDS_MORE_EVIDENCE", rationale: "counter-test could not run", error: (e as Error).message };
   } finally {

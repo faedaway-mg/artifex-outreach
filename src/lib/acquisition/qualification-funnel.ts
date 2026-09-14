@@ -42,6 +42,10 @@ export interface FunnelResult {
   reason: string;
   /** The Problem-Reality verdict when the counter-test ran (PROVEN / OBSERVED / …). */
   verdict?: ProblemRealityStatus;
+  /** Orthogonal dimensions of a PROVEN defect (severity/mitigation/materiality). */
+  severity?: "HIGH" | "MEDIUM" | "LOW";
+  mitigation?: "NONE" | "PARTIAL" | "STRONG";
+  materiality?: "PASS" | "FAIL";
   /** Canonical route. OBSERVED is CONVERSATION-only; PROVEN is routed by strategy downstream. */
   route?: "DIRECT_FIX" | "FIX_SCAN" | "CONVERSATION";
   hypothesis?: ProblemHypothesis;
@@ -100,14 +104,21 @@ export async function qualifyThroughFunnel(
     decidedAt: new Date().toISOString(),
   };
 
-  // 6) DECISION — ONLY PROVEN is outreach-eligible (canonical doctrine). OBSERVED is a
-  //    real-but-unprovable condition: it is preserved for internal research/retesting but
-  //    NEVER creates outreach/active work — we do not contact a business to discover whether
-  //    an observation is actually a problem. Everything else rejects.
-  if (status === "PROVEN" && execution.executed) {
-    return { ...base, decision: "promote", stageReached: "counter-test", verdict: status, reason: execution.rationale, hypothesis, execution, problemReality };
+  // 6) DECISION — outreach requires BOTH Problem Reality = PROVEN AND a materiality
+  //    PASS. A PROVEN-but-trivial (cosmetic / non-material) defect is a true technical
+  //    fact but stays OUT of outreach. OBSERVED and everything else reject. We do not
+  //    contact a business to discover whether an observation is actually a problem.
+  const severity = execution.severity;
+  const mitigation = execution.mitigation;
+  const materiality = execution.materiality;
+  const dims = { severity, mitigation, materiality };
+  if (status === "PROVEN" && execution.executed && materiality !== "FAIL") {
+    return { ...base, decision: "promote", stageReached: "counter-test", verdict: status, ...dims, reason: execution.rationale, hypothesis, execution, problemReality };
   }
-  return { ...base, decision: "reject", stageReached: "counter-test", verdict: status, category: categoryFor(status), reason: execution.rationale || `verdict ${status}`, hypothesis, execution, problemReality };
+  if (status === "PROVEN" && execution.executed && materiality === "FAIL") {
+    return { ...base, decision: "reject", stageReached: "counter-test", verdict: status, ...dims, category: "no-material-problem", reason: `PROVEN defect but MATERIALITY FAIL — ${execution.rationale}`, hypothesis, execution, problemReality };
+  }
+  return { ...base, decision: "reject", stageReached: "counter-test", verdict: status, ...dims, category: categoryFor(status), reason: execution.rationale || `verdict ${status}`, hypothesis, execution, problemReality };
 }
 
 /** Turn cheap signals into finding-shaped seeds for hypothesis derivation. */

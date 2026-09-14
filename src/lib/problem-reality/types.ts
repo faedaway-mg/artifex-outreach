@@ -63,6 +63,32 @@ export interface AlternatePath {
   viewport: "desktop" | "mobile";
 }
 
+// ── Problem-Reality DIMENSIONS (distinct from the verdict) ───────────────────
+// A reproducible defect is a FACT about the tested surface. Its business impact
+// is a SEPARATE judgment: an alternate path can REDUCE the impact of a defect, it
+// does NOT make the reproducible defect disappear. So we record three orthogonal
+// dimensions alongside the verdict.
+
+/** How badly the defect plausibly affects a meaningful customer/business function. */
+export type DefectSeverity = "HIGH" | "MEDIUM" | "LOW";
+/** Whether another path lets the customer still reach the goal (reduces impact). */
+export type DefectMitigation = "NONE" | "PARTIAL" | "STRONG";
+/** Whether the (PROVEN) defect clears the materiality threshold for outreach. */
+export type Materiality = "PASS" | "FAIL";
+
+/** A reproducible, auditable failure of the INTENDED customer surface (families
+ *  A–G in the doctrine). This is what makes a verdict PROVEN — never the mere
+ *  absence of an alternate path, and never erased by one. */
+export interface DefectObservation {
+  /** Objective-defect family: broken-cta | dead-destination | broken-booking |
+   *  broken-form | mobile-failure | technical-failure | contact-path | no-path | cosmetic */
+  family: string;
+  /** Human-readable, evidence-grounded description of the failure. */
+  detail: string;
+  /** Viewports the failure reproduced in. */
+  viewports: Array<"desktop" | "mobile">;
+}
+
 /** The canonical, persisted result of an ACTUAL execution (never a plan). */
 export interface CounterTestExecution {
   hypothesisId: string;
@@ -81,6 +107,14 @@ export interface CounterTestExecution {
   verdict: ProblemRealityStatus;
   /** Human-readable why, grounded in observed states. */
   rationale: string;
+  /** The reproducible defect that drove a PROVEN verdict, if any. */
+  defect?: DefectObservation | null;
+  /** Impact of the defect given any alternate paths (PROVEN only). */
+  severity?: DefectSeverity;
+  /** How much an alternate path reduces the defect's impact (PROVEN only). */
+  mitigation?: DefectMitigation;
+  /** Whether a PROVEN defect clears the materiality threshold for outreach. */
+  materiality?: Materiality;
   /** Screenshot storage keys captured during the test (evidence), if any. */
   evidenceShots: string[];
   error?: string;
